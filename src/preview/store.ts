@@ -174,33 +174,65 @@ export function previewStore(host: PreviewHost): PreviewStore {
 
       const { project, model } = found;
 
-      const outcome = await approveProposal(
-        {
-          project,
-          regenerate: () => host.regenerate(),
-          notify: (text) => host.notify(text),
-        },
-        id,
-      );
+      /**
+       * What regenerating or telling the agent had
+       * to say for itself.
+       *
+       * Both run after the proposal has become the
+       * document, and both can fail for ordinary
+       * reasons — the compiler takes the project's
+       * write lock, and the agent is a process that
+       * can die mid-turn. A failure there is not a
+       * refusal: the write happened, so the card has
+       * to flip to its Undo shape and the person has
+       * to be told what did not finish. Left to
+       * throw, the only trace would be a rejection
+       * in the extension host's log.
+       */
+      const unfinished: string[] = [];
+      const tried = async (step: () => Promise<void>): Promise<void> => {
+        try {
+          await step();
+        } catch (error) {
+          unfinished.push(String(error));
+        }
+      };
 
-      if (outcome.at === 'applied') {
-        applied = {
-          project,
-          workflow: outcome.workflow,
-          summary: model.summary,
-          revision: outcome.revision,
-          undoable: await canUndo(project, outcome.workflow),
-        };
+      try {
+        const outcome = await approveProposal(
+          {
+            project,
+            regenerate: () => tried(() => host.regenerate()),
+            notify: (text) => tried(() => host.notify(text)),
+          },
+          id,
+        );
+
+        if (outcome.at === 'applied') {
+          applied = {
+            project,
+            workflow: outcome.workflow,
+            summary: model.summary,
+            revision: outcome.revision,
+            undoable: await canUndo(project, outcome.workflow),
+          };
+        }
+
+        if (outcome.at === 'refused') {
+          host.say(messages.previewRefused(outcome.detail));
+        }
+
+        if (unfinished.length > 0) {
+          host.say(messages.previewIncomplete(unfinished.join('; ')));
+        }
+      } catch (error) {
+        host.say(messages.previewRefused(String(error)));
+      } finally {
+        // Whatever happened, the file on disk has the
+        // last word: applied, or still outstanding
+        // and now known to be stale.
+        await reload(project);
       }
-
-      if (outcome.at === 'refused') {
-        host.say(messages.previewRefused(outcome.detail));
-      }
-
-      // Either way the file on disk has the last
-      // word: applied, or still outstanding and now
-      // known to be stale.
-      await reload(project);
     },
 
     undo: async () => {

@@ -54,6 +54,26 @@ import { wireBetween } from './wiring.js';
  * pushed straight back in, because without that an
  * editor shows whatever was true when it opened.
  */
+/**
+ * Workspace trust, as the canvas reads it.
+ *
+ * Drawing a workflow is parsing a document, which
+ * is why one opens in a restricted window at all.
+ * Reading the code behind it is a different thing:
+ * the scan type-checks every file in the project's
+ * `lib/` and writes what it found into
+ * `.mboss/manifest.json`. That is work done on, and
+ * a file written into, a folder somebody has said
+ * they do not trust — for a palette and typed
+ * wiring they can wait for.
+ */
+export type CanvasTrust = {
+  isTrusted(): boolean;
+
+  /** Fires when they say so, mid-session. */
+  onTrustGranted(listener: () => void): Disposable;
+};
+
 export class WorkflowCanvasEditor implements CustomTextEditorProvider {
   static readonly viewType = 'mboss.workflowCanvas';
 
@@ -62,6 +82,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     private readonly api: VsCodeApi,
     private readonly selection: Selection,
     private readonly preview: PreviewStore,
+    private readonly trust: CanvasTrust,
   ) {}
 
   static register(
@@ -69,10 +90,11 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     api: VsCodeApi,
     selection: Selection,
     preview: PreviewStore,
+    trust: CanvasTrust,
   ): Disposable {
     return window.registerCustomEditorProvider(
       WorkflowCanvasEditor.viewType,
-      new WorkflowCanvasEditor(extensionUri, api, selection, preview),
+      new WorkflowCanvasEditor(extensionUri, api, selection, preview, trust),
       { supportsMultipleEditorsPerDocument: false },
     );
   }
@@ -86,6 +108,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       this.api,
       this.selection,
       this.preview,
+      this.trust,
     );
     await session.reread();
 
@@ -118,14 +141,21 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     // code-behind, which is far too slow to open a
     // file behind. The canvas draws without one and
     // gains the `/lib` palette and typed wiring the
-    // moment the scan lands.
+    // moment the scan lands — which in a restricted
+    // window is when the person trusts the folder,
+    // and not before.
     void session.scan().then(post);
+
+    const trusted = this.trust.onTrustGranted(() => {
+      void session.scan().then(post);
+    });
 
     panel.onDidDispose(() => {
       mounted.dispose();
       changed.dispose();
       selected.dispose();
       proposed.dispose();
+      trusted.dispose();
       session.forget();
     });
   }
@@ -156,6 +186,7 @@ class CanvasSession {
     private readonly api: VsCodeApi,
     private readonly selection: Selection,
     private readonly preview: PreviewStore,
+    private readonly trust: CanvasTrust,
   ) {}
 
   /**
@@ -185,8 +216,17 @@ class CanvasSession {
     this.reselect();
   }
 
-  /** Scans the project's code-behind, once. */
+  /**
+   * Scans the project's code-behind, once.
+   *
+   * The scan type-checks `lib/` and caches what it
+   * found inside the project, so it is the one
+   * thing this editor does that a restricted window
+   * must not do. Called again when trust arrives.
+   */
   async scan(): Promise<void> {
+    if (!this.trust.isTrusted()) return;
+
     const project = projectOf(this.document.uri.fsPath);
     if (project === undefined) return;
 

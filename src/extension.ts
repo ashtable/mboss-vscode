@@ -131,6 +131,7 @@ export function activate(context: ExtensionContext): void {
       api,
       selection,
       preview,
+      editor,
     ),
     NodeInspectorView.register(context.extensionUri, selection),
     AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview),

@@ -86,6 +86,7 @@
   "The graph changed since this was proposed, so it cannot be applied. Ask the agent to propose it again.": "The graph changed since this was proposed, so it cannot be applied. Ask the agent to propose it again.",
   "APPLIED · {0} · v{1}": "APPLIED · {0} · v{1}",
   "That proposal was not applied: {0}": "That proposal was not applied: {0}",
+  "That proposal was applied, but finishing the approval failed: {0}. Undo takes it back.": "That proposal was applied, but finishing the approval failed: {0}. Undo takes it back.",
   "That was not undone: {0}": "That was not undone: {0}",
   "Agent": "Agent",
   "claude code": "claude code",

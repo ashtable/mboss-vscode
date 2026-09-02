@@ -141,6 +141,22 @@ export function agentPanel(host: PanelHost): AgentPanel {
   let transcript: TranscriptEntry[] = [];
   let answering: ((answer: PermissionAnswer) => void) | undefined;
 
+  /**
+   * Prompts that arrived while the agent was
+   * working, oldest first.
+   *
+   * The composer hides the send control mid-turn,
+   * so a person cannot type one — but approving a
+   * proposal sends a prompt of its own, and the
+   * proposal being approved was written by the turn
+   * that is still running. Arriving mid-turn is
+   * therefore the ordinary case rather than the
+   * exotic one, and dropping it would be an
+   * approval that wrote the document, regenerated
+   * the project, and never told the agent.
+   */
+  let queued: string[] = [];
+
   const changed = (): void => {
     for (const listener of listeners) listener();
   };
@@ -206,6 +222,48 @@ export function agentPanel(host: PanelHost): AgentPanel {
     }
   };
 
+  const send = async (text: string): Promise<void> => {
+    const project = host.project();
+    const chosen = host.chosen();
+
+    if (!host.isTrusted() || project === undefined) return;
+    if (chosen?.launch === undefined) return;
+
+    // A turn at a time. The agent is the one who
+    // decides when this one is over, so anything
+    // asked for during it waits here until it is.
+    if (session.at === 'streaming' || session.at === 'awaitingPermission') {
+      queued.push(text);
+
+      return;
+    }
+
+    if (live === undefined) await start(project, chosen.launch);
+    if (live === undefined) return;
+
+    transcript = [
+      ...transcript,
+      {
+        at: 'message',
+        id: `message-${transcript.filter((e) => e.at === 'message').length}`,
+        from: 'user',
+        text,
+      },
+    ];
+    move({ is: 'prompted' });
+    changed();
+
+    try {
+      await live.prompt(text);
+    } finally {
+      move({ is: 'turnEnded' });
+    }
+
+    const next = queued.shift();
+
+    if (next !== undefined) await send(next);
+  };
+
   return {
     state: () => {
       const chosen = host.chosen();
@@ -228,41 +286,7 @@ export function agentPanel(host: PanelHost): AgentPanel {
 
     refresh: changed,
 
-    send: async (text) => {
-      const project = host.project();
-      const chosen = host.chosen();
-
-      if (!host.isTrusted() || project === undefined) return;
-      if (chosen?.launch === undefined) return;
-
-      // A turn at a time. The composer hides the
-      // send control mid-turn, but a webview is a
-      // frame running scripts and the agent is the
-      // one who decides when the turn is over.
-      if (session.at === 'streaming') return;
-      if (session.at === 'awaitingPermission') return;
-
-      if (live === undefined) await start(project, chosen.launch);
-      if (live === undefined) return;
-
-      transcript = [
-        ...transcript,
-        {
-          at: 'message',
-          id: `message-${transcript.filter((e) => e.at === 'message').length}`,
-          from: 'user',
-          text,
-        },
-      ];
-      move({ is: 'prompted' });
-      changed();
-
-      try {
-        await live.prompt(text);
-      } finally {
-        move({ is: 'turnEnded' });
-      }
-    },
+    send,
 
     cancel: async () => {
       await live?.cancel();
@@ -290,6 +314,7 @@ export function agentPanel(host: PanelHost): AgentPanel {
 
     reset: () => {
       transcript = [];
+      queued = [];
       teardown();
       changed();
     },
