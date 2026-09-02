@@ -85,6 +85,28 @@ const Permission = z.object({
 /** Somebody wants to pick a different agent. */
 const ChooseAgent = z.object({ type: z.literal('chooseAgent') });
 
+/**
+ * Somebody approved an agent's proposal.
+ *
+ * The id travels with the click because the panel
+ * may be showing a proposal that has since been
+ * superseded — the id is checked against what is
+ * outstanding, and an approval of something that is
+ * no longer live applies nothing.
+ *
+ * Refining sends nothing at all: it puts the cursor
+ * back in the composer, which is the webview's own
+ * business, and leaves the proposal exactly where
+ * it was.
+ */
+const Approve = z.object({
+  type: z.literal('approve'),
+  proposalId: z.string(),
+});
+
+/** Somebody wants the last approval taken back. */
+const Undo = z.object({ type: z.literal('undo') });
+
 export const WebviewMessageSchema = z.discriminatedUnion('type', [
   Ready,
   Select,
@@ -95,6 +117,8 @@ export const WebviewMessageSchema = z.discriminatedUnion('type', [
   Cancel,
   Permission,
   ChooseAgent,
+  Approve,
+  Undo,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

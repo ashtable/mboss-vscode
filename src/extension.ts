@@ -10,6 +10,7 @@ import { projectHost } from './commands/host.js';
 import { newProject, offerVendorRefresh } from './commands/newProject.js';
 import { isProject } from './core/index.js';
 import { NodeInspectorView } from './inspector/view.js';
+import { previewStore } from './preview/store.js';
 import { AgentSidebarView } from './sidebar/view.js';
 import { createStatusBar, editorStatusItem } from './statusBar.js';
 import { shippedVendor } from './vendor/index.js';
@@ -37,7 +38,8 @@ export function activate(context: ExtensionContext): void {
   const selection = new Selection(api);
 
   const statusBar = createStatusBar(editorStatusItem);
-  const watchers = watchProjects(watchHost(), statusBar);
+  const editor = watchHost();
+  const watchers = watchProjects(editor, statusBar);
 
   // What this build of the extension ships to put
   // inside a project: the MCP server a coding agent
@@ -53,6 +55,29 @@ export function activate(context: ExtensionContext): void {
   // be a new agent process on every selection.
   const panel = agentPanel(panelHost(context.workspaceState));
   const pickAgent = chooseAgent(agentPickerHost(), () => panel.reset());
+
+  // What an agent has asked for and nobody has
+  // answered yet. The canvas draws it and the panel
+  // is where it is answered, so it is held here
+  // rather than by either of them.
+  const preview = previewStore({
+    folders: () => editor.folders(),
+    isTrusted: () => editor.isTrusted(),
+    regenerate: async () => void (await watchers.generateNow()),
+    notify: (text) => panel.send(text),
+    say: (message) => api.info(message),
+  });
+
+  void preview.reloadAll();
+
+  context.subscriptions.push(
+    watchers.onProposal((path) => {
+      const project = preview.projectOf(path);
+
+      if (project !== undefined) void preview.reload(project);
+    }),
+    editor.onTrustGranted(() => void preview.reloadAll()),
+  );
 
   const handlers = commandHandlers(
     api,
@@ -84,10 +109,16 @@ export function activate(context: ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    WorkflowCanvasEditor.register(context.extensionUri, api, selection),
+    WorkflowCanvasEditor.register(
+      context.extensionUri,
+      api,
+      selection,
+      preview,
+    ),
     NodeInspectorView.register(context.extensionUri, selection),
-    AgentSidebarView.register(context.extensionUri, panel, pickAgent),
+    AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview),
     { dispose: () => panel.dispose() },
+    preview,
     watchers,
     statusBar,
   );

@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { fakeWebview, type FakeWebview } from '../../test/doubles/webview.js';
 import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
+import { previewStore, type PreviewStore } from '../preview/store.js';
+import { makeProject, writeWorkflow } from '../test-support/project.js';
+import { propose, specOf } from '../test-support/proposals.js';
 import type { VsCodeApi } from '../vscodeApi.js';
 import type { CanvasInit, InspectorInit } from '../webview/protocol.js';
 
@@ -97,11 +100,27 @@ function fakeDocument(
 
 const extensionUri = { path: '/ext' } as never;
 
+/** The proposals in these folders, if any. Most of
+ *  these specs are about the document, and pass
+ *  none. */
+function previewsIn(folders: string[]): PreviewStore {
+  return previewStore({
+    folders: () => folders,
+    isTrusted: () => true,
+    regenerate: async () => {},
+    notify: async () => {},
+    say: (message) => recorded.told.push(message),
+  });
+}
+
 let recorded: Recorded;
 let selection: Selection;
 let panel: FakeWebview;
 
-async function open(document = fakeDocument()): Promise<void> {
+async function open(
+  document = fakeDocument(),
+  preview = previewsIn([]),
+): Promise<void> {
   recorded = recorder();
   selection = new Selection(recorded.api);
   panel = fakeWebview();
@@ -110,6 +129,7 @@ async function open(document = fakeDocument()): Promise<void> {
     extensionUri,
     recorded.api,
     selection,
+    preview,
   );
 
   await editor.resolveCustomTextEditor(document, panel.panel);
@@ -302,6 +322,7 @@ describe('selecting a node', () => {
       extensionUri,
       recorded.api,
       selection,
+      previewsIn([]),
     ).resolveCustomTextEditor(
       fakeDocument(text, '/project/.mboss/workflows/other.workflow.json'),
       other.panel,
@@ -367,6 +388,45 @@ describe('what the Inspector is told', () => {
 
   it('is nothing at all when nothing is selected', () => {
     expect(selection.inspectorInit().selected).toBeUndefined();
+  });
+});
+
+/**
+ * While an agent's proposal is outstanding, the
+ * graph on screen is the proposal's rather than the
+ * file's — and a frame running scripts is not
+ * trusted to have noticed, so an edit arriving
+ * anyway is refused here too.
+ */
+describe('a proposal about the document on screen', () => {
+  it('takes the canvas over, and nothing on it edits', async () => {
+    const project = await makeProject();
+    const path = writeWorkflow(project, 'groom_booking');
+
+    await propose(project, {
+      name: 'groom_booking',
+      spec: specOf({ ...ir, title: 'Groom booking, as proposed' }),
+      baseRevision: ir.revision,
+    });
+
+    const preview = previewsIn([project]);
+    await preview.reloadAll();
+
+    await open(fakeDocument(readFileSync(path, 'utf8'), path), preview);
+
+    const init = lastCanvasInit();
+
+    expect(init.preview?.headline).toContain('claude code');
+    expect(init.document.ok && init.document.ir.title).toBe(
+      'Groom booking, as proposed',
+    );
+
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
+    panel.send({ type: 'text', view: 'canvas', text: '{}' });
+    await settled();
+
+    expect(recorded.written).toEqual([]);
+    expect(selection.current()).toBeUndefined();
   });
 });
 

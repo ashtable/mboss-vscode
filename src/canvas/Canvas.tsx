@@ -11,7 +11,7 @@ import { useMemo, useState } from 'react';
 
 import type { Diagnostic, WorkflowIR } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
-import type { CanvasInit } from '../webview/protocol.js';
+import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
 
 import { Registered } from '../webview/Registered.js';
 
@@ -76,7 +76,7 @@ export function Canvas(init: CanvasInit) {
               <Graph init={init} ir={init.document.ir} />
             </ReactFlowProvider>
           ) : (
-            <Json ir={init.document.ir} />
+            <Json ir={init.document.ir} readOnly={init.preview !== undefined} />
           )
         ) : (
           <section className="unreadable">
@@ -116,6 +116,12 @@ function Toolbar({
       </div>
 
       <p className="caption text-muted">{init.strings.caption}</p>
+
+      {init.preview === undefined ? null : (
+        <p className="preview-line eyebrow" data-preview-headline>
+          {init.preview.headline}
+        </p>
+      )}
     </header>
   );
 }
@@ -123,9 +129,17 @@ function Toolbar({
 function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
   const [refused, setRefused] = useState<Diagnostic | undefined>();
 
+  // While a proposal is showing, the graph is not
+  // the document: it is somebody else's draft of
+  // one. An edit made on it would write proposed
+  // content to a file nobody approved it for, so
+  // there is nothing here to edit with.
+  const preview = init.preview;
+  const editable = preview === undefined;
+
   const { nodes, edges } = useMemo(
-    () => toReactFlow(ir, init.boxes),
-    [ir, init.boxes],
+    () => toReactFlow(ir, init.boxes, preview?.proposed),
+    [ir, init.boxes, preview?.proposed],
   );
 
   const drawn = useMemo(
@@ -165,39 +179,50 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
 
   return (
     <section className="graph">
-      <ReactFlow
-        nodes={drawn}
-        edges={edges}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        nodesDraggable={false}
-        nodesConnectable
-        elementsSelectable
-        fitView
-        proOptions={{ hideAttribution: true }}
-        isValidConnection={allow}
-        onConnect={(connection) => {
-          setRefused(undefined);
-          postToHost({
-            type: 'connect',
-            baseRevision: ir.revision,
-            from: {
-              node: connection.source,
-              port: connection.sourceHandle ?? 'out',
-            },
-            to: { node: connection.target },
-          });
-        }}
-        onNodeClick={(_event, node) =>
-          postToHost({ type: 'select', nodeId: node.id })
-        }
-        onPaneClick={() => {
-          setRefused(undefined);
-          postToHost({ type: 'select', nodeId: null });
-        }}
-      >
-        <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
-      </ReactFlow>
+      {preview === undefined ? null : <Banner preview={preview} />}
+
+      <div className="graph-flow">
+        <ReactFlow
+          nodes={drawn}
+          edges={edges}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          nodesDraggable={false}
+          nodesConnectable={editable}
+          elementsSelectable={editable}
+          fitView
+          proOptions={{ hideAttribution: true }}
+          isValidConnection={allow}
+          onConnect={(connection) => {
+            setRefused(undefined);
+            postToHost({
+              type: 'connect',
+              baseRevision: ir.revision,
+              from: {
+                node: connection.source,
+                port: connection.sourceHandle ?? 'out',
+              },
+              to: { node: connection.target },
+            });
+          }}
+          onNodeClick={
+            editable
+              ? (_event, node) =>
+                  postToHost({ type: 'select', nodeId: node.id })
+              : undefined
+          }
+          onPaneClick={
+            editable
+              ? () => {
+                  setRefused(undefined);
+                  postToHost({ type: 'select', nodeId: null });
+                }
+              : undefined
+          }
+        >
+          <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+        </ReactFlow>
+      </div>
 
       <p className="graph-caption mono text-muted" data-caption="graph">
         {ir.name} · {init.strings.graph} v{ir.revision}
@@ -214,6 +239,47 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
 }
 
 /**
+ * What an agent is asking for, over the graph it is
+ * asking about.
+ *
+ * Dashed like the blocks under it, because the
+ * whole strip is about something that has not
+ * happened. It names the first few blocks that are
+ * arriving and then counts the rest: a person needs
+ * to know what is coming without reading a second
+ * graph.
+ */
+function Banner({ preview }: { preview: CanvasPreview }) {
+  return (
+    <div className="preview-banner">
+      {preview.banner === undefined ? null : (
+        <p className="preview-summary mono" data-preview-banner>
+          {preview.banner}
+        </p>
+      )}
+
+      {preview.warning === undefined ? null : (
+        <p className="preview-summary" data-preview-warning>
+          {preview.warning}
+        </p>
+      )}
+
+      <p className="preview-nodes mono text-muted">
+        {preview.named.map((title) => (
+          <span className="preview-node" data-preview-node key={title}>
+            {title}
+          </span>
+        ))}
+
+        {preview.more === undefined ? null : (
+          <span data-preview-more>{preview.more}</span>
+        )}
+      </p>
+    </div>
+  );
+}
+
+/**
  * The same document as text.
  *
  * It edits the same buffer the graph does, so what
@@ -224,9 +290,12 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
  * would be the one thing a text view must not do.
  *
  * Committed when the field is left, on the rule
- * every field in this extension follows.
+ * every field in this extension follows — unless a
+ * proposal is showing, in which case this is a text
+ * view of a document that is not on disk and there
+ * is nothing here to commit.
  */
-function Json({ ir }: { ir: WorkflowIR }) {
+function Json({ ir, readOnly }: { ir: WorkflowIR; readOnly: boolean }) {
   const text = `${JSON.stringify(ir, null, 2)}\n`;
   const [draft, setDraft] = useState(text);
   const [seen, setSeen] = useState(text);
@@ -245,9 +314,12 @@ function Json({ ir }: { ir: WorkflowIR }) {
         className="mono"
         data-json-editor
         spellCheck={false}
+        readOnly={readOnly}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onBlur={() => {
+          if (readOnly) return;
+
           if (draft === seen) return;
 
           setSeen(draft);

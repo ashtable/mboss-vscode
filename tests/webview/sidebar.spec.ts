@@ -43,6 +43,9 @@ const strings: SidebarStrings = {
   newFile: 'new',
   permission: 'Permission needed',
   always: 'always',
+  approve: 'Approve & apply',
+  refine: 'Refine',
+  undo: 'Undo',
   toolStatus: {
     pending: 'queued',
     in_progress: 'running',
@@ -66,6 +69,7 @@ function sidebarInit(over: Partial<SidebarInit> = {}): SidebarInit {
     transcript: [],
     prompt: undefined,
     failure: undefined,
+    preview: undefined,
     ...over,
   };
 }

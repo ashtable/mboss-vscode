@@ -37,6 +37,10 @@ export function Block({ data, selected }: NodeProps<CanvasNode>) {
       marks={transaction}
       data-node-kind={node.kind}
       data-selected={selected === true ? 'true' : undefined}
+      // Drawn in pencil: dashed, and see-through
+      // enough that the plotting grid shows behind
+      // a block that is not there yet.
+      data-proposed={data.proposed ? 'true' : undefined}
     >
       <Handle type="target" position={Position.Top} id={TARGET_PORT} />
 

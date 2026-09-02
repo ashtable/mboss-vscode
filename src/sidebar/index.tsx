@@ -1,8 +1,10 @@
 import {
   StrictMode,
+  useRef,
   useState,
   type FormEvent,
   type KeyboardEvent,
+  type RefObject,
 } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -14,7 +16,11 @@ import type {
 } from '../acp/transcript.js';
 import type { PermissionOptionKind, ToolKind } from '../acp/connection.js';
 import { announceReady, onHostMessage, postToHost } from '../webview/client.js';
-import type { SidebarInit, SidebarStrings } from '../webview/protocol.js';
+import type {
+  SidebarInit,
+  SidebarPreview,
+  SidebarStrings,
+} from '../webview/protocol.js';
 
 import './sidebar.css';
 
@@ -57,6 +63,7 @@ const STEP_MARKS = { pending: '○', in_progress: '◐', completed: '●' };
 function Panel(state: SidebarInit) {
   const { strings, status } = state;
   const blocked = blockedBy(state);
+  const composer = useRef<HTMLTextAreaElement>(null);
 
   return (
     <div className="agent">
@@ -93,9 +100,90 @@ function Panel(state: SidebarInit) {
         <Permission prompt={state.prompt} strings={strings} />
       )}
 
+      {state.preview === undefined ? null : (
+        <Proposal
+          preview={state.preview}
+          strings={strings}
+          onRefine={() => composer.current?.focus()}
+        />
+      )}
+
       {blocked === undefined ? (
-        <Composer strings={strings} busy={status === 'streaming'} />
+        <Composer
+          strings={strings}
+          busy={status === 'streaming'}
+          field={composer}
+        />
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The one decision this product is about.
+ *
+ * An agent has written down what it wants the
+ * workflow to be; the canvas is drawing it; this is
+ * where a person answers. Approving writes it and
+ * sends the agent on to the handlers. Refining
+ * writes nothing at all — it puts the cursor back
+ * in the composer, and the proposal stays
+ * outstanding until the agent replaces it.
+ *
+ * A proposal the graph has moved past is a
+ * different card rather than the same one with a
+ * disabled button, because what a person can do
+ * about it is different: not "that again", but ask
+ * for it again.
+ */
+function Proposal({
+  preview,
+  strings,
+  onRefine,
+}: {
+  preview: SidebarPreview;
+  strings: SidebarStrings;
+  onRefine: () => void;
+}) {
+  return (
+    <div className="preview-card" data-preview-card data-at={preview.at}>
+      <p className="eyebrow">{preview.workflow}</p>
+
+      {preview.at === 'stale' ? (
+        <p className="preview-warning">{preview.warning}</p>
+      ) : (
+        <p className="preview-summary mono">{preview.summary}</p>
+      )}
+
+      <div className="preview-actions">
+        {preview.at === 'proposed' ? (
+          <button
+            type="button"
+            className="primary"
+            data-approve
+            onClick={() =>
+              postToHost({ type: 'approve', proposalId: preview.id })
+            }
+          >
+            {strings.approve}
+          </button>
+        ) : null}
+
+        {preview.at === 'applied' ? (
+          <button
+            type="button"
+            data-undo
+            disabled={!preview.undoable}
+            onClick={() => postToHost({ type: 'undo' })}
+          >
+            {strings.undo}
+          </button>
+        ) : (
+          <button type="button" data-refine onClick={onRefine}>
+            {strings.refine}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -245,9 +333,11 @@ function Permission({
 function Composer({
   strings,
   busy,
+  field,
 }: {
   strings: SidebarStrings;
   busy: boolean;
+  field: RefObject<HTMLTextAreaElement | null>;
 }) {
   const [text, setText] = useState('');
 
@@ -273,6 +363,7 @@ function Composer({
   return (
     <form className="composer" onSubmit={send}>
       <textarea
+        ref={field}
         rows={2}
         value={text}
         placeholder={strings.placeholder}

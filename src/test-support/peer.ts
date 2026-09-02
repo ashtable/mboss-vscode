@@ -133,8 +133,25 @@ export async function drivePeer(options: DriveOptions = {}): Promise<Driven> {
     updates,
     asked,
     files,
-    heard: () => JSON.parse(readFileSync(record, 'utf8')) as Heard,
+    heard: () => recorded(record),
   };
+}
+
+/**
+ * What the peer has written down so far.
+ *
+ * Nothing yet is nothing heard, not a failure: the
+ * peer writes the record as it goes, and a spec
+ * reading before the peer has answered is asking a
+ * question whose answer is "not yet". Waiting for
+ * the entry is the caller's business.
+ */
+function recorded(path: string): Heard {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as Heard;
+  } catch {
+    return {};
+  }
 }
 
 /** Waits for something the peer does on its own

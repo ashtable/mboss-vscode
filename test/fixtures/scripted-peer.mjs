@@ -25,7 +25,7 @@
 //   PEER_PROTOCOL_VERSION  what `initialize` answers
 //   PEER_PROBE             one extra request mid-turn
 
-import { appendFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, renameSync, writeFileSync } from 'node:fs';
 
 const SESSION = 'peer-session';
 const PERMISSION = 'peer-permission';
@@ -41,8 +41,10 @@ const PROBES = {
 };
 
 // Everything the client said, for the spec to read
-// back. Rewritten whole each time, so a spec never
-// sees half a record.
+// back. Rewritten whole each time, and put in place
+// by a rename, so a spec reading it mid-turn sees
+// the whole of one version or the whole of another
+// rather than a file that is being filled.
 const heard = {};
 let promptId;
 let buffer = '';
@@ -79,9 +81,12 @@ function send(message) {
 
 function note(key, value) {
   heard[key] = value;
-  if (process.env.PEER_RECORD !== undefined) {
-    writeFileSync(process.env.PEER_RECORD, JSON.stringify(heard, null, 2));
-  }
+  if (process.env.PEER_RECORD === undefined) return;
+
+  const partial = `${process.env.PEER_RECORD}.${process.pid}`;
+
+  writeFileSync(partial, JSON.stringify(heard, null, 2));
+  renameSync(partial, process.env.PEER_RECORD);
 }
 
 function update(body) {

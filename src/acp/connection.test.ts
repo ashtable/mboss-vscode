@@ -213,6 +213,17 @@ describe('cancelling a turn', () => {
     await driven.session.cancel();
 
     expect(await turn).toBe('cancelled');
+
+    // The turn resolves as soon as the client has
+    // answered its own outstanding question, which
+    // is before the peer has necessarily read
+    // either of the two things it was sent.
+    await waitFor(() => {
+      const heard = driven.heard();
+
+      return heard.cancelled !== undefined && heard.permission !== undefined;
+    });
+
     expect(driven.heard().cancelled).toEqual({ sessionId: 'peer-session' });
     expect(driven.heard().permission).toEqual({
       outcome: { outcome: 'cancelled' },

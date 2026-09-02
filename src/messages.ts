@@ -145,6 +145,72 @@ export const messages = {
   inspectorEditRefused: () =>
     l10n.t('That would leave the block half-set, so nothing was saved.'),
 
+  /**
+   * The line over a graph nobody has agreed to yet.
+   *
+   * The mockup puts it in the editor's tab strip.
+   * No extension can write there — a webview panel
+   * owns its title and nothing else about the tab —
+   * so it goes at the top of the canvas itself.
+   */
+  previewHeadline: (agent: string) =>
+    l10n.t('PREVIEW — proposed by {0} · not applied yet', agent),
+
+  /**
+   * What a proposal would change, over the sentence
+   * that says who placed it.
+   *
+   * The second half is the product's argument and
+   * is why the line is worth its space: an agent
+   * sent the meaning of the workflow, and the
+   * picture was computed from it. Nobody dragged
+   * anything.
+   */
+  previewBanner: (counts: string) =>
+    l10n.t(
+      'PREVIEW CHANGES · {0} · deterministic layout — the agent sent semantics, never coordinates',
+      counts,
+    ),
+
+  /**
+   * The counts, grouped by what they are about.
+   *
+   * `+` arrived, `−` went, `~` changed — the
+   * vocabulary every plan-and-apply tool on a
+   * developer's machine already uses. The noun
+   * comes once per group rather than once per
+   * term, so the line reads as one fact about the
+   * blocks and one about the wires.
+   */
+  previewNodes: (terms: string) => l10n.t('{0} nodes', terms),
+  previewEdges: (terms: string) => l10n.t('{0} edges', terms),
+  previewNoChanges: () => l10n.t('no changes'),
+
+  previewMore: (count: number) => l10n.t('… {0} more proposed nodes', count),
+
+  /**
+   * Why a proposal cannot be applied any more.
+   *
+   * The last sentence is what makes this different
+   * from an edit that hit a conflict: a conflicting
+   * edit is made again against what the file now
+   * says, where nobody has approved *this* edit
+   * against *that* content. It names no revisions
+   * because two of the four ways to get here have
+   * no pair of numbers to name.
+   */
+  previewStale: () =>
+    l10n.t(
+      'The graph changed since this was proposed, so it cannot be applied. Ask the agent to propose it again.',
+    ),
+
+  previewApplied: (counts: string, revision: number) =>
+    l10n.t('APPLIED · {0} · v{1}', counts, revision),
+
+  previewRefused: (detail: string) =>
+    l10n.t('That proposal was not applied: {0}', detail),
+  undoRefused: (detail: string) => l10n.t('That was not undone: {0}', detail),
+
   sidebarHeading: () => l10n.t('Agent'),
 
   /**
@@ -186,6 +252,17 @@ export const messages = {
     newFile: l10n.t('new'),
     permission: l10n.t('Permission needed'),
     always: l10n.t('always'),
+
+    // The two words the design fixed for the one
+    // decision this product is about. They are not
+    // a paraphrase of "apply" and "cancel": the
+    // first says an edit is being agreed to as well
+    // as written, and the second says the
+    // conversation carries on.
+    approve: l10n.t('Approve & apply'),
+    refine: l10n.t('Refine'),
+    undo: l10n.t('Undo'),
+
     toolStatus: {
       pending: l10n.t('queued'),
       in_progress: l10n.t('running'),

@@ -79,6 +79,37 @@ export type CanvasInit = {
   /** Which node the Inspector is showing, so the
    *  canvas can draw it as selected. */
   selected: string | undefined;
+
+  /**
+   * An agent's proposal, drawn over the graph.
+   *
+   * Present means the canvas is showing a document
+   * that is not on disk, so nothing on it may be
+   * edited: an edit there would write content
+   * nobody approved, at a revision it was never
+   * based on.
+   */
+  preview: CanvasPreview | undefined;
+};
+
+export type CanvasPreview = {
+  /** `PREVIEW — proposed by claude code · not
+   *  applied yet` */
+  headline: string;
+
+  /** What it would change. Absent when the graph
+   *  moved on and the warning takes its place. */
+  banner: string | undefined;
+
+  warning: string | undefined;
+
+  /** The blocks it adds or changes, by id. */
+  proposed: string[];
+
+  /** The first few of them, by title, and the line
+   *  standing in for the rest. */
+  named: string[];
+  more: string | undefined;
 };
 
 export type CanvasStrings = {
@@ -174,7 +205,45 @@ export type SidebarInit = {
   /** Why there is no session, when there is not
    *  one. */
   failure: { headline: string; detail: string } | undefined;
+
+  /** What the person is being asked to answer about
+   *  an agent's proposal, if anything. */
+  preview: SidebarPreview | undefined;
 };
+
+/**
+ * The card over the composer, in one of the three
+ * shapes it comes in.
+ *
+ * A union rather than one shape with flags, so that
+ * "a stale proposal offers only Refine" is
+ * something the panel cannot get wrong: there is no
+ * approve half to leave enabled.
+ */
+export type SidebarPreview =
+  | {
+      at: 'proposed';
+      id: string;
+      workflow: string;
+      headline: string;
+      summary: string;
+    }
+  | {
+      at: 'stale';
+      id: string;
+      workflow: string;
+      headline: string;
+      warning: string;
+    }
+  | {
+      at: 'applied';
+      workflow: string;
+      summary: string;
+
+      /** Whether the workflow still has a snapshot
+       *  to go back to. */
+      undoable: boolean;
+    };
 
 export type SidebarStrings = {
   /** The panel's own eyebrow. */
@@ -208,6 +277,12 @@ export type SidebarStrings = {
 
   /** Marks an option that outlives this turn. */
   always: string;
+
+  /** The two answers to a proposal, and the way
+   *  back from one that was answered. */
+  approve: string;
+  refine: string;
+  undo: string;
 
   /** What a tool call is doing, per status. */
   toolStatus: Record<ToolCallStatus, string>;

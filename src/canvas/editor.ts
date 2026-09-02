@@ -24,6 +24,9 @@ import type {
   WorkflowNode,
 } from '../core/rules.js';
 import { messages } from '../messages.js';
+import type { PreviewModel } from '../preview/model.js';
+import type { PreviewStore } from '../preview/store.js';
+import { canvasPreview } from '../preview/view.js';
 import type { VsCodeApi } from '../vscodeApi.js';
 import { mountWebview, type WebviewMessage } from '../webview/host.js';
 import type { CanvasDocument, CanvasInit } from '../webview/protocol.js';
@@ -58,16 +61,18 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     private readonly extensionUri: Uri,
     private readonly api: VsCodeApi,
     private readonly selection: Selection,
+    private readonly preview: PreviewStore,
   ) {}
 
   static register(
     extensionUri: Uri,
     api: VsCodeApi,
     selection: Selection,
+    preview: PreviewStore,
   ): Disposable {
     return window.registerCustomEditorProvider(
       WorkflowCanvasEditor.viewType,
-      new WorkflowCanvasEditor(extensionUri, api, selection),
+      new WorkflowCanvasEditor(extensionUri, api, selection, preview),
       { supportsMultipleEditorsPerDocument: false },
     );
   }
@@ -76,7 +81,12 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     document: TextDocument,
     panel: WebviewPanel,
   ): Promise<void> {
-    const session = new CanvasSession(document, this.api, this.selection);
+    const session = new CanvasSession(
+      document,
+      this.api,
+      this.selection,
+      this.preview,
+    );
     await session.reread();
 
     const mounted = mountWebview(panel.webview, {
@@ -97,6 +107,13 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
 
     const selected = this.selection.onChange(post);
 
+    // A proposal can appear or be answered while
+    // this panel is open, and it changes what the
+    // panel is drawing — not only what it says.
+    const proposed = this.preview.onChanged(() => {
+      void session.reread().then(post);
+    });
+
     // A manifest is a type-check of the project's
     // code-behind, which is far too slow to open a
     // file behind. The canvas draws without one and
@@ -108,6 +125,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       mounted.dispose();
       changed.dispose();
       selected.dispose();
+      proposed.dispose();
       session.forget();
     });
   }
@@ -129,21 +147,40 @@ class CanvasSession {
 
   private manifest: LibManifest | undefined;
 
+  /** The proposal being drawn instead of the file,
+   *  when there is one. */
+  private live: PreviewModel | undefined;
+
   constructor(
     private readonly document: TextDocument,
     private readonly api: VsCodeApi,
     private readonly selection: Selection,
+    private readonly preview: PreviewStore,
   ) {}
 
-  /** Reads the document as it now stands and lays
-   *  it out again. */
+  /**
+   * Reads what the panel should be drawing and lays
+   * it out again.
+   *
+   * A proposal takes the document's place while it
+   * is outstanding: the graph on screen is what an
+   * agent is asking for, laid out by the same
+   * engine, and nothing about it can be edited
+   * until somebody approves it.
+   */
   async reread(): Promise<void> {
+    this.live = this.proposalHere();
+
     const read = readWorkflow(this.document.getText());
 
-    this.read = read.ok
-      ? { ok: true, ir: read.ir }
-      : { ok: false, detail: read.detail };
-    this.boxes = read.ok ? await boxesFor(read.ir) : {};
+    this.read =
+      this.live !== undefined
+        ? { ok: true, ir: this.live.candidate }
+        : read.ok
+          ? { ok: true, ir: read.ir }
+          : { ok: false, detail: read.detail };
+
+    this.boxes = this.read.ok ? await boxesFor(this.read.ir) : {};
 
     this.reselect();
   }
@@ -164,15 +201,29 @@ class CanvasSession {
       paletteLabels: messages.paletteLabels(),
       document: this.read,
       boxes: this.boxes,
-      diagnostics: this.read.ok
-        ? checkWorkflow(this.read.ir, this.manifest)
-        : [],
+
+      // A proposal shows what the rules found when
+      // it was written, which is what the agent was
+      // told and what a person is being asked to
+      // approve.
+      diagnostics:
+        this.live?.diagnostics ??
+        (this.read.ok ? checkWorkflow(this.read.ir, this.manifest) : []),
+
       manifest: this.manifest,
       selected: this.selection.current()?.node.id,
+      preview: this.live === undefined ? undefined : canvasPreview(this.live),
     };
   }
 
+  /**
+   * A panel is a frame running scripts, so an edit
+   * arriving while a proposal is drawn is refused
+   * here rather than only being unreachable there.
+   */
   heard(message: WebviewMessage): void {
+    if (this.live !== undefined) return;
+
     if (message.type === 'select') this.select(message.nodeId);
     if (message.type === 'connect') this.connect(message);
     if (message.type === 'text') this.replaceText(message.text);
@@ -186,6 +237,30 @@ class CanvasSession {
 
   private get key(): string {
     return this.document.uri.toString();
+  }
+
+  /**
+   * The workflow this file holds, by its name
+   * rather than by what is inside it.
+   *
+   * A document is stored at
+   * `<name>.workflow.json`, which is how the
+   * library finds it — and a file that will not
+   * parse still has a name, which is exactly the
+   * case where a proposal against it matters.
+   */
+  private get name(): string {
+    return basename(this.document.uri.fsPath).replace(/\.workflow\.json$/, '');
+  }
+
+  /** The outstanding proposal about this document,
+   *  if there is one. */
+  private proposalHere(): PreviewModel | undefined {
+    const project = projectOf(this.document.uri.fsPath);
+
+    return project === undefined
+      ? undefined
+      : this.preview.forWorkflow(project, this.name);
   }
 
   private select(nodeId: string | null): void {
@@ -211,11 +286,19 @@ class CanvasSession {
   /**
    * Keeps the Inspector on the same node after the
    * document changes, and lets it go when the node
-   * is gone.
+   * is gone — or when a proposal has taken the
+   * document's place, since there is then nothing
+   * on screen that an edit could be made to.
    */
   private reselect(): void {
     const showing = this.selection.current();
     if (showing?.document !== this.key) return;
+
+    if (this.live !== undefined) {
+      this.selection.release(this.key);
+
+      return;
+    }
 
     this.select(showing.node.id);
   }

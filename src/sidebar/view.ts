@@ -8,6 +8,8 @@ import {
 
 import type { AgentPanel } from '../acp/agent.js';
 import { messages } from '../messages.js';
+import type { PreviewStore } from '../preview/store.js';
+import { appliedCard, proposalCard } from '../preview/view.js';
 import { mountWebview } from '../webview/host.js';
 import type { SidebarInit } from '../webview/protocol.js';
 
@@ -32,21 +34,23 @@ export class AgentSidebarView implements WebviewViewProvider {
     private readonly extensionUri: Uri,
     private readonly panel: AgentPanel,
     private readonly chooseAgent: () => Promise<void>,
+    private readonly preview: PreviewStore,
   ) {}
 
   static register(
     extensionUri: Uri,
     panel: AgentPanel,
     chooseAgent: () => Promise<void>,
+    preview: PreviewStore,
   ): Disposable {
     return window.registerWebviewViewProvider(
       AgentSidebarView.viewType,
-      new AgentSidebarView(extensionUri, panel, chooseAgent),
+      new AgentSidebarView(extensionUri, panel, chooseAgent, preview),
     );
   }
 
   resolveWebviewView(view: WebviewView): void {
-    const draw = (): SidebarInit => sidebarInit(this.panel);
+    const draw = (): SidebarInit => sidebarInit(this.panel, this.preview);
 
     const mounted = mountWebview(view.webview, {
       extensionUri: this.extensionUri,
@@ -60,6 +64,10 @@ export class AgentSidebarView implements WebviewViewProvider {
         if (message.type === 'permission') {
           void this.panel.answer(message.optionId, message.kind);
         }
+        if (message.type === 'approve') {
+          void this.preview.approve(message.proposalId);
+        }
+        if (message.type === 'undo') void this.preview.undo();
       },
     });
 
@@ -72,19 +80,31 @@ export class AgentSidebarView implements WebviewViewProvider {
     // shown: a listener left behind would repaint
     // a disposed frame once per selection, for as
     // long as the window is open.
-    const stop = this.panel.onChanged(() => {
+    const repaint = (): void => {
       if (view.visible) void view.webview.postMessage(draw());
-    });
+    };
+
+    const stop = this.panel.onChanged(repaint);
+
+    // A proposal arrives as a file event, not as
+    // something the agent said, so it moves the
+    // panel without the session moving at all.
+    const proposed = this.preview.onChanged(repaint);
 
     view.onDidDispose(() => {
       stop();
+      proposed.dispose();
       mounted.dispose();
     });
   }
 }
 
-export function sidebarInit(panel: AgentPanel): SidebarInit {
+export function sidebarInit(
+  panel: AgentPanel,
+  preview: PreviewStore,
+): SidebarInit {
   const state = panel.state();
+  const card = preview.card();
 
   return {
     type: 'init',
@@ -99,5 +119,11 @@ export function sidebarInit(panel: AgentPanel): SidebarInit {
       state.failure === undefined
         ? undefined
         : messages.agentFailure(state.failure),
+    preview:
+      card === undefined
+        ? undefined
+        : card.at === 'proposal'
+          ? proposalCard(card.model)
+          : appliedCard(card),
   };
 }

@@ -393,3 +393,60 @@ body {
   border-color: var(--color-warn);
   background: color-mix(in srgb, var(--color-warn) 12%, transparent);
 }
+
+/* — a proposal, waiting for an answer — */
+
+/* Dashed and tinted, the same treatment the blocks
+   on the canvas get: everything about a proposal is
+   drawn in pencil until somebody approves it. */
+.preview-card {
+  border: 1px dashed var(--color-accent);
+  background: var(--tint-accent);
+  padding: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.preview-card > .eyebrow {
+  color: var(--color-accent);
+  margin-bottom: var(--space-1);
+}
+
+.preview-summary,
+.preview-warning {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-caption);
+}
+
+.preview-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.preview-actions button {
+  border: 1px solid var(--color-accent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+
+/* Approving is the decision the card exists for, so
+   it takes the room and the ink; refining is the
+   way back to the conversation. */
+.preview-actions button.primary {
+  flex: 1;
+  background: var(--color-accent);
+  color: var(--vscode-button-foreground, var(--color-bg));
+}
+
+.preview-actions button:disabled {
+  border-color: var(--color-divider);
+  color: color-mix(in srgb, var(--color-text) 45%, transparent);
+  cursor: default;
+}

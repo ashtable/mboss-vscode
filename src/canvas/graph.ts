@@ -34,6 +34,10 @@ export type CanvasNodeData = {
    *  the order they are drawn. */
   ports: string[];
 
+  /** Part of a proposal nobody has approved, and
+   *  drawn as such. */
+  proposed: boolean;
+
   [key: string]: unknown;
 };
 
@@ -70,9 +74,14 @@ export const TARGET_PORT = 'in';
 export function toReactFlow(
   ir: WorkflowIR,
   boxes: Record<string, NodeBox>,
+  proposed: readonly string[] = [],
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
+  const arriving = new Set(proposed);
+
   return {
-    nodes: ir.nodes.map((node) => toCanvasNode(node, boxes[node.id])),
+    nodes: ir.nodes.map((node) =>
+      toCanvasNode(node, boxes[node.id], arriving.has(node.id)),
+    ),
     edges: ir.edges.map((edge) => ({
       id: edge.id,
       type: 'wire',
@@ -88,6 +97,7 @@ export function toReactFlow(
 function toCanvasNode(
   node: WorkflowNode,
   box: NodeBox | undefined,
+  proposed: boolean,
 ): CanvasNode {
   if (box === undefined) {
     throw new Error(`the layout has no box for \`${node.id}\``);
@@ -101,6 +111,6 @@ function toCanvasNode(
     position: { x: box.x, y: box.y },
     width,
     height,
-    data: { node, ports: portsOf(node) },
+    data: { node, ports: portsOf(node), proposed },
   };
 }

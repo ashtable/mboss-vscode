@@ -89,6 +89,7 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     diagnostics: validateWorkflow(ir, { manifest }),
     manifest,
     selected: undefined,
+    preview: undefined,
     ...over,
   };
 }

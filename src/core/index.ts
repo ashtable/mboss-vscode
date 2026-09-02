@@ -5,20 +5,31 @@ import {
   MBOSS_DIRNAME,
   ProjectNameSchema,
   WorkflowIRSchema,
+  applyProposal,
   compileProject,
   layout,
+  listProposals,
   loadOrScan,
   mbossDirOf,
+  newestSnapshot,
+  readWorkflow as readWorkflowFile,
   scaffoldProject,
+  undo,
   validateWorkflow,
   workflowsDir,
+  type ApplyError,
   type CompileResult,
   type Diagnostic,
   type LibManifest,
   type NodeBox,
+  type Proposal,
   type ScaffoldOptions,
   type WorkflowIR,
 } from '@mboss/core';
+
+export { STALE_LOCK_MS } from '@mboss/core';
+
+export type { DiffSummary, Proposal } from '@mboss/core';
 
 /**
  * The one module that talks to `@mboss/core`.
@@ -328,6 +339,128 @@ export async function compileWorkflows(project: string): Promise<Compiled> {
       failureOf(name, failure),
     ),
   };
+}
+
+/**
+ * Every proposal a project is still waiting on an
+ * answer about.
+ *
+ * The rest of the directory is history: an applied
+ * proposal is what the document now says, and a
+ * discarded one was replaced by whatever the agent
+ * proposed next. One workflow has at most one
+ * outstanding proposal, and that is the library's
+ * invariant rather than a rule enforced here.
+ */
+export async function liveProposals(project: string): Promise<Proposal[]> {
+  const found = await listProposals(mbossDirOf(project));
+
+  return found.filter((proposal) => proposal.status === 'proposed');
+}
+
+/**
+ * A workflow as the file has it.
+ *
+ * Nothing there, and a file that will not parse,
+ * both come back as nothing. A proposal is checked
+ * against the revision on disk, and a document
+ * nobody can read has no revision to check against
+ * — which is exactly the answer that makes a
+ * proposal stale, and the canvas says what is wrong
+ * with the file itself.
+ */
+export async function currentWorkflow(
+  project: string,
+  name: string,
+): Promise<WorkflowIR | undefined> {
+  try {
+    const read = await readWorkflowFile(mbossDirOf(project), name);
+
+    return read.ok ? read.ir : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * What came of approving a proposal.
+ *
+ * A stale proposal is its own answer rather than
+ * one refusal among many, because it is the only
+ * one a person can act on: the graph moved, so ask
+ * the agent again.
+ */
+export type Applied =
+  | { at: 'applied'; ir: WorkflowIR }
+  | { at: 'stale' }
+  | { at: 'refused'; detail: string };
+
+/**
+ * Applies a proposal a person approved.
+ *
+ * This takes the project's write lock itself, and
+ * the lock is not reentrant — so nothing may be
+ * awaited inside it that takes the lock too, the
+ * regeneration afterwards included.
+ */
+export async function applyLiveProposal(
+  project: string,
+  id: string,
+  manifest?: LibManifest,
+): Promise<Applied> {
+  const outcome = await applyProposal(mbossDirOf(project), id, { manifest });
+
+  if (outcome.ok) return { at: 'applied', ir: outcome.ir };
+  if (outcome.error.code === 'PROPOSAL_STALE') return { at: 'stale' };
+
+  return { at: 'refused', detail: detailOf(outcome.error) };
+}
+
+/** What came of taking back the last write. */
+export type Undone =
+  | { at: 'undone'; ir: WorkflowIR }
+  | { at: 'nothing' }
+  | { at: 'refused'; detail: string };
+
+/** Puts back what the workflow said before the last
+ *  write, as a new revision. */
+export async function undoWorkflow(
+  project: string,
+  name: string,
+  manifest?: LibManifest,
+): Promise<Undone> {
+  const outcome = await undo(mbossDirOf(project), name, { manifest });
+
+  if (outcome.ok) return { at: 'undone', ir: outcome.ir };
+  if (outcome.error.code === 'NOTHING_TO_UNDO') return { at: 'nothing' };
+
+  return { at: 'refused', detail: detailOf(outcome.error) };
+}
+
+/** Whether there is anything left to take back. */
+export async function hasSnapshot(
+  project: string,
+  name: string,
+): Promise<boolean> {
+  return (await newestSnapshot(mbossDirOf(project), name)) !== undefined;
+}
+
+/**
+ * A refusal in words.
+ *
+ * A failed validation says what the rules said,
+ * because that is something a person can act on.
+ * The rest are codes: they name situations a person
+ * cannot do anything about except tell somebody,
+ * and a sentence invented here would be a second
+ * description of the library's own.
+ */
+function detailOf(error: ApplyError): string {
+  if (error.code === 'VALIDATION_FAILED') {
+    return error.errors.map((found) => found.message).join(' ');
+  }
+
+  return error.code;
 }
 
 function failureOf(name: string, result: CompileResult): CompileFailure {
