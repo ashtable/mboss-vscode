@@ -17,6 +17,9 @@
 .vscode/**
 src/**
 test/**
+tests/**
+test-results/**
+playwright-report/**
 mboss-core/**
 node_modules/**
 
@@ -27,6 +30,7 @@ node_modules/**
 .prettierrc.json
 eslint.config.mjs
 package-lock.json
+playwright.config.ts
 tsconfig.json
 vitest.aliases.ts
 vitest.config.ts

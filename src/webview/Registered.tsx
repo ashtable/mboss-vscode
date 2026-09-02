@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { HTMLAttributes } from 'react';
 
 /**
  * A box with registration marks at its corners.
@@ -13,25 +13,33 @@ import type { ReactNode } from 'react';
  * the frame belongs on all of them.
  *
  * The marks sit outside the border, so an ancestor
- * that clips will cut them off.
+ * that clips will cut them off. They are optional
+ * because the frame is also the plain square box
+ * this system draws everything in, and marking
+ * every one of them would leave the marks meaning
+ * nothing.
  */
 export function Registered({
   className,
+  marks = true,
   children,
-}: {
-  className?: string;
-  children: ReactNode;
-}) {
+  ...rest
+}: HTMLAttributes<HTMLDivElement> & { marks?: boolean }) {
   return (
     <div
+      {...rest}
       className={
         className === undefined ? 'blueprint' : `blueprint ${className}`
       }
     >
-      <span className="corner tl" />
-      <span className="corner tr" />
-      <span className="corner bl" />
-      <span className="corner br" />
+      {marks ? (
+        <>
+          <span className="corner tl" />
+          <span className="corner tr" />
+          <span className="corner bl" />
+          <span className="corner br" />
+        </>
+      ) : null}
       {children}
     </div>
   );

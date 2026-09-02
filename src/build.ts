@@ -42,10 +42,14 @@ export const HOST_BUNDLE = 'extension.cjs';
  * does not compile.
  *
  * Adding one is a name here and a file beside the
- * others — the Node Inspector and the Runs view
- * are each their own entry when they arrive.
+ * others — the Runs view is its own entry when it
+ * arrives.
  */
-export const WEBVIEW_ENTRIES: readonly WebviewName[] = ['canvas', 'sidebar'];
+export const WEBVIEW_ENTRIES: readonly WebviewName[] = [
+  'canvas',
+  'inspector',
+  'sidebar',
+];
 
 /**
  * Core's runtime templates, and where they have to

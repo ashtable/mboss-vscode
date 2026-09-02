@@ -23,11 +23,20 @@ jobs:
       # VSIX of its own, because what it has to say
       # about either is only true of the real thing.
       - run: npm test
-      # Then again on its own. A build that has only
-      # ever run from inside a test is a build nobody
-      # has checked can run without one — and this is
-      # the step that leaves the artifact somewhere a
-      # person can pick it up.
+      # The webviews are React and a graph library,
+      # which measure the DOM and work in pointer
+      # events. Nothing about drawing a wire is true
+      # under a simulated browser, so these run in a
+      # real one — against the built bundles, with no
+      # VS Code and no server.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:webview
+
+      # Then the build again on its own. A build that
+      # has only ever run from inside a test is a
+      # build nobody has checked can run without one —
+      # and this is the step that leaves the artifact
+      # somewhere a person can pick it up.
       - run: npm run package
 
       - name: Upload the extension

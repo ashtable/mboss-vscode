@@ -30,8 +30,12 @@ const host = acquireVsCodeApi();
  * time this view is mounted afresh.
  */
 export function announceReady(): void {
-  const ready: WebviewMessage = { type: 'ready' };
-  host.postMessage(ready);
+  postToHost({ type: 'ready' });
+}
+
+/** Says something the host is waiting to hear. */
+export function postToHost(message: WebviewMessage): void {
+  host.postMessage(message);
 }
 
 /**

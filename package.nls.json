@@ -1,18 +1,15 @@
 {
   "extension.displayName": "mBoss",
   "extension.description": "Design durable apps with DBOS.",
-
   "commands.category": "mBoss",
   "commands.newProject.title": "New Project",
   "commands.openRuns.title": "Open Runs",
   "commands.generateCode.title": "Generate Code",
   "commands.openAgentSidebar.title": "Open Agent Sidebar",
   "commands.chooseCodingAgent.title": "Choose Coding Agent…",
-
   "viewsContainers.mboss.title": "mBoss",
   "views.agentSidebar.name": "Agent",
-
+  "views.nodeInspector.name": "Node Inspector",
   "customEditors.workflowCanvas.displayName": "mBoss Canvas",
-
   "capabilities.untrustedWorkspaces.description": "Viewing and editing a workflow works in a restricted window. Generating code, running a coding agent and reading a project's run history all execute or connect to workspace-supplied things, so they stay disabled until you trust the folder."
 }

@@ -1,4 +1,15 @@
-import type { WorkflowSummary } from '../core/index.js';
+import type {
+  InspectorField,
+  InspectorForm,
+} from '../canvas/inspector/forms.js';
+import type {
+  Diagnostic,
+  LibManifest,
+  NodeBox,
+  NodeKind,
+  WorkflowIR,
+  WorkflowNode,
+} from '../core/rules.js';
 
 /**
  * What the host and a webview say to each other.
@@ -22,30 +33,112 @@ import type { WorkflowSummary } from '../core/index.js';
  * host and travels in `strings` on the init
  * message, which is why nothing under a webview
  * entry contains English a user sees.
+ *
+ * There is one message per view and it is sent
+ * again whenever the host's picture changes — a
+ * file edited elsewhere, a manifest that finished
+ * scanning, a different node selected. A view
+ * therefore renders from whatever last arrived and
+ * holds nothing of its own that it could not
+ * rebuild.
  */
 
 /** Sent whenever the host has state to show. */
-export type HostMessage = CanvasInit | SidebarInit;
+export type HostMessage = CanvasInit | InspectorInit | SidebarInit;
 
 export type CanvasInit = {
   type: 'init';
   view: 'canvas';
-  strings: {
-    /** The caption under the graph's name. */
-    caption: string;
-    /** Shown in place of the canvas itself. */
-    notBuilt: string;
-    /** Shown when the document will not parse. */
-    unreadable: string;
-    revision: string;
-    nodes: string;
-    edges: string;
-  };
+  strings: CanvasStrings;
+
+  /** What the ten palette entries are called, in
+   *  the active locale. */
+  paletteLabels: Record<NodeKind, string>;
+
   document: CanvasDocument;
+
+  /** Where each node goes, empty when the document
+   *  could not be read. */
+  boxes: Record<string, NodeBox>;
+
+  /** What core makes of the document as it
+   *  stands. */
+  diagnostics: Diagnostic[];
+
+  /**
+   * What the project's code-behind offers: the
+   * palette's `/lib` section, and the types a wire
+   * is checked against. Absent until a scan has
+   * finished, and when there is nothing to scan.
+   */
+  manifest: LibManifest | undefined;
+
+  /** Which node the Inspector is showing, so the
+   *  canvas can draw it as selected. */
+  selected: string | undefined;
+};
+
+export type CanvasStrings = {
+  /** The caption under the graph's name. */
+  caption: string;
+
+  /** Shown when the document will not parse. */
+  unreadable: string;
+
+  /** The two halves of the view toggle. */
+  canvas: string;
+  json: string;
+
+  /** The `graph vN` caption's first word. */
+  graph: string;
+
+  /** Headings over the palette and its sections. */
+  blocks: string;
+  lib: string;
+  groups: Record<string, string>;
+
+  /** Shown in place of the code-behind list when
+   *  there is no manifest. */
+  noLib: string;
+
+  /** Titles the rejection callout. */
+  typedWiring: string;
 };
 
 export type CanvasDocument =
-  ({ ok: true } & WorkflowSummary) | { ok: false; detail: string };
+  { ok: true; ir: WorkflowIR } | { ok: false; detail: string };
+
+export type InspectorInit = {
+  type: 'init';
+  view: 'inspector';
+  strings: InspectorStrings;
+  selected: SelectedNode | undefined;
+};
+
+export type SelectedNode = {
+  node: WorkflowNode;
+  form: InspectorForm;
+
+  /** What the edit will be made against. */
+  revision: number;
+};
+
+export type InspectorStrings = {
+  /** The panel's own heading, before the kind. */
+  heading: string;
+
+  /** Shown when no node is selected. */
+  nothingSelected: string;
+
+  /** Per node kind, matching the palette. */
+  kinds: Record<NodeKind, string>;
+
+  /** Per field id. */
+  fields: Record<string, string>;
+
+  /** Per `<field id>.<option value>`. */
+  options: Record<string, string>;
+};
 
 export type SidebarInit = {
   type: 'init';
@@ -56,6 +149,8 @@ export type SidebarInit = {
     notBuilt: string;
   };
 };
+
+export type { InspectorField };
 
 /**
  * Whether a message on a webview's channel is one

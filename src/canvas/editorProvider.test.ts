@@ -1,0 +1,390 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { fakeWebview, type FakeWebview } from '../../test/doubles/webview.js';
+import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
+import type { VsCodeApi } from '../vscodeApi.js';
+import type { CanvasInit, InspectorInit } from '../webview/protocol.js';
+
+import { WorkflowCanvasEditor } from './editor.js';
+import { Selection } from './selection.js';
+
+/**
+ * The editor a workflow opens in, driven the way
+ * VS Code drives it.
+ *
+ * What is checked here is the part that is not
+ * visible on a canvas: that the panel is told what
+ * the document says, that an edit from the panel
+ * becomes an edit to the document VS Code owns and
+ * not a write behind its back, that an edit made
+ * against a version that has moved on is refused
+ * out loud, and that a change from anywhere else
+ * reaches every panel showing that file. Only the
+ * last of those is obvious when it works, and all
+ * four are silent when they do not.
+ */
+
+const text = readFileSync(
+  fileURLToPath(
+    new URL(
+      '../../mboss-core/fixtures/ir/groom_booking.workflow.json',
+      import.meta.url,
+    ),
+  ),
+  'utf8',
+);
+
+const ir = WorkflowIRSchema.parse(JSON.parse(text));
+
+type Written = { path: string; text: string };
+
+type Recorded = {
+  api: VsCodeApi;
+  written: Written[];
+  told: string[];
+  context: Record<string, unknown>;
+  change: (document: { uri: { toString(): string } }) => void;
+};
+
+function recorder(): Recorded {
+  const written: Written[] = [];
+  const told: string[] = [];
+  const context: Record<string, unknown> = {};
+  const watchers: ((document: never) => void)[] = [];
+
+  return {
+    written,
+    told,
+    context,
+    change: (document) => {
+      for (const watcher of watchers) watcher(document as never);
+    },
+    api: {
+      info: (message) => told.push(message),
+      run: () => Promise.resolve(),
+      setContext: (key, value) => {
+        context[key] = value;
+
+        return Promise.resolve();
+      },
+      replaceDocument: (document, next) => {
+        written.push({ path: document.uri.path, text: next });
+
+        return Promise.resolve(true);
+      },
+      onDocumentChanged: (listener) => {
+        watchers.push(listener);
+
+        return { dispose: () => {} };
+      },
+    },
+  };
+}
+
+/** A `TextDocument` as far as the canvas reads
+ *  one: a path, and whatever it currently says. */
+function fakeDocument(
+  contents = text,
+  path = '/project/.mboss/workflows/groom_booking.workflow.json',
+) {
+  const uri = { path, fsPath: path, toString: () => `file://${path}` };
+
+  return { uri, getText: () => contents } as never;
+}
+
+const extensionUri = { path: '/ext' } as never;
+
+let recorded: Recorded;
+let selection: Selection;
+let panel: FakeWebview;
+
+async function open(document = fakeDocument()): Promise<void> {
+  recorded = recorder();
+  selection = new Selection(recorded.api);
+  panel = fakeWebview();
+
+  const editor = new WorkflowCanvasEditor(
+    extensionUri,
+    recorded.api,
+    selection,
+  );
+
+  await editor.resolveCustomTextEditor(document, panel.panel);
+  panel.send({ type: 'ready', view: 'canvas' });
+  await settled();
+}
+
+/** Lets the host finish whatever the last message
+ *  set going. */
+function settled(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Waits for something to become true rather than
+ * for a length of time. Laying a graph out is real
+ * work, and how long it takes is not this spec's
+ * business.
+ */
+async function until(ready: () => boolean): Promise<void> {
+  for (let tries = 0; tries < 200 && !ready(); tries += 1) await settled();
+
+  expect(ready()).toBe(true);
+}
+
+function lastCanvasInit(): CanvasInit {
+  const inits = panel.posted.filter(
+    (message): message is CanvasInit =>
+      (message as CanvasInit).view === 'canvas',
+  );
+
+  expect(inits.length).toBeGreaterThan(0);
+
+  return inits[inits.length - 1]!;
+}
+
+beforeEach(async () => {
+  await open();
+});
+
+describe('opening a workflow', () => {
+  it('tells the panel what the document says', () => {
+    const init = lastCanvasInit();
+
+    expect(init.document.ok).toBe(true);
+    expect(init.document.ok && init.document.ir).toEqual(ir);
+  });
+
+  it('tells it where every node goes', () => {
+    const init = lastCanvasInit();
+
+    expect(Object.keys(init.boxes ?? {}).sort()).toEqual(
+      ir.nodes.map((node) => node.id).sort(),
+    );
+  });
+
+  it('tells it what core makes of the document', () => {
+    expect(lastCanvasInit().diagnostics).toBeInstanceOf(Array);
+  });
+
+  it('says what it could not read rather than drawing nothing', async () => {
+    await open(fakeDocument('{ "not": "a workflow" }'));
+
+    const init = lastCanvasInit();
+
+    expect(init.document.ok).toBe(false);
+    expect(init.document.ok === false && init.document.detail).toBeTruthy();
+  });
+});
+
+describe('an edit from the panel', () => {
+  it('goes through the document VS Code owns', async () => {
+    panel.send({
+      type: 'connect',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      from: { node: 'find_slot', port: 'out' },
+      to: { node: 'book_appointment' },
+    });
+    await settled();
+
+    expect(recorded.written).toHaveLength(1);
+
+    const written = WorkflowIRSchema.parse(
+      JSON.parse(recorded.written[0]!.text),
+    );
+
+    expect(written.edges.at(-1)).toMatchObject({
+      from: { node: 'find_slot', port: 'out' },
+      to: { node: 'book_appointment' },
+    });
+  });
+
+  it('raises the revision by exactly one', async () => {
+    panel.send({
+      type: 'connect',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      from: { node: 'find_slot', port: 'out' },
+      to: { node: 'book_appointment' },
+    });
+    await settled();
+
+    const written: WorkflowIR = JSON.parse(recorded.written[0]!.text);
+
+    expect(written.revision).toBe(ir.revision + 1);
+  });
+
+  it('is refused out loud when the document has moved on under it', async () => {
+    panel.send({
+      type: 'connect',
+      view: 'canvas',
+      baseRevision: ir.revision - 1,
+      from: { node: 'find_slot', port: 'out' },
+      to: { node: 'book_appointment' },
+    });
+    await settled();
+
+    expect(recorded.written).toHaveLength(0);
+    expect(recorded.told).toHaveLength(1);
+  });
+
+  it('is ignored when it is not a message this editor knows', async () => {
+    panel.send({ type: 'connect', view: 'canvas' });
+    panel.send('nonsense');
+    await settled();
+
+    expect(recorded.written).toHaveLength(0);
+  });
+});
+
+describe('a change from anywhere else', () => {
+  it('reaches the panel showing that file', async () => {
+    const before = panel.posted.length;
+
+    recorded.change(fakeDocument());
+
+    await until(() => panel.posted.length > before);
+  });
+
+  it('leaves panels showing other files alone', async () => {
+    const before = panel.posted.length;
+
+    recorded.change({
+      uri: { toString: () => 'file:///project/.mboss/workflows/other.json' },
+    });
+    for (let tries = 0; tries < 20; tries += 1) await settled();
+
+    expect(panel.posted).toHaveLength(before);
+  });
+});
+
+describe('selecting a node', () => {
+  it('reveals the Inspector and offers it the node', async () => {
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
+    await settled();
+
+    expect(recorded.context['mboss.nodeSelected']).toBe(true);
+    expect(selection.current()?.node.id).toBe('find_slot');
+  });
+
+  it('returns the container to the agent when nothing is selected', async () => {
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
+    await settled();
+    panel.send({ type: 'select', view: 'canvas', nodeId: null });
+    await settled();
+
+    expect(recorded.context['mboss.nodeSelected']).toBe(false);
+    expect(selection.current()).toBeUndefined();
+  });
+
+  it('says nothing about a node the document does not have', async () => {
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'no_such_node' });
+    await settled();
+
+    expect(selection.current()).toBeUndefined();
+  });
+
+  /**
+   * Two canvases can be open at once and only one
+   * of them owns the selection. Closing the other
+   * must not take the Inspector down with it.
+   */
+  it('survives another canvas being closed', async () => {
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
+    await settled();
+
+    const other = fakeWebview();
+    await new WorkflowCanvasEditor(
+      extensionUri,
+      recorded.api,
+      selection,
+    ).resolveCustomTextEditor(
+      fakeDocument(text, '/project/.mboss/workflows/other.workflow.json'),
+      other.panel,
+    );
+    other.close();
+    await settled();
+
+    expect(selection.current()?.node.id).toBe('find_slot');
+    expect(recorded.context['mboss.nodeSelected']).toBe(true);
+  });
+});
+
+describe('an edit from the Inspector', () => {
+  it('replaces the node it names and leaves the rest alone', async () => {
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
+    await settled();
+
+    const renamed = {
+      ...ir.nodes.find((node) => node.id === 'find_slot'),
+      title: 'Find an open slot',
+    };
+
+    selection.edit({ baseRevision: ir.revision, node: renamed });
+    await settled();
+
+    const written = WorkflowIRSchema.parse(
+      JSON.parse(recorded.written[0]!.text),
+    );
+
+    expect(written.nodes.find((node) => node.id === 'find_slot')?.title).toBe(
+      'Find an open slot',
+    );
+    expect(written.nodes).toHaveLength(ir.nodes.length);
+    expect(written.revision).toBe(ir.revision + 1);
+  });
+
+  it('refuses a node the schema would not accept', async () => {
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
+    await settled();
+
+    selection.edit({
+      baseRevision: ir.revision,
+      node: { id: 'find_slot', kind: 'step', title: 'x', config: null },
+    });
+    await settled();
+
+    expect(recorded.written).toHaveLength(0);
+    expect(recorded.told).toHaveLength(1);
+  });
+});
+
+describe('what the Inspector is told', () => {
+  it('is the selected node, and the labels for its fields', async () => {
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'reply_decision' });
+    await settled();
+
+    const shown = selection.inspectorInit();
+
+    expect(shown.view).toBe('inspector');
+    expect(shown.selected?.form.kind).toBe('branch');
+    expect(labelled(shown)).toBe(true);
+  });
+
+  it('is nothing at all when nothing is selected', () => {
+    expect(selection.inspectorInit().selected).toBeUndefined();
+  });
+});
+
+/** Every field the Inspector is about to draw has
+ *  a word to draw beside it. */
+function labelled(shown: InspectorInit): boolean {
+  const fields = shown.selected?.form.fields ?? [];
+
+  return fields.every((field) => {
+    const own = shown.strings.fields[field.id] !== undefined;
+    if (field.control !== 'choice') return own;
+
+    return (
+      own &&
+      field.options.every(
+        (option) =>
+          shown.strings.options[`${field.id}.${option}`] !== undefined,
+      )
+    );
+  });
+}

@@ -17,7 +17,7 @@
  * Adding a webview: a name here, a name in
  * `WEBVIEW_ENTRIES`, and `src/<name>/index.tsx`.
  */
-export type WebviewName = 'canvas' | 'sidebar';
+export type WebviewName = 'canvas' | 'inspector' | 'sidebar';
 
 /** Where the build leaves one webview's asset. */
 export function webviewFile(name: WebviewName, kind: 'js' | 'css'): string {

@@ -24,7 +24,7 @@ import {
  */
 
 type Command = { command: string; title: string; category?: string };
-type View = { type?: string; id: string; name: string };
+type View = { type?: string; id: string; name: string; when?: string };
 type CustomEditor = {
   viewType: string;
   displayName: string;
@@ -138,6 +138,27 @@ describe('views', () => {
     for (const view of views) {
       expect(resolved(view.name)).toBeTypeOf('string');
     }
+  });
+
+  /**
+   * A webview cannot host a webview view, so
+   * "selecting a node swaps the canvas's right
+   * panel" is built as two views that take each
+   * other's place. Both need a clause and the two
+   * have to be opposites: give them both the same
+   * one and the container is empty half the time,
+   * leave one off and they stack.
+   */
+  it('swaps the agent and the Inspector on one fact', () => {
+    expect(views.map((view) => view.id)).toEqual([
+      'mboss.agentSidebar',
+      'mboss.nodeInspector',
+    ]);
+
+    expect(views.map((view) => view.when)).toEqual([
+      '!mboss.nodeSelected',
+      'mboss.nodeSelected',
+    ]);
   });
 });
 

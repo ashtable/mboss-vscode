@@ -6,8 +6,7 @@ import { webviewFile, type WebviewName } from './entry.js';
 import type { HostMessage } from './protocol.js';
 
 /**
- * A view saying it has mounted and can be sent
- * state.
+ * What a webview is allowed to say.
  *
  * Parsed rather than trusted: this arrives from a
  * frame running scripts. It lives here rather than
@@ -16,12 +15,57 @@ import type { HostMessage } from './protocol.js';
  * use for — a webview may import this file for a
  * type, never for a value.
  *
+ * A node arrives as `unknown` and is parsed
+ * against the catalog by whoever is about to put
+ * it in a document. Doing it here would put the
+ * whole node union into every schema this file
+ * holds, and the check belongs next to the write
+ * it guards.
+ */
+const Ready = z.object({ type: z.literal('ready') });
+
+/**
  * Views are torn down and re-resolved whenever
  * they are hidden and shown again, so this arrives
  * many times over one session and the host answers
  * every one of them.
  */
-export const WebviewMessageSchema = z.object({ type: z.literal('ready') });
+const Select = z.object({
+  type: z.literal('select'),
+  nodeId: z.string().nullable(),
+});
+
+const Connect = z.object({
+  type: z.literal('connect'),
+  baseRevision: z.number().int(),
+  from: z.object({ node: z.string(), port: z.string() }),
+  to: z.object({ node: z.string() }),
+});
+
+const Edit = z.object({
+  type: z.literal('edit'),
+  baseRevision: z.number().int(),
+  node: z.unknown(),
+});
+
+/**
+ * The JSON view committing what somebody typed.
+ *
+ * The text goes into the document as it is: it is
+ * a text view of a text file, and the revision it
+ * carries is a field on screen. Reserializing it
+ * or raising that number would move the document
+ * under the person editing it.
+ */
+const Text = z.object({ type: z.literal('text'), text: z.string() });
+
+export const WebviewMessageSchema = z.discriminatedUnion('type', [
+  Ready,
+  Select,
+  Connect,
+  Edit,
+  Text,
+]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
 
@@ -42,6 +86,7 @@ export type Mounted = {
   extensionUri: Uri;
   view: WebviewName;
   title: string;
+
   /**
    * Called for every `ready`, not once.
    *
@@ -54,6 +99,10 @@ export type Mounted = {
    * panel.
    */
   init: () => HostMessage;
+
+  /** Everything the view says that is not "I have
+   *  mounted". */
+  onMessage?: (message: WebviewMessage) => void;
 };
 
 export function mountWebview(webview: Webview, mounted: Mounted): Disposable {
@@ -87,6 +136,12 @@ export function mountWebview(webview: Webview, mounted: Mounted): Disposable {
     const parsed = WebviewMessageSchema.safeParse(message);
     if (!parsed.success) return;
 
-    if (parsed.data.type === 'ready') void webview.postMessage(mounted.init());
+    if (parsed.data.type === 'ready') {
+      void webview.postMessage(mounted.init());
+
+      return;
+    }
+
+    mounted.onMessage?.(parsed.data);
   });
 }
