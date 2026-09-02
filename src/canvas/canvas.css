@@ -1,0 +1,378 @@
+@import '../webview/tokens.css';
+
+/**
+ * The canvas surface.
+ *
+ * A blueprint, not a diagramming app: the plotting
+ * grid underneath, square corners, hairline
+ * borders, and a condensed face on the titles. The
+ * one thing drawn in ink rather than in pencil is
+ * the wire type, because a workflow's whole
+ * argument is which values flow where.
+ *
+ * Nothing here sets a node's width or height. Both
+ * come from the metrics core laid the graph out
+ * with, applied by the graph library to the
+ * wrapper this fills.
+ */
+
+.canvas {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+/* — the toolbar — */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.segments {
+  display: flex;
+}
+
+.segment {
+  appearance: none;
+  border: 1px solid var(--color-divider);
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+.segment + .segment {
+  border-left: 0;
+}
+.segment[aria-pressed='true'] {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--vscode-button-foreground, var(--color-bg));
+}
+
+.toolbar .caption {
+  margin: 0;
+  font-size: var(--text-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* — the two columns — */
+
+.workspace {
+  display: grid;
+  grid-template-columns: 204px 1fr;
+  min-height: 0;
+}
+
+.palette {
+  border-right: 1px solid var(--color-divider);
+  padding: var(--space-3);
+  overflow-y: auto;
+}
+.palette > .eyebrow {
+  margin-bottom: var(--space-3);
+}
+
+.drawer {
+  margin-bottom: var(--space-4);
+}
+
+.drawer-name {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-eyebrow);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* Every entry is the same square tag, so the two
+   sections read as one list of things that can go
+   on the canvas — which is what they are. */
+.chip {
+  margin: 0 0 var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-divider);
+  background: var(--tint-text);
+  font-size: var(--text-caption);
+  cursor: grab;
+}
+.chip:hover {
+  border-color: var(--color-accent);
+}
+
+.lib-fn {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.signature {
+  font-size: var(--text-eyebrow);
+  overflow-wrap: anywhere;
+}
+
+.drawer-empty {
+  margin: 0;
+  font-size: var(--text-caption);
+}
+
+/* The one line of chrome that belongs to a
+   proposal rather than to the file. The mockup puts
+   it in the tab strip, which no extension can write
+   into, so it sits at the far end of the toolbar —
+   the same place, as far as a reader is
+   concerned. */
+.preview-line {
+  margin: 0 0 0 auto;
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+/* — the graph — */
+
+.graph {
+  position: relative;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-flow {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+/* — a proposal, over the graph it is about — */
+
+/* Dashed, like the blocks under it: the whole strip
+   is about something that has not happened. */
+.preview-banner {
+  border-bottom: 1px dashed var(--color-accent);
+  background: var(--tint-accent);
+  padding: var(--space-2) var(--space-3);
+}
+
+.preview-summary {
+  margin: 0;
+  font-size: var(--text-caption);
+}
+
+.preview-nodes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-eyebrow);
+}
+
+.preview-node {
+  border: 1px dashed color-mix(in srgb, var(--color-accent) 60%, transparent);
+  padding: 0 var(--space-1);
+}
+
+.graph-caption {
+  position: absolute;
+  left: var(--space-3);
+  bottom: var(--space-3);
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg);
+  border: 1px solid var(--color-divider);
+  font-size: var(--text-caption);
+  z-index: 5;
+}
+
+/* The callout the design system uses for anything
+   under discussion, carrying core's own sentence
+   about the wire that was refused. */
+.rejection {
+  position: absolute;
+  right: var(--space-6);
+  bottom: var(--space-6);
+  max-width: 44ch;
+  background: var(--color-bg);
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-md);
+  z-index: 5;
+}
+.rejection .eyebrow {
+  color: var(--color-accent);
+  margin-bottom: var(--space-1);
+}
+.rejection p:last-child {
+  margin: 0;
+  font-size: var(--text-caption);
+}
+
+/* — one block — */
+
+.block {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: var(--space-2);
+  background: var(--color-bg);
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+}
+.block[data-selected='true'] {
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-md);
+}
+.block-transaction {
+  border-color: var(--color-accent);
+  background: var(--tint-accent);
+}
+
+/* A block that is not there yet: pencil over the
+   drawing. Translucent rather than tinted, so the
+   plotting grid reads through it and the block
+   cannot be mistaken for one that was drawn. */
+.block[data-proposed='true'] {
+  border: 1px dashed var(--color-accent);
+  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  box-shadow: none;
+}
+
+.block-title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--font-size);
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.block-id {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-eyebrow);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+/* One row per line core allotted the kind, at the
+   height it allotted them, so the box is the box
+   the coordinates were computed for. */
+.block-summary {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-caption);
+}
+.block-summary li {
+  height: 22px;
+  line-height: 22px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.port-label {
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: var(--text-eyebrow);
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+/* — wires — */
+
+.react-flow__edge .wire {
+  stroke: color-mix(in srgb, var(--color-text) 45%, transparent);
+  stroke-width: 1.5;
+}
+.react-flow__edge .wire-back {
+  stroke: var(--color-accent);
+  stroke-dasharray: 5 4;
+}
+
+/* Above the blocks. A type name is a small chip and
+   the graph is a column, so a label will sometimes
+   land over a block — better read there than
+   hidden behind it. */
+.react-flow__edgelabel-renderer {
+  z-index: 4;
+}
+
+.wire-label {
+  position: absolute;
+  padding: 0 var(--space-1);
+  background: var(--color-bg);
+  border: 1px solid var(--color-divider);
+  font-size: var(--text-eyebrow);
+  pointer-events: none;
+}
+
+/* The library ships rounded handles and a blue
+   that belongs to no theme. They sit half outside
+   the block, which is why nothing on a block may
+   clip its overflow — a clipped handle is one a
+   pointer cannot find, and the only symptom is a
+   wire that will not start. */
+.react-flow__handle {
+  width: 7px;
+  height: 7px;
+  border-radius: 0;
+  border: 1px solid var(--color-text);
+  background: var(--color-bg);
+}
+/* Mid-drag, the library marks the handle a wire is
+   over, and marks it again once it has asked
+   whether the wire may be drawn. */
+.react-flow__handle.connectingto {
+  background: var(--vscode-editorError-foreground, #c4314b);
+  border-color: var(--vscode-editorError-foreground, #c4314b);
+}
+.react-flow__handle.connectingto.valid {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.react-flow__attribution {
+  display: none;
+}
+
+/* — the JSON view, and the unreadable one — */
+
+.json {
+  min-width: 0;
+  display: flex;
+}
+.json textarea {
+  flex: 1;
+  border: 0;
+  resize: none;
+  padding: var(--space-3);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: var(--font-size);
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+.unreadable {
+  padding: var(--space-8);
+}
+.unreadable p {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}
+.unreadable .title {
+  font-size: var(--text-title);
+}

@@ -1,0 +1,6 @@
+node_modules
+coverage
+dist
+mboss-core
+mboss-mcp-server
+mboss-skills

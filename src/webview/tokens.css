@@ -1,0 +1,217 @@
+/**
+ * The Industry design system, inside an editor.
+ *
+ * The web console implements this system against a
+ * fixed paper ground. A webview cannot: it sits
+ * inside whatever theme the user chose, and a
+ * panel that ignores that is the one thing every
+ * VS Code user notices immediately. So the system
+ * is split in two.
+ *
+ * Chrome roles — ground, surface, text, accent,
+ * divider, shadow, the body and mono faces — are
+ * re-pointed onto the `--vscode-*` variables the
+ * webview host injects, with the web console's own
+ * values as the fallback for a harness page that
+ * has no host. These follow the user's theme,
+ * including high contrast.
+ *
+ * Voice roles — the spacing rhythm, the type
+ * ratios, the condensed display face, the square
+ * corners, the hairline borders, the registration
+ * marks and the plotting grid — are
+ * chrome-independent and are ported unchanged.
+ * They are what makes a panel recognisably mBoss
+ * in any theme.
+ *
+ * Add a rule here only when an element carries the
+ * class. A rule for a class nothing uses outlives
+ * the reason it was written.
+ */
+
+:root {
+  /* — chrome: follows the editor — */
+
+  --color-bg: var(--vscode-editor-background, #f2f2f3);
+  --color-surface: var(--vscode-editorWidget-background, #e9e9ea);
+  --color-text: var(--vscode-foreground, #1d1f20);
+  --color-accent: var(--vscode-textLink-foreground, #5980a6);
+  --color-accent-2: var(--vscode-textLink-activeForeground, #728fab);
+  --color-divider: color-mix(in srgb, var(--color-text) 16%, transparent);
+
+  /* Elevation reads as ink pooling under the sheet
+     rather than as a glow, and the theme is the
+     only thing that knows which way that pools. */
+  --shadow-sm: 0 1px 2px var(--vscode-widget-shadow, rgb(43 43 45 / 14%));
+  --shadow-md: 0 3px 10px var(--vscode-widget-shadow, rgb(43 43 45 / 16%));
+
+  /* The tonal steps the web console hand-tunes as
+     hex ramps. Mixed against the live ground
+     instead, because there is no fixed ground here
+     and a hand-tuned light ramp is unreadable on a
+     dark one. The step relationships survive. */
+  --tint-accent: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg));
+  --tint-text: color-mix(in srgb, var(--color-text) 8%, var(--color-bg));
+
+  /* — voice: fixed — */
+
+  /* Barlow Condensed is the system's display face.
+     Nothing is vendored: a webview may only load a
+     font the extension ships, and shipping one is a
+     later, deliberate addition. Until then the
+     stack names the intent and reaches for whatever
+     condensed face the platform already has. */
+  --font-heading:
+    'Barlow Condensed', 'Oswald', 'Roboto Condensed', 'Avenir Next Condensed',
+    'Arial Narrow', 'DejaVu Sans Condensed', var(--vscode-font-family),
+    system-ui, sans-serif;
+  --font-heading-weight: 600;
+  --font-body: var(--vscode-font-family, system-ui, sans-serif);
+  /* Type names, node ids, SQL and diffs read as
+     code, so they are set in the face the user
+     already reads code in. */
+  --font-mono: var(--vscode-editor-font-family, ui-monospace, Menlo, monospace);
+
+  /* The web console's scale opens at 42px, which is
+     a marketing page's scale. A panel is 300px
+     wide. The ratios are the system's; the base is
+     the editor's, so the panel matches the density
+     the user set. */
+  --font-size: var(--vscode-font-size, 13px);
+  --text-eyebrow: calc(var(--font-size) * 0.8);
+  --text-caption: calc(var(--font-size) * 0.85);
+  --text-title: calc(var(--font-size) * 1.3);
+  --text-display: calc(var(--font-size) * 1.9);
+
+  --space-1: 3.4px;
+  --space-2: 6.8px;
+  --space-3: 10.2px;
+  --space-4: 13.6px;
+  --space-6: 20.4px;
+  --space-8: 27.2px;
+}
+
+/* High-contrast themes draw structure with borders
+   rather than with fills, and publish the one
+   colour they draw them in. A 16% mix of the
+   foreground is not that colour. */
+body.vscode-high-contrast,
+body.vscode-high-contrast-light {
+  --color-divider: var(--vscode-contrastBorder, var(--color-text));
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  line-height: 1.55;
+}
+
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, var(--color-accent));
+  outline-offset: 2px;
+}
+
+/* — the blueprint frame — */
+
+/* Registration marks sit outside the box, so a
+   blueprint needs 6px of clear space around it and
+   an ancestor that does not clip. */
+.blueprint {
+  position: relative;
+  border: 1px solid var(--color-divider);
+  border-radius: 0;
+  background: transparent;
+  padding: var(--space-4);
+}
+.blueprint > .corner {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+.blueprint > .corner::before,
+.blueprint > .corner::after {
+  content: '';
+  position: absolute;
+  background: currentColor;
+}
+.blueprint > .corner::before {
+  left: 5px;
+  top: 0;
+  width: 1px;
+  height: 100%;
+}
+.blueprint > .corner::after {
+  top: 5px;
+  left: 0;
+  width: 100%;
+  height: 1px;
+}
+.blueprint > .corner.tl {
+  top: -6px;
+  left: -6px;
+}
+.blueprint > .corner.tr {
+  top: -6px;
+  right: -6px;
+}
+.blueprint > .corner.bl {
+  bottom: -6px;
+  left: -6px;
+}
+.blueprint > .corner.br {
+  bottom: -6px;
+  right: -6px;
+}
+
+/* The plotting grid a workflow is drawn on. It is
+   the product's most recognisable surface, so the
+   marketing art and the editor share one
+   definition of it. */
+.canvas-grid {
+  background-color: var(--color-bg);
+  background-image: radial-gradient(
+    color-mix(in srgb, var(--color-text) 10%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 18px 18px;
+}
+
+/* — text — */
+
+/* The small-caps label the system sets section
+   headers and eyebrows in. Colour is set per use,
+   since the same label reads as accent on a public
+   page and as neutral in a panel. */
+.eyebrow {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-title);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.text-muted {
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}

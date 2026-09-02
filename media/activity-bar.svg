@@ -1,0 +1,19 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 24 24"
+  width="24"
+  height="24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="2"
+>
+  <!--
+    An m drawn the way the system draws everything
+    else: square corners, one stroke weight, no
+    curves. Read as a letter it is the product's
+    initial; read as a drawing it is three stems
+    off one rail, which is what a workflow is.
+  -->
+  <path d="M5 20V7h14v13" />
+  <path d="M12 20V7" />
+</svg>

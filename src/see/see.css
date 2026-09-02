@@ -1,0 +1,406 @@
+@import '../webview/tokens.css';
+
+/**
+ * One run, in an editor tab.
+ *
+ * The page's argument is that durability is rows,
+ * so it is laid out as a document that quotes its
+ * own sources: a banner, a strip of steps, a chart,
+ * and then the two tables the whole thing was read
+ * out of, named in the face code is read in.
+ *
+ * The one place boldness is spent is the hatched
+ * band. Everything else is flat rectangles on
+ * hairline tracks with square corners — no shadows,
+ * no rounding, no motion — so that the one diagonal
+ * texture on the page is unmistakably the thing
+ * that went wrong.
+ */
+
+body {
+  --color-fail: var(--vscode-editorError-foreground, var(--color-text));
+  --color-warn: var(--vscode-editorWarning-foreground, var(--color-accent));
+
+  /* The label column, named once: the band layer
+     and the time axis both have to start exactly
+     where the tracks do. */
+  --label-col: 12rem;
+
+  /* The one texture on the page, defined once. */
+  --hatch: repeating-linear-gradient(
+    45deg,
+    color-mix(in srgb, var(--color-fail) 26%, transparent) 0 2px,
+    transparent 2px 6px
+  );
+}
+
+.see {
+  box-sizing: border-box;
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  gap: var(--space-8);
+  padding: var(--space-6);
+  align-items: start;
+}
+
+/* One column once the rail has nowhere to go. */
+@media (width < 60rem) {
+  .see {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-6);
+  }
+}
+
+.see-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+.state {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+
+/* — the head — */
+
+.crumb {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-caption);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.see-head > .title[data-severity='failed'],
+.see-head > .title[data-severity='exhausted'] {
+  color: var(--color-fail);
+}
+
+.see-head > .title[data-severity='running'] {
+  color: var(--color-warn);
+}
+
+/* — the banner — */
+
+.recovered {
+  background: var(--tint-accent);
+}
+
+.recovered > .eyebrow {
+  color: var(--color-accent);
+  margin-bottom: var(--space-2);
+}
+
+.recovered-body {
+  margin: 0;
+  max-width: 62ch;
+}
+
+/* — the step strip — */
+
+.chips {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+}
+
+/* The arrow between chips is the strip's only
+   punctuation, and it says the run is a sequence —
+   which it is, and which is the one thing the
+   order here carries. */
+.chips > li + li::before {
+  content: '→';
+  margin-right: var(--space-2);
+  color: color-mix(in srgb, var(--color-text) 40%, transparent);
+}
+
+.chips > li {
+  display: flex;
+  align-items: center;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  border: 1px solid var(--color-divider);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-caption);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+}
+
+.chip[aria-current='true'] {
+  border-color: var(--color-text);
+  background: var(--tint-text);
+}
+
+.chip-mark {
+  color: var(--color-accent);
+}
+
+.chip[data-failed='true'] .chip-mark {
+  color: var(--color-fail);
+}
+
+.chip-restored {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+/* — the chart — */
+
+.legend {
+  margin: var(--space-1) 0 var(--space-3);
+  font-size: var(--text-caption);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.hatch-key {
+  display: inline-block;
+  width: 2.2em;
+  height: 0.8em;
+  vertical-align: -1px;
+  border: 1px solid var(--color-fail);
+  background: var(--hatch);
+}
+
+.chart-rows {
+  position: relative;
+}
+
+.chart-row {
+  display: grid;
+  grid-template-columns: var(--label-col) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  padding: 2px 0;
+}
+
+.chart-label {
+  font-size: var(--text-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.track {
+  position: relative;
+  display: block;
+  height: 14px;
+  border-top: 1px solid var(--color-divider);
+}
+
+/* The layer the band lives in: exactly the tracks,
+   across every row, so a percentage here means what
+   a percentage on a bar means. */
+.band-layer {
+  position: absolute;
+  inset: 0 0 0 calc(var(--label-col) + var(--space-3));
+}
+
+/* The signature.
+
+   A hole in the record, drawn as one: diagonal
+   hatching where there is nothing to plot, a dashed
+   red edge on the side the process was last seen
+   and a dashed accent edge on the side DBOS picked
+   it back up. One rectangle down the whole chart,
+   because nothing ran anywhere in it — and behind
+   the bars, because the bars are what happened. */
+.band {
+  position: absolute;
+  inset-block: 0;
+  background: var(--hatch);
+  border-left: 1px dashed var(--color-fail);
+  border-right: 1px dashed var(--color-accent);
+}
+
+.bar {
+  position: absolute;
+  inset-block: 3px;
+  background: var(--color-accent);
+}
+
+/* A restored step is drawn hollow: its bar is where
+   it ran the first time, and nothing ran there
+   again. */
+.bar[data-restored='true'] {
+  background: transparent;
+  border: 1px solid var(--color-accent);
+}
+
+.bar[data-failed='true'] {
+  background: var(--color-fail);
+}
+
+.bar[aria-current='true'] {
+  outline: 1px solid var(--color-text);
+  outline-offset: 1px;
+}
+
+/* Inset to match the tracks, so the percentages
+   these labels carry mean what the band's do. Not
+   uppercased, unlike every other small label here:
+   one of them ends in a unit, and `2.9 S` is not a
+   unit. */
+.band-labels {
+  position: relative;
+  height: 1.4em;
+  margin: var(--space-1) 0 0;
+  margin-left: calc(var(--label-col) + var(--space-3));
+  font-size: var(--text-caption);
+}
+
+.band-labels > span {
+  position: absolute;
+  padding: 0 var(--space-1);
+  white-space: nowrap;
+}
+
+.band-labels > .down {
+  color: var(--color-fail);
+}
+
+.band-labels > .resumed {
+  color: var(--color-accent);
+}
+
+.ticks {
+  position: relative;
+  height: 1.4em;
+  margin: var(--space-1) 0 0;
+  margin-left: calc(var(--label-col) + var(--space-3));
+}
+
+.ticks > span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: var(--text-eyebrow);
+  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+  white-space: nowrap;
+}
+
+/* — the raw table — */
+
+.raw-block > .eyebrow {
+  color: var(--color-accent);
+  margin-bottom: var(--space-2);
+}
+
+.raw {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  table-layout: fixed;
+}
+
+.raw th,
+.raw td {
+  border-top: 1px solid var(--color-divider);
+  padding: var(--space-1) var(--space-2);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.raw th {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+}
+
+.raw tr[aria-current='true'] {
+  background: var(--tint-accent);
+}
+
+.raw .output {
+  width: 50%;
+  color: color-mix(in srgb, var(--color-text) 75%, transparent);
+}
+
+/* — the rail — */
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  position: sticky;
+  top: var(--space-6);
+}
+
+.rail .eyebrow {
+  color: var(--color-accent);
+  margin-bottom: var(--space-3);
+}
+
+.ledger {
+  margin: 0;
+}
+
+.ledger > div {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-top: 1px solid var(--color-divider);
+  font-size: var(--text-caption);
+}
+
+.ledger dt {
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.ledger dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.ledger-note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-eyebrow);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.replay-note {
+  margin: 0;
+  font-size: var(--text-caption);
+  border-left: 2px solid var(--color-accent);
+  padding-left: var(--space-2);
+}
+
+.primary {
+  border: 1px solid var(--color-accent);
+  border-radius: 0;
+  background: var(--color-accent);
+  color: var(--vscode-button-foreground, var(--color-bg));
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
