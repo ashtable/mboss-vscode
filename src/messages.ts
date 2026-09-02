@@ -26,8 +26,52 @@ import type { CanvasStrings, InspectorStrings } from './webview/protocol.js';
  * `l10n/bundle.l10n.json` is checked against.
  */
 export const messages = {
-  newProjectNotBuilt: () =>
-    l10n.t('Creating an mBoss project is not implemented in this build.'),
+  /**
+   * Creating a project writes an executable control
+   * plane into a folder, which is the decision
+   * workspace trust exists to make. It says so
+   * rather than greying the command out, because a
+   * palette entry that does nothing explains
+   * nothing.
+   */
+  newProjectNeedsTrust: () =>
+    l10n.t(
+      'Creating a project writes an mBoss server into a folder, so it waits until you trust this window.',
+    ),
+  newProjectFolderTitle: () => l10n.t('Where should the new project go?'),
+  newProjectFolderAccept: () => l10n.t('Create Here'),
+  newProjectNameTitle: () => l10n.t('What is the project called?'),
+  newProjectNamePlaceholder: () => l10n.t('my-app'),
+
+  /**
+   * The rule is core's, because the name is a
+   * directory, an npm package name, a compose
+   * project name and the name every run is recorded
+   * against all at once. This says it the way
+   * somebody typing can act on.
+   */
+  newProjectNameRefused: () =>
+    l10n.t(
+      'Lower-case letters, digits, hyphens and underscores, starting with a letter.',
+    ),
+  newProjectWorking: (name: string) => l10n.t('Creating {0}…', name),
+  newProjectFailed: (detail: string) =>
+    l10n.t('The project was not created: {0}', detail),
+
+  vendorRefreshOffer: () =>
+    l10n.t(
+      "This project's mBoss server and skill are not the ones this extension ships.",
+    ),
+  vendorRefreshDetail: (version: string) =>
+    l10n.t(
+      'Refreshing rewrites .mboss/mcp/ and both copies of the skill from {0}.',
+      version,
+    ),
+  vendorRefreshAccept: () => l10n.t('Refresh'),
+  vendorRefreshWorking: () => l10n.t('Refreshing the mBoss server and skill…'),
+  vendorRefreshFailed: (detail: string) =>
+    l10n.t('The mBoss server and skill were not refreshed: {0}', detail),
+
   openRunsNotBuilt: () =>
     l10n.t('The mBoss Runs view is not implemented in this build.'),
   chooseCodingAgentNotBuilt: () =>

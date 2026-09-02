@@ -94,7 +94,8 @@
     ]
   },
   "scripts": {
-    "build": "node src/build.ts",
+    "build:mcp": "npm --prefix mboss-mcp-server ci && npm --prefix mboss-mcp-server run build:bundle",
+    "build": "npm run build:mcp && node src/build.ts",
     "package": "npm run build && vsce package --no-dependencies",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -115,6 +116,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@modelcontextprotocol/client": "^2.0.0",
     "@playwright/test": "^1.62.1",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",

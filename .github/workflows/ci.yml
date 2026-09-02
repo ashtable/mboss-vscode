@@ -18,6 +18,13 @@ jobs:
           node-version-file: '.nvmrc'
           cache: 'npm'
       - run: npm ci
+      # The MCP server a new project is given is
+      # built in its own repository and shipped here
+      # as bytes — its dist/ is not tracked, so a
+      # checkout carries the source and not the
+      # bundle. Everything downstream that builds
+      # this extension needs it already there.
+      - run: npm run build:mcp
       - run: npm run lint
       # The suite builds the extension and packages a
       # VSIX of its own, because what it has to say

@@ -1,5 +1,5 @@
-import { cpSync, mkdirSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { basename, dirname, join, resolve } from 'node:path';
 
 import { build, type BuildOptions } from 'esbuild';
 
@@ -92,6 +92,41 @@ export const SCAFFOLD_TEMPLATES = [
  * directory Node's resolver will look in.
  */
 export const SHIPPED_PACKAGES = ['@types/node'] as const;
+
+/**
+ * The control plane a new project is given, and
+ * where it is found.
+ *
+ * Each comes from its own released pin. The server
+ * repository nests the skill too, and reaching
+ * through it would have been one submodule fewer —
+ * but its gitlink is behind the skill's own
+ * released branch, so that route ships a skill with
+ * a reference file missing and two rules unfixed.
+ * Two pins, and a spec here holds the pair to one
+ * tool surface.
+ *
+ * The server's `dist/` is not tracked anywhere — a
+ * checkout gives you its source, not its bundle —
+ * so this copies rather than builds, and the build
+ * that produces it is a separate script that
+ * installs and runs another repository's own.
+ *
+ * These paths are spelled here and read back
+ * through `src/vendor/assets.ts`. Plain `node` runs
+ * this file and will not follow a `.js` specifier
+ * to a `.ts` sibling, so the two spellings cannot
+ * be shared; `src/build.test.ts` asserts they agree.
+ */
+export const VENDORED_ASSETS = [
+  { from: 'mboss-mcp-server/dist/server.js', to: 'mcp/server.js' },
+  { from: 'mboss-mcp-server/dist/VERSION', to: 'mcp/VERSION' },
+  { from: 'mboss-skills/skills/mboss', to: 'skill' },
+] as const;
+
+/** What makes them, named in the failure that wants
+ *  them. */
+export const MCP_BUILD_COMMAND = 'npm run build:mcp';
 
 /**
  * A CommonJS module has no `import.meta`, and
@@ -191,6 +226,37 @@ export async function buildExtension(outdir: string = DIST): Promise<void> {
 
   copyScaffoldTemplates(outdir);
   copyShippedPackages(outdir);
+  copyVendoredAssets(outdir);
+}
+
+/**
+ * The MCP bundle and the skill, copied in as they
+ * are.
+ *
+ * Missing is a hard failure rather than a smaller
+ * package. A build that quietly shipped without
+ * these packages, installs, activates, and then
+ * fails at the one moment it was asked to make a
+ * project — which is the most expensive place to
+ * find out.
+ */
+export function copyVendoredAssets(outdir: string): void {
+  mkdirSync(outdir, { recursive: true });
+
+  for (const asset of VENDORED_ASSETS) {
+    const from = join(repoRoot, asset.from);
+    const to = join(outdir, asset.to);
+
+    if (!existsSync(from)) {
+      throw new Error(
+        `the vendored control plane is not built at ${from} — ` +
+          `run \`${MCP_BUILD_COMMAND}\``,
+      );
+    }
+
+    mkdirSync(dirname(to), { recursive: true });
+    cpSync(from, to, { recursive: true });
+  }
 }
 
 /**

@@ -11,6 +11,11 @@ const never = (): Promise<CodegenRun> => {
   throw new Error('this command should not have generated anything');
 };
 
+/** The same, for creating a project. */
+const noProject = (): Promise<void> => {
+  throw new Error('this command should not have created anything');
+};
+
 /** An editor that only records what it was asked. */
 function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
   const shown: string[] = [];
@@ -41,27 +46,43 @@ describe('the contributed commands', () => {
       packageManifest().contributes as { commands: { command: string }[] }
     ).commands.map((entry) => entry.command);
 
-    expect(Object.keys(commandHandlers(recorder(), never)).sort()).toEqual(
-      [...contributed].sort(),
-    );
+    expect(
+      Object.keys(commandHandlers(recorder(), never, noProject)).sort(),
+    ).toEqual([...contributed].sort());
   });
 
   it('say so rather than doing nothing quietly', async () => {
     const api = recorder();
-    const handlers = commandHandlers(api, never);
+    const handlers = commandHandlers(api, never, noProject);
 
-    await handlers['mboss.newProject']?.();
     await handlers['mboss.openRuns']?.();
     await handlers['mboss.chooseCodingAgent']?.();
 
-    expect(api.shown).toHaveLength(3);
+    expect(api.shown).toHaveLength(2);
     for (const message of api.shown) expect(message.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * Creating a project is somebody else's whole
+   * module. What this table owes it is the click.
+   */
+  it('hands the click for a new project straight on', async () => {
+    const asked: string[] = [];
+    const handlers = commandHandlers(
+      recorder(),
+      never,
+      async () => void asked.push('new project'),
+    );
+
+    await handlers['mboss.newProject']?.();
+
+    expect(asked).toEqual(['new project']);
   });
 
   it('reveals the agent view rather than describing it', async () => {
     const api = recorder();
 
-    await commandHandlers(api, never)['mboss.openAgentSidebar']?.();
+    await commandHandlers(api, never, noProject)['mboss.openAgentSidebar']?.();
 
     expect(api.ran).toEqual(['mboss.agentSidebar.focus']);
     expect(api.shown).toEqual([]);
@@ -69,16 +90,17 @@ describe('the contributed commands', () => {
 });
 
 /**
- * Generating code is the one command with something
- * behind it, and every way it can end says
- * something: a person who asked for code and got
- * none is owed the reason.
+ * Every way generating code can end says something:
+ * a person who asked for code and got none is owed
+ * the reason.
  */
 describe('generating code', () => {
   const ran = async (run: CodegenRun): Promise<string[]> => {
     const api = recorder();
 
-    await commandHandlers(api, async () => run)['mboss.generateCode']?.();
+    await commandHandlers(api, async () => run, noProject)[
+      'mboss.generateCode'
+    ]?.();
 
     return api.shown;
   };

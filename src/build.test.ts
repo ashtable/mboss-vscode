@@ -22,6 +22,14 @@ import {
   hostOptions,
 } from './build.js';
 import { REPO_ROOT, fileExists } from './test-support/repo.js';
+// Deliberately the module the *extension* reads its
+// vendored assets through, not the build's own
+// spelling of the same paths. Plain `node` runs the
+// build script and will not follow a `.js`
+// specifier to a `.ts` sibling, so the two cannot
+// share a constant — this is where they are held
+// together instead.
+import { shippedVendor } from './vendor/index.js';
 // Deliberately the module the *host* asks for a
 // bundle through, not the build's own spelling of
 // the same path. The two agreeing is the thing
@@ -58,9 +66,13 @@ function outputs(dir: string): string[] {
 
 describe('the built extension', () => {
   let outdir: string;
+  /** The root an installed extension would have:
+   *  the one holding `dist/`. */
+  let root: string;
 
   beforeAll(async () => {
-    outdir = scratchDir();
+    root = scratchDir();
+    outdir = join(root, 'dist');
     await buildExtension(outdir);
   });
 
@@ -151,6 +163,25 @@ describe('the built extension', () => {
   });
 
   /**
+   * The MCP server and the skill, at the paths the
+   * extension goes looking for them.
+   *
+   * Read back through the vendor module rather than
+   * checked against the build's own constants,
+   * because a build that put them somewhere else
+   * would still be internally consistent — and the
+   * failure would only appear the first time
+   * somebody asked for a new project.
+   */
+  it('ships the control plane a new project gets', () => {
+    const vendor = shippedVendor(root);
+
+    expect(vendor.version()).toMatch(/^\S+$/);
+    expect(vendor.bundle().server.length).toBeGreaterThan(1_000_000);
+    expect(vendor.skill().map((file) => file.path)).toContain('SKILL.md');
+  });
+
+  /**
    * The bundle loading at all, away from
    * everything that built it.
    *
@@ -210,12 +241,11 @@ describe('the built extension', () => {
  * run time from a packaged VSIX with every test
  * short of a real install passing.
  *
- * Nothing in this task calls `scaffoldProject`
- * yet, so this builds a probe with the host's own
- * options rather than reading the shipped bundle.
- * When the project-creation command is wired up,
- * assert it against the real bundle instead of
- * this stand-in.
+ * This builds a probe with the host's own options,
+ * so a failure names the mechanism rather than a
+ * command. The same question asked of the real
+ * bundle, through the command a person actually
+ * runs, is in the project-creation spec.
  */
 describe('the scaffold templates, read back', () => {
   let read: string[];

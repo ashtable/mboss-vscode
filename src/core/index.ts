@@ -3,17 +3,20 @@ import { dirname, join } from 'node:path';
 
 import {
   MBOSS_DIRNAME,
+  ProjectNameSchema,
   WorkflowIRSchema,
   compileProject,
   layout,
   loadOrScan,
   mbossDirOf,
+  scaffoldProject,
   validateWorkflow,
   workflowsDir,
   type CompileResult,
   type Diagnostic,
   type LibManifest,
   type NodeBox,
+  type ScaffoldOptions,
   type WorkflowIR,
 } from '@mboss/core';
 
@@ -188,6 +191,43 @@ export function manifestFor(project: string): LibManifest | undefined {
  *  all. */
 export function isProject(dir: string): boolean {
   return existsSync(mbossDirOf(dir));
+}
+
+/**
+ * Whether core would accept this as a project name.
+ *
+ * Asked while somebody types, so it answers rather
+ * than throwing. The rule is core's: the name is a
+ * directory, an npm package name, a compose project
+ * name and the name every run is recorded against,
+ * so it is not this extension's to soften. What to
+ * say about a refusal is the caller's, because a
+ * string a person reads has to be localized and
+ * nothing in here is.
+ */
+export function isProjectName(name: string): boolean {
+  return ProjectNameSchema.safeParse(name).success;
+}
+
+/**
+ * Creates a project, control plane included.
+ *
+ * The bundle is passed in rather than written
+ * afterwards, because core's scaffold decides what
+ * a project is made of and does it as one refusal-
+ * or-nothing pass: a name it cannot use leaves the
+ * directory exactly as it was found. Writing the
+ * server in behind its back would put half a
+ * project on disk when the other half was refused.
+ *
+ * The bundle is around eighteen megabytes of text
+ * and is read for exactly the length of this call.
+ */
+export async function createProject(
+  dir: string,
+  options: ScaffoldOptions,
+): Promise<void> {
+  await scaffoldProject(dir, options);
 }
 
 /** A project's control directory: everything about

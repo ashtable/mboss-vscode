@@ -10,6 +10,8 @@ export default tseslint.config(
       'dist/**',
       // Nested submodules lint in their own repos.
       'mboss-core/**',
+      'mboss-mcp-server/**',
+      'mboss-skills/**',
     ],
   },
   js.configs.recommended,

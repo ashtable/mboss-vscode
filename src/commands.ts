@@ -5,15 +5,21 @@ import type { CodegenRun } from './watchers/index.js';
 /**
  * What each contributed command does.
  *
- * The three that are not built yet say so. A
- * command that silently swallows the click is
+ * The two that are not built yet say so. A command
+ * that silently swallows the click is
  * indistinguishable from one that is broken, and a
  * user with no way to tell the difference reports
- * the wrong bug. The same goes for the one that is
- * built: a person who asked for code and got
- * nothing is owed the reason, whether that is a
- * folder they have not trusted or a workflow that
- * would not compile.
+ * the wrong bug. The same goes for the ones that
+ * are built: a person who asked for code — or for a
+ * project — and got nothing is owed the reason,
+ * whether that is a folder they have not trusted or
+ * a workflow that would not compile.
+ *
+ * The two with real work behind them take it as an
+ * argument. What creating a project involves is not
+ * this table's business, and a table that knew
+ * would be where every later command's plumbing
+ * ended up.
  *
  * Every key here is contributed in `package.json`,
  * and every command contributed there is a key
@@ -24,11 +30,10 @@ import type { CodegenRun } from './watchers/index.js';
 export function commandHandlers(
   api: VsCodeApi,
   generateCode: () => Promise<CodegenRun>,
+  newProject: () => Promise<void>,
 ): Record<string, () => Promise<void>> {
   return {
-    'mboss.newProject': async () => {
-      api.info(messages.newProjectNotBuilt());
-    },
+    'mboss.newProject': newProject,
     'mboss.openRuns': async () => {
       api.info(messages.openRunsNotBuilt());
     },

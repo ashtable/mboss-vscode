@@ -21,6 +21,8 @@ tests/**
 test-results/**
 playwright-report/**
 mboss-core/**
+mboss-mcp-server/**
+mboss-skills/**
 node_modules/**
 
 .gitignore

@@ -30,3 +30,28 @@ describe('the nested library', () => {
     expect(gitmodules).toMatch(/^\s*path = mboss-core$/m);
   });
 });
+
+/**
+ * And the two the extension ships copies of.
+ *
+ * The server's repository nests the skill as well,
+ * so one pin would have done — except that its
+ * gitlink sits on an older revision than the
+ * skill's own released branch, and vendoring
+ * through it ships a skill missing a reference file
+ * and carrying two rules its author has since
+ * corrected. Two pins, named here, and the tool
+ * surface they have to agree on is asserted where
+ * the assets are read.
+ */
+describe('the vendored control plane', () => {
+  it('takes the server from its released branch', () => {
+    expect(gitmodules).toMatch(/^\s*path = mboss-mcp-server$/m);
+    expect(gitmodules).toMatch(/^\s*branch = mcp-server-v0\.0\.1$/m);
+  });
+
+  it('takes the skill from its own released branch', () => {
+    expect(gitmodules).toMatch(/^\s*path = mboss-skills$/m);
+    expect(gitmodules).toMatch(/^\s*branch = skills-v0\.0\.1$/m);
+  });
+});

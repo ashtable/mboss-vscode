@@ -91,6 +91,18 @@ describe('the packaged extension', () => {
   it('ships the assets it copies into a project', () => {
     expect(has('dist/app/')).toBe(true);
     expect(has('dist/workflows/index.ts')).toBe(true);
+    expect(has('dist/mcp/server.js')).toBe(true);
+    expect(has('dist/mcp/VERSION')).toBe(true);
+    expect(has('dist/skill/SKILL.md')).toBe(true);
+    expect(has('dist/skill/references/')).toBe(true);
+  });
+
+  /** The two checkouts they were copied out of are
+   *  build context, not something a user installs. */
+  it('ships no nested source', () => {
+    expect(has('mboss-core/')).toBe(false);
+    expect(has('mboss-mcp-server/')).toBe(false);
+    expect(has('mboss-skills/')).toBe(false);
   });
 
   /** Core resolves these while it is still loading;

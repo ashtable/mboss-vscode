@@ -28,13 +28,24 @@ import {
  * finds all of them.
  */
 
-/** Every string literal passed to `l10n.t`. */
+/**
+ * Every string literal passed to `l10n.t`.
+ *
+ * Both quote styles, because the formatter picks
+ * the one that needs no escaping — a sentence with
+ * an apostrophe in it comes out double-quoted. A
+ * scanner that only knew about single quotes would
+ * quietly stop checking exactly those sentences.
+ */
 function translatedStrings(): string[] {
-  const call = /\bl10n\.t\(\s*'([^'\\]*)'/g;
+  const call = /\bl10n\.t\(\s*(?:'([^'\\]*)'|"([^"\\]*)")/g;
 
   return sourceFiles().flatMap((path) => {
     const source = readFileSync(path, 'utf8');
-    return [...source.matchAll(call)].map((match) => match[1] ?? '');
+
+    return [...source.matchAll(call)].map(
+      (match) => match[1] ?? match[2] ?? '',
+    );
   });
 }
 
