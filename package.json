@@ -53,8 +53,29 @@
         "command": "mboss.chooseCodingAgent",
         "title": "%commands.chooseCodingAgent.title%",
         "category": "%commands.category%"
+      },
+      {
+        "command": "_mboss.refreshRuns#sideBar",
+        "title": "%commands.refreshRuns.title%",
+        "category": "%commands.category%",
+        "icon": "$(refresh)"
       }
     ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "_mboss.refreshRuns#sideBar",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "_mboss.refreshRuns#sideBar",
+          "when": "view == mboss.runs",
+          "group": "navigation@1"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
@@ -77,6 +98,11 @@
           "id": "mboss.nodeInspector",
           "name": "%views.nodeInspector.name%",
           "when": "mboss.nodeSelected"
+        },
+        {
+          "type": "webview",
+          "id": "mboss.runs",
+          "name": "%views.runs.name%"
         }
       ]
     },
@@ -136,6 +162,7 @@
     "package": "npm run build && vsce package --no-dependencies",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:webview": "playwright test",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
@@ -143,6 +170,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
+    "@dbos-inc/dbos-sdk": "^4.27.6",
     "@types/node": "^24.13.3",
     "@xyflow/react": "^12.11.6",
     "elkjs": "^0.12.0",

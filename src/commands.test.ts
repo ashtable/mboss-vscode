@@ -21,6 +21,11 @@ const noAgent = (): Promise<void> => {
   throw new Error('this command should not have chosen anything');
 };
 
+/** The same, for reading a run history again. */
+const noRefresh = (): Promise<void> => {
+  throw new Error('this command should not have read anything');
+};
+
 /** An editor that only records what it was asked. */
 function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
   const shown: string[] = [];
@@ -53,19 +58,9 @@ describe('the contributed commands', () => {
 
     expect(
       Object.keys(
-        commandHandlers(recorder(), never, noProject, noAgent),
+        commandHandlers(recorder(), never, noProject, noAgent, noRefresh),
       ).sort(),
     ).toEqual([...contributed].sort());
-  });
-
-  it('says so rather than doing nothing quietly', async () => {
-    const api = recorder();
-    const handlers = commandHandlers(api, never, noProject, noAgent);
-
-    await handlers['mboss.openRuns']?.();
-
-    expect(api.shown).toHaveLength(1);
-    for (const message of api.shown) expect(message.length).toBeGreaterThan(0);
   });
 
   /**
@@ -80,22 +75,40 @@ describe('the contributed commands', () => {
       never,
       async () => void asked.push('new project'),
       async () => void asked.push('choose agent'),
+      async () => void asked.push('read runs again'),
     );
 
     await handlers['mboss.newProject']?.();
     await handlers['mboss.chooseCodingAgent']?.();
+    await handlers['_mboss.refreshRuns#sideBar']?.();
 
-    expect(asked).toEqual(['new project', 'choose agent']);
+    expect(asked).toEqual(['new project', 'choose agent', 'read runs again']);
   });
 
   it('reveals the agent view rather than describing it', async () => {
     const api = recorder();
 
-    await commandHandlers(api, never, noProject, noAgent)[
+    await commandHandlers(api, never, noProject, noAgent, noRefresh)[
       'mboss.openAgentSidebar'
     ]?.();
 
     expect(api.ran).toEqual(['mboss.agentSidebar.focus']);
+    expect(api.shown).toEqual([]);
+  });
+
+  /**
+   * The same shape, for the same reason: which run
+   * to open is a click on a row, and a palette
+   * entry would have to ask which one first.
+   */
+  it('reveals the run list rather than picking a run', async () => {
+    const api = recorder();
+
+    await commandHandlers(api, never, noProject, noAgent, noRefresh)[
+      'mboss.openRuns'
+    ]?.();
+
+    expect(api.ran).toEqual(['mboss.runs.focus']);
     expect(api.shown).toEqual([]);
   });
 });
@@ -109,7 +122,7 @@ describe('generating code', () => {
   const ran = async (run: CodegenRun): Promise<string[]> => {
     const api = recorder();
 
-    await commandHandlers(api, async () => run, noProject, noAgent)[
+    await commandHandlers(api, async () => run, noProject, noAgent, noRefresh)[
       'mboss.generateCode'
     ]?.();
 

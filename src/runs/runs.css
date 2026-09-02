@@ -1,0 +1,224 @@
+@import '../webview/tokens.css';
+
+/**
+ * The run list.
+ *
+ * A ledger read top to bottom: every row is the
+ * same three lines in the same places, so scanning
+ * for the one that went wrong is a matter of
+ * finding the mark that is a different colour
+ * rather than reading anything. The only ornament
+ * is a 2px rule down the left edge of a row that
+ * recovered — the design's own mark for "something
+ * happened here that is worth knowing about".
+ *
+ * A view docked in the activity bar sits against
+ * the side bar's ground rather than the editor's,
+ * so the ground is re-pointed here.
+ */
+
+body {
+  --color-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+
+  /* Failure has a colour in every theme already,
+     and it is the one the editor draws squiggles
+     in. A second red is how a panel stops matching
+     the editor around it. */
+  --color-fail: var(--vscode-editorError-foreground, var(--color-text));
+  --color-warn: var(--vscode-editorWarning-foreground, var(--color-accent));
+}
+
+.runs {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* — the head — */
+
+.runs-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.runs-head > .eyebrow {
+  color: var(--color-accent);
+}
+
+.runs-project {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: color-mix(in srgb, var(--color-text) 65%, transparent);
+  overflow-wrap: anywhere;
+}
+
+/* — the segmented filter — */
+
+/* One control rather than three buttons: the
+   hairlines between the segments are what says
+   they are three answers to one question. */
+.filters {
+  display: flex;
+  border: 1px solid var(--color-divider);
+}
+
+.filters > button {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-1);
+  border: none;
+  border-left: 1px solid var(--color-divider);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+.filters > button:first-child {
+  border-left: none;
+}
+
+.filters > button[aria-pressed='true'] {
+  background: var(--tint-accent);
+  color: var(--color-accent);
+}
+
+.filters .count {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  letter-spacing: 0;
+}
+
+/* — the rows — */
+
+.run-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1;
+}
+
+.run-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-top: 1px solid var(--color-divider);
+  /* Left edge kept clear on every row so that the
+     accent rule on a recovered one does not shift
+     the text of the rows around it. */
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  padding: var(--space-2);
+  cursor: pointer;
+}
+
+.run-row:hover {
+  background: var(--tint-text);
+}
+
+.run-row[aria-current='true'] {
+  background: var(--tint-accent);
+}
+
+.run-row[data-recovered='true'] {
+  border-left-color: var(--color-accent);
+}
+
+.run-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.run-id {
+  overflow-wrap: anywhere;
+}
+
+.run-name {
+  font-size: var(--text-caption);
+  color: color-mix(in srgb, var(--color-text) 65%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.run-mark {
+  font-size: var(--text-title);
+  line-height: 1;
+  color: var(--color-accent);
+}
+
+.run-row[data-severity='failed'] .run-mark,
+.run-row[data-severity='exhausted'] .run-mark {
+  color: var(--color-fail);
+}
+
+.run-row[data-severity='running'] .run-mark {
+  color: var(--color-warn);
+}
+
+.run-tag {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  white-space: nowrap;
+}
+
+.run-when {
+  font-size: var(--text-caption);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+/* The failure says what it was on the row, because
+   the reason somebody opened this panel is to find
+   that out. */
+.run-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  color: var(--color-fail);
+  overflow-wrap: anywhere;
+}
+
+/* — what is shown instead of a list — */
+
+.state {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+  flex: 1;
+}
+
+.runs-foot {
+  border-top: 1px solid var(--color-divider);
+  padding-top: var(--space-2);
+}
+
+.runs-foot > p {
+  margin: 0;
+  font-size: var(--text-eyebrow);
+  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+  overflow-wrap: anywhere;
+}

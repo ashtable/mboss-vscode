@@ -23,8 +23,14 @@ import {
  * those silent failures.
  */
 
-type Command = { command: string; title: string; category?: string };
+type Command = {
+  command: string;
+  title: string;
+  category?: string;
+  icon?: string;
+};
 type View = { type?: string; id: string; name: string; when?: string };
+type Menu = { command: string; when?: string; group?: string };
 type CustomEditor = {
   viewType: string;
   displayName: string;
@@ -47,9 +53,17 @@ function resolved(placeholder: string): string | undefined {
 
 describe('commands', () => {
   const commands = contributes().commands as Command[];
+  const menus = contributes().menus as Record<string, Menu[]>;
 
-  it('contributes exactly the five the design names', () => {
-    expect(commands.map((entry) => entry.command)).toEqual([
+  /** A command that belongs to one view's title bar
+   *  rather than to the palette. */
+  const isSideBar = (id: string): boolean =>
+    id.startsWith('_') && id.endsWith('#sideBar');
+
+  const palette = commands.filter((entry) => !isSideBar(entry.command));
+
+  it('offers exactly the five the design names', () => {
+    expect(palette.map((entry) => entry.command)).toEqual([
       'mboss.newProject',
       'mboss.openRuns',
       'mboss.generateCode',
@@ -62,6 +76,54 @@ describe('commands', () => {
     for (const entry of commands) {
       expect(entry.title).toMatch(/^%[^%]+%$/);
     }
+  });
+
+  /**
+   * A command that only means something on one
+   * view's title bar is named so that nobody
+   * mistakes it for part of the public surface,
+   * carries an icon because that is all anyone will
+   * ever see of it, and is hidden from the palette
+   * on purpose — a palette entry for "refresh the
+   * run list" would run with no run list on screen.
+   */
+  describe('the side-bar commands', () => {
+    const hidden = new Set(
+      (menus['commandPalette'] ?? [])
+        .filter((entry) => entry.when === 'false')
+        .map((entry) => entry.command),
+    );
+    const titled = new Set((menus['view/title'] ?? []).map((e) => e.command));
+
+    it('are named apart from the ones a user can run', () => {
+      for (const entry of commands) {
+        if (palette.includes(entry)) continue;
+
+        expect(isSideBar(entry.command)).toBe(true);
+      }
+    });
+
+    it('carry an icon, sit on a view, and stay out of the palette', () => {
+      for (const entry of commands) {
+        if (palette.includes(entry)) continue;
+
+        expect(entry.icon).toBeTypeOf('string');
+        expect(hidden.has(entry.command)).toBe(true);
+        expect(titled.has(entry.command)).toBe(true);
+      }
+    });
+
+    /**
+     * A `view/title` entry with no `when` puts the
+     * icon on every view in the window, including
+     * other extensions'.
+     */
+    it('say which view they belong to', () => {
+      for (const entry of menus['view/title'] ?? []) {
+        expect(entry.when).toMatch(/^view == mboss\./);
+        expect(entry.group).toBeTypeOf('string');
+      }
+    });
   });
 
   /**
@@ -84,7 +146,7 @@ describe('commands', () => {
    * with itself.
    */
   it('shows the titles a user reads in the palette', () => {
-    expect(commands.map((entry) => resolved(entry.title))).toEqual([
+    expect(palette.map((entry) => resolved(entry.title))).toEqual([
       'New Project',
       'Open Runs',
       'Generate Code',
@@ -153,12 +215,27 @@ describe('views', () => {
     expect(views.map((view) => view.id)).toEqual([
       'mboss.agentSidebar',
       'mboss.nodeInspector',
+      'mboss.runs',
     ]);
 
     expect(views.map((view) => view.when)).toEqual([
       '!mboss.nodeSelected',
       'mboss.nodeSelected',
+      undefined,
     ]);
+  });
+
+  /**
+   * The run list is a third panel beside whichever
+   * of the two is showing, not a fourth thing in
+   * the swap: a run history is worth reading while
+   * a block is selected, and a `when` clause here
+   * would hide it for that reason alone.
+   */
+  it('leaves the run list showing whatever else is', () => {
+    expect(
+      views.find((view) => view.id === 'mboss.runs')?.when,
+    ).toBeUndefined();
   });
 });
 

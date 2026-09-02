@@ -13,6 +13,8 @@ import type {
   WorkflowIR,
   WorkflowNode,
 } from '../core/rules.js';
+import type { RunFilter } from '../runs/queries.js';
+import type { RunCounts } from '../runs/rows.js';
 
 /**
  * What the host and a webview say to each other.
@@ -47,7 +49,8 @@ import type {
  */
 
 /** Sent whenever the host has state to show. */
-export type HostMessage = CanvasInit | InspectorInit | SidebarInit;
+export type HostMessage =
+  CanvasInit | InspectorInit | SidebarInit | RunsInit | SeeInit;
 
 export type CanvasInit = {
   type: 'init';
@@ -286,6 +289,266 @@ export type SidebarStrings = {
 
   /** What a tool call is doing, per status. */
   toolStatus: Record<ToolCallStatus, string>;
+};
+
+/**
+ * The run list, in the mBoss container.
+ *
+ * A picture of somebody else's Postgres, which is
+ * a thing that can be absent, unreachable or
+ * empty — so the state comes first and the rows
+ * are only meaningful under `ok`.
+ */
+export type RunsInit = {
+  type: 'init';
+  view: 'runs';
+  strings: RunsStrings;
+
+  /** The project whose runs these are, as a
+   *  person reads it. */
+  project: string | undefined;
+
+  state: RunsState;
+
+  /** Why there is nothing to show, when there is
+   *  nothing to show. */
+  detail: string | undefined;
+
+  filter: RunFilter;
+
+  counts: RunCounts;
+
+  rows: RunRow[];
+
+  /** Which run the detail tab is showing. */
+  selected: string | undefined;
+};
+
+/**
+ * Why the list is or is not showing runs.
+ *
+ * `unreachable` covers both halves of the same
+ * experience — no connection string in the
+ * project's `.env`, and a database that would not
+ * answer — because what a person does about either
+ * is read the sentence under it.
+ */
+export type RunsState = 'ok' | 'untrusted' | 'no-project' | 'unreachable';
+
+export type RunRow = {
+  workflowId: string;
+
+  /** The workflow it is a run of. */
+  name: string;
+
+  /** DBOS's own status word. */
+  status: string;
+
+  severity: RunSeverity;
+
+  /** `14:02 · 8.2 s`, already formatted. */
+  when: string;
+
+  /** Whether DBOS ever picked this run back up. */
+  recovered: boolean;
+
+  /** `1 crash · 1 retry`, when it did. */
+  recoveredNote: string | undefined;
+
+  /** What it failed with, shown on the row itself
+   *  rather than behind a click. */
+  error: string | undefined;
+};
+
+/**
+ * How loudly a run is drawn.
+ *
+ * `exhausted` is the run DBOS gave up recovering.
+ * No mockup draws that state — both drawn examples
+ * are ordinary successes that recovered once — so
+ * it is its own severity rather than an ordinary
+ * failure: a run that failed is a bug to read, and
+ * a run that failed *after* being restarted as
+ * many times as DBOS allows is a loop somebody has
+ * to break.
+ */
+export type RunSeverity = 'ok' | 'running' | 'failed' | 'exhausted';
+
+export type RunsStrings = {
+  /** The panel's eyebrow, before the project. */
+  heading: string;
+
+  /** The three segments, in order. */
+  filters: Record<RunFilter, string>;
+
+  /** The mark on a row DBOS picked back up. */
+  recoveredTag: string;
+
+  /** Shown in place of the list. */
+  untrusted: string;
+  noProject: string;
+  empty: string;
+
+  /**
+   * The two lines under the list, which say what is
+   * being read and what is not. The first is absent
+   * when there is no database to name.
+   */
+  source: string | undefined;
+  scope: string;
+};
+
+/**
+ * One run, in as much detail as the ledger holds.
+ *
+ * Its own editor tab rather than a section of the
+ * list: the Gantt, the raw table and the rail are
+ * a page, and the list is 300px wide.
+ */
+export type SeeInit = {
+  type: 'init';
+  view: 'see';
+  strings: SeeStrings;
+
+  run: SeeRun | undefined;
+};
+
+export type SeeRun = {
+  workflowId: string;
+
+  name: string;
+
+  /** `mBoss › runs › groom_booking › wf_c9d2f3` */
+  breadcrumb: string;
+
+  /** `SUCCESS · 8.2 s total` */
+  headline: string;
+
+  severity: RunSeverity;
+
+  /** `started 14:02:11 · finished 14:02:19` */
+  span: string;
+
+  /** The banner over a run DBOS picked back up. */
+  recovered: { heading: string; body: string } | undefined;
+
+  chips: SeeChip[];
+
+  timeline: SeeTimeline;
+
+  /** `dbos.operation_outputs`, as a table. */
+  raw: SeeRawRow[];
+
+  /** `dbos.workflow_status`, as the rail draws it. */
+  rail: { label: string; value: string }[];
+
+  /** Which step the replay button would fork
+   *  from. */
+  selectedStep: number | undefined;
+
+  /** What the last replay did, or would not do. */
+  note: string | undefined;
+};
+
+export type SeeChip = {
+  functionId: number;
+
+  name: string;
+
+  /** Whether its output came back from Postgres
+   *  rather than from running the code again. */
+  restored: boolean;
+
+  failed: boolean;
+};
+
+/**
+ * The Gantt, in fractions of its own window.
+ *
+ * Fractions rather than pixels because the panel
+ * is resizable and the host has no idea how wide
+ * it is. The arithmetic is done once, here, rather
+ * than in a renderer that would have to be given
+ * the window to do it.
+ */
+export type SeeTimeline = {
+  bars: SeeBar[];
+
+  /** The hatched band, when a crash could be
+   *  placed. */
+  outage: SeeOutage | undefined;
+
+  ticks: { at: number; label: string }[];
+};
+
+export type SeeBar = {
+  functionId: number;
+
+  name: string;
+
+  /** `0` is the left edge of the window, `1` the
+   *  right. Absent when DBOS did not time it. */
+  at: { from: number; width: number } | undefined;
+
+  restored: boolean;
+
+  failed: boolean;
+};
+
+export type SeeOutage = {
+  from: number;
+
+  width: number;
+
+  /** `process down · 2.9 s` */
+  down: string;
+
+  /** `resumed by DBOS` */
+  resumed: string;
+};
+
+export type SeeRawRow = {
+  stepId: number;
+
+  fn: string;
+
+  /** Exactly the bytes the column holds, cut to
+   *  something a cell can carry. */
+  output: string;
+
+  committedAt: string;
+};
+
+export type SeeStrings = {
+  /** The tab's own eyebrow. */
+  heading: string;
+
+  /** Shown before a run has been picked. */
+  nothingSelected: string;
+
+  /** Over the step strip and the chart. */
+  steps: string;
+  timeline: string;
+
+  /** The legend under the chart's title. */
+  hatched: string;
+
+  /** The word on a chip whose output came back
+   *  from Postgres. */
+  restored: string;
+
+  /** Over the two tables. */
+  raw: string;
+  status: string;
+
+  /** The line under the rail. */
+  ledger: string;
+
+  /** The four columns of the raw table. */
+  columns: { stepId: string; fn: string; output: string; committedAt: string };
+
+  /** The one action this view offers. */
+  replay: string;
 };
 
 export type { InspectorField };

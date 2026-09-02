@@ -6,6 +6,8 @@ import type { NodeKind } from './core/rules.js';
 import type {
   CanvasStrings,
   InspectorStrings,
+  RunsStrings,
+  SeeStrings,
   SidebarStrings,
 } from './webview/protocol.js';
 
@@ -78,8 +80,208 @@ export const messages = {
   vendorRefreshFailed: (detail: string) =>
     l10n.t('The mBoss server and skill were not refreshed: {0}', detail),
 
-  openRunsNotBuilt: () =>
-    l10n.t('The mBoss Runs view is not implemented in this build.'),
+  /**
+   * A run history lives in a database named by the
+   * project's own `.env`, so opening a connection
+   * to it is the decision workspace trust exists to
+   * make. It says so rather than greying the
+   * command out: a palette entry that does nothing
+   * explains nothing.
+   */
+  runsNeedTrust: () =>
+    l10n.t(
+      'Reading a run history opens a database this folder names, so it waits until you trust this window.',
+    ),
+
+  runsNoProject: () =>
+    l10n.t('Open an mBoss project to see how its runs went.'),
+
+  runsEmpty: () =>
+    l10n.t('No runs recorded yet. Start the app and set a workflow going.'),
+
+  /**
+   * The two ways there is nothing to read, kept
+   * apart because what a person does about them is
+   * different: write the variable, or start the
+   * database.
+   */
+  runsNoDatabaseUrl: (path: string) =>
+    l10n.t(
+      '{0} names neither DBOS_SYSTEM_DATABASE_URL nor DATABASE_URL, so there is no database to read.',
+      path,
+    ),
+  runsNoEnvFile: (path: string) =>
+    l10n.t(
+      '{0} is not readable, so there is no database to read. A scaffolded project writes one; copy .env.example if it is missing.',
+      path,
+    ),
+  runsUnreachable: (detail: string) =>
+    l10n.t('That database would not answer: {0}', detail),
+
+  /**
+   * The line naming what is being read. The host
+   * and database only — the string it came from
+   * carries a password.
+   */
+  runsSource: (database: string) =>
+    l10n.t('dbos.workflow_status · {0}', database),
+
+  /** The boundary the design draws, drawn where a
+   *  person can see it. */
+  runsScope: () =>
+    l10n.t("Local runs only. Deployed apps are DBOS Conductor's."),
+
+  runsRecoveredTag: () => l10n.t('recovered ✓'),
+  /**
+   * How many crashes, not what the column says: the
+   * column counts dispatches, so a run that never
+   * crashed already reads one.
+   *
+   * Shown only when there was more than one, which
+   * is also what keeps the sentence grammatical:
+   * `vscode.l10n` has no plural forms, the tag
+   * beside it already says a run recovered, and
+   * "recovered from 1 crashes" would be the
+   * commonest thing on the panel.
+   */
+  runsRecoveredNote: (crashes: number) =>
+    l10n.t('recovered from {0} crashes', crashes),
+
+  /**
+   * The banner over a run DBOS picked back up.
+   *
+   * The claim it makes is the product's whole
+   * argument, so it is made out of what the ledger
+   * actually holds — how long nothing was running,
+   * and how many steps came back rather than ran
+   * again — and never out of a crash time nothing
+   * records.
+   */
+  runRecoveredHeading: () => l10n.t('Crash recovered — exactly-once held'),
+  runRecoveredBody: (down: string, restored: number) =>
+    l10n.t(
+      'Nothing ran for {0}. DBOS picked this run back up and {1} steps came back from dbos.operation_outputs instead of running again.',
+      down,
+      restored,
+    ),
+
+  /**
+   * The same fact, when the steps are timed too
+   * closely together to say where the gap was.
+   * `recovery_attempts` is a count and no column
+   * anywhere holds the moment a process died, so
+   * there is nothing to place and the sentence says
+   * so instead of guessing.
+   */
+  runRecoveredUnplaced: () =>
+    l10n.t(
+      'DBOS picked this run back up. Its steps are timed too closely together to say where the process went down; the recovery count is in the ledger.',
+    ),
+
+  runProcessDown: (duration: string) => l10n.t('process down · {0}', duration),
+  runResumed: () => l10n.t('resumed by DBOS'),
+
+  runHeadline: (status: string, duration: string) =>
+    l10n.t('{0} · {1} total', status, duration),
+  runHeadlineRunning: (status: string) => l10n.t('{0} · still going', status),
+
+  runSpan: (started: string, finished: string) =>
+    l10n.t('started {0} · finished {1}', started, finished),
+  runSpanRunning: (started: string) => l10n.t('started {0}', started),
+
+  runBreadcrumb: (workflow: string, id: string) =>
+    l10n.t('mBoss › runs › {0} › {1}', workflow, id),
+
+  /**
+   * Seconds with one decimal, because a local run
+   * is measured in them and the design's own
+   * examples are `8.2 s` and `2.9 s`. Anything
+   * under a second says so in the unit it happened
+   * in rather than as `0.0 s`.
+   */
+  runSeconds: (seconds: string) => l10n.t('{0} s', seconds),
+  runMilliseconds: (ms: number) => l10n.t('{0} ms', ms),
+
+  /**
+   * What a replay did.
+   *
+   * Both forms name the version, because that is
+   * the one thing that decides whether the new run
+   * ever moves: a worker dequeues only its own
+   * version, and nothing in the schema says whether
+   * one is running at all.
+   */
+  replayStarted: (id: string, version: string) =>
+    l10n.t(
+      'Replaying as {0}. It starts when your app is running under version {1}.',
+      id,
+      version,
+    ),
+  replayStartedNewer: (id: string, version: string, was: string) =>
+    l10n.t(
+      'Replaying as {0} under version {1}, not the {2} this run used. It starts when your app is running that version.',
+      id,
+      version,
+      was,
+    ),
+  replayRefused: (detail: string) =>
+    l10n.t('That replay did not start: {0}', detail),
+
+  /**
+   * The database is named in the footer, so the
+   * table needs to know which one — there is no
+   * fixed answer, and a project with no connection
+   * string has none at all.
+   */
+  runsStrings: (database: string | undefined): RunsStrings => ({
+    heading: l10n.t('Runs'),
+
+    // Written out rather than abbreviated the way
+    // the design draws them. The panel is narrow
+    // and the drawn control says `RECOV.`, but an
+    // abbreviation is a thing only English can make
+    // — a translator handed `RECOV.` has no way to
+    // know what was cut.
+    filters: {
+      all: l10n.t('All'),
+      failed: l10n.t('Failed'),
+      recovered: l10n.t('Recovered'),
+    },
+
+    recoveredTag: messages.runsRecoveredTag(),
+
+    untrusted: messages.runsNeedTrust(),
+    noProject: messages.runsNoProject(),
+    empty: messages.runsEmpty(),
+    source: database === undefined ? undefined : messages.runsSource(database),
+    scope: messages.runsScope(),
+  }),
+
+  seeStrings: (): SeeStrings => ({
+    heading: l10n.t('Run'),
+    nothingSelected: l10n.t('Pick a run to see what it did.'),
+    steps: l10n.t('Steps'),
+    timeline: l10n.t('Run timeline'),
+    hatched: l10n.t('hatched = process down'),
+    restored: l10n.t('restored'),
+    raw: l10n.t('dbos.operation_outputs'),
+    status: l10n.t('dbos.workflow_status'),
+    ledger: l10n.t(
+      'The recovery ledger — your workflow is just rows in Postgres.',
+    ),
+    columns: {
+      stepId: l10n.t('step'),
+      fn: l10n.t('function'),
+      output: l10n.t('output'),
+      committedAt: l10n.t('committed'),
+    },
+
+    // The design fixes this one, glyph and all: it
+    // is the only thing this view lets anybody do,
+    // and the mark is what says it is a repeat
+    // rather than a new run.
+    replay: l10n.t('⟲ Replay from this step'),
+  }),
 
   /**
    * Starting an agent runs a program named by this

@@ -42,13 +42,19 @@ export const HOST_BUNDLE = 'extension.cjs';
  * does not compile.
  *
  * Adding one is a name here and a file beside the
- * others — the Runs view is its own entry when it
- * arrives.
+ * others. The run list and the run detail are two
+ * of them rather than one: they are a 300px panel
+ * in the activity bar and a page in the editor,
+ * with no markup in common, and a bundle serving
+ * both would ship each surface into the frame
+ * showing the other.
  */
 export const WEBVIEW_ENTRIES: readonly WebviewName[] = [
   'canvas',
   'inspector',
   'sidebar',
+  'runs',
+  'see',
 ];
 
 /**
@@ -92,6 +98,38 @@ export const SCAFFOLD_TEMPLATES = [
  * directory Node's resolver will look in.
  */
 export const SHIPPED_PACKAGES = ['@types/node'] as const;
+
+/**
+ * Modules nothing here installs, behind requires
+ * nothing here reaches.
+ *
+ * `web-worker` is elkjs asking for a real worker,
+ * and only when a caller asks for one — which
+ * nothing does. The rest are DBOS's telemetry: its
+ * client `require`s OpenTelemetry and Winston
+ * inside functions that return early unless tracing
+ * or OTLP logging was switched on, and this
+ * extension switches on neither.
+ *
+ * Left external, each stays a caught failure at run
+ * time instead of an error at build time — and
+ * installing eight packages to satisfy a branch
+ * that never runs would put them in every VSIX.
+ * A new one appearing here fails the build loudly,
+ * which is the right place to be asked again.
+ */
+export const OPTIONAL_AT_RUNTIME = [
+  'web-worker',
+  'winston',
+  'winston-transport',
+  '@opentelemetry/api',
+  '@opentelemetry/context-async-hooks',
+  '@opentelemetry/core',
+  '@opentelemetry/exporter-logs-otlp-proto',
+  '@opentelemetry/exporter-trace-otlp-proto',
+  '@opentelemetry/sdk-logs',
+  '@opentelemetry/sdk-trace-base',
+] as const;
 
 /**
  * The control plane a new project is given, and
@@ -170,13 +208,9 @@ export function hostOptions(outdir: string): BuildOptions {
     target: 'node24',
     // `vscode` is not on disk anywhere: VS Code
     // creates it when the extension host requires
-    // it. `web-worker` is elkjs reaching for a real
-    // worker behind a guarded require, and only
-    // when a caller asks for one — which nothing
-    // here does. Left external, its absence stays a
-    // caught failure at run time instead of a build
-    // error now.
-    external: ['vscode', 'web-worker'],
+    // it. The rest are guarded requires nothing
+    // here reaches — see the list.
+    external: ['vscode', ...OPTIONAL_AT_RUNTIME],
     // Off on purpose. A source map's `sources` are
     // written relative to where the build left
     // them, which from anywhere but the source tree

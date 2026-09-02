@@ -11,6 +11,10 @@ import { newProject, offerVendorRefresh } from './commands/newProject.js';
 import { isProject } from './core/index.js';
 import { NodeInspectorView } from './inspector/view.js';
 import { previewStore } from './preview/store.js';
+import { openDatabase, openFork } from './runs/db.js';
+import { runsHost } from './runs/host.js';
+import { RunsListView, SeePanel } from './runs/panels.js';
+import { runsStore } from './runs/store.js';
 import { AgentSidebarView } from './sidebar/view.js';
 import { createStatusBar, editorStatusItem } from './statusBar.js';
 import { shippedVendor } from './vendor/index.js';
@@ -79,11 +83,24 @@ export function activate(context: ExtensionContext): void {
     editor.onTrustGranted(() => void preview.reloadAll()),
   );
 
+  // What a project's own Postgres says happened.
+  // Held here for the same reason the proposals
+  // are: a list in the activity bar and a page in
+  // the editor both draw it, and either can be
+  // disposed while the other is on screen.
+  const runs = runsStore({
+    host: runsHost(),
+    open: openDatabase,
+    openFork,
+  });
+  const see = new SeePanel(context.extensionUri, runs);
+
   const handlers = commandHandlers(
     api,
     () => watchers.generateNow(),
     newProject(projects, vendor),
     pickAgent,
+    () => runs.refresh(),
   );
   for (const [id, handle] of Object.entries(handlers)) {
     context.subscriptions.push(commands.registerCommand(id, handle));
@@ -117,6 +134,9 @@ export function activate(context: ExtensionContext): void {
     ),
     NodeInspectorView.register(context.extensionUri, selection),
     AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview),
+    RunsListView.register(context.extensionUri, runs, see),
+    see.register(),
+    { dispose: () => see.dispose() },
     { dispose: () => panel.dispose() },
     preview,
     watchers,

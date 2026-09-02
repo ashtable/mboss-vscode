@@ -1,6 +1,8 @@
 import { Uri, type Disposable, type Webview } from 'vscode';
 import { z } from 'zod';
 
+import { RUN_FILTERS } from '../runs/queries.js';
+
 import { pageNonce, webviewPage } from './html.js';
 import { webviewFile, type WebviewName } from './entry.js';
 import type { HostMessage } from './protocol.js';
@@ -107,6 +109,49 @@ const Approve = z.object({
 /** Somebody wants the last approval taken back. */
 const Undo = z.object({ type: z.literal('undo') });
 
+/**
+ * The run list, being driven.
+ *
+ * The filter is parsed against the three the
+ * queries know rather than taken as a string: it
+ * picks a `WHERE` clause, and a fourth value would
+ * have to mean something.
+ */
+const RunFilterPicked = z.object({
+  type: z.literal('runFilter'),
+  filter: z.enum(RUN_FILTERS),
+});
+
+/** Somebody wants the list read again. */
+const RunRefresh = z.object({ type: z.literal('runRefresh') });
+
+/** Somebody opened a run. */
+const RunSelect = z.object({
+  type: z.literal('runSelect'),
+  workflowId: z.string(),
+});
+
+/** Somebody picked the step the rail describes. */
+const StepSelect = z.object({
+  type: z.literal('stepSelect'),
+  functionId: z.number().int(),
+});
+
+/**
+ * Somebody asked for a run to be forked from one
+ * of its steps.
+ *
+ * The step travels with the click for the same
+ * reason a proposal id does: the panel may be
+ * drawing a step the extension has since moved
+ * past, and the extension is what decides which
+ * run this is about.
+ */
+const Replay = z.object({
+  type: z.literal('replay'),
+  functionId: z.number().int(),
+});
+
 export const WebviewMessageSchema = z.discriminatedUnion('type', [
   Ready,
   Select,
@@ -119,6 +164,11 @@ export const WebviewMessageSchema = z.discriminatedUnion('type', [
   ChooseAgent,
   Approve,
   Undo,
+  RunFilterPicked,
+  RunRefresh,
+  RunSelect,
+  StepSelect,
+  Replay,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

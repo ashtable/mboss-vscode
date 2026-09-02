@@ -33,6 +33,7 @@
     "playwright.config.ts",
     "vitest.aliases.ts",
     "vitest.config.ts",
+    "vitest.integration.config.ts",
     "eslint.config.mjs"
   ]
 }

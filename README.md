@@ -31,4 +31,9 @@ mBoss: Design Durable Apps with DBOS - VS Code Extension
   run at least once.
 - `npm run test:webview` — the Playwright specs. They drive the built webview
   bundles on a page with no VS Code behind them, and build first.
+- `npm run test:integration` — the Runs view against a real Postgres, opt-in and
+  deliberately not in CI. It needs a database: `docker compose up -d postgres`
+  in the superproject root publishes one at `127.0.0.1:5432`, or point
+  `MBOSS_RUNS_TEST_SERVER` at another server. The suite creates and drops one
+  database of its own naming and touches nothing else on that server.
 - `npm run lint` — `tsc --noEmit`, ESLint and a Prettier check.

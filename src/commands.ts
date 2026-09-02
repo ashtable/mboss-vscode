@@ -5,17 +5,15 @@ import type { CodegenRun } from './watchers/index.js';
 /**
  * What each contributed command does.
  *
- * The two that are not built yet say so. A command
- * that silently swallows the click is
+ * A command that silently swallows the click is
  * indistinguishable from one that is broken, and a
  * user with no way to tell the difference reports
- * the wrong bug. The same goes for the ones that
- * are built: a person who asked for code — or for a
- * project — and got nothing is owed the reason,
- * whether that is a folder they have not trusted or
- * a workflow that would not compile.
+ * the wrong bug. So a person who asked for code —
+ * or for a project — and got nothing is owed the
+ * reason, whether that is a folder they have not
+ * trusted or a workflow that would not compile.
  *
- * The two with real work behind them take it as an
+ * The ones with real work behind them take it as an
  * argument. What creating a project involves is not
  * this table's business, and a table that knew
  * would be where every later command's plumbing
@@ -32,11 +30,15 @@ export function commandHandlers(
   generateCode: () => Promise<CodegenRun>,
   newProject: () => Promise<void>,
   chooseAgent: () => Promise<void>,
+  refreshRuns: () => Promise<void>,
 ): Record<string, () => Promise<void>> {
   return {
     'mboss.newProject': newProject,
+    // The second that reveals rather than describes.
+    // Which run to open is a click in the list, not
+    // a palette entry that would have to ask.
     'mboss.openRuns': async () => {
-      api.info(messages.openRunsNotBuilt());
+      await api.run('mboss.runs.focus');
     },
     'mboss.generateCode': async () => {
       api.info(said(await generateCode()));
@@ -46,6 +48,14 @@ export function commandHandlers(
       await api.run('mboss.agentSidebar.focus');
     },
     'mboss.chooseCodingAgent': chooseAgent,
+
+    // The one command that is not in the palette.
+    // It is the refresh icon on the run list's own
+    // title bar, which is where the platform puts a
+    // refresh — and it means nothing anywhere else,
+    // so it is named and hidden the way a view's
+    // own command is.
+    '_mboss.refreshRuns#sideBar': refreshRuns,
   };
 }
 

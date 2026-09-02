@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Page, Route } from '@playwright/test';
 
 import { DIST } from '../../src/build.js';
+import type { WebviewName } from '../../src/webview/entry.js';
 
 /**
  * A webview, on a page with no VS Code behind it.
@@ -79,7 +80,7 @@ export type Harness = {
  */
 export async function mount(
   page: Page,
-  view: 'canvas' | 'inspector' | 'sidebar',
+  view: WebviewName,
   theme: ThemeKind = 'light',
 ): Promise<Harness> {
   await page.route(`${ORIGIN}/**`, (route) => answer(route, view, theme));
