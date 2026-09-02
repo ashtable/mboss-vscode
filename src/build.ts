@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 import { build, type BuildOptions } from 'esbuild';
@@ -167,6 +167,23 @@ export const VENDORED_ASSETS = [
 export const MCP_BUILD_COMMAND = 'npm run build:mcp';
 
 /**
+ * What a build of the server calls itself.
+ *
+ * The stamp is bytes from another repository, and
+ * it is also what a project ends up carrying: the
+ * extension compares the two for exact equality to
+ * decide whether somebody's vendored copy has
+ * drifted. A stamp naming a different repository is
+ * therefore not cosmetic — it is a refresh offered
+ * over no drift at all, and a refresh rewrites
+ * files in somebody's project.
+ *
+ * Which repository built it is the one thing about
+ * those bytes this build can check, so it does.
+ */
+const MCP_VERSION_STAMP = /^mcp-server-v\d+\.\d+\.\d+\+[0-9a-f]+$/;
+
+/**
  * A CommonJS module has no `import.meta`, and
  * esbuild leaves an empty one behind rather than
  * failing the build. Core reads its scaffold
@@ -274,11 +291,14 @@ export async function buildExtension(outdir: string = DIST): Promise<void> {
  * project — which is the most expensive place to
  * find out.
  */
-export function copyVendoredAssets(outdir: string): void {
+export function copyVendoredAssets(
+  outdir: string,
+  root: string = repoRoot,
+): void {
   mkdirSync(outdir, { recursive: true });
 
   for (const asset of VENDORED_ASSETS) {
-    const from = join(repoRoot, asset.from);
+    const from = join(root, asset.from);
     const to = join(outdir, asset.to);
 
     if (!existsSync(from)) {
@@ -288,9 +308,24 @@ export function copyVendoredAssets(outdir: string): void {
       );
     }
 
+    if (asset.to.endsWith('VERSION')) checkVersionStamp(from);
+
     mkdirSync(dirname(to), { recursive: true });
     cpSync(from, to, { recursive: true });
   }
+}
+
+/** Refuses to package a server built by anything
+ *  but the server's own repository. */
+function checkVersionStamp(path: string): void {
+  const stamp = readFileSync(path, 'utf8').trim();
+
+  if (MCP_VERSION_STAMP.test(stamp)) return;
+
+  throw new Error(
+    `${path} is stamped \`${stamp}\`, which is not a build of ` +
+      `mboss-mcp-server — run \`${MCP_BUILD_COMMAND}\``,
+  );
 }
 
 /**

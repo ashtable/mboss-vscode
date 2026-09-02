@@ -331,31 +331,72 @@ describe('the view that watches', () => {
   });
 });
 
+/**
+ * A turn at a time, without losing what arrived
+ * during one.
+ *
+ * The composer hides the send control while the
+ * agent is working, so a person cannot type a
+ * second prompt — but approving a proposal sends
+ * one, and the proposal being approved was written
+ * by the turn that is still running. So a prompt
+ * arriving mid-turn is the ordinary case here, not
+ * the exotic one, and dropping it is an approval
+ * that wrote the document, regenerated the project,
+ * and never told the agent.
+ */
 describe('a second prompt mid-turn', () => {
-  /**
-   * The composer hides the send control while the
-   * agent is working, but the panel is a frame
-   * running scripts and the agent is the one who
-   * decides when the turn is over.
-   */
-  it('is ignored until the turn ends', async () => {
-    const driven = drive();
+  /** Everything the person has said, in order. */
+  const said = (driven: Driven): string[] =>
+    driven.panel
+      .state()
+      .transcript.filter(
+        (entry) => entry.at === 'message' && entry.from === 'user',
+      )
+      .map((entry) => (entry.at === 'message' ? entry.text : ''));
+
+  /** Says it once, the first time the panel is in
+   *  `status`. */
+  const sendDuring = (driven: Driven, status: string, text: string): void => {
+    let sent = false;
 
     driven.panel.onChanged(() => {
-      if (driven.panel.state().status !== 'awaiting-permission') return;
+      if (sent || driven.panel.state().status !== status) return;
 
-      void driven.panel.send('while you are at it');
+      sent = true;
+      void driven.panel.send(text);
     });
+  };
 
+  it('waits for the turn to end rather than being dropped', async () => {
+    const driven = drive();
+
+    sendDuring(driven, 'awaiting-permission', 'while you are at it');
     answerWith(driven, 'yes', 'allow_once');
     await driven.panel.send('wire it');
 
-    expect(
-      driven.panel
-        .state()
-        .transcript.filter(
-          (entry) => entry.at === 'message' && entry.from === 'user',
-        ),
-    ).toHaveLength(1);
+    expect(said(driven)).toEqual(['wire it', 'while you are at it']);
+  });
+
+  it('waits the same way while the agent is talking', async () => {
+    const driven = drive();
+
+    sendDuring(driven, 'streaming', 'while you are at it');
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send('wire it');
+
+    expect(said(driven)).toEqual(['wire it', 'while you are at it']);
+  });
+
+  /** One conversation, not two: the waiting prompt
+   *  goes to the process already running. */
+  it('goes to the process the first turn started', async () => {
+    const driven = drive();
+
+    sendDuring(driven, 'awaiting-permission', 'while you are at it');
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send('wire it');
+
+    expect(driven.spawns()).toBe(1);
   });
 });

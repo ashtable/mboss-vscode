@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -7,11 +8,12 @@ import { fakeWebview, type FakeWebview } from '../../test/doubles/webview.js';
 import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
 import { previewStore, type PreviewStore } from '../preview/store.js';
 import { makeProject, writeWorkflow } from '../test-support/project.js';
+import { fileExists } from '../test-support/repo.js';
 import { propose, specOf } from '../test-support/proposals.js';
 import type { VsCodeApi } from '../vscodeApi.js';
 import type { CanvasInit, InspectorInit } from '../webview/protocol.js';
 
-import { WorkflowCanvasEditor } from './editor.js';
+import { WorkflowCanvasEditor, type CanvasTrust } from './editor.js';
 import { Selection } from './selection.js';
 
 /**
@@ -113,6 +115,28 @@ function previewsIn(folders: string[]): PreviewStore {
   });
 }
 
+/** Workspace trust, as the canvas reads it, with a
+ *  way to say yes mid-session. */
+type FakeTrust = CanvasTrust & { grant(): void };
+
+function trust(trusted: boolean): FakeTrust {
+  const listeners: (() => void)[] = [];
+  let now = trusted;
+
+  return {
+    isTrusted: () => now,
+    onTrustGranted: (listener) => {
+      listeners.push(listener);
+
+      return { dispose: () => {} };
+    },
+    grant: () => {
+      now = true;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
 let recorded: Recorded;
 let selection: Selection;
 let panel: FakeWebview;
@@ -120,6 +144,7 @@ let panel: FakeWebview;
 async function open(
   document = fakeDocument(),
   preview = previewsIn([]),
+  trusted: CanvasTrust = trust(true),
 ): Promise<void> {
   recorded = recorder();
   selection = new Selection(recorded.api);
@@ -130,6 +155,7 @@ async function open(
     recorded.api,
     selection,
     preview,
+    trusted,
   );
 
   await editor.resolveCustomTextEditor(document, panel.panel);
@@ -323,6 +349,7 @@ describe('selecting a node', () => {
       recorded.api,
       selection,
       previewsIn([]),
+      trust(true),
     ).resolveCustomTextEditor(
       fakeDocument(text, '/project/.mboss/workflows/other.workflow.json'),
       other.panel,
@@ -427,6 +454,82 @@ describe('a proposal about the document on screen', () => {
 
     expect(recorded.written).toEqual([]);
     expect(selection.current()).toBeUndefined();
+  });
+});
+
+/**
+ * What opening a workflow does to the folder it is
+ * in.
+ *
+ * Drawing the graph reads a document and parses it
+ * here, which is why a workflow opens in a
+ * restricted window at all. Reading the code behind
+ * it is a different thing wearing the same clothes:
+ * it type-checks every file in `lib/` with the
+ * compiler and writes what it found into
+ * `.mboss/manifest.json`. That is real work done on,
+ * and a real file written into, a folder the person
+ * has said they do not trust — for a palette and
+ * typed wiring they can wait for.
+ */
+describe('opening a workflow in a restricted window', () => {
+  /** A real project, because the scan reads and
+   *  writes real files or it proves nothing. */
+  async function scannable(): Promise<{ project: string; path: string }> {
+    const project = await makeProject({ lib: 'lib' });
+
+    return { project, path: writeWorkflow(project, 'groom_booking') };
+  }
+
+  const manifestIn = (project: string): string =>
+    join(project, '.mboss', 'manifest.json');
+
+  it('draws the graph and leaves the folder alone', async () => {
+    const { project, path } = await scannable();
+
+    await open(
+      fakeDocument(readFileSync(path, 'utf8'), path),
+      previewsIn([]),
+      trust(false),
+    );
+    for (let tries = 0; tries < 20; tries += 1) await settled();
+
+    expect(lastCanvasInit().document.ok).toBe(true);
+    expect(lastCanvasInit().manifest).toBeUndefined();
+    expect(fileExists(manifestIn(project))).toBe(false);
+  });
+
+  it('reads the code behind once the person says so', async () => {
+    const { project, path } = await scannable();
+    const trusted = trust(false);
+
+    await open(
+      fakeDocument(readFileSync(path, 'utf8'), path),
+      previewsIn([]),
+      trusted,
+    );
+
+    trusted.grant();
+
+    await until(() => lastCanvasInit().manifest !== undefined);
+    expect(fileExists(manifestIn(project))).toBe(true);
+  });
+});
+
+/**
+ * The same canvas in a window that is trusted — so
+ * that the two above are about the gate rather than
+ * about a scan that never worked from here.
+ */
+describe('opening a workflow in a trusted window', () => {
+  it('reads the code behind and hands it to the panel', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+
+    await open(fakeDocument(readFileSync(path, 'utf8'), path));
+
+    await until(() => lastCanvasInit().manifest !== undefined);
+    expect(fileExists(join(project, '.mboss', 'manifest.json'))).toBe(true);
   });
 });
 

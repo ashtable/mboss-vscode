@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import {
   cpSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -19,6 +20,7 @@ import {
   SCAFFOLD_TEMPLATES,
   WEBVIEW_ENTRIES,
   buildExtension,
+  copyVendoredAssets,
   hostOptions,
 } from './build.js';
 import { REPO_ROOT, fileExists } from './test-support/repo.js';
@@ -290,6 +292,57 @@ describe('the scaffold templates, read back', () => {
 
   it('finds the registry seed', () => {
     expect(read).toContain('src/workflows/index.ts');
+  });
+});
+
+/**
+ * The one asset this build takes on trust.
+ *
+ * The server's bundle is bytes from another
+ * repository, and the line beside it is what a
+ * project ends up stamped with. The extension then
+ * compares that line for exact equality to decide
+ * whether somebody's vendored copy is out of date —
+ * so a line naming the wrong repository is a
+ * "refresh your project?" offered over no drift at
+ * all, with the writes that answer implies.
+ *
+ * Which repository built it is the one thing about
+ * those bytes this build can check, and it is a
+ * sentence at build time instead of a modal in
+ * somebody's editor.
+ */
+describe('a control plane stamped by another repository', () => {
+  /** A stand-in for the checkout the assets are
+   *  copied out of. */
+  function vendored(stamp: string): string {
+    const from = scratchDir();
+    const mcp = join(from, 'mboss-mcp-server', 'dist');
+    const skill = join(from, 'mboss-skills', 'skills', 'mboss');
+
+    mkdirSync(mcp, { recursive: true });
+    mkdirSync(skill, { recursive: true });
+    writeFileSync(join(mcp, 'server.js'), 'console.log(1);\n', 'utf8');
+    writeFileSync(join(mcp, 'VERSION'), `${stamp}\n`, 'utf8');
+    writeFileSync(join(skill, 'SKILL.md'), '---\nname: mboss\n---\n', 'utf8');
+
+    return from;
+  }
+
+  it('is refused, and the stamp is quoted back', () => {
+    expect(() =>
+      copyVendoredAssets(scratchDir(), vendored('vscode-v0.0.1+abc1234')),
+    ).toThrow('vscode-v0.0.1+abc1234');
+  });
+
+  it('leaves a build of the server alone', () => {
+    const outdir = scratchDir();
+
+    copyVendoredAssets(outdir, vendored('mcp-server-v0.0.1+abc1234'));
+
+    expect(readFileSync(join(outdir, 'mcp', 'VERSION'), 'utf8')).toBe(
+      'mcp-server-v0.0.1+abc1234\n',
+    );
   });
 });
 

@@ -411,6 +411,21 @@ export const messages = {
 
   previewRefused: (detail: string) =>
     l10n.t('That proposal was not applied: {0}', detail),
+
+  /**
+   * Applied, and then something after it fell over.
+   *
+   * Not a refusal, and saying so would be a lie the
+   * folder contradicts: the document has already
+   * changed. What is left to say is which part did
+   * not happen and that the card can take it back.
+   */
+  previewIncomplete: (detail: string) =>
+    l10n.t(
+      'That proposal was applied, but finishing the approval failed: {0}. Undo takes it back.',
+      detail,
+    ),
+
   undoRefused: (detail: string) => l10n.t('That was not undone: {0}', detail),
 
   sidebarHeading: () => l10n.t('Agent'),
