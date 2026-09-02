@@ -36,6 +36,7 @@ playwright.config.ts
 tsconfig.json
 vitest.aliases.ts
 vitest.config.ts
+vitest.integration.config.ts
 
 *.tsbuildinfo
 *.vsix
