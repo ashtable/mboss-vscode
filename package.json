@@ -80,6 +80,43 @@
         }
       ]
     },
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "mboss.agent.id": {
+          "type": "string",
+          "enum": [
+            "claude-code",
+            "codex",
+            "gemini",
+            "custom"
+          ],
+          "enumDescriptions": [
+            "%configuration.agent.id.claudeCode%",
+            "%configuration.agent.id.codex%",
+            "%configuration.agent.id.gemini%",
+            "%configuration.agent.id.custom%"
+          ],
+          "description": "%configuration.agent.id.description%",
+          "scope": "resource"
+        },
+        "mboss.agent.command": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.agent.command.description%",
+          "scope": "resource"
+        },
+        "mboss.agent.args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "%configuration.agent.args.description%",
+          "scope": "resource"
+        }
+      }
+    },
     "customEditors": [
       {
         "viewType": "mboss.workflowCanvas",
@@ -105,6 +142,7 @@
     "lint": "tsc --noEmit && eslint . && prettier --check ."
   },
   "dependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
     "@types/node": "^24.13.3",
     "@xyflow/react": "^12.11.6",
     "elkjs": "^0.12.0",

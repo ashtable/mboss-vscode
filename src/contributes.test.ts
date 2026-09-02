@@ -185,6 +185,58 @@ describe('the workflow canvas editor', () => {
   });
 });
 
+describe('the agent settings', () => {
+  const configuration = contributes().configuration as {
+    title: string;
+    properties: Record<
+      string,
+      { type: string; scope?: string; description: string }
+    >;
+  };
+
+  /**
+   * These three ids are a published contract. An
+   * end-to-end suite writes them into a workspace
+   * to point this extension at a stand-in agent,
+   * with no test hook anywhere in the extension —
+   * so renaming one breaks a repository that
+   * cannot see this file.
+   */
+  it('contributes the three ids anything driving this extension writes', () => {
+    expect(Object.keys(configuration.properties)).toEqual([
+      'mboss.agent.id',
+      'mboss.agent.command',
+      'mboss.agent.args',
+    ]);
+  });
+
+  /**
+   * A command and a list of arguments, not one
+   * string to be split later: which agent runs
+   * here is a fact about this project, and an
+   * argument with a space in it has to survive
+   * being written down.
+   */
+  it('takes the arguments as a list, per folder', () => {
+    expect(configuration.properties['mboss.agent.command']?.type).toBe(
+      'string',
+    );
+    expect(configuration.properties['mboss.agent.args']?.type).toBe('array');
+
+    for (const property of Object.values(configuration.properties)) {
+      expect(property.scope).toBe('resource');
+    }
+  });
+
+  it('localizes every description', () => {
+    expect(resolved(configuration.title)).toBe('mBoss');
+
+    for (const property of Object.values(configuration.properties)) {
+      expect(resolved(property.description)).toBeTypeOf('string');
+    }
+  });
+});
+
 describe('workspace trust', () => {
   const capabilities = manifest.capabilities as {
     untrustedWorkspaces?: { supported?: unknown; description?: string };

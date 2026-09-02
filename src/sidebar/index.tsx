@@ -1,29 +1,311 @@
-import { StrictMode } from 'react';
+import {
+  StrictMode,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import { createRoot } from 'react-dom/client';
 
-import { announceReady, onHostMessage } from '../webview/client.js';
-import { Registered } from '../webview/Registered.js';
-import type { SidebarInit } from '../webview/protocol.js';
+import type {
+  PermissionPrompt,
+  PlanEntry,
+  ToolEntry,
+  TranscriptEntry,
+} from '../acp/transcript.js';
+import type { PermissionOptionKind, ToolKind } from '../acp/connection.js';
+import { announceReady, onHostMessage, postToHost } from '../webview/client.js';
+import type { SidebarInit, SidebarStrings } from '../webview/protocol.js';
 
 import './sidebar.css';
 
 /**
- * The agent panel, with no agent behind it yet.
+ * The agent panel.
  *
- * It says that plainly rather than showing an
- * empty transcript, which would read as a chat
- * that lost its history.
+ * A conversation drawn as a work log rather than
+ * as a chat: what the agent said is prose, and
+ * what it did is a card with a status rail down
+ * its left edge and one row per file it touched.
+ * That is the difference this product is about —
+ * an agent proposes, mBoss validates, a person
+ * approves — and a stream of speech bubbles would
+ * hide the half that matters.
+ *
+ * The panel holds nothing. It is handed the whole
+ * picture every time anything moves, because the
+ * view is disposed whenever it is hidden and the
+ * extension is what remembers.
  */
 
-function Agent({ strings }: SidebarInit) {
+/** One typographic mark per kind of work, in place
+ *  of an icon set the extension would have to
+ *  ship. */
+const MARKS: Record<ToolKind, string> = {
+  read: '▤',
+  edit: '✎',
+  delete: '⌫',
+  move: '⇄',
+  search: '⌕',
+  execute: '❯',
+  think: '◇',
+  fetch: '↓',
+  switch_mode: '⇅',
+  other: '•',
+};
+
+const STEP_MARKS = { pending: '○', in_progress: '◐', completed: '●' };
+
+function Panel(state: SidebarInit) {
+  const { strings, status } = state;
+  const blocked = blockedBy(state);
+
   return (
     <div className="agent">
-      <p className="eyebrow">{strings.heading}</p>
-      <Registered>
-        <p className="state text-muted">{strings.notBuilt}</p>
-      </Registered>
+      <header className="agent-head">
+        <p className="eyebrow">{strings.heading}</p>
+        <button
+          type="button"
+          className="agent-name"
+          data-choose-agent
+          onClick={() => postToHost({ type: 'chooseAgent' })}
+        >
+          {state.agent ?? strings.chooseAgent}
+        </button>
+      </header>
+
+      {blocked === undefined ? null : <p className="state">{blocked}</p>}
+
+      {state.failure === undefined ? null : (
+        <div className="failure">
+          <p className="eyebrow">{state.failure.headline}</p>
+          <p className="failure-detail">{state.failure.detail}</p>
+        </div>
+      )}
+
+      <ol className="transcript">
+        {state.transcript.map((entry) => (
+          <li key={entry.id} data-entry={entry.id}>
+            <Entry entry={entry} strings={strings} />
+          </li>
+        ))}
+      </ol>
+
+      {state.prompt === undefined ? null : (
+        <Permission prompt={state.prompt} strings={strings} />
+      )}
+
+      {blocked === undefined ? (
+        <Composer strings={strings} busy={status === 'streaming'} />
+      ) : null}
     </div>
   );
+}
+
+function Entry({
+  entry,
+  strings,
+}: {
+  entry: TranscriptEntry;
+  strings: SidebarStrings;
+}) {
+  if (entry.at === 'message') {
+    return (
+      <p className="said" data-from={entry.from}>
+        {entry.text}
+      </p>
+    );
+  }
+
+  if (entry.at === 'tool') return <Tool entry={entry} strings={strings} />;
+
+  return <Plan entry={entry} strings={strings} />;
+}
+
+/**
+ * One unit of work.
+ *
+ * Open by default and foldable, because the
+ * interesting part of a finished call is usually
+ * the one line saying which files it touched, and
+ * the interesting part of a running one is that it
+ * is running.
+ */
+function Tool({
+  entry,
+  strings,
+}: {
+  entry: ToolEntry;
+  strings: SidebarStrings;
+}) {
+  return (
+    <details
+      className="tool"
+      data-tool-call={entry.id}
+      data-kind={entry.kind}
+      data-status={entry.status}
+      open
+    >
+      <summary>
+        <span className="tool-mark" aria-hidden="true">
+          {MARKS[entry.kind]}
+        </span>
+        <span className="tool-title">{entry.title}</span>
+        <span className="tool-status">{strings.toolStatus[entry.status]}</span>
+      </summary>
+
+      {entry.files.map((file) => (
+        <p className="file-row" key={file.path}>
+          <span className="mono path">{file.path}</span>
+          <span className="stat">
+            {file.isNew ? <span className="new">{strings.newFile}</span> : null}
+            <span className="added">+{file.added}</span>
+            {file.removed > 0 ? (
+              <span className="removed">−{file.removed}</span>
+            ) : null}
+          </span>
+        </p>
+      ))}
+
+      {entry.body.map((line, index) => (
+        <p className="tool-body mono" key={index}>
+          {line}
+        </p>
+      ))}
+    </details>
+  );
+}
+
+function Plan({
+  entry,
+  strings,
+}: {
+  entry: PlanEntry;
+  strings: SidebarStrings;
+}) {
+  return (
+    <div className="plan">
+      <p className="eyebrow">{strings.plan}</p>
+      {entry.steps.map((step, index) => (
+        <p className="step" data-status={step.status} key={index}>
+          <span className="step-mark" aria-hidden="true">
+            {STEP_MARKS[step.status]}
+          </span>
+          {step.text}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The one moment the panel asks for something.
+ *
+ * Options that outlive the turn are marked, and
+ * the mark is read off the protocol's own `kind` —
+ * never off the option id, which is a string the
+ * agent invented.
+ */
+function Permission({
+  prompt,
+  strings,
+}: {
+  prompt: PermissionPrompt;
+  strings: SidebarStrings;
+}) {
+  return (
+    <div className="permission">
+      <p className="eyebrow">{strings.permission}</p>
+      <p className="permission-title">{prompt.title}</p>
+      <div className="permission-options">
+        {prompt.options.map((option) => (
+          <button
+            type="button"
+            key={option.optionId}
+            data-option={option.optionId}
+            data-kind={option.kind}
+            data-always={String(isAlways(option.kind))}
+            onClick={() =>
+              postToHost({
+                type: 'permission',
+                optionId: option.optionId,
+                kind: option.kind,
+              })
+            }
+          >
+            <span>{option.label}</span>
+            {isAlways(option.kind) ? (
+              <span className="always">{strings.always}</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Composer({
+  strings,
+  busy,
+}: {
+  strings: SidebarStrings;
+  busy: boolean;
+}) {
+  const [text, setText] = useState('');
+
+  const send = (event: FormEvent): void => {
+    event.preventDefault();
+
+    if (busy || text.trim() === '') return;
+
+    postToHost({ type: 'prompt', text });
+    setText('');
+  };
+
+  // Enter sends and Shift+Enter breaks the line,
+  // which is what every other composer on the
+  // platform does.
+  const onKey = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (event.key !== 'Enter' || event.shiftKey) return;
+
+    event.preventDefault();
+    send(event);
+  };
+
+  return (
+    <form className="composer" onSubmit={send}>
+      <textarea
+        rows={2}
+        value={text}
+        placeholder={strings.placeholder}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={onKey}
+      />
+      {busy ? (
+        <button
+          type="button"
+          data-stop
+          onClick={() => postToHost({ type: 'cancel' })}
+        >
+          {strings.stop}
+        </button>
+      ) : (
+        <button type="submit">{strings.send}</button>
+      )}
+    </form>
+  );
+}
+
+/** Why there is nothing to talk to, when there is
+ *  nothing to talk to. */
+function blockedBy(state: SidebarInit): string | undefined {
+  if (state.status === 'untrusted') return state.strings.notTrusted;
+  if (state.status === 'no-project') return state.strings.noProject;
+  if (state.status === 'no-agent') return state.strings.noAgent;
+
+  return undefined;
+}
+
+function isAlways(kind: PermissionOptionKind): boolean {
+  return kind === 'allow_always' || kind === 'reject_always';
 }
 
 const root = createRoot(document.getElementById('root') as HTMLElement);
@@ -31,7 +313,7 @@ const root = createRoot(document.getElementById('root') as HTMLElement);
 onHostMessage('sidebar', (message) => {
   root.render(
     <StrictMode>
-      <Agent {...message} />
+      <Panel {...message} />
     </StrictMode>,
   );
 });

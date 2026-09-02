@@ -29,4 +29,6 @@ mBoss: Design Durable Apps with DBOS - VS Code Extension
 - `npm test` — the vitest suite. Some specs run the real build and package a
   VSIX, so a cold run is not instant, and they need `npm run build:mcp` to have
   run at least once.
+- `npm run test:webview` — the Playwright specs. They drive the built webview
+  bundles on a page with no VS Code behind them, and build first.
 - `npm run lint` — `tsc --noEmit`, ESLint and a Prettier check.

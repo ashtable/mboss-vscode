@@ -40,6 +40,63 @@ export const Uri = {
     const path = [base.path, ...parts].join('/');
     return { path, toString: () => path };
   },
+
+  file(path: string) {
+    return { scheme: 'file', path, fsPath: path, toString: () => path };
+  },
+};
+
+/**
+ * A workspace filesystem, in memory.
+ *
+ * `workspace.fs` is how an agent's reads and
+ * writes reach a project — through the editor, so
+ * that what it writes lands in the window the user
+ * is looking at rather than underneath it. That is
+ * a claim about which API is called, so the spec
+ * that makes it drives the real module against
+ * this rather than against an interface of its
+ * own.
+ */
+export const editorFs = {
+  files: new Map<string, string>(),
+
+  /** Documents the editor has open, unsaved edits
+   *  and all. */
+  open: new Map<string, string>(),
+
+  reset(): void {
+    editorFs.files.clear();
+    editorFs.open.clear();
+  },
+};
+
+const workspaceApi = {
+  fs: {
+    readFile: async (uri: { fsPath: string }): Promise<Uint8Array> => {
+      const text = editorFs.files.get(uri.fsPath);
+
+      if (text === undefined) {
+        throw new Error(`EntryNotFound: ${uri.fsPath}`);
+      }
+
+      return new TextEncoder().encode(text);
+    },
+
+    writeFile: async (
+      uri: { fsPath: string },
+      content: Uint8Array,
+    ): Promise<void> => {
+      editorFs.files.set(uri.fsPath, new TextDecoder().decode(content));
+    },
+  },
+
+  get textDocuments(): { uri: { fsPath: string }; getText(): string }[] {
+    return [...editorFs.open].map(([path, text]) => ({
+      uri: Uri.file(path),
+      getText: () => text,
+    }));
+  },
 };
 
 export const window = new Proxy(
@@ -52,10 +109,12 @@ export const commands = new Proxy(
   { get: (_, name) => notImplemented(`commands.${String(name)}`) },
 );
 
-export const workspace = new Proxy(
-  {},
-  { get: (_, name) => notImplemented(`workspace.${String(name)}`) },
-);
+export const workspace = new Proxy(workspaceApi, {
+  get: (target, name) =>
+    name in target
+      ? target[name as keyof typeof workspaceApi]
+      : notImplemented(`workspace.${String(name)}`),
+});
 
 function notImplemented(what: string): never {
   throw new Error(

@@ -31,6 +31,7 @@ export function commandHandlers(
   api: VsCodeApi,
   generateCode: () => Promise<CodegenRun>,
   newProject: () => Promise<void>,
+  chooseAgent: () => Promise<void>,
 ): Record<string, () => Promise<void>> {
   return {
     'mboss.newProject': newProject,
@@ -40,15 +41,11 @@ export function commandHandlers(
     'mboss.generateCode': async () => {
       api.info(said(await generateCode()));
     },
-    // The one that reveals rather than describes:
-    // the view it opens exists, and says for itself
-    // that no agent is connected yet.
+    // The one that reveals rather than describes.
     'mboss.openAgentSidebar': async () => {
       await api.run('mboss.agentSidebar.focus');
     },
-    'mboss.chooseCodingAgent': async () => {
-      api.info(messages.chooseCodingAgentNotBuilt());
-    },
+    'mboss.chooseCodingAgent': chooseAgent,
   };
 }
 

@@ -1,5 +1,8 @@
-import { commands, type ExtensionContext } from 'vscode';
+import { commands, workspace, type ExtensionContext } from 'vscode';
 
+import { agentPanel } from './acp/agent.js';
+import { chooseAgent } from './acp/choose.js';
+import { agentPickerHost, panelHost } from './acp/host.js';
 import { WorkflowCanvasEditor } from './canvas/editor.js';
 import { Selection } from './canvas/selection.js';
 import { commandHandlers } from './commands.js';
@@ -42,10 +45,20 @@ export function activate(context: ExtensionContext): void {
   const projects = projectHost();
   const vendor = shippedVendor(context.extensionUri.fsPath);
 
+  // The agent, held here rather than by the view
+  // that draws it. A view in the activity bar is
+  // disposed the moment it is hidden — which in
+  // this extension is every time somebody selects
+  // a block — so a session held by the view would
+  // be a new agent process on every selection.
+  const panel = agentPanel(panelHost(context.workspaceState));
+  const pickAgent = chooseAgent(agentPickerHost(), () => panel.reset());
+
   const handlers = commandHandlers(
     api,
     () => watchers.generateNow(),
     newProject(projects, vendor),
+    pickAgent,
   );
   for (const [id, handle] of Object.entries(handlers)) {
     context.subscriptions.push(commands.registerCommand(id, handle));
@@ -61,10 +74,20 @@ export function activate(context: ExtensionContext): void {
     projects.folders().filter(isProject),
   );
 
+  // Trust, a folder and a chosen agent are all
+  // things a person changes without reloading, and
+  // all three decide what the panel shows.
+  context.subscriptions.push(
+    workspace.onDidGrantWorkspaceTrust(() => panel.refresh()),
+    workspace.onDidChangeConfiguration(() => panel.refresh()),
+    workspace.onDidChangeWorkspaceFolders(() => panel.refresh()),
+  );
+
   context.subscriptions.push(
     WorkflowCanvasEditor.register(context.extensionUri, api, selection),
     NodeInspectorView.register(context.extensionUri, selection),
-    AgentSidebarView.register(context.extensionUri),
+    AgentSidebarView.register(context.extensionUri, panel, pickAgent),
+    { dispose: () => panel.dispose() },
     watchers,
     statusBar,
   );

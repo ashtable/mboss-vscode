@@ -1,7 +1,13 @@
 import { l10n } from 'vscode';
 
+import type { AgentId } from './acp/registry.js';
+import type { Failure } from './acp/session.js';
 import type { NodeKind } from './core/rules.js';
-import type { CanvasStrings, InspectorStrings } from './webview/protocol.js';
+import type {
+  CanvasStrings,
+  InspectorStrings,
+  SidebarStrings,
+} from './webview/protocol.js';
 
 /**
  * Every string a person reads, in one table.
@@ -74,8 +80,28 @@ export const messages = {
 
   openRunsNotBuilt: () =>
     l10n.t('The mBoss Runs view is not implemented in this build.'),
-  chooseCodingAgentNotBuilt: () =>
-    l10n.t('Choosing a coding agent is not implemented in this build.'),
+
+  /**
+   * Starting an agent runs a program named by this
+   * workspace's own settings, which is the
+   * decision workspace trust exists to make. It
+   * says so rather than greying the command out: a
+   * palette entry that does nothing explains
+   * nothing.
+   */
+  chooseAgentNeedsTrust: () =>
+    l10n.t(
+      'Running a coding agent starts a program this folder names, so it waits until you trust this window.',
+    ),
+  chooseAgentTitle: () => l10n.t('Which coding agent should drive mBoss?'),
+  chooseAgentCommandTitle: () => l10n.t('What command starts your agent?'),
+  chooseAgentCommandPrompt: () =>
+    l10n.t('The program to run. It must speak the Agent Client Protocol.'),
+  chooseAgentArgsTitle: () => l10n.t('What arguments does it take?'),
+  chooseAgentArgsPrompt: () =>
+    l10n.t('Separated by spaces. Leave empty for none.'),
+  chooseAgentNeedsCommand: () =>
+    l10n.t('A custom agent needs a command to start.'),
 
   statusReady: () => l10n.t('mBoss ✓ ready — fully local'),
   statusReadyDetail: () =>
@@ -120,7 +146,85 @@ export const messages = {
     l10n.t('That would leave the block half-set, so nothing was saved.'),
 
   sidebarHeading: () => l10n.t('Agent'),
-  sidebarNotBuilt: () => l10n.t('No coding agent is connected in this build.'),
+
+  /**
+   * What each agent is called.
+   *
+   * Lower case, the way each project spells its
+   * own name — this is a list of other people's
+   * products, not a list of headings.
+   */
+  agents: (): Record<AgentId, string> => ({
+    'claude-code': l10n.t('claude code'),
+    codex: l10n.t('codex cli'),
+    gemini: l10n.t('gemini cli'),
+    custom: l10n.t('custom'),
+  }),
+
+  /** What each agent is, under its name in the
+   *  picker. */
+  agentDetails: (): Record<AgentId, string> => ({
+    'claude-code': l10n.t('npx @agentclientprotocol/claude-agent-acp'),
+    codex: l10n.t('npx @agentclientprotocol/codex-acp'),
+    gemini: l10n.t('gemini --acp'),
+    custom: l10n.t('Any program that speaks the Agent Client Protocol'),
+  }),
+
+  sidebarStrings: (): SidebarStrings => ({
+    heading: messages.sidebarHeading(),
+    chooseAgent: l10n.t('choose'),
+    notTrusted: l10n.t('Trust this folder to run a coding agent in it.'),
+    noProject: l10n.t('Open a folder to run a coding agent in it.'),
+    noAgent: l10n.t('No coding agent chosen yet.'),
+    connecting: l10n.t('Starting the agent…'),
+    ready: l10n.t('Ready.'),
+    thinking: l10n.t('Working…'),
+    send: l10n.t('Send'),
+    stop: l10n.t('Stop'),
+    placeholder: l10n.t('Edit the graph, scaffold a lib fn, or ask why…'),
+    plan: l10n.t('Plan'),
+    newFile: l10n.t('new'),
+    permission: l10n.t('Permission needed'),
+    always: l10n.t('always'),
+    toolStatus: {
+      pending: l10n.t('queued'),
+      in_progress: l10n.t('running'),
+      completed: l10n.t('done'),
+      failed: l10n.t('failed'),
+    },
+  }),
+
+  /**
+   * Why there is no session.
+   *
+   * The version case gets both numbers because
+   * that is the only actionable thing about it:
+   * with four independently released agent
+   * binaries in the picker, an agent speaking a
+   * protocol this build does not is a thing that
+   * happens, and "it did not work" leaves nobody
+   * anywhere.
+   */
+  agentFailure: (failure: Failure): { headline: string; detail: string } => {
+    if (failure.because === 'version') {
+      return {
+        headline: l10n.t('That agent speaks a different protocol.'),
+        detail: l10n.t(
+          'It answered version {0}; this extension speaks version {1}. Pick another agent, or update that one.',
+          failure.offered,
+          failure.requested,
+        ),
+      };
+    }
+
+    return {
+      headline:
+        failure.because === 'spawn'
+          ? l10n.t('That agent would not start.')
+          : l10n.t('That agent would not open a session.'),
+      detail: failure.detail,
+    };
+  },
 
   /**
    * What a kind is called.

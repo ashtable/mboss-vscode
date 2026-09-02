@@ -1,3 +1,6 @@
+import type { PanelStatus } from '../acp/agent.js';
+import type { ToolCallStatus } from '../acp/connection.js';
+import type { PermissionPrompt, TranscriptEntry } from '../acp/transcript.js';
 import type {
   InspectorField,
   InspectorForm,
@@ -140,14 +143,74 @@ export type InspectorStrings = {
   options: Record<string, string>;
 };
 
+/**
+ * The agent panel's whole picture.
+ *
+ * Sent again in full whenever anything moves — a
+ * chunk arrives, a tool finishes, an agent is
+ * chosen. The panel is a view in the activity bar,
+ * which VS Code disposes the moment it is hidden,
+ * so a panel that held its own transcript would
+ * lose the conversation the first time somebody
+ * selected a node on the canvas. Everything below
+ * is held by the extension.
+ */
 export type SidebarInit = {
   type: 'init';
   view: 'sidebar';
-  strings: {
-    heading: string;
-    /** Shown in place of the transcript. */
-    notBuilt: string;
-  };
+  strings: SidebarStrings;
+
+  /** The chosen agent's name, as a person reads
+   *  it. */
+  agent: string | undefined;
+
+  status: PanelStatus;
+
+  transcript: TranscriptEntry[];
+
+  /** What the agent is waiting to be told. */
+  prompt: PermissionPrompt | undefined;
+
+  /** Why there is no session, when there is not
+   *  one. */
+  failure: { headline: string; detail: string } | undefined;
+};
+
+export type SidebarStrings = {
+  /** The panel's own eyebrow. */
+  heading: string;
+
+  /** The button that opens the agent picker. */
+  chooseAgent: string;
+
+  /** Shown in place of the transcript. */
+  notTrusted: string;
+  noProject: string;
+  noAgent: string;
+
+  /** The line under the heading, per state. */
+  connecting: string;
+  ready: string;
+  thinking: string;
+
+  send: string;
+  stop: string;
+  placeholder: string;
+
+  /** Over the plan checklist. */
+  plan: string;
+
+  /** The badge on a file that did not exist. */
+  newFile: string;
+
+  /** Over a permission request. */
+  permission: string;
+
+  /** Marks an option that outlives this turn. */
+  always: string;
+
+  /** What a tool call is doing, per status. */
+  toolStatus: Record<ToolCallStatus, string>;
 };
 
 export type { InspectorField };

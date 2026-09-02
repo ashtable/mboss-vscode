@@ -16,6 +16,11 @@ const noProject = (): Promise<void> => {
   throw new Error('this command should not have created anything');
 };
 
+/** The same, for choosing an agent. */
+const noAgent = (): Promise<void> => {
+  throw new Error('this command should not have chosen anything');
+};
+
 /** An editor that only records what it was asked. */
 function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
   const shown: string[] = [];
@@ -47,42 +52,48 @@ describe('the contributed commands', () => {
     ).commands.map((entry) => entry.command);
 
     expect(
-      Object.keys(commandHandlers(recorder(), never, noProject)).sort(),
+      Object.keys(
+        commandHandlers(recorder(), never, noProject, noAgent),
+      ).sort(),
     ).toEqual([...contributed].sort());
   });
 
-  it('say so rather than doing nothing quietly', async () => {
+  it('says so rather than doing nothing quietly', async () => {
     const api = recorder();
-    const handlers = commandHandlers(api, never, noProject);
+    const handlers = commandHandlers(api, never, noProject, noAgent);
 
     await handlers['mboss.openRuns']?.();
-    await handlers['mboss.chooseCodingAgent']?.();
 
-    expect(api.shown).toHaveLength(2);
+    expect(api.shown).toHaveLength(1);
     for (const message of api.shown) expect(message.length).toBeGreaterThan(0);
   });
 
   /**
-   * Creating a project is somebody else's whole
-   * module. What this table owes it is the click.
+   * Creating a project and picking an agent are
+   * each somebody else's whole module. What this
+   * table owes them is the click.
    */
-  it('hands the click for a new project straight on', async () => {
+  it('hands the clicks it does not own straight on', async () => {
     const asked: string[] = [];
     const handlers = commandHandlers(
       recorder(),
       never,
       async () => void asked.push('new project'),
+      async () => void asked.push('choose agent'),
     );
 
     await handlers['mboss.newProject']?.();
+    await handlers['mboss.chooseCodingAgent']?.();
 
-    expect(asked).toEqual(['new project']);
+    expect(asked).toEqual(['new project', 'choose agent']);
   });
 
   it('reveals the agent view rather than describing it', async () => {
     const api = recorder();
 
-    await commandHandlers(api, never, noProject)['mboss.openAgentSidebar']?.();
+    await commandHandlers(api, never, noProject, noAgent)[
+      'mboss.openAgentSidebar'
+    ]?.();
 
     expect(api.ran).toEqual(['mboss.agentSidebar.focus']);
     expect(api.shown).toEqual([]);
@@ -98,7 +109,7 @@ describe('generating code', () => {
   const ran = async (run: CodegenRun): Promise<string[]> => {
     const api = recorder();
 
-    await commandHandlers(api, async () => run, noProject)[
+    await commandHandlers(api, async () => run, noProject, noAgent)[
       'mboss.generateCode'
     ]?.();
 

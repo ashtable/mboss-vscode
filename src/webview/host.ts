@@ -59,12 +59,42 @@ const Edit = z.object({
  */
 const Text = z.object({ type: z.literal('text'), text: z.string() });
 
+/** Somebody typed something to the agent. */
+const Prompt = z.object({ type: z.literal('prompt'), text: z.string() });
+
+/** Somebody wants the current turn to stop. */
+const Cancel = z.object({ type: z.literal('cancel') });
+
+/**
+ * Somebody answered a permission request.
+ *
+ * The `kind` travels beside the id because that is
+ * what says whether the answer outlives the turn.
+ * The id means nothing here — the agent invented
+ * it — and the panel is not trusted to have picked
+ * an option the agent actually offered, so the
+ * extension checks the pair against the request it
+ * is holding.
+ */
+const Permission = z.object({
+  type: z.literal('permission'),
+  optionId: z.string(),
+  kind: z.enum(['allow_once', 'allow_always', 'reject_once', 'reject_always']),
+});
+
+/** Somebody wants to pick a different agent. */
+const ChooseAgent = z.object({ type: z.literal('chooseAgent') });
+
 export const WebviewMessageSchema = z.discriminatedUnion('type', [
   Ready,
   Select,
   Connect,
   Edit,
   Text,
+  Prompt,
+  Cancel,
+  Permission,
+  ChooseAgent,
 ]);
 
 export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;

@@ -3,31 +3,393 @@
 /**
  * The agent panel.
  *
+ * A work log, not a chat window. Prose is prose;
+ * everything the agent *did* is a card with a
+ * status rail down its left edge and one row per
+ * file it touched, so the half of the
+ * conversation that changes the project is the
+ * half that reads as structure. Nothing is
+ * rounded, nothing is a bubble, and the only
+ * ornament is the rail — the panel is a plotted
+ * sheet, like everything else in this product.
+ *
  * A view docked in the activity bar is narrow and
  * sits against the editor's side-bar ground rather
  * than the editor's own, so the ground is
- * re-pointed here. Everything else the panel needs
- * is in the shared token layer.
+ * re-pointed here.
  */
 
 body {
   --color-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+
+  /* Added and removed lines are named by the theme
+     already, in the colours the file explorer uses
+     for exactly this. Inventing a second green is
+     how a panel stops matching the editor around
+     it. */
+  --color-added: var(
+    --vscode-gitDecoration-addedResourceForeground,
+    var(--color-accent)
+  );
+  --color-removed: var(
+    --vscode-gitDecoration-deletedResourceForeground,
+    var(--color-text)
+  );
+  --color-warn: var(--vscode-editorWarning-foreground, var(--color-accent));
 }
 
 .agent {
   box-sizing: border-box;
-  padding: var(--space-4);
+  min-height: 100vh;
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-3);
 }
 
-.agent > .eyebrow {
-  margin: 0;
+/* — the head — */
+
+.agent-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.agent-head > .eyebrow {
+  color: var(--color-accent);
+}
+
+.agent-name {
+  border: 1px solid var(--color-divider);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px var(--space-2);
+  cursor: pointer;
+}
+
+.agent-name::after {
+  content: ' ▾';
+}
+
+.agent-name:hover {
+  border-color: var(--color-accent);
   color: var(--color-accent);
 }
 
 .state {
   margin: 0;
   font-size: var(--text-caption);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+/* — something went wrong — */
+
+.failure {
+  border: 1px solid var(--color-warn);
+  background: color-mix(in srgb, var(--color-warn) 10%, transparent);
+  padding: var(--space-3);
+}
+
+.failure > .eyebrow {
+  color: var(--color-warn);
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: var(--font-size);
+}
+
+.failure-detail {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-caption);
+}
+
+/* — the conversation — */
+
+.transcript {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.said {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* What a person asked for, set apart from what
+   came back — the one place the accent tint is
+   used as a fill. */
+.said[data-from='user'] {
+  margin-left: var(--space-6);
+  padding: var(--space-2);
+  background: var(--tint-accent);
+  border-left: 2px solid var(--color-accent);
+}
+
+/* Thinking is a note in the margin, not speech. */
+.said[data-from='thought'] {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-divider);
+  font-size: var(--text-caption);
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+/* — a unit of work — */
+
+.tool {
+  border: 1px solid var(--color-divider);
+  border-left-width: 2px;
+  border-left-color: color-mix(in srgb, var(--color-text) 30%, transparent);
+  padding: var(--space-2);
+}
+
+.tool[data-status='in_progress'] {
+  border-left-color: var(--color-accent);
+}
+.tool[data-status='completed'] {
+  border-left-color: var(--color-added);
+}
+.tool[data-status='failed'] {
+  border-left-color: var(--vscode-editorError-foreground, var(--color-warn));
+}
+
+/* The rail is the only thing that moves, and only
+   while something is actually happening. */
+@media (prefers-reduced-motion: no-preference) {
+  .tool[data-status='in_progress'] {
+    animation: working 1.6s ease-in-out infinite;
+  }
+}
+
+@keyframes working {
+  50% {
+    border-left-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+}
+
+.tool > summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool > summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-mark {
+  flex: none;
+  width: 1em;
+  text-align: center;
+  color: var(--color-accent);
+}
+
+.tool-title {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.tool-status {
+  flex: none;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.file-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-caption);
+}
+
+/* The end of a path is the part worth reading, so
+   a long one loses its head rather than its
+   filename. */
+.file-row > .path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+.stat {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+}
+
+.stat > .new {
+  font-family: var(--font-heading);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.stat > .added {
+  color: var(--color-added);
+}
+
+.stat > .removed {
+  color: var(--color-removed);
+}
+
+.tool-body {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-caption);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+
+/* — the plan — */
+
+.plan > .eyebrow {
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.step {
+  display: flex;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-caption);
+}
+
+.step-mark {
+  flex: none;
+  color: var(--color-accent);
+}
+
+.step[data-status='completed'] {
+  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+}
+
+/* — the one question the panel asks — */
+
+.permission {
+  border: 1px solid var(--color-warn);
+  background: color-mix(in srgb, var(--color-warn) 8%, transparent);
+  padding: var(--space-3);
+}
+
+.permission > .eyebrow {
+  color: var(--color-warn);
+}
+
+.permission-title {
+  margin: var(--space-1) 0 var(--space-3);
+  overflow-wrap: anywhere;
+}
+
+.permission-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.permission-options > button {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  border: 1px solid var(--color-divider);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-body);
+  font-size: var(--text-caption);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+.permission-options > button[data-kind^='allow'] {
+  border-color: var(--color-accent);
+  background: var(--tint-accent);
+}
+
+/* An answer that outlives the turn says so twice:
+   once in the agent's own wording, and once in a
+   mark that does not depend on that wording being
+   clear. */
+.permission-options > button[data-always='true'] {
+  border-bottom-width: 3px;
+  border-bottom-style: double;
+}
+
+.always {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+/* — the composer — */
+
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-divider);
+  padding-top: var(--space-3);
+}
+
+.composer textarea {
+  box-sizing: border-box;
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--color-divider);
+  border-radius: 0;
+  background: var(--vscode-input-background, transparent);
+  color: var(--vscode-input-foreground, var(--color-text));
+  font-family: var(--font-body);
+  font-size: var(--font-size);
+  padding: var(--space-2);
+}
+
+.composer textarea:focus-visible {
+  border-color: var(--color-accent);
+}
+
+.composer button {
+  align-self: flex-end;
+  border: 1px solid var(--color-accent);
+  border-radius: 0;
+  background: var(--tint-accent);
+  color: var(--color-text);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: var(--text-eyebrow);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: var(--space-1) var(--space-4);
+  cursor: pointer;
+}
+
+.composer button[data-stop] {
+  border-color: var(--color-warn);
+  background: color-mix(in srgb, var(--color-warn) 12%, transparent);
 }
