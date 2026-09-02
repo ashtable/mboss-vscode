@@ -1,14 +1,19 @@
 import { messages } from './messages.js';
 import type { VsCodeApi } from './vscodeApi.js';
+import type { CodegenRun } from './watchers/index.js';
 
 /**
  * What each contributed command does.
  *
- * The four that are not built yet say so. A
+ * The three that are not built yet say so. A
  * command that silently swallows the click is
  * indistinguishable from one that is broken, and a
  * user with no way to tell the difference reports
- * the wrong bug.
+ * the wrong bug. The same goes for the one that is
+ * built: a person who asked for code and got
+ * nothing is owed the reason, whether that is a
+ * folder they have not trusted or a workflow that
+ * would not compile.
  *
  * Every key here is contributed in `package.json`,
  * and every command contributed there is a key
@@ -18,6 +23,7 @@ import type { VsCodeApi } from './vscodeApi.js';
  */
 export function commandHandlers(
   api: VsCodeApi,
+  generateCode: () => Promise<CodegenRun>,
 ): Record<string, () => Promise<void>> {
   return {
     'mboss.newProject': async () => {
@@ -27,11 +33,11 @@ export function commandHandlers(
       api.info(messages.openRunsNotBuilt());
     },
     'mboss.generateCode': async () => {
-      api.info(messages.generateCodeNotBuilt());
+      api.info(said(await generateCode()));
     },
-    // The one that is finished: the view it reveals
-    // exists, and says for itself that no agent is
-    // connected yet.
+    // The one that reveals rather than describes:
+    // the view it opens exists, and says for itself
+    // that no agent is connected yet.
     'mboss.openAgentSidebar': async () => {
       await api.run('mboss.agentSidebar.focus');
     },
@@ -39,4 +45,15 @@ export function commandHandlers(
       api.info(messages.chooseCodingAgentNotBuilt());
     },
   };
+}
+
+/** What to tell somebody who asked for code. */
+function said(run: CodegenRun): string {
+  if (!run.ran) {
+    return run.reason === 'untrusted'
+      ? messages.codegenNeedsTrustDetail()
+      : messages.codegenNoProject();
+  }
+
+  return run.ok ? messages.codegenRan(run.ms) : messages.codegenBlockedDetail();
 }

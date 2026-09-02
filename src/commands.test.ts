@@ -3,6 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { commandHandlers } from './commands.js';
 import { packageManifest } from './test-support/repo.js';
 import type { VsCodeApi } from './vscodeApi.js';
+import type { CodegenRun } from './watchers/index.js';
+
+/** A generation that is never asked for, for the
+ *  cases that are not about generating. */
+const never = (): Promise<CodegenRun> => {
+  throw new Error('this command should not have generated anything');
+};
 
 /** An editor that only records what it was asked. */
 function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
@@ -34,30 +41,69 @@ describe('the contributed commands', () => {
       packageManifest().contributes as { commands: { command: string }[] }
     ).commands.map((entry) => entry.command);
 
-    expect(Object.keys(commandHandlers(recorder())).sort()).toEqual(
+    expect(Object.keys(commandHandlers(recorder(), never)).sort()).toEqual(
       [...contributed].sort(),
     );
   });
 
   it('say so rather than doing nothing quietly', async () => {
     const api = recorder();
-    const handlers = commandHandlers(api);
+    const handlers = commandHandlers(api, never);
 
     await handlers['mboss.newProject']?.();
     await handlers['mboss.openRuns']?.();
-    await handlers['mboss.generateCode']?.();
     await handlers['mboss.chooseCodingAgent']?.();
 
-    expect(api.shown).toHaveLength(4);
+    expect(api.shown).toHaveLength(3);
     for (const message of api.shown) expect(message.length).toBeGreaterThan(0);
   });
 
   it('reveals the agent view rather than describing it', async () => {
     const api = recorder();
 
-    await commandHandlers(api)['mboss.openAgentSidebar']?.();
+    await commandHandlers(api, never)['mboss.openAgentSidebar']?.();
 
     expect(api.ran).toEqual(['mboss.agentSidebar.focus']);
     expect(api.shown).toEqual([]);
+  });
+});
+
+/**
+ * Generating code is the one command with something
+ * behind it, and every way it can end says
+ * something: a person who asked for code and got
+ * none is owed the reason.
+ */
+describe('generating code', () => {
+  const ran = async (run: CodegenRun): Promise<string[]> => {
+    const api = recorder();
+
+    await commandHandlers(api, async () => run)['mboss.generateCode']?.();
+
+    return api.shown;
+  };
+
+  it('says how long it took', async () => {
+    expect(await ran({ ran: true, ok: true, ms: 42 })).toEqual([
+      expect.stringContaining('42'),
+    ]);
+  });
+
+  it('says when a workflow produced nothing', async () => {
+    const [message] = await ran({ ran: true, ok: false, ms: 42 });
+
+    expect(message?.length).toBeGreaterThan(0);
+  });
+
+  it('says when the folder is not trusted', async () => {
+    const [message] = await ran({ ran: false, reason: 'untrusted' });
+
+    expect(message?.length).toBeGreaterThan(0);
+  });
+
+  it('says when there is no project here at all', async () => {
+    const [message] = await ran({ ran: false, reason: 'noProject' });
+
+    expect(message?.length).toBeGreaterThan(0);
   });
 });

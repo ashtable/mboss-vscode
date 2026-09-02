@@ -1,11 +1,16 @@
-import { dirname } from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 import {
   MBOSS_DIRNAME,
   WorkflowIRSchema,
+  compileProject,
   layout,
   loadOrScan,
+  mbossDirOf,
   validateWorkflow,
+  workflowsDir,
+  type CompileResult,
   type Diagnostic,
   type LibManifest,
   type NodeBox,
@@ -132,6 +137,34 @@ export function projectOf(fsPath: string): string | undefined {
   return mbossDir.endsWith(MBOSS_DIRNAME) ? dirname(mbossDir) : undefined;
 }
 
+export type LibScan =
+  { ok: true; manifest: LibManifest } | { ok: false; detail: string };
+
+/**
+ * Reads what the project's code-behind offers.
+ *
+ * A type error in a handler is not a failure here:
+ * code mid-edit is the ordinary state, so the scan
+ * carries what it could not make sense of and still
+ * answers with everything that did scan. Only
+ * something that stopped the scan happening at all
+ * comes back as a failure.
+ *
+ * The result is cached against the contents of the
+ * files it read, so this is called on every change
+ * rather than guarded by a check of our own. A
+ * second answer to "has anything changed", written
+ * beside one that is already keyed on the bytes, is
+ * a second thing to be wrong.
+ */
+export function scanCodeBehind(project: string): LibScan {
+  try {
+    return { ok: true, manifest: loadOrScan(project) };
+  } catch (error) {
+    return { ok: false, detail: (error as Error).message };
+  }
+}
+
 /**
  * What the project's code-behind offers, or
  * nothing when there is no project to scan or the
@@ -146,9 +179,121 @@ export function projectOf(fsPath: string): string | undefined {
  * the graph does not depend on.
  */
 export function manifestFor(project: string): LibManifest | undefined {
+  const scan = scanCodeBehind(project);
+
+  return scan.ok ? scan.manifest : undefined;
+}
+
+/** Whether this directory is an mBoss project at
+ *  all. */
+export function isProject(dir: string): boolean {
+  return existsSync(mbossDirOf(dir));
+}
+
+/** A project's control directory: everything about
+ *  the project that is not the project's own code. */
+export function controlDir(project: string): string {
+  return mbossDirOf(project);
+}
+
+/**
+ * Every workflow document in a project, absolute
+ * and in a fixed order.
+ *
+ * Ordered because these become entries in a panel a
+ * person reads, and a list that reshuffles itself
+ * between runs is a list nobody can scan.
+ */
+export function workflowFiles(project: string): string[] {
+  const dir = workflowsDir(mbossDirOf(project));
+
   try {
-    return loadOrScan(project);
+    return readdirSync(dir)
+      .filter((name) => name.endsWith('.workflow.json'))
+      .sort()
+      .map((name) => join(dir, name));
   } catch {
-    return undefined;
+    return [];
   }
+}
+
+/**
+ * The zone a schedule runs on when its trigger
+ * names none.
+ *
+ * `UTC` because that is what the control-plane
+ * server passes. The extension and an agent both
+ * regenerate the same project, and a fallback they
+ * disagreed about would have each of them rewrite
+ * the other's schedules on every save.
+ */
+const DEFAULT_TIMEZONE = 'UTC';
+
+/** One workflow the compiler would not take. */
+export type CompileFailure = {
+  name: string;
+
+  /** What the rules found, when the rules are
+   *  why. */
+  diagnostics: Diagnostic[];
+
+  /** What the compiler could not express, when that
+   *  is why instead. */
+  unsupported?: string;
+};
+
+export type Compiled = {
+  ok: boolean;
+
+  /** Project-relative, and what is actually on
+   *  disk. */
+  written: string[];
+  removed: string[];
+
+  failures: CompileFailure[];
+};
+
+/**
+ * Regenerates every workflow in a project.
+ *
+ * It takes the project's write lock itself, and the
+ * lock is not reentrant — so this is never called
+ * from inside one, and the extension takes no lock
+ * of its own anywhere.
+ *
+ * The two shapes a refusal arrives in are flattened
+ * into one here, because to a caller they are one
+ * situation: this workflow produced no code, and
+ * here is what to say about it.
+ */
+export async function compileWorkflows(project: string): Promise<Compiled> {
+  const result = await compileProject(project, {
+    timezone: DEFAULT_TIMEZONE,
+  });
+
+  if (result.ok) {
+    return {
+      ok: true,
+      written: result.written,
+      removed: result.removed,
+      failures: [],
+    };
+  }
+
+  return {
+    ok: false,
+    written: [],
+    removed: [],
+    failures: result.failures.map(({ name, result: failure }) =>
+      failureOf(name, failure),
+    ),
+  };
+}
+
+function failureOf(name: string, result: CompileResult): CompileFailure {
+  if (result.ok) return { name, diagnostics: [] };
+
+  return result.reason === 'CANNOT_COMPILE'
+    ? { name, diagnostics: result.diagnostics }
+    : { name, diagnostics: [], unsupported: result.message };
 }

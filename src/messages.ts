@@ -30,14 +30,45 @@ export const messages = {
     l10n.t('Creating an mBoss project is not implemented in this build.'),
   openRunsNotBuilt: () =>
     l10n.t('The mBoss Runs view is not implemented in this build.'),
-  generateCodeNotBuilt: () =>
-    l10n.t('mBoss code generation is not implemented in this build.'),
   chooseCodingAgentNotBuilt: () =>
     l10n.t('Choosing a coding agent is not implemented in this build.'),
 
   statusReady: () => l10n.t('mBoss ✓ ready — fully local'),
   statusReadyDetail: () =>
     l10n.t('No sign-in, no serial key, and nothing leaves this machine.'),
+
+  /**
+   * The status bar reports the milliseconds the
+   * compiler spent, not the wait between saving and
+   * seeing code — the wait includes a debounce this
+   * extension chose, and a number that moved when
+   * that setting moved would say nothing about the
+   * project.
+   */
+  codegenDone: (ms: number) => l10n.t('codegen ✓ {0} ms', ms),
+  codegenDoneDetail: () =>
+    l10n.t('Code is regenerated whenever a workflow is saved.'),
+  codegenBlocked: (ms: number) => l10n.t('codegen ✗ {0} ms', ms),
+  codegenBlockedDetail: () =>
+    l10n.t('Some workflows produced no code. See the Problems panel.'),
+  codegenNeedsTrust: () => l10n.t('codegen — folder not trusted'),
+  codegenNeedsTrustDetail: () =>
+    l10n.t(
+      'Generating code writes TypeScript into this folder, so it waits until you trust it.',
+    ),
+
+  codegenNoProject: () =>
+    l10n.t('There is no mBoss project in this window to generate code for.'),
+  codegenRan: (ms: number) =>
+    l10n.t('mBoss regenerated this project in {0} ms.', ms),
+
+  codegenStopped: (detail: string) =>
+    l10n.t('Code generation stopped: {0}', detail),
+
+  documentUnreadable: (detail: string) =>
+    l10n.t('This file is not a workflow document: {0}', detail),
+  codeBehindUnreadable: (detail: string) =>
+    l10n.t('The code-behind could not be read: {0}', detail),
 
   canvasEditStale: () =>
     l10n.t('This graph changed while you were editing it. Try that again.'),
