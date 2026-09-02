@@ -1,0 +1,37 @@
+name: CI
+on: [pull_request]
+jobs:
+  test:
+    # Packaging from Windows drops the POSIX
+    # executable bit from everything in the archive,
+    # so the job that produces one stays off it.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The nested source is imported at typecheck
+          # and test time through path aliases, and
+          # part of it ships as an asset.
+          submodules: recursive
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run lint
+      # The suite builds the extension and packages a
+      # VSIX of its own, because what it has to say
+      # about either is only true of the real thing.
+      - run: npm test
+      # Then again on its own. A build that has only
+      # ever run from inside a test is a build nobody
+      # has checked can run without one — and this is
+      # the step that leaves the artifact somewhere a
+      # person can pick it up.
+      - run: npm run package
+
+      - name: Upload the extension
+        uses: actions/upload-artifact@v7
+        with:
+          name: mboss-vscode
+          path: '*.vsix'

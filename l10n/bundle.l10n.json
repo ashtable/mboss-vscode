@@ -1,0 +1,19 @@
+{
+  "Creating an mBoss project is not implemented in this build.": "Creating an mBoss project is not implemented in this build.",
+  "The mBoss Runs view is not implemented in this build.": "The mBoss Runs view is not implemented in this build.",
+  "mBoss code generation is not implemented in this build.": "mBoss code generation is not implemented in this build.",
+  "Choosing a coding agent is not implemented in this build.": "Choosing a coding agent is not implemented in this build.",
+
+  "mBoss ✓ ready — fully local": "mBoss ✓ ready — fully local",
+  "No sign-in, no serial key, and nothing leaves this machine.": "No sign-in, no serial key, and nothing leaves this machine.",
+
+  "Workflow IR — source of truth for orchestration · layout is deterministic, never hand-drawn": "Workflow IR — source of truth for orchestration · layout is deterministic, never hand-drawn",
+  "The graph is not drawn in this build. Use the JSON editor.": "The graph is not drawn in this build. Use the JSON editor.",
+  "This file is not a workflow document.": "This file is not a workflow document.",
+  "revision": "revision",
+  "nodes": "nodes",
+  "edges": "edges",
+
+  "Agent": "Agent",
+  "No coding agent is connected in this build.": "No coding agent is connected in this build."
+}

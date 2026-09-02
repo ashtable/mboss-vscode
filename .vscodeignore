@@ -1,0 +1,35 @@
+# What stays out of the .vsix.
+#
+# Everything the host needs is bundled into
+# dist/extension.cjs, so neither the source nor the
+# dependency tree ships.
+#
+# One rule to be careful with: dist/ also carries
+# assets the extension copies into a new project,
+# including TypeScript templates read from core.
+# A pattern aimed at source by file type — **/*.ts
+# and the like — would sweep those up, and the
+# package would install, activate, and then fail at
+# the one moment it was asked to make a project.
+# Exclude by directory, not by extension.
+
+.github/**
+.vscode/**
+src/**
+test/**
+mboss-core/**
+node_modules/**
+
+.gitignore
+.gitmodules
+.nvmrc
+.prettierignore
+.prettierrc.json
+eslint.config.mjs
+package-lock.json
+tsconfig.json
+vitest.aliases.ts
+vitest.config.ts
+
+*.tsbuildinfo
+*.vsix

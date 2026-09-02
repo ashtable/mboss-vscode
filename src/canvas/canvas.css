@@ -1,0 +1,64 @@
+@import '../webview/tokens.css';
+
+/**
+ * The canvas surface.
+ *
+ * The graph is not drawn yet, but the ground it
+ * gets drawn on is: the plotting grid fills the
+ * panel, and what the editor does know about the
+ * document sits on it inside a registered frame.
+ * A blank panel would say nothing about whether
+ * the file was even read.
+ */
+
+.canvas {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: var(--space-8);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.document {
+  width: min(46ch, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Every block sets its own margin to zero and lets
+   the column's gap do the spacing. A browser's
+   default paragraph margin would add to that gap
+   on some rows and not others, which reads as an
+   uneven rhythm rather than as a mistake. */
+.facts {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  font-size: var(--text-caption);
+}
+
+.rule {
+  height: 1px;
+  border: 0;
+  margin: var(--space-1) 0;
+  background: var(--color-divider);
+}
+
+.caption {
+  margin: 0;
+  font-size: var(--text-caption);
+}
+
+.pending {
+  margin: 0;
+  font-size: var(--text-caption);
+}
+
+.detail {
+  margin: 0;
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}

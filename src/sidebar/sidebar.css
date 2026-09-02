@@ -1,0 +1,33 @@
+@import '../webview/tokens.css';
+
+/**
+ * The agent panel.
+ *
+ * A view docked in the activity bar is narrow and
+ * sits against the editor's side-bar ground rather
+ * than the editor's own, so the ground is
+ * re-pointed here. Everything else the panel needs
+ * is in the shared token layer.
+ */
+
+body {
+  --color-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+
+.agent {
+  box-sizing: border-box;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.agent > .eyebrow {
+  margin: 0;
+  color: var(--color-accent);
+}
+
+.state {
+  margin: 0;
+  font-size: var(--text-caption);
+}

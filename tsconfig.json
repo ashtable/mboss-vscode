@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    // The host runs on Node and the webviews run in a
+    // browser, and one program covers both.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node", "vscode"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      // The bare barrel, not fenced subpaths. The cloud
+      // services fence themselves to two subpaths of core
+      // to keep elkjs and ts-morph out of a thin network
+      // service. This is a desktop tool that needs the IR,
+      // validation, layout, the manifest, apply, the
+      // compiler and the scaffold all at once, so it takes
+      // the whole barrel and the weight that comes with it.
+      "@mboss/core": ["./mboss-core/src/index.ts"]
+    }
+  },
+  "include": [
+    "src",
+    "test",
+    "vitest.aliases.ts",
+    "vitest.config.ts",
+    "eslint.config.mjs"
+  ]
+}
