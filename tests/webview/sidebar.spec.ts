@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import { foldUpdates, type SessionUpdate } from '../../src/acp/transcript.js';
+import type { FileEditEntry, SessionUpdate } from '../../src/acp/transcript.js';
+import { foldUpdates } from '../../src/acp/transcript.js';
 import type {
   SidebarInit,
   SidebarStrings,
@@ -39,7 +40,6 @@ const strings: SidebarStrings = {
   send: 'Send',
   stop: 'Stop',
   placeholder: 'Edit the graph, scaffold a lib fn, or ask why…',
-  plan: 'Plan',
   newFile: 'new',
   permission: 'Permission needed',
   always: 'always',
@@ -52,6 +52,15 @@ const strings: SidebarStrings = {
     completed: 'done',
     failed: 'failed',
   },
+  keepEdit: 'Keep',
+  undoEdit: 'Undo',
+  keepAllEdits: 'Keep all',
+  undoAllEdits: 'Undo all',
+  filesChanged: '{0} files changed',
+  changedSince: 'changed since · nothing to undo',
+  showLines: '{0} lines · show',
+  planProgress: 'Plan · {0}/{1}',
+  fix: 'Fix',
 };
 
 const said = (body: string): SessionUpdate => ({
@@ -97,6 +106,26 @@ async function openPanel(
   return harness;
 }
 
+/** A pending file edit, ready to be overridden for
+ *  one thing at a time. */
+function fileEntry(over: Partial<FileEditEntry> = {}): FileEditEntry {
+  return {
+    at: 'file',
+    id: 'call-1:/project/lib/twilioChat.ts',
+    toolCallId: 'call-1',
+    by: 'agent',
+    path: '/project/lib/twilioChat.ts',
+    isNew: false,
+    added: 1,
+    removed: 1,
+    lines: [],
+    oldText: 'old\n',
+    newText: 'new\n',
+    decision: 'pending',
+    ...over,
+  };
+}
+
 test.describe('the transcript', () => {
   test('grows a paragraph as the agent keeps talking', async ({ page }) => {
     const harness = await openPanel(page);
@@ -138,9 +167,7 @@ test.describe('a tool call', () => {
     status: 'pending',
   };
 
-  test('is a card that can be folded away, marked with its kind', async ({
-    page,
-  }) => {
+  test('is one line: a bold verb and a mono target', async ({ page }) => {
     const harness = await openPanel(page);
 
     await showing(harness, [call]);
@@ -149,10 +176,48 @@ test.describe('a tool call', () => {
 
     await expect(card).toHaveAttribute('data-kind', 'edit');
     await expect(card).toHaveAttribute('data-status', 'pending');
-    await expect(card.locator('summary')).toContainText(
-      'Write lib/twilioChat.ts',
-    );
+    await expect(card.locator('.tool-verb')).toHaveText('Write');
+    await expect(card.locator('.tool-target')).toHaveText('lib/twilioChat.ts');
     await expect(card.locator('.tool-mark')).not.toBeEmpty();
+  });
+
+  /** Every entry the fold produces is the agent's;
+   *  a row the extension notes for itself carries
+   *  `person` and none of the protocol's four
+   *  status words, because its rail and verb — an
+   *  "applied" row's own — already say what
+   *  happened. */
+  test('rails a row by who did it', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [call]);
+
+    await expect(page.locator('[data-tool-call="call-1"]')).toHaveAttribute(
+      'data-by',
+      'agent',
+    );
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          {
+            at: 'tool',
+            id: 'apply-1',
+            by: 'person',
+            kind: 'edit',
+            verb: 'Apply proposal',
+            target: 'booking',
+            status: 'applied',
+            body: [],
+          },
+        ],
+      }),
+    );
+
+    const applied = page.locator('[data-tool-call="apply-1"]');
+
+    await expect(applied).toHaveAttribute('data-by', 'person');
+    await expect(applied.locator('.tool-status')).toHaveCount(0);
   });
 
   /**
@@ -181,6 +246,38 @@ test.describe('a tool call', () => {
     await expect(page.locator('[data-tool-call="call-1"]')).toContainText(
       strings.toolStatus.completed,
     );
+  });
+
+  /**
+   * The interesting part of a finished call is
+   * usually whatever it printed, but not on
+   * screen by default — a person asks for it.
+   */
+  test('folds what it printed until asked to show it', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [
+      {
+        ...call,
+        status: 'completed',
+        content: [
+          { type: 'content', content: { type: 'text', text: 'line one' } },
+          { type: 'content', content: { type: 'text', text: 'line two' } },
+        ],
+      },
+    ]);
+
+    const card = page.locator('[data-tool-call="call-1"]');
+
+    await expect(card.locator('.tool-body')).toHaveCount(0);
+    await expect(card.locator('.tool-body-toggle')).toHaveText(
+      '2 lines · show',
+    );
+
+    await card.locator('.tool-body-toggle').click();
+
+    await expect(card.locator('.tool-body')).toHaveCount(2);
+    await expect(card.locator('.tool-body').first()).toHaveText('line one');
   });
 
   /**
@@ -214,7 +311,7 @@ test.describe('a tool call', () => {
       },
     ]);
 
-    const rows = page.locator('.file-row');
+    const rows = page.locator('.file');
 
     await expect(rows).toHaveCount(2);
     await expect(rows.nth(0)).toHaveAttribute(
@@ -237,7 +334,9 @@ test.describe('a tool call', () => {
 });
 
 test.describe('the plan', () => {
-  test('is a checklist, one line per step', async ({ page }) => {
+  test('collapses behind its own progress, expanding on click', async ({
+    page,
+  }) => {
     const harness = await openPanel(page);
 
     await showing(harness, [
@@ -259,11 +358,172 @@ test.describe('the plan', () => {
       },
     ]);
 
-    const steps = page.locator('[data-entry="plan"] .step');
+    const toggle = page.locator('.plan-toggle');
+
+    await expect(toggle).toHaveText('Plan · 1/3');
+    await expect(page.locator('.step')).toHaveCount(0);
+
+    await toggle.click();
+
+    const steps = page.locator('.step');
 
     await expect(steps).toHaveCount(3);
     await expect(steps.nth(0)).toHaveAttribute('data-status', 'completed');
     await expect(steps.nth(1)).toContainText('Scaffold handlers');
+  });
+});
+
+test.describe('a file edit, decided or not', () => {
+  test('draws each line with a sign and gutter numbers', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          fileEntry({
+            lines: [
+              { kind: 'ctx', text: 'unchanged', oldNo: 1, newNo: 1 },
+              { kind: 'del', text: 'old line', oldNo: 2 },
+              { kind: 'add', text: 'new line', newNo: 2 },
+              { kind: 'skip', text: '3' },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const lines = page.locator('.diff-line');
+
+    await expect(lines).toHaveCount(4);
+
+    await expect(lines.nth(1)).toHaveAttribute('data-kind', 'del');
+    await expect(lines.nth(1).locator('.sign')).toHaveText('−');
+    await expect(lines.nth(1).locator('.gutter').first()).toHaveText('2');
+
+    await expect(lines.nth(2)).toHaveAttribute('data-kind', 'add');
+    await expect(lines.nth(2).locator('.sign')).toHaveText('+');
+    await expect(lines.nth(2).locator('.gutter').nth(1)).toHaveText('2');
+
+    await expect(lines.nth(3)).toHaveText('⋯ 3');
+  });
+
+  test('offers Keep and Undo while nothing is decided', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(sidebarInit({ transcript: [fileEntry()] }));
+
+    await page.locator('[data-keep]').click();
+    await page.locator('[data-undo-file]').click();
+
+    expect(await harness.postedOfType('keepFile')).toEqual([
+      { type: 'keepFile', id: 'call-1:/project/lib/twilioChat.ts' },
+    ]);
+    expect(await harness.postedOfType('undoFile')).toEqual([
+      { type: 'undoFile', id: 'call-1:/project/lib/twilioChat.ts' },
+    ]);
+  });
+
+  /** Nothing was kept past the byte cap, so there
+   *  is nothing left to compare or write back. */
+  test('offers no Undo for a file kept only as counts', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        transcript: [fileEntry({ oldText: undefined, newText: undefined })],
+      }),
+    );
+
+    await expect(page.locator('[data-keep]')).toBeVisible();
+    await expect(page.locator('[data-undo-file]')).toHaveCount(0);
+  });
+
+  /** Something else wrote the file since: nothing
+   *  is offered, because writing the snapshot back
+   *  would be a second, silent edit. */
+  test('offers nothing once a file changed since', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({ transcript: [fileEntry({ decision: 'changed-since' })] }),
+    );
+
+    await expect(page.locator('[data-keep]')).toHaveCount(0);
+    await expect(page.locator('[data-undo-file]')).toHaveCount(0);
+    await expect(page.locator('.file-note')).toHaveText(strings.changedSince);
+  });
+
+  test('rails a file by who touched it', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({ transcript: [fileEntry({ by: 'person' })] }),
+    );
+
+    await expect(page.locator('.file')).toHaveAttribute('data-by', 'person');
+  });
+});
+
+test.describe("a turn's edits, closed out at once", () => {
+  test('shows one row to keep or undo every pending file', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          fileEntry({ id: 'a', path: '/project/lib/a.ts' }),
+          fileEntry({ id: 'b', path: '/project/lib/b.ts' }),
+        ],
+      }),
+    );
+
+    await expect(page.locator('.files-batch-count')).toHaveText(
+      '2 files changed',
+    );
+
+    await page.locator('[data-keep-all]').click();
+
+    expect(await harness.postedOfType('keepFile')).toEqual([
+      { type: 'keepFile', id: 'a' },
+      { type: 'keepFile', id: 'b' },
+    ]);
+  });
+
+  /** One file's own Keep and Undo already say
+   *  everything this row would. */
+  test('says nothing over a single pending file', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(sidebarInit({ transcript: [fileEntry()] }));
+
+    await expect(page.locator('.files-batch')).toHaveCount(0);
+  });
+
+  /** A file already decided drops out of the count
+   *  a fresh click would act on. */
+  test('leaves a decided file out of Undo all', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          fileEntry({ id: 'a', path: '/project/lib/a.ts', decision: 'kept' }),
+          fileEntry({ id: 'b', path: '/project/lib/b.ts' }),
+          fileEntry({ id: 'c', path: '/project/lib/c.ts' }),
+        ],
+      }),
+    );
+
+    await expect(page.locator('.files-batch-count')).toHaveText(
+      '2 files changed',
+    );
+
+    await page.locator('[data-undo-all]').click();
+
+    expect(await harness.postedOfType('undoFile')).toEqual([
+      { type: 'undoFile', id: 'b' },
+      { type: 'undoFile', id: 'c' },
+    ]);
   });
 });
 

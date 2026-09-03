@@ -8,10 +8,10 @@
  * status rail down its left edge and one row per
  * file it touched, so the half of the
  * conversation that changes the project is the
- * half that reads as structure. Nothing is a
- * bubble, and the only ornament is the rail — which
- * carries the one fact a reader needs at a glance:
- * who did this.
+ * half that reads as structure. Colour carries
+ * exactly two facts here and nothing else: the
+ * rail says who did this (`--agent` or `--brand`),
+ * and a status word says what happened to it.
  *
  * A view docked in the activity bar is narrow and
  * sits against the editor's side-bar ground rather
@@ -49,7 +49,7 @@ body {
 
 .agent-name {
   border: 1px solid var(--hairline);
-  border-radius: 0;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink);
   font-weight: 600;
@@ -58,6 +58,9 @@ body {
   text-transform: uppercase;
   padding: 2px var(--space-2);
   cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .agent-name::after {
@@ -72,14 +75,15 @@ body {
 .state {
   margin: 0;
   font-size: var(--text-sm);
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  color: var(--ink-muted);
 }
 
 /* — something went wrong — */
 
 .failure {
   border: 1px solid var(--warn);
-  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  border-radius: var(--r-md);
+  background: var(--warn-tint);
   padding: var(--space-3);
 }
 
@@ -119,6 +123,7 @@ body {
 .said[data-from='user'] {
   margin-left: var(--space-6);
   padding: var(--space-2);
+  border-radius: var(--r-sm);
   background: var(--brand-tint);
   border-left: 2px solid var(--brand);
 }
@@ -128,87 +133,134 @@ body {
   padding-left: var(--space-3);
   border-left: 1px solid var(--hairline);
   font-size: var(--text-sm);
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  color: var(--ink-muted);
 }
 
 /* — a unit of work — */
 
-.tool {
+/* The shape both `.tool` and `.file` share: a card
+   with a rail down its left edge naming who did
+   this. Only provenance ever colours the rail —
+   what happened to the call or the file is a word,
+   never a second colour on the same edge. */
+.tool,
+.file {
   border: 1px solid var(--hairline);
-  border-left-width: 2px;
-  border-left-color: color-mix(in srgb, var(--ink) 30%, transparent);
-  padding: var(--space-2);
+  border-left-width: var(--rail-w);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
 }
 
-.tool[data-status='in_progress'] {
+.tool[data-by='agent'],
+.file[data-by='agent'] {
+  border-left-color: var(--agent);
+}
+
+.tool[data-by='person'],
+.file[data-by='person'] {
   border-left-color: var(--brand);
 }
-.tool[data-status='completed'] {
-  border-left-color: var(--ok);
-}
-.tool[data-status='failed'] {
-  border-left-color: var(--fail);
-}
 
-/* The rail is the only thing that moves, and only
-   while something is actually happening. */
-@media (prefers-reduced-motion: no-preference) {
-  .tool[data-status='in_progress'] {
-    animation: working 1.6s ease-in-out infinite;
-  }
-}
-
-@keyframes working {
-  50% {
-    border-left-color: color-mix(in srgb, var(--brand) 35%, transparent);
-  }
-}
-
-.tool > summary {
+.tool-row {
+  margin: 0;
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: var(--space-2);
-  cursor: pointer;
-  list-style: none;
-}
-
-.tool > summary::-webkit-details-marker {
-  display: none;
 }
 
 .tool-mark {
   flex: none;
   width: 1em;
   text-align: center;
-  color: var(--brand);
+  color: var(--ink-muted);
 }
 
-.tool-title {
-  flex: 1;
-  overflow-wrap: anywhere;
+.tool-verb {
+  font-weight: 600;
+}
+
+.tool-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-detail {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
 }
 
 .tool-status {
+  margin-left: auto;
   flex: none;
   font-weight: 600;
   font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  color: var(--ink-faint);
 }
 
-.file-row {
+.tool[data-status='in_progress'] .tool-status {
+  color: var(--ok);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tool[data-status='in_progress'] .tool-status {
+    animation: sig-pulse var(--dur-slow) ease-in-out infinite;
+  }
+}
+
+.tool[data-status='completed'] .tool-status {
+  color: var(--ink-muted);
+}
+
+.tool[data-status='failed'] .tool-status {
+  color: var(--fail);
+}
+
+.tool-body-toggle {
+  display: block;
+  margin: var(--space-2) 0 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  padding: 0;
+  cursor: pointer;
+}
+
+.tool-body-toggle:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.tool-body {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-muted);
+}
+
+/* — a file, and its diff — */
+
+.file-head {
+  margin: 0;
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  margin: var(--space-2) 0 0;
   font-size: var(--text-sm);
 }
 
 /* The end of a path is the part worth reading, so
    a long one loses its head rather than its
    filename. */
-.file-row > .path {
+.file-head > .path {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -229,7 +281,7 @@ body {
   font-family: var(--font-body);
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  color: var(--ink-muted);
 }
 
 .stat > .added {
@@ -240,13 +292,139 @@ body {
   color: var(--fail);
 }
 
+.diff {
+  margin: var(--space-2) 0 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.diff-line {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 2.4em 2.4em 1em 1fr;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-line > .gutter {
+  text-align: right;
+  color: var(--ink-faint);
+}
+
+.diff-line > .sign {
+  text-align: center;
+}
+
+.diff-line[data-kind='add'] {
+  background: var(--diff-add-bg);
+}
+
+.diff-line[data-kind='add'] > .sign {
+  color: var(--ok);
+}
+
+.diff-line[data-kind='del'] {
+  background: var(--diff-del-bg);
+}
+
+.diff-line[data-kind='del'] > .sign {
+  color: var(--fail);
+}
+
+.diff-line[data-kind='skip'] {
+  display: block;
+  padding: 2px var(--space-2);
+  color: var(--ink-faint);
+}
+
+.file-actions {
+  margin: var(--space-2) 0 0;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.file-actions > button {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.file-actions > button:hover {
+  transform: translateY(var(--lift));
+  border-color: var(--brand);
+}
+
+.file-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--warn);
+}
+
+/* Decided rows stay legible but step back, so a
+   growing conversation reads by what is still
+   waiting on somebody. */
+.file[data-decision='kept'],
+.file[data-decision='undone'] {
+  opacity: 0.7;
+}
+
+/* — the row that closes out a turn's edits — */
+
+.files-batch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--r-sm);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.files-batch-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.files-batch-actions > button {
+  border: none;
+  background: transparent;
+  color: var(--brand);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  padding: 0;
+  cursor: pointer;
+}
+
+.files-batch-actions > button:hover {
+  text-decoration: underline;
+}
+
 /* — what went wrong — */
 
 .diagnostic {
   border: 1px solid var(--hairline);
-  border-left-width: 2px;
+  border-left-width: var(--rail-w);
   border-left-color: var(--fail);
-  padding: var(--space-2);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
 }
 
 .diagnostic-row {
@@ -256,18 +434,36 @@ body {
   font-size: var(--text-sm);
 }
 
-.tool-body {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-sm);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: color-mix(in srgb, var(--ink) 70%, transparent);
-}
-
 /* — the plan — */
 
-.plan > .eyebrow {
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
+.plan-toggle {
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  padding: 0;
+  cursor: pointer;
+}
+
+.plan-toggle::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: var(--space-1);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.plan-toggle[data-open='true']::before {
+  transform: rotate(90deg);
+}
+
+.plan-toggle:hover {
+  color: var(--ink);
+}
+
+.plan-steps {
+  margin-top: var(--space-1);
 }
 
 .step {
@@ -283,14 +479,15 @@ body {
 }
 
 .step[data-status='completed'] {
-  color: color-mix(in srgb, var(--ink) 50%, transparent);
+  color: var(--ink-muted);
 }
 
 /* — the one question the panel asks — */
 
 .permission {
   border: 1px solid var(--warn);
-  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  border-radius: var(--r-md);
+  background: var(--warn-tint);
   padding: var(--space-3);
 }
 
@@ -314,27 +511,39 @@ body {
   align-items: baseline;
   gap: var(--space-2);
   border: 1px solid var(--hairline);
-  border-radius: 0;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink);
   font-family: var(--font-body);
   font-size: var(--text-sm);
   padding: var(--space-1) var(--space-2);
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 
-.permission-options > button[data-kind^='allow'] {
+.permission-options > button:hover {
+  transform: translateY(var(--lift));
+}
+
+/* Weight follows what the answer costs: allowing
+   once is the solid, expected answer; allowing
+   always is the same colour with less ink, because
+   it is the bigger promise; rejecting asks for
+   nothing at all. */
+.permission-options > button[data-kind='allow_once'] {
   border-color: var(--brand);
-  background: var(--brand-tint);
+  background: var(--brand);
+  color: var(--on-brand);
 }
 
-/* An answer that outlives the turn says so twice:
-   once in the agent's own wording, and once in a
-   mark that does not depend on that wording being
-   clear. */
-.permission-options > button[data-always='true'] {
-  border-bottom-width: 3px;
-  border-bottom-style: double;
+.permission-options > button[data-kind='allow_always'] {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.permission-options > button[data-kind^='reject'] {
+  border-color: transparent;
+  color: var(--ink-muted);
 }
 
 .always {
@@ -342,7 +551,6 @@ body {
   font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 /* — the composer — */
@@ -360,12 +568,13 @@ body {
   width: 100%;
   resize: vertical;
   border: 1px solid var(--hairline);
-  border-radius: 0;
+  border-radius: var(--r-sm);
   background: var(--vscode-input-background, transparent);
   color: var(--vscode-input-foreground, var(--ink));
   font-family: var(--font-body);
   font-size: var(--font-size);
   padding: var(--space-2);
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 
 .composer textarea:focus-visible {
@@ -375,7 +584,7 @@ body {
 .composer button {
   align-self: flex-end;
   border: 1px solid var(--brand);
-  border-radius: 0;
+  border-radius: var(--r-sm);
   background: var(--brand-tint);
   color: var(--ink);
   font-weight: 600;
@@ -384,11 +593,16 @@ body {
   text-transform: uppercase;
   padding: var(--space-1) var(--space-4);
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.composer button:hover {
+  transform: translateY(var(--lift));
 }
 
 .composer button[data-stop] {
   border-color: var(--warn);
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  background: var(--warn-tint);
 }
 
 /* — a proposal, waiting for an answer — */
@@ -398,6 +612,7 @@ body {
    drawn in pencil until somebody approves it. */
 .preview-card {
   border: 1px dashed var(--brand);
+  border-radius: var(--r-md);
   background: var(--brand-tint);
   padding: var(--space-3);
   margin-bottom: var(--space-3);
@@ -421,7 +636,7 @@ body {
 
 .preview-actions button {
   border: 1px solid var(--brand);
-  border-radius: 0;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink);
   font-weight: 600;
@@ -430,6 +645,11 @@ body {
   text-transform: uppercase;
   padding: var(--space-1) var(--space-3);
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.preview-actions button:hover:not(:disabled) {
+  transform: translateY(var(--lift));
 }
 
 /* Approving is the decision the card exists for, so
@@ -443,6 +663,6 @@ body {
 
 .preview-actions button:disabled {
   border-color: var(--hairline);
-  color: color-mix(in srgb, var(--ink) 45%, transparent);
+  color: var(--ink-faint);
   cursor: default;
 }

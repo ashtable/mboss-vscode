@@ -8,6 +8,7 @@ import { PEER_SCRIPT } from '../test-support/peer.js';
 
 import { agentPanel, type AgentPanel, type PanelHost } from './agent.js';
 import { REMEMBERED_KEY } from './permissions.js';
+import type { FileEditEntry } from './transcript.js';
 
 /**
  * The panel, driving a real agent.
@@ -74,6 +75,7 @@ function drive(over: Partial<PanelHost> = {}): Driven {
     files: {
       read: async () => '',
       write: async () => {},
+      remove: async () => {},
     },
     state: {
       get: <T>(key: string) => stored[key] as T | undefined,
@@ -425,5 +427,106 @@ describe('a second prompt mid-turn', () => {
     await driven.panel.send('wire it');
 
     expect(driven.spawns()).toBe(1);
+  });
+});
+
+/**
+ * What a person decides about one file the agent
+ * touched.
+ *
+ * The turn every spec here drives is the same one:
+ * the scripted peer always writes one new file,
+ * `/project/lib/twilioChat.ts`. What differs is what
+ * the fake editor says is on disk when the decision
+ * is made — which is the one fact "still equals what
+ * the agent left" is checked against.
+ */
+describe('keeping and undoing a file edit', () => {
+  const PATH = '/project/lib/twilioChat.ts';
+  const NEW_TEXT = 'export async function twilioChat() {}\n';
+
+  function fileEntry(driven: Driven): FileEditEntry | undefined {
+    return driven.panel
+      .state()
+      .transcript.find((entry): entry is FileEditEntry => entry.at === 'file');
+  }
+
+  /** Drives the one turn every spec here starts
+   *  from, and hands back the entry it produced. */
+  async function withFileEdit(
+    files: PanelHost['files'],
+  ): Promise<{ driven: Driven; id: string }> {
+    const driven = drive({ files });
+
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send('wire the booking flow');
+
+    return { driven, id: (fileEntry(driven) as FileEditEntry).id };
+  }
+
+  it('marks a pending edit kept, without touching the file', async () => {
+    const touched: string[] = [];
+    const { driven, id } = await withFileEdit({
+      read: async () => NEW_TEXT,
+      write: async (path) => void touched.push(path),
+      remove: async (path) => void touched.push(path),
+    });
+
+    driven.panel.keep(id);
+
+    expect(fileEntry(driven)?.decision).toBe('kept');
+    expect(touched).toEqual([]);
+  });
+
+  it('removes a new file matching what was left', async () => {
+    const removed: string[] = [];
+    const { driven, id } = await withFileEdit({
+      read: async () => NEW_TEXT,
+      write: async () => {
+        throw new Error('a new file is removed, not written over');
+      },
+      remove: async (path) => void removed.push(path),
+    });
+
+    await driven.panel.undo(id);
+
+    expect(removed).toEqual([PATH]);
+    expect(fileEntry(driven)?.decision).toBe('undone');
+  });
+
+  /**
+   * Something else wrote the file between the diff
+   * arriving and the click. Undoing anyway would be
+   * a second, silent edit over whatever that was, so
+   * it is refused and the file is left alone.
+   */
+  it('refuses to undo a file that changed since', async () => {
+    let touched = 0;
+    const { driven, id } = await withFileEdit({
+      read: async () => 'edited by hand since\n',
+      write: async () => void (touched += 1),
+      remove: async () => void (touched += 1),
+    });
+
+    await driven.panel.undo(id);
+
+    expect(fileEntry(driven)?.decision).toBe('changed-since');
+    expect(touched).toBe(0);
+  });
+
+  it('does nothing for an id that names no pending file', async () => {
+    const { driven, id } = await withFileEdit({
+      read: async () => NEW_TEXT,
+      write: async () => {},
+      remove: async () => {},
+    });
+
+    driven.panel.keep(id);
+    // Already decided: a second Keep is not a second
+    // decision.
+    driven.panel.keep(id);
+    await driven.panel.undo('made-up-id');
+
+    expect(fileEntry(driven)?.decision).toBe('kept');
   });
 });

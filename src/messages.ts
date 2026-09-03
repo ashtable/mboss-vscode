@@ -571,7 +571,6 @@ export const messages = {
     send: l10n.t('Send'),
     stop: l10n.t('Stop'),
     placeholder: l10n.t('Edit the graph, scaffold a lib fn, or ask why…'),
-    plan: l10n.t('Plan'),
     newFile: l10n.t('new'),
     permission: l10n.t('Permission needed'),
     always: l10n.t('always'),
@@ -592,6 +591,22 @@ export const messages = {
       completed: l10n.t('done'),
       failed: l10n.t('failed'),
     },
+
+    keepEdit: l10n.t('Keep'),
+    undoEdit: l10n.t('Undo'),
+    keepAllEdits: l10n.t('Keep all'),
+    undoAllEdits: l10n.t('Undo all'),
+
+    // Left as a template rather than resolved here:
+    // how many files are in one turn is a fact only
+    // the view can see, folding consecutive file
+    // entries as it draws them.
+    filesChanged: l10n.t('{0} files changed'),
+
+    changedSince: l10n.t('changed since · nothing to undo'),
+    showLines: l10n.t('{0} lines · show'),
+    planProgress: l10n.t('Plan · {0}/{1}'),
+    fix: l10n.t('Fix'),
   }),
 
   /**

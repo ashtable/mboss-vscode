@@ -68,6 +68,8 @@ export class AgentSidebarView implements WebviewViewProvider {
           void this.preview.approve(message.proposalId);
         }
         if (message.type === 'undo') void this.preview.undo();
+        if (message.type === 'keepFile') this.panel.keep(message.id);
+        if (message.type === 'undoFile') void this.panel.undo(message.id);
       },
     });
 

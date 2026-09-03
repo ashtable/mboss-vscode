@@ -131,7 +131,6 @@ const sidebarStrings: SidebarStrings = {
   send: 'Send',
   stop: 'Stop',
   placeholder: 'Edit the graph, scaffold a lib fn, or ask why…',
-  plan: 'Plan',
   newFile: 'new',
   permission: 'Permission needed',
   always: 'always',
@@ -144,6 +143,15 @@ const sidebarStrings: SidebarStrings = {
     completed: 'done',
     failed: 'failed',
   },
+  keepEdit: 'Keep',
+  undoEdit: 'Undo',
+  keepAllEdits: 'Keep all',
+  undoAllEdits: 'Undo all',
+  filesChanged: '{0} files changed',
+  changedSince: 'changed since · nothing to undo',
+  showLines: '{0} lines · show',
+  planProgress: 'Plan · {0}/{1}',
+  fix: 'Fix',
 };
 
 function sidebarInit(card: SidebarPreview | undefined): SidebarInit {

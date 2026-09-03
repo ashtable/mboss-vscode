@@ -89,6 +89,10 @@ const workspaceApi = {
     ): Promise<void> => {
       editorFs.files.set(uri.fsPath, new TextDecoder().decode(content));
     },
+
+    delete: async (uri: { fsPath: string }): Promise<void> => {
+      editorFs.files.delete(uri.fsPath);
+    },
   },
 
   get textDocuments(): { uri: { fsPath: string }; getText(): string }[] {

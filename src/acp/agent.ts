@@ -24,6 +24,7 @@ import {
 import { foldUpdate, type PermissionPrompt } from './transcript.js';
 import type {
   DiagnosticEntry,
+  FileEditEntry,
   ToolEntry,
   TranscriptEntry,
 } from './transcript.js';
@@ -131,6 +132,21 @@ export type AgentPanel = {
    */
   note(entry: ToolEntry | DiagnosticEntry): void;
 
+  /** Marks one pending file edit kept. Does nothing
+   *  to a decision already made, or to an id that
+   *  names no file. */
+  keep(id: string): void;
+
+  /**
+   * Writes a pending file edit's `oldText` back — or,
+   * for a file that did not exist before it, removes
+   * the file — but only while the file's current
+   * content still equals `newText`. Otherwise the
+   * entry becomes `changed-since` and nothing is
+   * written.
+   */
+  undo(id: string): Promise<void>;
+
   /** Starts the agent if it is not running, then
    *  runs one turn. */
   send(text: string): Promise<void>;
@@ -175,6 +191,24 @@ export function agentPanel(host: PanelHost): AgentPanel {
 
   const changed = (): void => {
     for (const listener of listeners) listener();
+  };
+
+  const pendingFile = (id: string): FileEditEntry | undefined => {
+    const found = transcript.find(
+      (entry): entry is FileEditEntry => entry.at === 'file' && entry.id === id,
+    );
+
+    return found?.decision === 'pending' ? found : undefined;
+  };
+
+  const decideFile = (
+    entry: FileEditEntry,
+    decision: FileEditEntry['decision'],
+  ): void => {
+    transcript = transcript.map((item) =>
+      item === entry ? { ...entry, decision } : item,
+    );
+    changed();
   };
 
   const move = (event: SessionEvent): void => {
@@ -305,6 +339,42 @@ export function agentPanel(host: PanelHost): AgentPanel {
     note: (entry) => {
       transcript = [...transcript, entry];
       changed();
+    },
+
+    keep: (id) => {
+      const entry = pendingFile(id);
+
+      if (entry !== undefined) decideFile(entry, 'kept');
+    },
+
+    undo: async (id) => {
+      const entry = pendingFile(id);
+
+      // Nothing was kept past the cap, so there is
+      // nothing to compare or to write back.
+      if (entry === undefined || entry.newText === undefined) return;
+
+      let current: string | undefined;
+
+      try {
+        current = await host.files.read(entry.path);
+      } catch {
+        current = undefined;
+      }
+
+      if (current !== entry.newText) {
+        decideFile(entry, 'changed-since');
+
+        return;
+      }
+
+      if (entry.isNew) {
+        await host.files.remove(entry.path);
+      } else {
+        await host.files.write(entry.path, entry.oldText ?? '');
+      }
+
+      decideFile(entry, 'undone');
     },
 
     send,

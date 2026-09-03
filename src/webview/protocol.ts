@@ -273,9 +273,6 @@ export type SidebarStrings = {
   stop: string;
   placeholder: string;
 
-  /** Over the plan checklist. */
-  plan: string;
-
   /** The badge on a file that did not exist. */
   newFile: string;
 
@@ -293,6 +290,40 @@ export type SidebarStrings = {
 
   /** What a tool call is doing, per status. */
   toolStatus: Record<ToolCallStatus, string>;
+
+  /** The two answers to one pending file edit. Not
+   *  `keep`/`undo` — `undo` above already names the
+   *  proposal card's, and a second key by that name
+   *  would be read by the wrong button. */
+  keepEdit: string;
+  undoEdit: string;
+
+  /** The row that closes out a turn's edits at
+   *  once. */
+  keepAllEdits: string;
+  undoAllEdits: string;
+
+  /** `{0} files changed`, filled in by the view —
+   *  a webview resolves no string of its own, but
+   *  how many files are in one turn is a fact only
+   *  the view can see. */
+  filesChanged: string;
+
+  /** An undo refused because something else wrote
+   *  the file since. */
+  changedSince: string;
+
+  /** `{0} lines · show`, over a tool call's
+   *  printed output. */
+  showLines: string;
+
+  /** `Plan · {0}/{1}`, the collapsed row over the
+   *  checklist. */
+  planProgress: string;
+
+  /** The action on a diagnostic that can be acted
+   *  on. */
+  fix: string;
 };
 
 /**

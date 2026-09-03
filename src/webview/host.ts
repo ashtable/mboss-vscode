@@ -109,6 +109,22 @@ const Approve = z.object({
 /** Somebody wants the last approval taken back. */
 const Undo = z.object({ type: z.literal('undo') });
 
+/** Somebody kept one pending file edit. */
+const KeepFile = z.object({ type: z.literal('keepFile'), id: z.string() });
+
+/**
+ * Somebody asked for one pending file edit to be
+ * written back.
+ *
+ * The id is the entry's, not the path: a file can
+ * be touched more than once in a conversation, and
+ * a second `diff` for the same call and path already
+ * replaces the first entry rather than adding a
+ * second one, so the id alone says which snapshot
+ * this is asking to restore.
+ */
+const UndoFile = z.object({ type: z.literal('undoFile'), id: z.string() });
+
 /**
  * The run list, being driven.
  *
@@ -211,6 +227,8 @@ export const WebviewMessageSchema = z.discriminatedUnion('type', [
   ChooseAgent,
   Approve,
   Undo,
+  KeepFile,
+  UndoFile,
   RunFilterPicked,
   RunRefresh,
   RunSelect,

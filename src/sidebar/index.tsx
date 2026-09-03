@@ -10,6 +10,7 @@ import { createRoot } from 'react-dom/client';
 
 import type {
   DiagnosticEntry,
+  DiffLine,
   FileEditEntry,
   PermissionPrompt,
   PlanEntry,
@@ -62,10 +63,91 @@ const MARKS: Record<ToolKind, string> = {
 
 const STEP_MARKS = { pending: '○', in_progress: '◐', completed: '●' };
 
+/**
+ * Fills a template's `{n}` placeholders with the
+ * values given — the way the host's own l10n does,
+ * one step later.
+ *
+ * A webview resolves no string of its own, but some
+ * of what a count names here (how many files a turn
+ * touched, how many lines a tool call printed) is
+ * only known once the transcript is on screen — so
+ * the words travel resolved from the host and the
+ * number is filled in where it is counted.
+ */
+function withCount(template: string, ...values: number[]): string {
+  return values.reduce<string>(
+    (text, value, index) => text.replace(`{${index}}`, String(value)),
+    template,
+  );
+}
+
+/** One row of the transcript, or the summary that
+ *  closes out a run of file edits. */
+type Row =
+  | { kind: 'entry'; entry: TranscriptEntry }
+  | { kind: 'files'; key: string; ids: string[]; total: number };
+
+/**
+ * Groups consecutive file edits so a run of them can
+ * close with one "n files changed" row instead of
+ * repeating a Keep/Undo pair down the column.
+ *
+ * Folded into rows here rather than carried on the
+ * entries themselves: it is purely how the list is
+ * drawn, and the transcript the host sends says
+ * nothing about where one turn's edits end.
+ */
+function transcriptRows(entries: readonly TranscriptEntry[]): Row[] {
+  const rows: Row[] = [];
+  let group: FileEditEntry[] = [];
+
+  const closeGroup = (): void => {
+    const pending = group.filter((entry) => entry.decision === 'pending');
+
+    // Shown only once there is more than one to act
+    // on together — with a single file, its own Keep
+    // and Undo already say everything this row would.
+    if (pending.length > 1) {
+      rows.push({
+        kind: 'files',
+        key: `files-${group[0]?.id}`,
+        ids: pending.map((entry) => entry.id),
+        total: pending.length,
+      });
+    }
+
+    group = [];
+  };
+
+  for (const entry of entries) {
+    rows.push({ kind: 'entry', entry });
+
+    if (entry.at === 'file') {
+      group.push(entry);
+    } else {
+      closeGroup();
+    }
+  }
+
+  closeGroup();
+
+  return rows;
+}
+
+function keepAll(ids: string[]): void {
+  for (const id of ids) postToHost({ type: 'keepFile', id });
+}
+
+function undoAll(ids: string[]): void {
+  for (const id of ids) postToHost({ type: 'undoFile', id });
+}
+
 function Panel(state: SidebarInit) {
   const { strings, status } = state;
   const blocked = blockedBy(state);
   const composer = useRef<HTMLTextAreaElement>(null);
+  const rows = transcriptRows(state.transcript);
 
   return (
     <div className="agent">
@@ -91,11 +173,35 @@ function Panel(state: SidebarInit) {
       )}
 
       <ol className="transcript">
-        {state.transcript.map((entry) => (
-          <li key={entry.id} data-entry={entry.id}>
-            <Entry entry={entry} strings={strings} />
-          </li>
-        ))}
+        {rows.map((row) =>
+          row.kind === 'entry' ? (
+            <li key={row.entry.id} data-entry={row.entry.id}>
+              <Entry entry={row.entry} strings={strings} />
+            </li>
+          ) : (
+            <li key={row.key} className="files-batch" data-files-batch>
+              <span className="files-batch-count">
+                {withCount(strings.filesChanged, row.total)}
+              </span>
+              <span className="files-batch-actions">
+                <button
+                  type="button"
+                  data-keep-all
+                  onClick={() => keepAll(row.ids)}
+                >
+                  {strings.keepAllEdits}
+                </button>
+                <button
+                  type="button"
+                  data-undo-all
+                  onClick={() => undoAll(row.ids)}
+                >
+                  {strings.undoAllEdits}
+                </button>
+              </span>
+            </li>
+          ),
+        )}
       </ol>
 
       {state.prompt === undefined ? null : (
@@ -215,12 +321,15 @@ function Entry({
 }
 
 /**
- * One unit of work: what was done, and to what.
+ * One unit of work: what was done, and to what —
+ * one line, with a rail down the left edge saying
+ * who did it.
  *
- * Open by default and foldable, because the
+ * A call's printed output stays folded: the
  * interesting part of a finished call is usually
  * whatever it printed, and the interesting part of
- * a running one is that it is running.
+ * a running one is that it is running, so neither
+ * needs the text on screen by default.
  */
 function Tool({
   entry,
@@ -229,50 +338,69 @@ function Tool({
   entry: ToolEntry;
   strings: SidebarStrings;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
   return (
-    <details
+    <div
       className="tool"
       data-tool-call={entry.id}
       data-kind={entry.kind}
       data-status={entry.status}
-      open
+      data-by={entry.by}
     >
-      <summary>
+      <p className="tool-row">
         <span className="tool-mark" aria-hidden="true">
           {MARKS[entry.kind]}
         </span>
-        <span className="tool-title">
-          {entry.verb} <span className="mono">{entry.target}</span>
-        </span>
+        <span className="tool-verb">{entry.verb}</span>
+        <span className="tool-target mono">{entry.target}</span>
+        {entry.detail === undefined ? null : (
+          <span className="tool-detail">{entry.detail}</span>
+        )}
 
         {/* The status words are the protocol's four.
             A row the extension wrote itself did the
-            thing rather than asked for it, and the
-            panel has no word of its own for that
-            yet. */}
-        <span className="tool-status">
-          {entry.status === 'applied' ? null : strings.toolStatus[entry.status]}
-        </span>
-      </summary>
+            thing rather than asked for it: its rail
+            and verb already say what happened, so it
+            gets none of these. */}
+        {entry.status === 'applied' ? null : (
+          <span className="tool-status">
+            {strings.toolStatus[entry.status]}
+          </span>
+        )}
+      </p>
 
-      {entry.body.map((line, index) => (
-        <p className="tool-body mono" key={index}>
-          {line}
-        </p>
-      ))}
-    </details>
+      {entry.body.length === 0 ? null : (
+        <button
+          type="button"
+          className="tool-body-toggle"
+          data-expanded={expanded}
+          onClick={() => setExpanded((was) => !was)}
+        >
+          {withCount(strings.showLines, entry.body.length)}
+        </button>
+      )}
+
+      {expanded
+        ? entry.body.map((line, index) => (
+            <p className="tool-body mono" key={index}>
+              {line}
+            </p>
+          ))
+        : null}
+    </div>
   );
 }
 
 /**
- * One file, as the agent left it.
+ * One file, as the agent left it — a header with the
+ * counts, the diff itself, and Keep / Undo while
+ * nothing has been decided about it yet.
  *
  * Its own row rather than a line inside the call
  * that wrote it: a file is what a person keeps or
- * undoes, and the counts are arithmetic on the two
- * texts the protocol sends, so a file that did not
- * exist reads as new rather than as an enormous
- * edit.
+ * undoes, so it is the thing that carries a
+ * decision.
  */
 function FileEdit({
   entry,
@@ -281,16 +409,83 @@ function FileEdit({
   entry: FileEditEntry;
   strings: SidebarStrings;
 }) {
+  // Nothing was kept past the byte cap, so there is
+  // nothing left to compare against or write back.
+  const canUndo = entry.newText !== undefined;
+
   return (
-    <p className="file-row" data-file={entry.path}>
-      <span className="mono path">{entry.path}</span>
-      <span className="stat">
-        {entry.isNew ? <span className="new">{strings.newFile}</span> : null}
-        <span className="added">+{entry.added}</span>
-        {entry.removed > 0 ? (
-          <span className="removed">−{entry.removed}</span>
-        ) : null}
+    <div
+      className="file"
+      data-file={entry.path}
+      data-by={entry.by}
+      data-decision={entry.decision}
+    >
+      <p className="file-head">
+        <span className="mono path">{entry.path}</span>
+        <span className="stat">
+          {entry.isNew ? <span className="new">{strings.newFile}</span> : null}
+          <span className="added">+{entry.added}</span>
+          {entry.removed > 0 ? (
+            <span className="removed">−{entry.removed}</span>
+          ) : null}
+        </span>
+      </p>
+
+      {entry.lines.length === 0 ? null : (
+        <div className="diff">
+          {entry.lines.map((line, index) => (
+            <DiffLineRow line={line} key={index} />
+          ))}
+        </div>
+      )}
+
+      {entry.decision === 'pending' ? (
+        <div className="file-actions">
+          <button
+            type="button"
+            data-keep
+            onClick={() => postToHost({ type: 'keepFile', id: entry.id })}
+          >
+            {strings.keepEdit}
+          </button>
+          {canUndo ? (
+            <button
+              type="button"
+              data-undo-file
+              onClick={() => postToHost({ type: 'undoFile', id: entry.id })}
+            >
+              {strings.undoEdit}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {entry.decision === 'changed-since' ? (
+        <p className="file-note">{strings.changedSince}</p>
+      ) : null}
+    </div>
+  );
+}
+
+/** One line of a diff, or the stand-in for a run of
+ *  lines nobody touched. */
+function DiffLineRow({ line }: { line: DiffLine }) {
+  if (line.kind === 'skip') {
+    return (
+      <p className="diff-line" data-kind="skip">
+        ⋯ {line.text}
+      </p>
+    );
+  }
+
+  return (
+    <p className="diff-line" data-kind={line.kind}>
+      <span className="gutter">{line.oldNo ?? ''}</span>
+      <span className="gutter">{line.newNo ?? ''}</span>
+      <span className="sign" aria-hidden="true">
+        {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ''}
       </span>
+      <span className="mono text">{line.text}</span>
     </p>
   );
 }
@@ -321,6 +516,8 @@ function Diagnostic({ entry }: { entry: DiagnosticEntry }) {
   );
 }
 
+/** A checklist, collapsed to one row until somebody
+ *  asks to see it. */
 function Plan({
   entry,
   strings,
@@ -328,17 +525,32 @@ function Plan({
   entry: PlanEntry;
   strings: SidebarStrings;
 }) {
+  const [open, setOpen] = useState(false);
+  const done = entry.steps.filter((step) => step.status === 'completed').length;
+
   return (
     <div className="plan">
-      <p className="eyebrow">{strings.plan}</p>
-      {entry.steps.map((step, index) => (
-        <p className="step" data-status={step.status} key={index}>
-          <span className="step-mark" aria-hidden="true">
-            {STEP_MARKS[step.status]}
-          </span>
-          {step.text}
-        </p>
-      ))}
+      <button
+        type="button"
+        className="plan-toggle"
+        data-open={open}
+        onClick={() => setOpen((was) => !was)}
+      >
+        {withCount(strings.planProgress, done, entry.steps.length)}
+      </button>
+
+      {open ? (
+        <div className="plan-steps">
+          {entry.steps.map((step, index) => (
+            <p className="step" data-status={step.status} key={index}>
+              <span className="step-mark" aria-hidden="true">
+                {STEP_MARKS[step.status]}
+              </span>
+              {step.text}
+            </p>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

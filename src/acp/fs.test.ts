@@ -40,6 +40,16 @@ describe('writing', () => {
   });
 });
 
+describe('removing', () => {
+  it('takes the file out of the editor', async () => {
+    editorFs.files.set(PATH, 'gone soon\n');
+
+    await editorFiles().remove(PATH);
+
+    expect(editorFs.files.has(PATH)).toBe(false);
+  });
+});
+
 describe('reading', () => {
   it('returns the file', async () => {
     editorFs.files.set(PATH, 'one\ntwo\n');
