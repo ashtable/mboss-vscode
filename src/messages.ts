@@ -171,6 +171,60 @@ export const messages = {
     ),
 
   /**
+   * What a person types in the input box has to be
+   * a payload before anything is sent, so this is
+   * said in place of a start rather than after one.
+   */
+  runNotJson: () => l10n.t('That input is not JSON, so nothing was sent.'),
+
+  /**
+   * The app answering about a workflow it has
+   * never heard of. Phrased as the thing to do
+   * about it, because there is exactly one thing:
+   * the container runs the image built at
+   * `compose up`, and this workflow is not in it.
+   */
+  runRebuildToRun: () =>
+    l10n.t('The running app was built before this workflow. Rebuild the app.'),
+
+  /**
+   * Said beside the box somebody types an event
+   * into, because it changes what pressing the
+   * button twice means: the route mints the run's
+   * id from this path, so the same value is the
+   * same run.
+   */
+  runKeyPathHint: (path: string) =>
+    l10n.t('{0} is the idempotency key · a new value is a new run', path),
+
+  /**
+   * What the extension asks the agent when
+   * somebody wants to know why a run failed.
+   *
+   * It names the three things nothing else in the
+   * conversation has: which workflow, which step,
+   * and what the ledger recorded. The agent has
+   * the project; it does not have the run.
+   */
+  runAskAgent: (workflow: string, step: string, error: string) =>
+    l10n.t(
+      'The workflow {0} failed at step {1} with: {2}. Look at that block and its handler and tell me what went wrong.',
+      workflow,
+      step,
+      error,
+    ),
+
+  /** The same question about a run no step failed
+   *  in — the ingress refused it, or the workflow
+   *  itself threw. */
+  runAskAgentNoStep: (workflow: string, error: string) =>
+    l10n.t(
+      'The workflow {0} failed with: {1}. Look at it and tell me what went wrong.',
+      workflow,
+      error,
+    ),
+
+  /**
    * The line naming what is being read. The host
    * and database only — the string it came from
    * carries a password.

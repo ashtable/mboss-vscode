@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Run, Step } from './rows.js';
-import { runsInit, seeInit } from './view.js';
+import type { SessionRun } from './sessionLog.js';
+import { runsInit, seeInit, type RunsView } from './view.js';
+import type { ProjectWorkflow } from './workflows.js';
 
 /**
  * The two init messages, as words.
@@ -43,7 +45,38 @@ function step(functionId: number, from: number, to: number): Step {
 
 const STEPS = [step(0, 0, 1000), step(1, 1000, 2000), step(2, 8000, 9000)];
 
-const LIST = {
+const WORKFLOWS: ProjectWorkflow[] = [
+  {
+    name: 'groom_booking',
+    title: 'Groom booking',
+    trigger: { mode: 'manual' },
+  },
+  {
+    name: 'expense_claim',
+    title: 'Expense claim',
+    trigger: { mode: 'event', topic: 'expense.filed', keyPath: 'claimId' },
+  },
+  // An event workflow that names no key: every
+  // send of it is a run of its own.
+  {
+    name: 'door_opened',
+    title: 'Door opened',
+    trigger: { mode: 'event', topic: 'door.opened' },
+  },
+];
+
+const SESSION: SessionRun = {
+  workflowId: 'run_1_a1b2',
+  workflow: 'groom_booking',
+  input: { bookingId: 7 },
+  startedAt: 0,
+  outcome: 'done',
+  durationMs: 8200,
+  stepCount: 3,
+  recovered: false,
+};
+
+const LIST: RunsView = {
   project: 'my-app',
   state: 'ok' as const,
   detail: undefined,
@@ -52,6 +85,15 @@ const LIST = {
   counts: { all: 6, failed: 1, recovered: 1 },
   runs: [RUN],
   selected: undefined,
+  stack: { available: true, services: [], detail: undefined },
+  busy: undefined,
+  workflows: WORKFLOWS,
+  workflow: 'groom_booking',
+  input: '{}',
+  hint: undefined,
+  problem: undefined,
+  live: undefined,
+  session: [SESSION],
 };
 
 describe('the run list', () => {
@@ -179,6 +221,74 @@ describe('the run list', () => {
 
     expect(runsInit(nothing).strings.source).toBeUndefined();
     expect(runsInit(nothing).detail).toBe('no .env');
+  });
+});
+
+describe('what this window set going', () => {
+  it('names each workflow and how a run of it starts', () => {
+    expect(runsInit(LIST).testRun.workflows).toEqual([
+      { name: 'groom_booking', title: 'Groom booking', mode: 'manual' },
+      { name: 'expense_claim', title: 'Expense claim', mode: 'event' },
+      { name: 'door_opened', title: 'Door opened', mode: 'event' },
+    ]);
+    expect(runsInit(LIST).testRun.selected).toBe('groom_booking');
+  });
+
+  it('says how long a finished run took, and nothing for one going', () => {
+    expect(runsInit(LIST).session[0]?.when).toContain('8.2 s');
+
+    const going = { ...LIST, session: [{ ...SESSION, durationMs: undefined }] };
+    expect(runsInit(going).session[0]?.when).not.toContain('·');
+  });
+
+  /**
+   * Which of the two actions a row offers is a
+   * fact about the workflow's trigger rather than
+   * about the run: sending the same input again is
+   * the same run only where the route mints the id
+   * from it.
+   */
+  it('marks the rows whose input decides the run', () => {
+    expect(runsInit(LIST).session[0]?.keyed).toBe(false);
+
+    const keyed = {
+      ...LIST,
+      session: [{ ...SESSION, workflow: 'expense_claim' }],
+    };
+    expect(runsInit(keyed).session[0]?.keyed).toBe(true);
+
+    // An event is not enough on its own: without a
+    // key path the route mints a fresh id, so
+    // sending it again is another run.
+    const unkeyed = {
+      ...LIST,
+      session: [{ ...SESSION, workflow: 'door_opened' }],
+    };
+    expect(runsInit(unkeyed).session[0]?.keyed).toBe(false);
+  });
+
+  /** One field, whether a step threw or the
+   *  ingress refused to start it at all. */
+  it('carries whichever failure the row has', () => {
+    const threw = {
+      ...LIST,
+      session: [
+        {
+          ...SESSION,
+          outcome: 'failed' as const,
+          failedStep: { name: 'find_slot', error: 'CDC_PASS rotated' },
+        },
+      ],
+    };
+    expect(runsInit(threw).session[0]?.error).toBe('CDC_PASS rotated');
+
+    const refused = {
+      ...LIST,
+      session: [
+        { ...SESSION, outcome: 'failed' as const, error: 'the app is not up' },
+      ],
+    };
+    expect(runsInit(refused).session[0]?.error).toBe('the app is not up');
   });
 });
 

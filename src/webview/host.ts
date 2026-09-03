@@ -131,6 +131,53 @@ const RunSelect = z.object({
   workflowId: z.string(),
 });
 
+/**
+ * The local stack, being driven.
+ *
+ * Three commands rather than one with an argument,
+ * because each is a different thing to have
+ * pressed and a fourth value would have to mean
+ * something.
+ */
+const StackUp = z.object({ type: z.literal('stackUp') });
+const StackDown = z.object({ type: z.literal('stackDown') });
+const StackRebuild = z.object({ type: z.literal('stackRebuild') });
+
+/**
+ * Somebody asked for one run of a workflow.
+ *
+ * The input arrives as the text they typed, not as
+ * a payload: what it parses to is the host's
+ * decision, and "that is not JSON" is a sentence
+ * the panel has to be told rather than one it may
+ * decide for itself.
+ */
+const RunWorkflow = z.object({
+  type: z.literal('runWorkflow'),
+  workflow: z.string(),
+  input: z.string(),
+});
+
+/** Somebody asked for the same thing again. */
+const Rerun = z.object({
+  type: z.literal('rerun'),
+  workflowId: z.string(),
+});
+
+/** Somebody wants the agent to look at a failed
+ *  run. */
+const AskAgent = z.object({
+  type: z.literal('askAgent'),
+  workflowId: z.string(),
+});
+
+/** Somebody opened one of this session's runs in
+ *  the flight recorder. */
+const OpenRun = z.object({
+  type: z.literal('openRun'),
+  workflowId: z.string(),
+});
+
 /** Somebody picked the step the rail describes. */
 const StepSelect = z.object({
   type: z.literal('stepSelect'),
@@ -167,6 +214,13 @@ export const WebviewMessageSchema = z.discriminatedUnion('type', [
   RunFilterPicked,
   RunRefresh,
   RunSelect,
+  StackUp,
+  StackDown,
+  StackRebuild,
+  RunWorkflow,
+  Rerun,
+  AskAgent,
+  OpenRun,
   StepSelect,
   Replay,
 ]);

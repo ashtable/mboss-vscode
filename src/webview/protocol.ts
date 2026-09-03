@@ -15,6 +15,10 @@ import type {
 } from '../core/rules.js';
 import type { RunFilter } from '../runs/queries.js';
 import type { RunCounts } from '../runs/rows.js';
+import type { ServiceHealth } from '../runs/stack.js';
+import type { StackAction } from '../runs/store.js';
+import type { LiveOutcome, LiveRun } from '../runs/watch.js';
+import type { WorkflowTrigger } from '../runs/workflows.js';
 
 /**
  * What the host and a webview say to each other.
@@ -322,6 +326,91 @@ export type RunsInit = {
 
   /** Which run the detail tab is showing. */
   selected: string | undefined;
+
+  /** The project's own containers. */
+  stack: StackZone;
+
+  /** Starting one run of a saved workflow. */
+  testRun: TestRunZone;
+
+  /** The run being followed, if one is. */
+  live: LiveRun | undefined;
+
+  /** What this window has set going, newest
+   *  first. */
+  session: SessionRow[];
+};
+
+/**
+ * The local stack, as the panel draws it.
+ *
+ * `available` is docker being on the path and the
+ * project having a compose file; `detail` says
+ * which of those is missing when one is. A stack
+ * that is simply down is available and has rows.
+ */
+export type StackZone = {
+  available: boolean;
+
+  services: ServiceHealth[];
+
+  /** Which command is going, while one is. */
+  busy: StackAction | undefined;
+
+  detail: string | undefined;
+};
+
+/** Starting one run by hand. */
+export type TestRunZone = {
+  workflows: RunnableWorkflow[];
+
+  selected: string | undefined;
+
+  /** The JSON text, held by the host so a repaint
+   *  does not empty the box. */
+  input: string;
+
+  /** That the same input is the same run, where
+   *  the trigger says so. */
+  hint: string | undefined;
+
+  /** Why the last start did not happen. */
+  problem: string | undefined;
+};
+
+export type RunnableWorkflow = {
+  name: string;
+
+  title: string;
+
+  /** A scheduled workflow is listed and cannot be
+   *  started: it runs on its schedule. */
+  mode: WorkflowTrigger['mode'];
+};
+
+/** One run this window started, in the words the
+ *  panel draws. */
+export type SessionRow = {
+  workflowId: string;
+
+  workflow: string;
+
+  outcome: LiveOutcome;
+
+  /** `14:02 · 8.2 s`, already formatted. */
+  when: string;
+
+  stepCount: number;
+
+  recovered: boolean;
+
+  /** What it failed with — a step's error, or the
+   *  ingress refusing to start it. */
+  error: string | undefined;
+
+  /** Whether sending the same input again is the
+   *  same run, by the route's own idempotency. */
+  keyed: boolean;
 };
 
 /**

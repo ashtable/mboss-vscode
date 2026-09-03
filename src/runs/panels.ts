@@ -60,8 +60,25 @@ export class RunsListView implements WebviewViewProvider {
           void this.store.setFilter(message.filter);
         }
 
-        if (message.type === 'runSelect') {
+        // Both open the flight recorder: one from
+        // the history list, one from a row of what
+        // this session started.
+        if (message.type === 'runSelect' || message.type === 'openRun') {
           void this.open(message.workflowId);
+        }
+
+        if (message.type === 'stackUp') void this.store.stackUp();
+        if (message.type === 'stackDown') void this.store.stackDown();
+        if (message.type === 'stackRebuild') void this.store.stackRebuild();
+
+        if (message.type === 'runWorkflow') {
+          void this.store.runWorkflow(message.workflow, message.input);
+        }
+
+        if (message.type === 'rerun') void this.store.rerun(message.workflowId);
+
+        if (message.type === 'askAgent') {
+          void this.store.askAgent(message.workflowId);
         }
       },
     });

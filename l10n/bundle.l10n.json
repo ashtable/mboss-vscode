@@ -234,5 +234,10 @@
   "one line": "one line",
   "several lines": "several lines",
   "a file": "a file",
-  "yes or no": "yes or no"
+  "yes or no": "yes or no",
+  "That input is not JSON, so nothing was sent.": "That input is not JSON, so nothing was sent.",
+  "The running app was built before this workflow. Rebuild the app.": "The running app was built before this workflow. Rebuild the app.",
+  "{0} is the idempotency key · a new value is a new run": "{0} is the idempotency key · a new value is a new run",
+  "The workflow {0} failed at step {1} with: {2}. Look at that block and its handler and tell me what went wrong.": "The workflow {0} failed at step {1} with: {2}. Look at that block and its handler and tell me what went wrong.",
+  "The workflow {0} failed with: {1}. Look at it and tell me what went wrong.": "The workflow {0} failed with: {1}. Look at it and tell me what went wrong."
 }

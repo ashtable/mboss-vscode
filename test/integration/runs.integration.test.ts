@@ -7,6 +7,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { openDatabase, openFork } from '../../src/runs/db.js';
+import { sessionLog } from '../../src/runs/sessionLog.js';
 import { runsStore, type RunsStore } from '../../src/runs/store.js';
 
 /**
@@ -173,9 +174,34 @@ describe('a run history, read from a real dbos schema', () => {
         projects: () => [dir],
         isTrusted: () => true,
         say: (message) => said.push(message),
+        setContext: () => undefined,
+        note: () => undefined,
+        notify: async () => undefined,
       },
       open: openDatabase,
       openFork,
+      // This suite reads a real ledger and forks a
+      // real run. Nothing here starts a container
+      // or an ingress, so the collaborators that
+      // would are answers rather than effects.
+      stack: {
+        up: async () => undefined,
+        rebuild: async () => undefined,
+        down: async () => undefined,
+        status: async () => ({
+          available: false,
+          services: [],
+          detail: undefined,
+        }),
+        appOrigin: async () => undefined,
+      },
+      runner: async () => ({
+        ok: false,
+        because: 'refused',
+        detail: 'no ingress in this suite',
+      }),
+      watch: () => ({ stop: () => undefined }),
+      sessionLog: sessionLog(),
     });
   });
 

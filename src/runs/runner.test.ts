@@ -225,6 +225,26 @@ describe('starting a workflow by hand', () => {
       second.ok ? second.workflowId : '',
     );
   });
+
+  /**
+   * A caller that has already put a row on screen
+   * against an id owns it: minting a second here
+   * would start the run under a name nothing on
+   * screen could follow.
+   */
+  it('goes out under the id the caller already named it', async () => {
+    const { deps, project, sent } = driven();
+
+    const start = await startRun(deps, {
+      ...manual(project),
+      workflowId: 'run_9_beef',
+    });
+
+    const body = JSON.parse(sent[0]?.body ?? '') as { workflowID: string };
+
+    expect(body.workflowID).toBe('run_9_beef');
+    expect(start).toEqual({ ok: true, workflowId: 'run_9_beef' });
+  });
 });
 
 describe('starting a workflow by its event', () => {

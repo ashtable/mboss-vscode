@@ -510,6 +510,7 @@ const DRIVER = (parent: string): string =>
     '  },',
     '  window: {',
     '    createStatusBarItem: () => ({ show() {}, dispose() {} }),',
+    '    createOutputChannel: () => ({ append() {}, dispose() {} }),',
     '    registerCustomEditorProvider: noop,',
     '    registerWebviewViewProvider: noop,',
     '    showInformationMessage: async () => undefined,',

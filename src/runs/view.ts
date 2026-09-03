@@ -11,6 +11,7 @@ import type {
   SeeRawRow,
   SeeRun,
   SeeTimeline,
+  SessionRow,
 } from '../webview/protocol.js';
 
 import type { RunFilter } from './queries.js';
@@ -21,7 +22,12 @@ import {
   type RunCounts,
   type Step,
 } from './rows.js';
+import type { SessionRun } from './sessionLog.js';
+import type { StackStatus } from './stack.js';
+import type { StackAction } from './store.js';
 import { runTimeline, type Timeline } from './timeline.js';
+import type { LiveRun } from './watch.js';
+import type { ProjectWorkflow } from './workflows.js';
 
 /**
  * A run history, in the words and shapes the two
@@ -70,6 +76,36 @@ export type RunsView = {
   runs: Run[];
 
   selected: string | undefined;
+
+  /** What compose says about the project's own
+   *  stack. */
+  stack: StackStatus;
+
+  /** Which stack command is going, while one is. */
+  busy: StackAction | undefined;
+
+  /** What the project has saved, and which of them
+   *  the input box belongs to. */
+  workflows: ProjectWorkflow[];
+  workflow: string | undefined;
+
+  /** The JSON text as it was last sent, held here
+   *  so a repaint does not empty the box. */
+  input: string;
+
+  /** That the same input is the same run, where
+   *  the trigger says so. */
+  hint: string | undefined;
+
+  /** Why the last start did not happen. */
+  problem: string | undefined;
+
+  /** The run being followed, if one is. */
+  live: LiveRun | undefined;
+
+  /** What this window has set going, newest
+   *  first. */
+  session: SessionRun[];
 };
 
 export type SeeView = {
@@ -95,7 +131,61 @@ export function runsInit(view: RunsView): RunsInit {
     counts: view.counts,
     rows: view.runs.map(rowOf),
     selected: view.selected,
+    stack: {
+      available: view.stack.available,
+      services: view.stack.services,
+      busy: view.busy,
+      detail: view.stack.detail,
+    },
+    testRun: {
+      workflows: view.workflows.map((flow) => ({
+        name: flow.name,
+        title: flow.title,
+        mode: flow.trigger.mode,
+      })),
+      selected: view.workflow,
+      input: view.input,
+      hint: view.hint,
+      problem: view.problem,
+    },
+    live: view.live,
+    session: view.session.map((run) => sessionRowOf(run, view.workflows)),
   };
+}
+
+/**
+ * One session run, in the words the panel draws.
+ *
+ * `keyed` comes from the document rather than from
+ * the run: whether sending this input again is the
+ * same run is a fact about the workflow's trigger,
+ * and it is what decides which of the two actions
+ * the row offers.
+ */
+function sessionRowOf(
+  run: SessionRun,
+  workflows: readonly ProjectWorkflow[],
+): SessionRow {
+  const trigger = workflows.find((flow) => flow.name === run.workflow)?.trigger;
+
+  return {
+    workflowId: run.workflowId,
+    workflow: run.workflow,
+    outcome: run.outcome,
+    when: sessionWhen(run),
+    stepCount: run.stepCount,
+    recovered: run.recovered,
+    error: run.failedStep?.error ?? run.error,
+    keyed: trigger?.mode === 'event' && trigger.keyPath !== undefined,
+  };
+}
+
+function sessionWhen(run: SessionRun): string {
+  const at = clock(run.startedAt);
+
+  return run.durationMs === undefined
+    ? at
+    : `${at} · ${duration(run.durationMs)}`;
 }
 
 export function seeInit(view: SeeView | undefined): SeeInit {

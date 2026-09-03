@@ -89,6 +89,22 @@ export type LiveRun = {
 export type RunWatcher = { stop(): void };
 
 /**
+ * Arming a watch, as whoever arms one takes it.
+ *
+ * The panel's store holds a database opener
+ * already, so it hands over its own rather than
+ * carrying a second — which is what lets the real
+ * `watchRun` be passed straight in and a spec pass
+ * a function that arms nothing.
+ */
+export type RunWatch = (
+  open: OpenDatabase,
+  url: string,
+  workflowId: string,
+  onChange: (run: LiveRun) => void,
+) => RunWatcher;
+
+/**
  * Often enough that a step landing looks immediate,
  * and slow enough that a run of a hundred steps is
  * still a couple of hundred reads.

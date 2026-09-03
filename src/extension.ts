@@ -1,4 +1,4 @@
-import { commands, workspace, type ExtensionContext } from 'vscode';
+import { commands, window, workspace, type ExtensionContext } from 'vscode';
 
 import { agentPanel } from './acp/agent.js';
 import { chooseAgent } from './acp/choose.js';
@@ -12,9 +12,14 @@ import { isProject } from './core/index.js';
 import { NodeInspectorView } from './inspector/view.js';
 import { previewStore } from './preview/store.js';
 import { openDatabase, openFork } from './runs/db.js';
+import { projectEnv } from './runs/env.js';
 import { runsHost } from './runs/host.js';
 import { RunsListView, SeePanel } from './runs/panels.js';
+import { startRun } from './runs/runner.js';
+import { sessionLog } from './runs/sessionLog.js';
+import { STACK_OUTPUT, dockerStack } from './runs/stack.js';
 import { runsStore } from './runs/store.js';
+import { watchRun } from './runs/watch.js';
 import { AgentSidebarView } from './sidebar/view.js';
 import { createStatusBar, editorStatusItem } from './statusBar.js';
 import { shippedVendor } from './vendor/index.js';
@@ -83,15 +88,34 @@ export function activate(context: ExtensionContext): void {
     editor.onTrustGranted(() => void preview.reloadAll()),
   );
 
-  // What a project's own Postgres says happened.
-  // Held here for the same reason the proposals
-  // are: a list in the activity bar and a page in
-  // the editor both draw it, and either can be
-  // disposed while the other is on screen.
+  // What a build prints while it runs, which is
+  // minutes of somebody's afternoon and belongs
+  // where a long command's log belongs.
+  const stackOutput = window.createOutputChannel(STACK_OUTPUT);
+  const stack = dockerStack(stackOutput);
+
+  // What a project's own Postgres says happened,
+  // and what its own containers are doing. Held
+  // here for the same reason the proposals are: a
+  // list in the activity bar, a page in the editor
+  // and the canvas all draw it, and any of them can
+  // be disposed while the others are on screen.
   const runs = runsStore({
-    host: runsHost(),
+    host: runsHost(panel),
     open: openDatabase,
     openFork,
+    stack,
+    // The runner is handed its collaborators here
+    // rather than reaching for them: the store has
+    // no opinion about how a request is made, and
+    // nothing under `runs/` constructs a `fetch`.
+    runner: (request) =>
+      startRun(
+        { stack, env: projectEnv, open: openDatabase, fetch: globalThis.fetch },
+        request,
+      ),
+    watch: watchRun,
+    sessionLog: sessionLog(),
   });
   const see = new SeePanel(context.extensionUri, runs);
 
@@ -142,6 +166,7 @@ export function activate(context: ExtensionContext): void {
     preview,
     watchers,
     statusBar,
+    stackOutput,
   );
 }
 

@@ -44,6 +44,15 @@ export type RunRequest = {
 
   /** Whatever the panel's JSON box parsed to. */
   input: unknown;
+
+  /**
+   * The id a manual run goes out under, where the
+   * caller has already put a row on screen against
+   * it. Minted here when it has not — the id has
+   * to exist before the request does either way,
+   * and only one of the two can own it.
+   */
+  workflowId?: string;
 };
 
 /**
@@ -63,6 +72,10 @@ export type RunProblem = 'refused' | 'rebuild-to-run' | 'untracked';
 export type RunStart =
   | { ok: true; workflowId: string }
   | { ok: false; because: RunProblem; detail: string };
+
+/** Starting a run, bound to the collaborators it
+ *  needs, as the panel's store takes it. */
+export type RunStarter = (request: RunRequest) => Promise<RunStart>;
 
 export type RunnerDeps = {
   stack: StackController;
@@ -153,7 +166,7 @@ function posted(origin: string, request: RunRequest): Post {
     };
   }
 
-  const minted = mintedId();
+  const minted = request.workflowId ?? newRunId();
 
   return {
     url: `${origin}/runs/${encodeURIComponent(request.workflow)}`,
@@ -163,8 +176,8 @@ function posted(origin: string, request: RunRequest): Post {
 }
 
 /**
- * The id a manual run is started under, minted
- * here rather than left to the app.
+ * The id a manual run is started under, minted on
+ * this side rather than left to the app.
  *
  * The panel records the run before the request
  * goes, and a run the app started under some id
@@ -172,7 +185,7 @@ function posted(origin: string, request: RunRequest): Post {
  * follow. The route starts the run this names, so
  * a request sent twice is one run.
  */
-function mintedId(): string {
+export function newRunId(): string {
   return `run_${Date.now()}_${randomBytes(4).toString('hex')}`;
 }
 

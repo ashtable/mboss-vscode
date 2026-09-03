@@ -93,6 +93,21 @@ function runsInit(over: Partial<RunsInit> = {}): RunsInit {
     counts: { all: 6, failed: 1, recovered: 1 },
     rows: ROWS,
     selected: undefined,
+    stack: {
+      available: true,
+      services: [],
+      busy: undefined,
+      detail: undefined,
+    },
+    testRun: {
+      workflows: [],
+      selected: undefined,
+      input: '',
+      hint: undefined,
+      problem: undefined,
+    },
+    live: undefined,
+    session: [],
     ...over,
   };
 }
