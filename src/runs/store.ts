@@ -124,6 +124,13 @@ export type RunsStore = {
 
   select(workflowId: string): Promise<void>;
 
+  /** Re-reads the project's saved workflows off
+   *  disk, without touching the stack or the run
+   *  history — what a command needs before it opens
+   *  a picker, in a window where nothing has read
+   *  them yet. */
+  refreshWorkflows(): void;
+
   /** Which step the rail describes and a replay
    *  would fork from. */
   selectStep(functionId: number): void;
@@ -643,6 +650,11 @@ export function runsStore(deps: RunsDeps): RunsStore {
             : { ...found, selectedStep: firstStep(found.steps), note };
       }
 
+      changed();
+    },
+
+    refreshWorkflows: () => {
+      readWorkflows();
       changed();
     },
 

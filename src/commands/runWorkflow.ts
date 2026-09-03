@@ -51,6 +51,13 @@ export function runWorkflowCommand(
       return;
     }
 
+    // The panel is what usually reads a project's
+    // saved workflows, the first time it draws
+    // itself — and a window where that has not
+    // happened yet must not tell this command's
+    // picker there is nothing to run.
+    runs.refreshWorkflows();
+
     const runnable = runs
       .list()
       .workflows.filter((flow) => flow.trigger.mode !== 'schedule');
