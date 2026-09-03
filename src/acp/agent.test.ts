@@ -154,19 +154,46 @@ describe('one turn', () => {
       'agent: Wiring the booking flow.',
       'thought: The confirm step needs a handler.',
       'tool',
+      'file',
     ]);
 
     const tool = transcript.find((entry) => entry.at === 'tool');
 
-    expect(tool?.at === 'tool' && tool.status).toBe('completed');
-    expect(tool?.at === 'tool' && tool.files).toEqual([
-      {
-        path: '/project/lib/twilioChat.ts',
-        added: 1,
-        removed: 0,
-        isNew: true,
-      },
-    ]);
+    expect(tool?.status).toBe('completed');
+
+    const file = transcript.find((entry) => entry.at === 'file');
+
+    expect(file?.path).toBe('/project/lib/twilioChat.ts');
+    expect(file?.added).toBe(1);
+    expect(file?.isNew).toBe(true);
+  });
+
+  /**
+   * Applying a proposal, regenerating and failing,
+   * running a workflow — the extension does things
+   * a person needs to see in the same column as
+   * what the agent did, told apart by who did them
+   * rather than by which panel they landed in.
+   */
+  it('takes an entry the extension wrote itself', () => {
+    const driven = drive();
+
+    driven.panel.note({
+      at: 'tool',
+      id: 'apply-1',
+      by: 'person',
+      kind: 'edit',
+      verb: 'Apply proposal',
+      target: 'booking',
+      status: 'applied',
+      body: [],
+    });
+
+    expect(
+      driven.panel
+        .state()
+        .transcript.map((entry) => entry.at === 'tool' && entry.by),
+    ).toEqual(['person']);
   });
 });
 

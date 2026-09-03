@@ -185,12 +185,14 @@ test.describe('a tool call', () => {
 
   /**
    * One row per file, path on the left and what
-   * happened to it on the right. The counts are
+   * happened to it on the right — beside the call
+   * rather than inside it, because a file is the
+   * thing a person keeps or undoes. The counts are
    * arithmetic on the two texts the protocol
    * sends, so a file that did not exist reads as
    * new rather than as an enormous edit.
    */
-  test('lists the files it touched with a stat on each', async ({ page }) => {
+  test('puts a row beside it for each file it touched', async ({ page }) => {
     const harness = await openPanel(page);
 
     await showing(harness, [
@@ -212,10 +214,13 @@ test.describe('a tool call', () => {
       },
     ]);
 
-    const rows = page.locator('[data-tool-call="call-1"] .file-row');
+    const rows = page.locator('.file-row');
 
     await expect(rows).toHaveCount(2);
-    await expect(rows.nth(0)).toContainText('lib/twilioChat.ts');
+    await expect(rows.nth(0)).toHaveAttribute(
+      'data-file',
+      '/project/lib/twilioChat.ts',
+    );
 
     // A file that did not exist says so and counts
     // every line as added; one that did counts both

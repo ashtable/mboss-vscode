@@ -22,7 +22,11 @@ import {
   type SessionState,
 } from './session.js';
 import { foldUpdate, type PermissionPrompt } from './transcript.js';
-import type { TranscriptEntry } from './transcript.js';
+import type {
+  DiagnosticEntry,
+  ToolEntry,
+  TranscriptEntry,
+} from './transcript.js';
 
 /**
  * The agent, as the extension holds it.
@@ -114,6 +118,18 @@ export type AgentPanel = {
   /** Repaints from state that changed outside this
    *  module — trust granted, a setting written. */
   refresh(): void;
+
+  /**
+   * Adds an entry the extension wrote itself.
+   *
+   * A proposal applied, a regeneration that failed,
+   * a workflow run — things a person needs to see
+   * in the same column as what the agent did,
+   * because that is the order they happened in.
+   * What tells them apart is the entry's own
+   * provenance.
+   */
+  note(entry: ToolEntry | DiagnosticEntry): void;
 
   /** Starts the agent if it is not running, then
    *  runs one turn. */
@@ -285,6 +301,11 @@ export function agentPanel(host: PanelHost): AgentPanel {
     },
 
     refresh: changed,
+
+    note: (entry) => {
+      transcript = [...transcript, entry];
+      changed();
+    },
 
     send,
 

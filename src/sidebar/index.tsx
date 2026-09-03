@@ -9,6 +9,8 @@ import {
 import { createRoot } from 'react-dom/client';
 
 import type {
+  DiagnosticEntry,
+  FileEditEntry,
   PermissionPrompt,
   PlanEntry,
   ToolEntry,
@@ -205,17 +207,20 @@ function Entry({
 
   if (entry.at === 'tool') return <Tool entry={entry} strings={strings} />;
 
+  if (entry.at === 'file') return <FileEdit entry={entry} strings={strings} />;
+
+  if (entry.at === 'diagnostic') return <Diagnostic entry={entry} />;
+
   return <Plan entry={entry} strings={strings} />;
 }
 
 /**
- * One unit of work.
+ * One unit of work: what was done, and to what.
  *
  * Open by default and foldable, because the
  * interesting part of a finished call is usually
- * the one line saying which files it touched, and
- * the interesting part of a running one is that it
- * is running.
+ * whatever it printed, and the interesting part of
+ * a running one is that it is running.
  */
 function Tool({
   entry,
@@ -236,22 +241,19 @@ function Tool({
         <span className="tool-mark" aria-hidden="true">
           {MARKS[entry.kind]}
         </span>
-        <span className="tool-title">{entry.title}</span>
-        <span className="tool-status">{strings.toolStatus[entry.status]}</span>
-      </summary>
+        <span className="tool-title">
+          {entry.verb} <span className="mono">{entry.target}</span>
+        </span>
 
-      {entry.files.map((file) => (
-        <p className="file-row" key={file.path}>
-          <span className="mono path">{file.path}</span>
-          <span className="stat">
-            {file.isNew ? <span className="new">{strings.newFile}</span> : null}
-            <span className="added">+{file.added}</span>
-            {file.removed > 0 ? (
-              <span className="removed">−{file.removed}</span>
-            ) : null}
-          </span>
-        </p>
-      ))}
+        {/* The status words are the protocol's four.
+            A row the extension wrote itself did the
+            thing rather than asked for it, and the
+            panel has no word of its own for that
+            yet. */}
+        <span className="tool-status">
+          {entry.status === 'applied' ? null : strings.toolStatus[entry.status]}
+        </span>
+      </summary>
 
       {entry.body.map((line, index) => (
         <p className="tool-body mono" key={index}>
@@ -259,6 +261,63 @@ function Tool({
         </p>
       ))}
     </details>
+  );
+}
+
+/**
+ * One file, as the agent left it.
+ *
+ * Its own row rather than a line inside the call
+ * that wrote it: a file is what a person keeps or
+ * undoes, and the counts are arithmetic on the two
+ * texts the protocol sends, so a file that did not
+ * exist reads as new rather than as an enormous
+ * edit.
+ */
+function FileEdit({
+  entry,
+  strings,
+}: {
+  entry: FileEditEntry;
+  strings: SidebarStrings;
+}) {
+  return (
+    <p className="file-row" data-file={entry.path}>
+      <span className="mono path">{entry.path}</span>
+      <span className="stat">
+        {entry.isNew ? <span className="new">{strings.newFile}</span> : null}
+        <span className="added">+{entry.added}</span>
+        {entry.removed > 0 ? (
+          <span className="removed">−{entry.removed}</span>
+        ) : null}
+      </span>
+    </p>
+  );
+}
+
+/**
+ * Something that went wrong, in the words of
+ * whatever found it.
+ *
+ * Every line here was written by the extension in
+ * the host, where the strings are resolved — the
+ * panel adds no wording of its own.
+ */
+function Diagnostic({ entry }: { entry: DiagnosticEntry }) {
+  return (
+    <div className="diagnostic" data-source={entry.source}>
+      <p className="eyebrow">{entry.source}</p>
+
+      {entry.rows.map((row, index) => (
+        <p className="diagnostic-row" key={index}>
+          {row.code === undefined ? null : (
+            <span className="mono">{row.code}</span>
+          )}
+          {row.at === undefined ? null : <span className="mono">{row.at}</span>}
+          <span>{row.message}</span>
+        </p>
+      ))}
+    </div>
   );
 }
 
