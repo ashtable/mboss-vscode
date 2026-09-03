@@ -119,6 +119,32 @@ export const messages = {
     l10n.t('That database would not answer: {0}', detail),
 
   /**
+   * The two ways there is no local stack at all,
+   * kept apart the same way: one is answered by
+   * installing docker, the other by scaffolding a
+   * project. Both are states of somebody's machine
+   * rather than faults, so both are sentences in
+   * the panel and neither is thrown.
+   */
+  stackNoDocker: () =>
+    l10n.t('Docker is not on the PATH, so there is no local stack to start.'),
+  stackNoComposeFile: (path: string) =>
+    l10n.t(
+      '{0} is not there, so there is no local stack to start. A scaffolded project writes one.',
+      path,
+    ),
+
+  /**
+   * When the app's container was made, which is
+   * when the app last changed: starting the stack
+   * always builds, and compose recreates the
+   * container whenever the image did. How long it
+   * has been *up* is a different question and not
+   * the one being asked.
+   */
+  stackBuiltAgo: (elapsed: string) => l10n.t('built {0} ago', elapsed),
+
+  /**
    * The line naming what is being read. The host
    * and database only — the string it came from
    * carries a password.
