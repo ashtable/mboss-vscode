@@ -82,6 +82,23 @@ describe('the packaged extension', () => {
   });
 
   /**
+   * The two faces the webviews are set in, and the
+   * terms they are shipped under.
+   *
+   * Redistributing an OFL face means carrying its
+   * licence, and this package is the only copy a
+   * user ever receives — so the notice travels
+   * with the bytes rather than living in a
+   * repository they will never see.
+   */
+  it('ships the vendored faces and their terms', () => {
+    expect(has('dist/webview/fonts/')).toBe(true);
+    expect(has('THIRD_PARTY_NOTICES.md')).toBe(true);
+    expect(has('media/fonts/albert-sans-OFL.txt')).toBe(true);
+    expect(has('media/fonts/spline-sans-mono-OFL.txt')).toBe(true);
+  });
+
+  /**
    * These are not source and not build tooling;
    * they are bytes the extension copies into a new
    * project. A source-shaped exclusion pattern

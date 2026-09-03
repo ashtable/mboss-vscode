@@ -18,14 +18,7 @@
  */
 
 body {
-  --color-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
-
-  /* Failure has a colour in every theme already,
-     and it is the one the editor draws squiggles
-     in. A second red is how a panel stops matching
-     the editor around it. */
-  --color-fail: var(--vscode-editorError-foreground, var(--color-text));
-  --color-warn: var(--vscode-editorWarning-foreground, var(--color-accent));
+  --canvas: var(--vscode-sideBar-background, var(--vscode-editor-background));
 }
 
 .runs {
@@ -45,17 +38,17 @@ body {
   justify-content: space-between;
   gap: var(--space-2);
   padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .runs-head > .eyebrow {
-  color: var(--color-accent);
+  color: var(--brand);
 }
 
 .runs-project {
   margin: 0;
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 65%, transparent);
+  font-size: var(--text-sm);
+  color: color-mix(in srgb, var(--ink) 65%, transparent);
   overflow-wrap: anywhere;
 }
 
@@ -66,7 +59,7 @@ body {
    they are three answers to one question. */
 .filters {
   display: flex;
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--hairline);
 }
 
 .filters > button {
@@ -76,13 +69,12 @@ body {
   justify-content: center;
   gap: var(--space-1);
   border: none;
-  border-left: 1px solid var(--color-divider);
+  border-left: 1px solid var(--hairline);
   border-radius: 0;
   background: transparent;
-  color: var(--color-text);
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: var(--space-1) var(--space-2);
@@ -94,13 +86,13 @@ body {
 }
 
 .filters > button[aria-pressed='true'] {
-  background: var(--tint-accent);
-  color: var(--color-accent);
+  background: var(--brand-tint);
+  color: var(--brand);
 }
 
 .filters .count {
   font-family: var(--font-mono);
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
   letter-spacing: 0;
 }
 
@@ -120,29 +112,29 @@ body {
   width: 100%;
   text-align: left;
   border: none;
-  border-top: 1px solid var(--color-divider);
+  border-top: 1px solid var(--hairline);
   /* Left edge kept clear on every row so that the
      accent rule on a recovered one does not shift
      the text of the rows around it. */
   border-left: 2px solid transparent;
   border-radius: 0;
   background: transparent;
-  color: var(--color-text);
+  color: var(--ink);
   font: inherit;
   padding: var(--space-2);
   cursor: pointer;
 }
 
 .run-row:hover {
-  background: var(--tint-text);
+  background: var(--surface-2);
 }
 
 .run-row[aria-current='true'] {
-  background: var(--tint-accent);
+  background: var(--brand-tint);
 }
 
 .run-row[data-recovered='true'] {
-  border-left-color: var(--color-accent);
+  border-left-color: var(--brand);
 }
 
 .run-line {
@@ -157,39 +149,38 @@ body {
 }
 
 .run-name {
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 65%, transparent);
+  font-size: var(--text-sm);
+  color: color-mix(in srgb, var(--ink) 65%, transparent);
   overflow-wrap: anywhere;
 }
 
 .run-mark {
-  font-size: var(--text-title);
+  font-size: var(--text-lg);
   line-height: 1;
-  color: var(--color-accent);
+  color: var(--brand);
 }
 
 .run-row[data-severity='failed'] .run-mark,
 .run-row[data-severity='exhausted'] .run-mark {
-  color: var(--color-fail);
+  color: var(--fail);
 }
 
 .run-row[data-severity='running'] .run-mark {
-  color: var(--color-warn);
+  color: var(--warn);
 }
 
 .run-tag {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-accent);
+  color: var(--brand);
   white-space: nowrap;
 }
 
 .run-when {
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  font-size: var(--text-sm);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 /* The failure says what it was on the row, because
@@ -197,8 +188,8 @@ body {
    that out. */
 .run-error {
   font-family: var(--font-mono);
-  font-size: var(--text-caption);
-  color: var(--color-fail);
+  font-size: var(--text-sm);
+  color: var(--fail);
   overflow-wrap: anywhere;
 }
 
@@ -206,19 +197,19 @@ body {
 
 .state {
   margin: 0;
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+  font-size: var(--text-sm);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
   flex: 1;
 }
 
 .runs-foot {
-  border-top: 1px solid var(--color-divider);
+  border-top: 1px solid var(--hairline);
   padding-top: var(--space-2);
 }
 
 .runs-foot > p {
   margin: 0;
-  font-size: var(--text-eyebrow);
-  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+  font-size: var(--text-xs);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   overflow-wrap: anywhere;
 }

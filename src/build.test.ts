@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -132,6 +132,43 @@ describe('the built extension', () => {
     for (const name of WEBVIEW_ENTRIES) {
       expect(fileExists(join(outdir, webviewFile(name, 'css')))).toBe(true);
     }
+  });
+
+  /**
+   * A webview may only load a font the extension
+   * itself ships, and a `url()` resolves against
+   * the stylesheet's own webview URI. So the
+   * question is not whether the build copied a
+   * face — it is whether what the built CSS asks
+   * for is where it asks for it.
+   *
+   * Nothing else can tell. A face that did not
+   * ship is not an error anywhere: it is a panel
+   * set in the platform's fallback, in an install
+   * nobody here ever loads.
+   */
+  it('ships every face its stylesheets ask for', () => {
+    const asked: string[] = [];
+
+    for (const name of WEBVIEW_ENTRIES) {
+      const sheet = join(outdir, webviewFile(name, 'css'));
+      const css = readFileSync(sheet, 'utf8');
+
+      for (const match of css.matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
+        const url = match[1] as string;
+
+        // A scheme is somebody else's origin, which
+        // the content security policy refuses long
+        // before this would.
+        expect(url).not.toContain(':');
+
+        asked.push(url);
+        expect(fileExists(resolve(dirname(sheet), url))).toBe(true);
+      }
+    }
+
+    expect(asked).toContain('fonts/albert-sans-latin.woff2');
+    expect(asked).toContain('fonts/spline-sans-mono-latin.woff2');
   });
 
   /**

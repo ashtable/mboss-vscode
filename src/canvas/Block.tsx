@@ -1,7 +1,6 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 
 import { truncateTitle } from '../core/rules.js';
-import { Registered } from '../webview/Registered.js';
 
 import { TARGET_PORT, type CanvasNode } from './graph.js';
 import { portOffsets, summaryOf } from './summary.js';
@@ -26,15 +25,14 @@ import { portOffsets, summaryOf } from './summary.js';
 export function Block({ data, selected }: NodeProps<CanvasNode>) {
   const node = data.node;
 
-  // The registration marks go on the one kind whose
-  // promise is worth seeing from across the graph:
-  // a transaction lands whole or not at all.
+  // The one kind whose promise is worth seeing from
+  // across the graph: a transaction lands whole or
+  // not at all.
   const transaction = node.kind === 'transaction';
 
   return (
-    <Registered
+    <div
       className={transaction ? 'block block-transaction' : 'block'}
-      marks={transaction}
       data-node-kind={node.kind}
       data-selected={selected === true ? 'true' : undefined}
       // Drawn in pencil: dashed, and see-through
@@ -66,6 +64,6 @@ export function Block({ data, selected }: NodeProps<CanvasNode>) {
           ) : null}
         </Handle>
       ))}
-    </Registered>
+    </div>
   );
 }

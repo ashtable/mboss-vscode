@@ -371,6 +371,15 @@ test.describe('one run in detail', () => {
     await expect(page.locator('[data-recovered-banner]')).toHaveCount(0);
   });
 
+  /** The page quotes its sources; it does not
+   *  decorate them. */
+  test('frames its sections without ornament', async ({ page }) => {
+    await showRun(page, seeInit());
+
+    await expect(page.locator('.blueprint')).toHaveCount(0);
+    await expect(page.locator('.corner')).toHaveCount(0);
+  });
+
   /**
    * `<step> ✓` against `<step> ✓ restored` is the
    * one distinction this whole view exists to draw.

@@ -214,19 +214,49 @@ test.describe('the graph', () => {
     ).toBeAttached();
   });
 
-  test('marks the one kind that lands whole or not at all', async ({
-    page,
-  }) => {
+  /**
+   * The one kind that lands whole or not at all is
+   * still told apart, and now that is all it is:
+   * the registration marks the drawing used to
+   * carry are ornament, and the system draws none.
+   */
+  test('tells the transaction apart, without ornament', async ({ page }) => {
     await openCanvas(page);
 
-    const transaction = page.locator('[data-node-kind="transaction"]');
+    await expect(page.locator('[data-node-kind="transaction"]')).toHaveClass(
+      /block-transaction/,
+    );
 
-    await expect(transaction).toHaveClass(/blueprint/);
-    await expect(transaction.locator('.corner')).toHaveCount(4);
+    await expect(page.locator('.blueprint')).toHaveCount(0);
+    await expect(page.locator('.corner')).toHaveCount(0);
+  });
 
-    await expect(
-      page.locator('[data-node-kind="step"]').first().locator('.corner'),
-    ).toHaveCount(0);
+  /**
+   * The two faces are vendored because a webview
+   * cannot reach a font host: `font-src` is the
+   * extension's own origin and nothing else. So a
+   * face that failed to ship does not fail — the
+   * panel is simply set in whatever the platform
+   * had, and only asking the page whether the face
+   * loaded will say so.
+   */
+  test('is set in the faces the extension ships', async ({ page }) => {
+    await openCanvas(page);
+
+    // The loaded set, not `fonts.check`: a family
+    // nothing declares falls back to the platform's
+    // and checks out fine, which is the exact
+    // failure this is about.
+    expect(
+      await page.evaluate(async () => {
+        await document.fonts.ready;
+
+        return [...document.fonts]
+          .filter((face) => face.status === 'loaded')
+          .map((face) => face.family)
+          .sort();
+      }),
+    ).toEqual(['Albert Sans', 'Spline Sans Mono']);
   });
 
   test('captions itself with the document’s own revision', async ({ page }) => {

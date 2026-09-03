@@ -58,6 +58,24 @@ export const WEBVIEW_ENTRIES: readonly WebviewName[] = [
 ];
 
 /**
+ * The two faces the webviews are set in, and where
+ * a stylesheet expects to find them.
+ *
+ * A webview may only load a font the extension
+ * itself ships — `font-src` is its own origin and
+ * nothing else — so the faces are vendored rather
+ * than fetched. `tokens.css` asks for them with a
+ * relative `url()`, which resolves against the
+ * stylesheet's own webview URI, so they have to
+ * land in this directory beside the built
+ * stylesheets under exactly the names it spells.
+ */
+export const WEBVIEW_FONTS = {
+  from: 'media/fonts',
+  to: 'webview/fonts',
+} as const;
+
+/**
  * Core's runtime templates, and where they have to
  * land.
  *
@@ -260,6 +278,13 @@ export function webviewOptions(outdir: string): BuildOptions {
     format: 'esm',
     target: 'es2022',
     sourcemap: false,
+    // The faces are copied in whole, under the
+    // names `tokens.css` spells, so the `url()`s
+    // that name them are left exactly as written.
+    // Bundled instead, each would arrive under a
+    // content hash — a name no stylesheet a person
+    // reads could ever contain.
+    external: ['*.woff2'],
     // React branches on this. Left undefined it
     // survives into the bundle as a reference to a
     // `process` no browser frame has.
@@ -275,9 +300,24 @@ export async function buildExtension(outdir: string = DIST): Promise<void> {
   await build(hostOptions(outdir));
   await build(webviewOptions(outdir));
 
+  copyWebviewFonts(outdir);
   copyScaffoldTemplates(outdir);
   copyShippedPackages(outdir);
   copyVendoredAssets(outdir);
+}
+
+/**
+ * The licences travel in the package beside the
+ * sources they are terms for, and are named again
+ * in `THIRD_PARTY_NOTICES.md`. Only the faces
+ * themselves have to be loadable, so only they go
+ * where a stylesheet can reach them.
+ */
+function copyWebviewFonts(outdir: string): void {
+  cpSync(join(repoRoot, WEBVIEW_FONTS.from), join(outdir, WEBVIEW_FONTS.to), {
+    recursive: true,
+    filter: (source) => !source.endsWith('.txt'),
+  });
 }
 
 /**

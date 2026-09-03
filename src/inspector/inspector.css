@@ -17,13 +17,13 @@
 }
 
 .inspector > .eyebrow {
-  color: var(--color-accent);
+  color: var(--brand);
   margin-bottom: var(--space-3);
 }
 
 .state {
   margin: 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 .fields {
@@ -36,7 +36,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) 0;
-  border-top: 1px solid var(--color-divider);
+  border-top: 1px solid var(--hairline);
 }
 
 /* A group's label belongs at the top of the group,
@@ -46,7 +46,7 @@
 }
 
 .field-name {
-  font-size: var(--text-eyebrow);
+  font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
 
@@ -63,20 +63,20 @@
 .field-value select {
   box-sizing: border-box;
   width: 100%;
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--hairline);
   border-radius: 0;
   padding: 2px var(--space-1);
-  background: var(--vscode-input-background, var(--color-bg));
-  color: var(--vscode-input-foreground, var(--color-text));
+  background: var(--vscode-input-background, var(--canvas));
+  color: var(--vscode-input-foreground, var(--ink));
   font-family: var(--font-mono);
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 .field-value textarea {
   resize: vertical;
 }
 .field-value input[type='checkbox'] {
   margin: 0;
-  accent-color: var(--color-accent);
+  accent-color: var(--brand);
 }
 
 /* A repeating group — a branch's cases, a form's
@@ -90,7 +90,7 @@
 }
 
 .row {
-  border-left: 2px solid var(--color-accent);
+  border-left: 2px solid var(--brand);
   padding-left: var(--space-2);
 }
 .row .field {

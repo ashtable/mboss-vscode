@@ -8,10 +8,10 @@
  * status rail down its left edge and one row per
  * file it touched, so the half of the
  * conversation that changes the project is the
- * half that reads as structure. Nothing is
- * rounded, nothing is a bubble, and the only
- * ornament is the rail — the panel is a plotted
- * sheet, like everything else in this product.
+ * half that reads as structure. Nothing is a
+ * bubble, and the only ornament is the rail — which
+ * carries the one fact a reader needs at a glance:
+ * who did this.
  *
  * A view docked in the activity bar is narrow and
  * sits against the editor's side-bar ground rather
@@ -20,22 +20,7 @@
  */
 
 body {
-  --color-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
-
-  /* Added and removed lines are named by the theme
-     already, in the colours the file explorer uses
-     for exactly this. Inventing a second green is
-     how a panel stops matching the editor around
-     it. */
-  --color-added: var(
-    --vscode-gitDecoration-addedResourceForeground,
-    var(--color-accent)
-  );
-  --color-removed: var(
-    --vscode-gitDecoration-deletedResourceForeground,
-    var(--color-text)
-  );
-  --color-warn: var(--vscode-editorWarning-foreground, var(--color-accent));
+  --canvas: var(--vscode-sideBar-background, var(--vscode-editor-background));
 }
 
 .agent {
@@ -55,21 +40,20 @@ body {
   justify-content: space-between;
   gap: var(--space-2);
   padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .agent-head > .eyebrow {
-  color: var(--color-accent);
+  color: var(--brand);
 }
 
 .agent-name {
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--hairline);
   border-radius: 0;
   background: transparent;
-  color: var(--color-text);
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: 2px var(--space-2);
@@ -81,26 +65,26 @@ body {
 }
 
 .agent-name:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .state {
   margin: 0;
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  font-size: var(--text-sm);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 /* — something went wrong — */
 
 .failure {
-  border: 1px solid var(--color-warn);
-  background: color-mix(in srgb, var(--color-warn) 10%, transparent);
+  border: 1px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
   padding: var(--space-3);
 }
 
 .failure > .eyebrow {
-  color: var(--color-warn);
+  color: var(--warn);
   text-transform: none;
   letter-spacing: 0.02em;
   font-size: var(--font-size);
@@ -108,7 +92,7 @@ body {
 
 .failure-detail {
   margin: var(--space-1) 0 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 /* — the conversation — */
@@ -135,35 +119,35 @@ body {
 .said[data-from='user'] {
   margin-left: var(--space-6);
   padding: var(--space-2);
-  background: var(--tint-accent);
-  border-left: 2px solid var(--color-accent);
+  background: var(--brand-tint);
+  border-left: 2px solid var(--brand);
 }
 
 /* Thinking is a note in the margin, not speech. */
 .said[data-from='thought'] {
   padding-left: var(--space-3);
-  border-left: 1px solid var(--color-divider);
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  border-left: 1px solid var(--hairline);
+  font-size: var(--text-sm);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 /* — a unit of work — */
 
 .tool {
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--hairline);
   border-left-width: 2px;
-  border-left-color: color-mix(in srgb, var(--color-text) 30%, transparent);
+  border-left-color: color-mix(in srgb, var(--ink) 30%, transparent);
   padding: var(--space-2);
 }
 
 .tool[data-status='in_progress'] {
-  border-left-color: var(--color-accent);
+  border-left-color: var(--brand);
 }
 .tool[data-status='completed'] {
-  border-left-color: var(--color-added);
+  border-left-color: var(--ok);
 }
 .tool[data-status='failed'] {
-  border-left-color: var(--vscode-editorError-foreground, var(--color-warn));
+  border-left-color: var(--fail);
 }
 
 /* The rail is the only thing that moves, and only
@@ -176,7 +160,7 @@ body {
 
 @keyframes working {
   50% {
-    border-left-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+    border-left-color: color-mix(in srgb, var(--brand) 35%, transparent);
   }
 }
 
@@ -196,7 +180,7 @@ body {
   flex: none;
   width: 1em;
   text-align: center;
-  color: var(--color-accent);
+  color: var(--brand);
 }
 
 .tool-title {
@@ -206,12 +190,11 @@ body {
 
 .tool-status {
   flex: none;
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 .file-row {
@@ -219,7 +202,7 @@ body {
   align-items: baseline;
   gap: var(--space-2);
   margin: var(--space-2) 0 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 /* The end of a path is the part worth reading, so
@@ -243,60 +226,60 @@ body {
 }
 
 .stat > .new {
-  font-family: var(--font-heading);
+  font-family: var(--font-body);
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 .stat > .added {
-  color: var(--color-added);
+  color: var(--ok);
 }
 
 .stat > .removed {
-  color: var(--color-removed);
+  color: var(--fail);
 }
 
 .tool-body {
   margin: var(--space-2) 0 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 
 /* — the plan — */
 
 .plan > .eyebrow {
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 .step {
   display: flex;
   gap: var(--space-2);
   margin: var(--space-1) 0 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 .step-mark {
   flex: none;
-  color: var(--color-accent);
+  color: var(--brand);
 }
 
 .step[data-status='completed'] {
-  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
 }
 
 /* — the one question the panel asks — */
 
 .permission {
-  border: 1px solid var(--color-warn);
-  background: color-mix(in srgb, var(--color-warn) 8%, transparent);
+  border: 1px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
   padding: var(--space-3);
 }
 
 .permission > .eyebrow {
-  color: var(--color-warn);
+  color: var(--warn);
 }
 
 .permission-title {
@@ -314,19 +297,19 @@ body {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--hairline);
   border-radius: 0;
   background: transparent;
-  color: var(--color-text);
+  color: var(--ink);
   font-family: var(--font-body);
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
   padding: var(--space-1) var(--space-2);
   cursor: pointer;
 }
 
 .permission-options > button[data-kind^='allow'] {
-  border-color: var(--color-accent);
-  background: var(--tint-accent);
+  border-color: var(--brand);
+  background: var(--brand-tint);
 }
 
 /* An answer that outlives the turn says so twice:
@@ -339,12 +322,11 @@ body {
 }
 
 .always {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 /* — the composer — */
@@ -353,7 +335,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  border-top: 1px solid var(--color-divider);
+  border-top: 1px solid var(--hairline);
   padding-top: var(--space-3);
 }
 
@@ -361,28 +343,27 @@ body {
   box-sizing: border-box;
   width: 100%;
   resize: vertical;
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--hairline);
   border-radius: 0;
   background: var(--vscode-input-background, transparent);
-  color: var(--vscode-input-foreground, var(--color-text));
+  color: var(--vscode-input-foreground, var(--ink));
   font-family: var(--font-body);
   font-size: var(--font-size);
   padding: var(--space-2);
 }
 
 .composer textarea:focus-visible {
-  border-color: var(--color-accent);
+  border-color: var(--brand);
 }
 
 .composer button {
   align-self: flex-end;
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--brand);
   border-radius: 0;
-  background: var(--tint-accent);
-  color: var(--color-text);
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  background: var(--brand-tint);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
   padding: var(--space-1) var(--space-4);
@@ -390,8 +371,8 @@ body {
 }
 
 .composer button[data-stop] {
-  border-color: var(--color-warn);
-  background: color-mix(in srgb, var(--color-warn) 12%, transparent);
+  border-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
 }
 
 /* — a proposal, waiting for an answer — */
@@ -400,21 +381,21 @@ body {
    on the canvas get: everything about a proposal is
    drawn in pencil until somebody approves it. */
 .preview-card {
-  border: 1px dashed var(--color-accent);
-  background: var(--tint-accent);
+  border: 1px dashed var(--brand);
+  background: var(--brand-tint);
   padding: var(--space-3);
   margin-bottom: var(--space-3);
 }
 
 .preview-card > .eyebrow {
-  color: var(--color-accent);
+  color: var(--brand);
   margin-bottom: var(--space-1);
 }
 
 .preview-summary,
 .preview-warning {
   margin: 0 0 var(--space-3);
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 .preview-actions {
@@ -423,13 +404,12 @@ body {
 }
 
 .preview-actions button {
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--brand);
   border-radius: 0;
   background: transparent;
-  color: var(--color-text);
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
   padding: var(--space-1) var(--space-3);
@@ -441,12 +421,12 @@ body {
    way back to the conversation. */
 .preview-actions button.primary {
   flex: 1;
-  background: var(--color-accent);
-  color: var(--vscode-button-foreground, var(--color-bg));
+  background: var(--brand);
+  color: var(--on-brand);
 }
 
 .preview-actions button:disabled {
-  border-color: var(--color-divider);
-  color: color-mix(in srgb, var(--color-text) 45%, transparent);
+  border-color: var(--hairline);
+  color: color-mix(in srgb, var(--ink) 45%, transparent);
   cursor: default;
 }

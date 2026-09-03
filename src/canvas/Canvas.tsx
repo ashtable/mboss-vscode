@@ -13,8 +13,6 @@ import type { Diagnostic, WorkflowIR } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
 
-import { Registered } from '../webview/Registered.js';
-
 import { Block } from './Block.js';
 import { Palette } from './Palette.js';
 import { Wire } from './Wire.js';
@@ -229,10 +227,10 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
       </p>
 
       {refused === undefined ? null : (
-        <Registered className="rejection" data-rejection>
+        <div className="card rejection" data-rejection>
           <p className="eyebrow">{init.strings.typedWiring}</p>
           <p className="mono">{refused.message}</p>
-        </Registered>
+        </div>
       )}
     </section>
   );
