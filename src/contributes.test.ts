@@ -62,13 +62,16 @@ describe('commands', () => {
 
   const palette = commands.filter((entry) => !isSideBar(entry.command));
 
-  it('offers exactly the five the design names', () => {
+  it('offers exactly the eight the design names', () => {
     expect(palette.map((entry) => entry.command)).toEqual([
       'mboss.newProject',
       'mboss.openRuns',
       'mboss.generateCode',
       'mboss.openAgentSidebar',
       'mboss.chooseCodingAgent',
+      'mboss.startStack',
+      'mboss.stopStack',
+      'mboss.runWorkflow',
     ]);
   });
 
@@ -152,6 +155,9 @@ describe('commands', () => {
       'Generate Code',
       'Open Agent Sidebar',
       'Choose Coding Agent…',
+      'Start Local Stack',
+      'Stop Local Stack',
+      'Run Workflow…',
     ]);
   });
 });

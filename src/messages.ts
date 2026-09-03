@@ -361,7 +361,51 @@ export const messages = {
     empty: messages.runsEmpty(),
     source: database === undefined ? undefined : messages.runsSource(database),
     scope: messages.runsScope(),
+    sessionScope: l10n.t(
+      'held in the extension host for this session · durable truth stays in postgres: dbos.workflow_status',
+    ),
+
+    localStack: l10n.t('Local Stack'),
+    stackUp: l10n.t('Start'),
+    stackDown: l10n.t('Stop'),
+    rebuildApp: l10n.t('Rebuild'),
+    serviceState: {
+      running: l10n.t('running'),
+      exited: l10n.t('stopped'),
+      absent: l10n.t('not started'),
+    },
+
+    testRun: l10n.t('Test Run'),
+    workflow: l10n.t('Workflow'),
+    input: l10n.t('Input'),
+    runWorkflow: l10n.t('Run Workflow'),
+    runCaption: l10n.t('POST :3000 → dbos start · nothing leaves this machine'),
+    scheduledNotRunnable: l10n.t('runs on its schedule'),
+
+    runningNow: l10n.t('Running Now'),
+    waitingRefresh: l10n.t('waiting · refresh to check'),
+    quietRefresh: l10n.t('quiet · refresh to check'),
+
+    thisSession: l10n.t('This Session'),
+    rerunSameInput: l10n.t('Rerun with same input'),
+    resendEvent: l10n.t('Send the event again'),
+    openFlightRecorder: l10n.t('Open flight recorder'),
+    askAgentWhy: l10n.t('Ask agent why'),
   }),
+
+  /**
+   * `mBoss: Run Workflow…`'s two questions: which
+   * one, then what to send it. The picker offers
+   * only what can be started this way — a scheduled
+   * workflow is listed in the panel's own dropdown,
+   * where there is a row to put the reason beside,
+   * and left out here instead.
+   */
+  runWorkflowPickTitle: () => l10n.t('Which workflow should run?'),
+  runWorkflowInputTitle: () => l10n.t('What input should it run with?'),
+  runWorkflowInputPrompt: () => l10n.t('JSON, or leave empty for none.'),
+  runWorkflowNone: () =>
+    l10n.t('This project has no workflow that can be started by hand.'),
 
   seeStrings: (): SeeStrings => ({
     heading: l10n.t('Run'),

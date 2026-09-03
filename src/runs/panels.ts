@@ -71,6 +71,10 @@ export class RunsListView implements WebviewViewProvider {
         if (message.type === 'stackDown') void this.store.stackDown();
         if (message.type === 'stackRebuild') void this.store.stackRebuild();
 
+        if (message.type === 'selectWorkflow') {
+          this.store.selectWorkflow(message.workflow);
+        }
+
         if (message.type === 'runWorkflow') {
           void this.store.runWorkflow(message.workflow, message.input);
         }

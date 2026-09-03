@@ -159,6 +159,13 @@ const StackUp = z.object({ type: z.literal('stackUp') });
 const StackDown = z.object({ type: z.literal('stackDown') });
 const StackRebuild = z.object({ type: z.literal('stackRebuild') });
 
+/** Somebody opened the test-run picker on a
+ *  different saved workflow. */
+const SelectWorkflow = z.object({
+  type: z.literal('selectWorkflow'),
+  workflow: z.string(),
+});
+
 /**
  * Somebody asked for one run of a workflow.
  *
@@ -235,6 +242,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('type', [
   StackUp,
   StackDown,
   StackRebuild,
+  SelectWorkflow,
   RunWorkflow,
   Rerun,
   AskAgent,

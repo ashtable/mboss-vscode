@@ -714,6 +714,37 @@ describe('the workflows a person can run', () => {
 
     expect(store.list().hint).toBeUndefined();
   });
+
+  /**
+   * The picker's own dropdown, not a second read of
+   * the project: the hint and the last problem are
+   * both about whichever workflow is selected, and a
+   * new pick has to clear a problem left over from
+   * the last one.
+   */
+  it('moves the hint and clears the last problem when a different workflow is picked', async () => {
+    const ingress = runner(() => ({
+      ok: false,
+      because: 'refused',
+      detail: 'x',
+    }));
+    const store = runsStore(
+      deps({
+        host: host({ projects: () => [project()] }),
+        runner: ingress.start,
+      }),
+    );
+
+    await store.refresh();
+    await store.runWorkflow('groom_booking', '{}');
+    expect(store.list().problem).toBeDefined();
+
+    store.selectWorkflow('expense_claim');
+
+    expect(store.list().workflow).toBe('expense_claim');
+    expect(store.list().hint).toContain('claimId');
+    expect(store.list().problem).toBeUndefined();
+  });
 });
 
 describe('starting a run', () => {
@@ -779,6 +810,7 @@ describe('starting a run', () => {
 
     expect(ingress.requests).toEqual([]);
     expect(store.list().problem).toBeDefined();
+    expect(store.list().problem?.rebuildToRun).toBe(false);
     expect(store.list().session).toEqual([]);
   });
 
@@ -800,7 +832,10 @@ describe('starting a run', () => {
     const row = store.list().session[0];
     expect(row?.outcome).toBe('failed');
     expect(row?.error).toBe('the app is not up');
-    expect(store.list().problem).toBe('the app is not up');
+    expect(store.list().problem).toEqual({
+      detail: 'the app is not up',
+      rebuildToRun: false,
+    });
   });
 
   /**
@@ -823,7 +858,8 @@ describe('starting a run', () => {
 
     await store.runWorkflow('groom_booking', '{}');
 
-    expect(store.list().problem).toContain('Rebuild');
+    expect(store.list().problem?.detail).toContain('Rebuild');
+    expect(store.list().problem?.rebuildToRun).toBe(true);
   });
 
   /** An event run has no id to be keyed on until

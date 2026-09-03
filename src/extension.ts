@@ -6,8 +6,9 @@ import { agentPickerHost, panelHost } from './acp/host.js';
 import { WorkflowCanvasEditor } from './canvas/editor.js';
 import { Selection } from './canvas/selection.js';
 import { commandHandlers } from './commands.js';
-import { projectHost } from './commands/host.js';
+import { projectHost, runWorkflowHost } from './commands/host.js';
 import { newProject, offerVendorRefresh } from './commands/newProject.js';
+import { runWorkflowCommand } from './commands/runWorkflow.js';
 import { isProject } from './core/index.js';
 import { NodeInspectorView } from './inspector/view.js';
 import { previewStore } from './preview/store.js';
@@ -125,6 +126,9 @@ export function activate(context: ExtensionContext): void {
     newProject(projects, vendor),
     pickAgent,
     () => runs.refresh(),
+    () => runs.stackUp(),
+    () => runs.stackDown(),
+    runWorkflowCommand(runWorkflowHost(), runs),
   );
   for (const [id, handle] of Object.entries(handlers)) {
     context.subscriptions.push(commands.registerCommand(id, handle));

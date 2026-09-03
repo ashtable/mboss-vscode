@@ -63,6 +63,13 @@ const WORKFLOWS: ProjectWorkflow[] = [
     title: 'Door opened',
     trigger: { mode: 'event', topic: 'door.opened' },
   },
+  // Listed so a person can see it exists; not
+  // started by hand.
+  {
+    name: 'nightly_sweep',
+    title: 'Nightly sweep',
+    trigger: { mode: 'schedule' },
+  },
 ];
 
 const SESSION: SessionRun = {
@@ -230,6 +237,7 @@ describe('what this window set going', () => {
       { name: 'groom_booking', title: 'Groom booking', mode: 'manual' },
       { name: 'expense_claim', title: 'Expense claim', mode: 'event' },
       { name: 'door_opened', title: 'Door opened', mode: 'event' },
+      { name: 'nightly_sweep', title: 'Nightly sweep', mode: 'schedule' },
     ]);
     expect(runsInit(LIST).testRun.selected).toBe('groom_booking');
   });
@@ -289,6 +297,29 @@ describe('what this window set going', () => {
       ],
     };
     expect(runsInit(refused).session[0]?.error).toBe('the app is not up');
+  });
+
+  /**
+   * Carried apart from the sentence so the panel
+   * can offer the same Rebuild action the stack
+   * zone's `app` row does, without parsing the
+   * sentence to find out which problem this was.
+   */
+  it('says whether the same Rebuild action would fix the last problem', () => {
+    const stale = {
+      ...LIST,
+      problem: { detail: 'Rebuild the app.', rebuildToRun: true },
+    };
+    expect(runsInit(stale).testRun.problem).toEqual({
+      detail: 'Rebuild the app.',
+      rebuildToRun: true,
+    });
+
+    const notJson = {
+      ...LIST,
+      problem: { detail: 'That input is not JSON.', rebuildToRun: false },
+    };
+    expect(runsInit(notJson).testRun.problem?.rebuildToRun).toBe(false);
   });
 });
 

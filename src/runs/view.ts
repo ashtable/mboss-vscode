@@ -98,7 +98,7 @@ export type RunsView = {
   hint: string | undefined;
 
   /** Why the last start did not happen. */
-  problem: string | undefined;
+  problem: TestRunProblem | undefined;
 
   /** The run being followed, if one is. */
   live: LiveRun | undefined;
@@ -106,6 +106,21 @@ export type RunsView = {
   /** What this window has set going, newest
    *  first. */
   session: SessionRun[];
+};
+
+/**
+ * Why a run did not start.
+ *
+ * `rebuildToRun` travels apart from the sentence
+ * so the panel can offer the same Rebuild action
+ * the stack zone's `app` row does, rather than
+ * parsing the sentence to find out which problem
+ * this was.
+ */
+export type TestRunProblem = {
+  detail: string;
+
+  rebuildToRun: boolean;
 };
 
 export type SeeView = {

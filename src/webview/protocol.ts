@@ -406,7 +406,22 @@ export type TestRunZone = {
   hint: string | undefined;
 
   /** Why the last start did not happen. */
-  problem: string | undefined;
+  problem: TestRunProblem | undefined;
+};
+
+/**
+ * Why a run did not start.
+ *
+ * `rebuildToRun` is carried apart from the
+ * sentence itself so the panel can offer the same
+ * Rebuild action the stack zone's `app` row does,
+ * without parsing the sentence to find out which
+ * problem this was.
+ */
+export type TestRunProblem = {
+  detail: string;
+
+  rebuildToRun: boolean;
 };
 
 export type RunnableWorkflow = {
@@ -516,6 +531,40 @@ export type RunsStrings = {
    */
   source: string | undefined;
   scope: string;
+
+  /** The footer's other sentence: where the
+   *  session list lives, against where the
+   *  history list's own rows do. */
+  sessionScope: string;
+
+  /** The stack zone's own words. */
+  localStack: string;
+  stackUp: string;
+  stackDown: string;
+  rebuildApp: string;
+  serviceState: Record<ServiceHealth['state'], string>;
+
+  /** The test-run zone's own words. */
+  testRun: string;
+  workflow: string;
+  input: string;
+  runWorkflow: string;
+  runCaption: string;
+  scheduledNotRunnable: string;
+
+  /** The running-now zone's own words. Distinct
+   *  on purpose: a parked run is waiting on a
+   *  person, a quiet one is waiting on nobody. */
+  runningNow: string;
+  waitingRefresh: string;
+  quietRefresh: string;
+
+  /** The session section's own words. */
+  thisSession: string;
+  rerunSameInput: string;
+  resendEvent: string;
+  openFlightRecorder: string;
+  askAgentWhy: string;
 };
 
 /**

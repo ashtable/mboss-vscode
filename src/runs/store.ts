@@ -35,7 +35,7 @@ import {
   type SessionRun,
 } from './sessionLog.js';
 import type { StackController, StackStatus } from './stack.js';
-import type { RunsView, SeeView } from './view.js';
+import type { RunsView, SeeView, TestRunProblem } from './view.js';
 import type { LiveRun, RunWatch, RunWatcher } from './watch.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 
@@ -136,6 +136,11 @@ export type RunsStore = {
 
   stackRebuild(): Promise<void>;
 
+  /** Which saved workflow the test-run zone's
+   *  picker has open, so the hint beside the input
+   *  box is about the right one. */
+  selectWorkflow(workflow: string): void;
+
   /** Starts one run of a saved workflow, with
    *  whatever the input box holds. */
   runWorkflow(workflow: string, input: string): Promise<void>;
@@ -189,7 +194,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
   let workflows: ProjectWorkflow[] = [];
   let workflow: string | undefined;
   let input = '';
-  let problem: string | undefined;
+  let problem: TestRunProblem | undefined;
   let live: LiveRun | undefined;
 
   /** One watch per run, so that asking twice does
@@ -453,11 +458,15 @@ export function runsStore(deps: RunsDeps): RunsStore {
   };
 
   /** What the zone says when a start did not
-   *  happen. */
-  const problemOf = (answer: RunStart & { ok: false }): string =>
-    answer.because === 'rebuild-to-run'
-      ? messages.runRebuildToRun()
-      : answer.detail;
+   *  happen, and whether the same Rebuild action
+   *  the stack zone offers fixes it. */
+  const problemOf = (answer: RunStart & { ok: false }): TestRunProblem => ({
+    detail:
+      answer.because === 'rebuild-to-run'
+        ? messages.runRebuildToRun()
+        : answer.detail,
+    rebuildToRun: answer.because === 'rebuild-to-run',
+  });
 
   const row = (
     workflowId: string,
@@ -686,6 +695,14 @@ export function runsStore(deps: RunsDeps): RunsStore {
 
     stackRebuild: () => command('rebuild', (dir) => deps.stack.rebuild(dir)),
 
+    selectWorkflow: (name) => {
+      workflow = name;
+      // A problem left over from the last pick is
+      // about that workflow, not this one.
+      problem = undefined;
+      changed();
+    },
+
     runWorkflow: async (name, text) => {
       readWorkflows();
 
@@ -698,7 +715,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
       const payload = parsed(text);
 
       if (!payload.ok) {
-        problem = messages.runNotJson();
+        problem = { detail: messages.runNotJson(), rebuildToRun: false };
 
         return void changed();
       }
