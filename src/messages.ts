@@ -145,6 +145,32 @@ export const messages = {
   stackBuiltAgo: (elapsed: string) => l10n.t('built {0} ago', elapsed),
 
   /**
+   * The three ways a run does not start that the
+   * app itself never gets to say, each phrased as
+   * the thing to do about it. A person pressed
+   * Run, so what comes back has to be a sentence
+   * on the panel rather than a thrown error.
+   *
+   * The last is not a refusal: the event was
+   * taken and a run is going, and nothing on
+   * screen can follow it. Saying it was refused
+   * would deny a run that is underway.
+   */
+  runNoApp: () =>
+    l10n.t(
+      'The app is not up, so there is nothing to run on. Start the local stack.',
+    ),
+  runNoEventsSecret: () =>
+    l10n.t(
+      "This project's .env names no EVENTS_SECRET, so the app will not accept a run.",
+    ),
+  runUntracked: (workflow: string) =>
+    l10n.t(
+      'The event was accepted, but no run of {0} could be found to follow.',
+      workflow,
+    ),
+
+  /**
    * The line naming what is being read. The host
    * and database only — the string it came from
    * carries a password.

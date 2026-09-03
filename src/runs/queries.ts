@@ -137,6 +137,28 @@ export function runQuery(workflowId: string): Query {
 }
 
 /**
+ * The newest run of one workflow started since a
+ * moment.
+ *
+ * The fallback for an app whose ingress does not
+ * echo the id it started. An event run's id is the
+ * app's to mint, so where it is not said out loud
+ * the ledger is the only place to learn it — and
+ * the bound is the moment the request went, which
+ * is what keeps last week's run of the same
+ * workflow from answering for this one.
+ */
+export function latestRunQuery(workflow: string, since: number): Query {
+  return {
+    text:
+      'SELECT workflow_uuid FROM dbos.workflow_status ' +
+      'WHERE name = $1 AND created_at >= $2 ' +
+      'ORDER BY created_at DESC LIMIT 1',
+    values: [workflow, since],
+  };
+}
+
+/**
  * One run's steps, in the order DBOS numbered
  * them, which is the order they ran in.
  *
