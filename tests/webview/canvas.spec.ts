@@ -88,6 +88,8 @@ const canvasStrings: CanvasStrings = {
   dragHint: 'drag starts after {0} px of movement · esc cancels',
   readout: 'x {0} · y {1}',
   snapped: '{0} — snapped',
+  releaseToConnect: '{0} → {1} ✓ · release to connect',
+  quickAdd: 'Put a block here',
   groups: {
     start: 'Start',
     work: 'Work',
@@ -455,6 +457,22 @@ test.describe('the graph', () => {
     await expect(page.locator('[data-edge-port="e9"]')).toHaveText('book_it');
     await expect(page.locator('[data-edge-port="e4"]')).toHaveText('yes');
     await expect(page.locator('[data-edge-port="e2"]')).toHaveCount(0);
+  });
+
+  /**
+   * Every wire out of a block leaves by the same
+   * dot, so a name written where a wire leaves would
+   * be written on top of the name beside it. They go
+   * half way along instead, by which point the wires
+   * have separated.
+   */
+  test('keeps two names out of one block apart', async ({ page }) => {
+    await openCanvas(page);
+
+    const yes = (await page.locator('[data-edge-port="e4"]').boundingBox())!;
+    const no = (await page.locator('[data-edge-port="e5"]').boundingBox())!;
+
+    expect(Math.abs(yes.x - no.x) + Math.abs(yes.y - no.y)).toBeGreaterThan(20);
   });
 
   test('draws the loop-closing wire against the flow', async ({ page }) => {
@@ -1136,6 +1154,203 @@ test.describe('drawing a wire', () => {
     await expect(refusal).toContainText(whatCoreSaysAboutTheGraph());
 
     expect(await harness.postedOfType('connect')).toEqual([]);
+  });
+});
+
+/**
+ * What the canvas says while a wire is being drawn.
+ *
+ * The question a person is asking mid-drag is "where
+ * can this go", and every block on the graph is
+ * either an answer or not one. So every block
+ * answers: the ones that could take the wire are
+ * ringed, the ones that could not step back, and the
+ * one under the pointer says what would meet what.
+ */
+test.describe('a wire being drawn', () => {
+  test('rings every block it could land on', async ({ page }) => {
+    await openCanvas(page);
+    await holdWire(page, 'find_slot');
+
+    await expect(ringOf(page, 'book_appointment')).toBeVisible();
+    await expect(ringOf(page, 'record_booking')).toHaveCount(0);
+
+    await page.mouse.up();
+  });
+
+  test('draws the ring in the colour a match is drawn in', async ({ page }) => {
+    await openCanvas(page);
+    await holdWire(page, 'find_slot');
+
+    const ring = ringOf(page, 'book_appointment');
+
+    await expect(ring).toHaveCSS('box-shadow', MATCHED);
+    await expect(ring).toHaveCSS('border-radius', '12px');
+    await expect(ring).toHaveCSS('inset', '-3px');
+
+    await page.mouse.up();
+  });
+
+  /**
+   * A block that cannot take the wire steps back and
+   * says nothing else. The border is read before the
+   * drag and again during it: dimming that also
+   * outlined would be two statements where the design
+   * makes one.
+   */
+  test('dims the ones it could not, and nothing more', async ({ page }) => {
+    await openCanvas(page);
+
+    const block = nodeBody(page, 'record_booking');
+    const resting = await block.evaluate(
+      (element) => getComputedStyle(element).border,
+    );
+
+    await holdWire(page, 'find_slot');
+
+    await expect(block).toHaveCSS('opacity', '0.4');
+    expect(
+      await block.evaluate((element) => getComputedStyle(element).border),
+    ).toBe(resting);
+    await expect(page.locator('[data-shape-note]')).toHaveCount(0);
+
+    await page.mouse.up();
+  });
+
+  /**
+   * A block with no function behind it says nothing
+   * about what it takes or produces, and an
+   * undeclared shape fits everything — otherwise the
+   * most ordinary thing there is, dragging two fresh
+   * blocks out and wiring them, would be refused.
+   */
+  test('rings two blocks that name no shape at all', async ({ page }) => {
+    await openEveryKind(page);
+    await holdWire(page, 'step');
+
+    await expect(ringOf(page, 'code_step')).toBeVisible();
+    await expect(nodeBody(page, 'code_step')).toHaveCSS('opacity', '1');
+
+    await page.mouse.up();
+  });
+
+  test('dims the trigger, which nothing may run before', async ({ page }) => {
+    await openEveryKind(page);
+    await holdWire(page, 'step');
+
+    await expect(ringOf(page, 'trigger')).toHaveCount(0);
+    await expect(nodeBody(page, 'trigger')).toHaveCSS('opacity', '0.4');
+
+    await page.mouse.up();
+  });
+
+  test('says which shape meets which under the pointer', async ({ page }) => {
+    await openCanvas(page);
+    await holdWire(page, 'find_slot');
+    await targetHandle(page, 'book_appointment').hover();
+
+    await expect(page.locator('[data-shape-note]')).toHaveText(
+      'SlotGrid → SlotGrid ✓ · release to connect',
+    );
+
+    await page.mouse.up();
+  });
+
+  test('says nothing where either end names no shape', async ({ page }) => {
+    await openEveryKind(page);
+    await holdWire(page, 'step');
+    await targetHandle(page, 'code_step').hover();
+
+    await expect(ringOf(page, 'code_step')).toBeVisible();
+    await expect(page.locator('[data-shape-note]')).toHaveCount(0);
+
+    await page.mouse.up();
+  });
+
+  /**
+   * A wire being drawn must never read as a wire
+   * being run, so it takes a dash of its own — and it
+   * ends in a dot rather than an arrowhead, because
+   * that end is the cursor and not an arrival.
+   */
+  test('draws itself dashed, ending in a dot rather than an arrow', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+    await holdWire(page, 'find_slot');
+
+    const drawn = page.locator('[data-pending-wire]');
+
+    await expect(drawn).toHaveCSS('stroke-width', '1.5px');
+    await expect(drawn).toHaveCSS('stroke-dasharray', '5px, 4px');
+    await expect(drawn).toHaveCSS('stroke', BRAND);
+    await expect(drawn).toHaveCSS('marker-end', 'none');
+
+    const end = page.locator('[data-pending-end]');
+
+    await expect(end).toHaveAttribute('r', '5');
+    await expect(end).toHaveCSS('fill', BRAND);
+
+    await page.mouse.up();
+  });
+
+  test('offers the kinds that could take it when it lands on nothing', async ({
+    page,
+  }) => {
+    const harness = await openCanvas(page);
+
+    await holdWire(page, 'find_slot');
+    await page.mouse.move(900, 900, { steps: 4 });
+    await page.mouse.up();
+
+    const offered = page.locator('[data-quick-add-kind]');
+
+    await expect(offered.first()).toBeVisible();
+
+    const kinds = await offered.evaluateAll((rows) =>
+      rows.map((row) => row.getAttribute('data-quick-add-kind')),
+    );
+
+    expect(kinds).toContain('step');
+    expect(kinds).not.toContain('trigger');
+
+    // Nothing is written until one is chosen: the
+    // list is the question, not the answer.
+    expect(await harness.postedOfType('addNode')).toEqual([]);
+  });
+
+  test('writes the block and what it is wired to, together', async ({
+    page,
+  }) => {
+    const harness = await openCanvas(page);
+
+    await holdWire(page, 'find_slot');
+    await page.mouse.move(900, 900, { steps: 4 });
+    await page.mouse.up();
+
+    await page.locator('[data-quick-add-kind="step"]').click();
+
+    expect(await harness.postedOfType('addNode')).toEqual([
+      {
+        type: 'addNode',
+        baseRevision: ir.revision,
+        kind: 'step',
+        position: expect.anything(),
+        connectFrom: { node: 'find_slot' },
+      },
+    ]);
+  });
+
+  test('offers nothing where the wire landed on a block', async ({ page }) => {
+    await openCanvas(page);
+
+    await dragBetween(
+      page,
+      sourceHandle(page, 'find_slot', 'out'),
+      targetHandle(page, 'book_appointment'),
+    );
+
+    await expect(page.locator('[data-quick-add]')).toHaveCount(0);
   });
 });
 
@@ -2121,6 +2336,14 @@ const LIFTED =
   'rgba(23, 26, 35, 0.08) 0px 2px 6px 0px, ' +
   'rgba(23, 26, 35, 0.12) 0px 12px 32px 0px';
 
+/** The one colour a gesture is drawn in: blue means
+ *  somebody is doing this. */
+const BRAND = 'rgb(83, 103, 255)';
+
+/** The system's one "this is the match" ring, at the
+ *  geometry a block wears it. */
+const MATCHED = 'color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 2px';
+
 /** The ring, the softer ring around it, and the two
  *  the block was already sitting on. */
 const SELECTED =
@@ -2779,6 +3002,34 @@ test.describe('the built bundles', () => {
  *  library positions. */
 function nodeBody(page: Page, node: string): Locator {
   return page.locator(`.react-flow__node[data-id="${node}"] .node`);
+}
+
+/** The ring around a block a wire being drawn could
+ *  land on. */
+function ringOf(page: Page, node: string): Locator {
+  return nodeBody(page, node).locator('[data-ring]');
+}
+
+/**
+ * Presses on a block's out dot and drags away from
+ * it, leaving the wire in the air.
+ *
+ * The hover first is what the graph library needs:
+ * it fits the graph to its pane a frame or two after
+ * the view opens, and a press aimed at a box read
+ * before that lands on the pane behind the dot.
+ */
+async function holdWire(page: Page, from: string): Promise<void> {
+  const dot = sourceHandle(page, from, 'out');
+
+  await dot.hover();
+
+  const box = (await dot.boundingBox())!;
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x, at.y + 30, { steps: 4 });
 }
 
 /** The one mono line under a block's title. */

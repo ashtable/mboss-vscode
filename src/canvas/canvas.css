@@ -479,6 +479,7 @@ button.lib-fn {
    cannot find. */
 .node {
   box-sizing: border-box;
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
@@ -687,6 +688,83 @@ button.lib-fn {
 .react-flow__handle.connectingto.valid {
   background: var(--brand);
   border-color: var(--brand);
+}
+
+/* — a wire being drawn — */
+
+/* Every block answers the question a person is
+   asking while a wire is in the air: could this go
+   here. The ones that could are ringed, in the one
+   colour the system spends on a match; the ones that
+   could not step back and say nothing else — a
+   dimmed block has nothing to add, and dimming that
+   also outlined would be two statements where the
+   design makes one. */
+.node-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+  pointer-events: none;
+}
+.node[data-wire='no'] {
+  opacity: var(--drag-dim);
+}
+
+/* The wire itself, between the dot and the cursor.
+   Its own dash rhythm, deliberately not the one a
+   run travels along: a wire being drawn must never
+   read as a wire being run. The end is a dot rather
+   than an arrowhead, because that end is where the
+   pointer is and not where anything arrives. */
+.pending-wire path {
+  stroke: var(--brand);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+.pending-wire circle {
+  fill: var(--brand);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+/* What would meet what, under the block the pointer
+   is over. Below the block rather than on it, clear
+   of the dot the wire would land on. */
+.shape-note {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: 10px;
+  color: var(--brand);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* The rail again, cut down to what could go where
+   the wire was let go of. Fixed to the page rather
+   than to the graph: it is a question about the
+   gesture, and one that panned away or grew with the
+   zoom while it was being read would be a thing on
+   the workflow instead. */
+.quick-add {
+  position: fixed;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  min-width: 148px;
+}
+.quick-add-kind {
+  all: unset;
+  padding: 3px var(--space-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.quick-add-kind:hover,
+.quick-add-kind:focus-visible {
+  background: var(--surface-2);
 }
 
 .react-flow__attribution {

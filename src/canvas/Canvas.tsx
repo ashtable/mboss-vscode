@@ -10,6 +10,8 @@ import {
   type Connection,
   type EdgeTypes,
   type NodeTypes,
+  type OnConnectEnd,
+  type OnConnectStart,
   type OnNodeDrag,
 } from '@xyflow/react';
 import {
@@ -35,6 +37,11 @@ import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
 import { Node } from './Node.js';
 import { Palette } from './Palette.js';
 import { Wire, WireMarkers } from './Wire.js';
+import { ConnectingProvider, type Connecting } from './connect/Connecting.js';
+import { PendingWire } from './connect/PendingWire.js';
+import { QuickAdd } from './connect/QuickAdd.js';
+import { ShapeNote } from './connect/ShapeNote.js';
+import { kindsReachedFrom, landingsFrom } from './connect/candidates.js';
 import { GhostNode } from './drag/GhostNode.js';
 import { OldSlot, Readout, SnapGuides, type Lift } from './drag/Lift.js';
 import { SpliceGaps } from './drag/SpliceGaps.js';
@@ -311,6 +318,49 @@ function Workspace({
   );
 }
 
+/**
+ * A wire let go of over open canvas, and what could
+ * go there.
+ *
+ * Two positions, because they answer two questions:
+ * where the block would land is the graph's own
+ * coordinates, and where to draw the list is the
+ * page's — a list that panned away or grew with the
+ * zoom while it was being read would be a thing on
+ * the workflow rather than a question about the
+ * gesture.
+ */
+type QuickAddOffer = {
+  from: string;
+  lands: Position;
+  at: { x: number; y: number };
+  kinds: NodeKind[];
+};
+
+/** Where a pointer was, whichever kind of event
+ *  reported it. A drag is made of these, so there is
+ *  always one. */
+function pointerAt(event: MouseEvent | TouchEvent): {
+  x: number;
+  y: number;
+} {
+  const at = 'changedTouches' in event ? event.changedTouches[0]! : event;
+
+  return { x: at.clientX, y: at.clientY };
+}
+
+/**
+ * Where a block put at the end of a wire goes.
+ *
+ * The wire arrives at the top of it, half way
+ * across, because that is where every block takes a
+ * wire — so the block hangs below the point the
+ * person let go of rather than being centred on it.
+ */
+function landsAt(kind: NodeKind, end: Position): Position {
+  return { x: end.x - nodeSize(kind).width / 2, y: end.y };
+}
+
 /** What the graph draws while a block is in flight
  *  over it. */
 type Carrying = {
@@ -568,6 +618,68 @@ function Graph({
   };
 
   /**
+   * The wire somebody has in the air, and where it
+   * could land.
+   *
+   * Worked out once, here, rather than as the pointer
+   * arrives at each block: the block the wire leaves
+   * is fixed and the document cannot change while a
+   * pointer is down, so the answer is the same for
+   * the whole gesture — and a person looking for
+   * somewhere to put a wire needs every block to have
+   * answered before they start looking.
+   */
+  const [connecting, setConnecting] = useState<Connecting | undefined>();
+
+  /** The kinds a wire let go of on nothing could
+   *  reach, and where it was let go of. */
+  const [quickAdd, setQuickAdd] = useState<QuickAddOffer | undefined>();
+
+  const startConnecting: OnConnectStart = (_event, { nodeId }) => {
+    const from = ir.nodes.find((node) => node.id === nodeId);
+
+    if (from === undefined) return;
+
+    setQuickAdd(undefined);
+    setConnecting({
+      from,
+      fits: landingsFrom(ir, from.id, init.manifest),
+    });
+  };
+
+  /**
+   * Where a wire ended up.
+   *
+   * On a block, the library has already said so
+   * through `onConnect` and there is nothing left to
+   * do. On open canvas it is not a mistake to undo —
+   * it is somebody saying "and then something here"
+   * without a name for the something yet — so the
+   * rail is offered again, cut down to the kinds that
+   * could take the wire.
+   */
+  const stopConnecting: OnConnectEnd = (event, state) => {
+    const from = connecting?.from;
+
+    setConnecting(undefined);
+
+    if (from === undefined || !editable) return;
+
+    // On a block, including the one it came from,
+    // there is nothing to offer: either the library
+    // has already said so through `onConnect`, or the
+    // wire went nowhere.
+    if (state.toNode !== null || state.to === null) return;
+
+    setQuickAdd({
+      from: from.id,
+      lands: state.to,
+      at: pointerAt(event),
+      kinds: kindsReachedFrom(ir, from.id, init.paletteLabels, init.manifest),
+    });
+  };
+
+  /**
    * What the key pressed over a selection means.
    *
    * Nothing is deleted here: the library is told no
@@ -760,95 +872,143 @@ function Graph({
     <section className="graph">
       {preview === undefined ? null : <Banner preview={preview} />}
 
-      <div className="graph-flow">
-        <WireMarkers />
+      {/* Every block on the graph says whether a wire
+          in the air could land on it, so the wire is
+          told to all of them at once rather than
+          written into each one's data and taken out
+          again twice a gesture. */}
+      <ConnectingProvider value={connecting}>
+        <div className="graph-flow">
+          <WireMarkers />
 
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          nodesDraggable={editable}
-          nodesConnectable={editable}
-          elementsSelectable={editable}
-          fitView
-          proOptions={{ hideAttribution: true }}
-          isValidConnection={allow}
-          deleteKeyCode={editable ? DELETE_KEYS : null}
-          onBeforeDelete={sayDeleted}
-          onNodeDragStart={pickUp}
-          onNodeDrag={carry}
-          onNodeDragStop={putDown}
-          onKeyDownCapture={startNudge}
-          onKeyUp={endNudge}
-          snapToGrid
-          snapGrid={[GRID, GRID]}
-          onConnect={(connection) => {
-            setRefused(undefined);
-            // No port. A block has one dot to leave
-            // by however many ways out it has, so
-            // naming one here would be this panel
-            // deciding something nobody was asked —
-            // and `out` is not a port a branch has.
-            postToHost({
-              type: 'connect',
-              baseRevision: ir.revision,
-              from: { node: connection.source },
-              to: { node: connection.target },
-            });
-          }}
-          onNodeClick={
-            editable
-              ? (_event, node) =>
-                  postToHost({ type: 'select', nodeId: node.id })
-              : undefined
-          }
-          onPaneClick={
-            editable
-              ? () => {
-                  setRefused(undefined);
-                  postToHost({ type: 'select', nodeId: null });
-                }
-              : undefined
-          }
-        >
-          <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            nodesDraggable={editable}
+            nodesConnectable={editable}
+            elementsSelectable={editable}
+            fitView
+            proOptions={{ hideAttribution: true }}
+            isValidConnection={allow}
+            onConnectStart={startConnecting}
+            onConnectEnd={stopConnecting}
+            connectionLineComponent={PendingWire}
+            deleteKeyCode={editable ? DELETE_KEYS : null}
+            onBeforeDelete={sayDeleted}
+            onNodeDragStart={pickUp}
+            onNodeDrag={carry}
+            onNodeDragStop={putDown}
+            onKeyDownCapture={startNudge}
+            onKeyUp={endNudge}
+            snapToGrid
+            snapGrid={[GRID, GRID]}
+            onConnect={(connection) => {
+              setRefused(undefined);
+              // No port. A block has one dot to leave
+              // by however many ways out it has, so
+              // naming one here would be this panel
+              // deciding something nobody was asked —
+              // and `out` is not a port a branch has.
+              postToHost({
+                type: 'connect',
+                baseRevision: ir.revision,
+                from: { node: connection.source },
+                to: { node: connection.target },
+              });
+            }}
+            onNodeClick={
+              editable
+                ? (_event, node) =>
+                    postToHost({ type: 'select', nodeId: node.id })
+                : undefined
+            }
+            onPaneClick={
+              editable
+                ? () => {
+                    setRefused(undefined);
+                    setQuickAdd(undefined);
+                    postToHost({ type: 'select', nodeId: null });
+                  }
+                : undefined
+            }
+          >
+            <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
 
-          {/* Drawn over the pane rather than on the
+            {/* Drawn over the pane rather than on the
               graph, because a centreline is about a
               whole column and the graph itself has
               no top or bottom to reach. */}
-          {lift === undefined ? null : <SnapGuides at={lift.guides} />}
+            {lift === undefined ? null : <SnapGuides at={lift.guides} />}
 
-          {/* Drawn inside the graph's own transform,
+            {/* Drawn inside the graph's own transform,
               because a gap belongs to a wire and the
               block being carried is about to belong
               to the graph: both pan and zoom with
               everything else. */}
-          {carrying === undefined ? null : (
-            <ViewportPortal>
-              <SpliceGaps
-                gaps={carrying.gaps}
-                under={carrying.under}
-                strings={init.strings}
-              />
+            {carrying === undefined ? null : (
+              <ViewportPortal>
+                <SpliceGaps
+                  gaps={carrying.gaps}
+                  under={carrying.under}
+                  strings={init.strings}
+                />
 
-              <GhostNode {...carrying.ghost} />
-            </ViewportPortal>
-          )}
+                <GhostNode {...carrying.ghost} />
+              </ViewportPortal>
+            )}
 
-          {/* Both of these belong to a block that is
+            {/* Both of these belong to a block that is
               on the graph, so they travel with it. */}
-          {lift === undefined ? null : (
+            {lift === undefined ? null : (
+              <ViewportPortal>
+                <OldSlot at={lift.from} />
+                <Readout lift={lift} strings={init.strings} />
+              </ViewportPortal>
+            )}
+
+            {/* Under the block the pointer is over, so
+              it belongs to the graph and moves with
+              it. */}
             <ViewportPortal>
-              <OldSlot at={lift.from} />
-              <Readout lift={lift} strings={init.strings} />
+              <ShapeNote
+                ir={ir}
+                boxes={init.boxes}
+                wording={init.strings.releaseToConnect}
+              />
             </ViewportPortal>
+          </ReactFlow>
+
+          {quickAdd === undefined ? null : (
+            <QuickAdd
+              kinds={quickAdd.kinds}
+              labels={init.paletteLabels}
+              at={quickAdd.at}
+              heading={init.strings.quickAdd}
+              onClose={() => setQuickAdd(undefined)}
+              onPick={(kind) => {
+                setQuickAdd(undefined);
+                postToHost({
+                  type: 'addNode',
+                  baseRevision: ir.revision,
+                  kind,
+                  position: rounded(landsAt(kind, quickAdd.lands)),
+                  connectFrom: { node: quickAdd.from },
+                });
+
+                // The block that has just arrived says
+                // nothing about itself yet, and the
+                // column beside the canvas is where
+                // that gets said.
+                showInspectorHeading();
+              }}
+            />
           )}
-        </ReactFlow>
-      </div>
+        </div>
+      </ConnectingProvider>
 
       <p className="graph-caption mono text-muted" data-caption="graph">
         {ir.name} · {init.strings.graph} v{ir.revision}

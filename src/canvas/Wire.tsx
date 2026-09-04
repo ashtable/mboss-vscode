@@ -44,7 +44,7 @@ export function Wire(props: EdgeProps<CanvasEdge>) {
   const state = props.data?.state ?? 'idle';
   const port = props.data?.port;
 
-  const path = back ? loopBack(props) : forward(props);
+  const [path] = route({ ...props, back });
 
   return (
     <>
@@ -63,7 +63,7 @@ export function Wire(props: EdgeProps<CanvasEdge>) {
             className="wire-port mono nodrag nopan"
             data-edge-port={props.id}
             style={{
-              transform: beside(props),
+              transform: beside({ ...props, back }),
               color: state === 'idle' ? undefined : STROKE[state],
             }}
           >
@@ -113,19 +113,20 @@ function arrowId(state: EdgeState): string {
 }
 
 /**
- * Where the port name sits: beside the line, just
- * below where it leaves the block.
+ * Where the port name sits: beside the line, half
+ * way along it.
  *
- * At the source rather than at the middle of the
- * wire, because what it names is the outcome that
- * block chose — not something that happens later
- * along the way.
+ * Not at the block it leaves, which is where a
+ * reader would look for it first: every wire out of
+ * a branch leaves by the same dot, so three names
+ * written where they leave would be three names on
+ * top of each other. Half way along, the wires have
+ * separated and each name is beside its own.
  */
-function beside(ends: Pick<EdgeProps, 'sourceX' | 'sourceY'>): string {
-  const x = ends.sourceX + 8;
-  const y = ends.sourceY + 14;
+function beside(ends: Ends & { back: boolean }): string {
+  const [, x, y] = route(ends);
 
-  return `translate(0, -50%) translate(${x}px, ${y}px)`;
+  return `translate(0, -50%) translate(${x + 10}px, ${y}px)`;
 }
 
 type Ends = Pick<
@@ -138,10 +139,20 @@ type Ends = Pick<
   | 'targetPosition'
 >;
 
-function forward(ends: Ends): string {
-  const [path] = getSmoothStepPath({ ...ends, borderRadius: 0, offset: 16 });
+/** The wire's shape and the point half way along
+ *  it, which is where its name goes. */
+function route(ends: Ends & { back: boolean }): [string, number, number] {
+  return ends.back ? loopBack(ends) : forward(ends);
+}
 
-  return path;
+function forward(ends: Ends): [string, number, number] {
+  const [path, x, y] = getSmoothStepPath({
+    ...ends,
+    borderRadius: 0,
+    offset: 16,
+  });
+
+  return [path, x, y];
 }
 
 /**
@@ -160,11 +171,11 @@ function forward(ends: Ends): string {
  * and the shape it is drawn in is what says so from
  * across the canvas.
  */
-function loopBack(ends: Ends): string {
+function loopBack(ends: Ends): [string, number, number] {
   const clear = 20;
   const aside = Math.max(ends.sourceX, ends.targetX) + 130;
 
-  return [
+  const path = [
     `M ${ends.sourceX},${ends.sourceY}`,
     `L ${ends.sourceX},${ends.sourceY + clear}`,
     `L ${aside},${ends.sourceY + clear}`,
@@ -172,4 +183,8 @@ function loopBack(ends: Ends): string {
     `L ${ends.targetX},${ends.targetY - clear}`,
     `L ${ends.targetX},${ends.targetY}`,
   ].join(' ');
+
+  // Half way up the leg it runs beside the graph on,
+  // which is the length of it a reader can see.
+  return [path, aside, (ends.sourceY + ends.targetY) / 2];
 }

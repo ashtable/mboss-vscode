@@ -218,6 +218,21 @@ export type CanvasStrings = {
   snapped: string;
 
   /**
+   * `{0} → {1} ✓ · release to connect`, under the
+   * block a wire being drawn is over.
+   *
+   * The two are shapes rather than titles: what a
+   * person is being told is that what leaves one end
+   * is what the other takes, and the blocks are
+   * already named on themselves.
+   */
+  releaseToConnect: string;
+
+  /** Over the kinds offered where a wire was let go
+   *  of on nothing. */
+  quickAdd: string;
+
+  /**
    * Why a function cannot sit behind a block, per
    * the reason core gives.
    *

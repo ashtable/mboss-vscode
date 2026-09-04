@@ -79,6 +79,8 @@ const canvasStrings: CanvasStrings = {
   dragHint: 'drag starts after {0} px of movement · esc cancels',
   readout: 'x {0} · y {1}',
   snapped: '{0} — snapped',
+  releaseToConnect: '{0} → {1} ✓ · release to connect',
+  quickAdd: 'Put a block here',
   groups: {
     start: 'Start',
     work: 'Work',

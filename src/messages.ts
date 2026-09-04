@@ -841,6 +841,18 @@ export const messages = {
     // and nothing on screen explains why.
     snapped: l10n.t('{0} — snapped'),
 
+    // Shapes on both sides, not block names: what is
+    // being said is that what leaves one end is what
+    // the other takes, and the blocks are already
+    // named on themselves.
+    releaseToConnect: l10n.t('{0} → {1} ✓ · release to connect'),
+
+    // Over the kinds a wire let go of on nothing
+    // could reach. Only the kinds that could take it
+    // are listed, so this says what the list is
+    // rather than that some of it is missing.
+    quickAdd: l10n.t('Put a block here'),
+
     groups: {
       start: l10n.t('Start'),
       work: l10n.t('Work'),

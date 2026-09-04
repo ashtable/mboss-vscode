@@ -4,6 +4,7 @@ import { useState, type DragEvent } from 'react';
 import { truncateTitle, type NodeKind } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 
+import { landingOn, useConnecting } from './connect/Connecting.js';
 import { LIB_FN, carries } from './dragging.js';
 import {
   SOURCE_PORT,
@@ -53,6 +54,11 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
   // in the air is what is being looked at.
   const state = dragging ? 'selected' : data.state;
 
+  // Whether a wire somebody has in the air could land
+  // here. Nothing at all when no wire is in the air,
+  // and nothing on the block the wire is leaving.
+  const wire = landingOn(useConnecting(), node.id);
+
   // The three of them exist together or not at
   // all: a block takes a function only while what
   // is drawn is the document.
@@ -96,9 +102,16 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
       data-node-kind={node.kind}
       data-state={state}
       data-landing={landing ? 'lib-fn' : undefined}
+      data-wire={wire}
       {...dropping}
     >
       <Handle type="target" position={Position.Top} id={TARGET_PORT} />
+
+      {/* Its own element rather than an outline on
+          the block, because the block is already
+          wearing a border that says what state it is
+          in and a ring is a different sentence. */}
+      {wire === 'yes' ? <span className="node-ring" data-ring /> : null}
 
       <BlockFace
         kind={node.kind}
