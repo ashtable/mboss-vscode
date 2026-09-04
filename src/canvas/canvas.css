@@ -216,6 +216,10 @@
 
 /* — one block — */
 
+/* The box is core's, and everything inside it is
+   clipped to it: a block that grew past what it
+   was laid out at would draw over the wires and
+   the blocks below it. */
 .block {
   box-sizing: border-box;
   width: 100%;
@@ -227,6 +231,7 @@
   box-shadow: var(--elev-1);
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 /* Selection is a ring, not a fill: the block still
    has to read as the block it is. */
@@ -265,9 +270,9 @@
   color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
-/* One row per line core allotted the kind, at the
-   height it allotted them, so the box is the box
-   the coordinates were computed for. */
+/* One line, for every kind: core lays them all out
+   at one height now, and that is what it has room
+   for under a title. */
 .block-summary {
   margin: 0;
   padding: 0;

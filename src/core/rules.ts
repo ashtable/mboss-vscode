@@ -31,7 +31,10 @@ export {
   NodeKindSchema,
   NodeSchema,
   WorkflowIRSchema,
+  carryPositions,
+  nextEdgeId,
   portsOf,
+  withoutPositions,
 } from '../../mboss-core/src/ir/index.js';
 
 export type {
@@ -40,6 +43,7 @@ export type {
   NodeKind,
   NodePaletteEntry,
   NodePaletteGroup,
+  Position,
   Predicate,
   WorkflowEdge,
   WorkflowIR,
@@ -50,12 +54,24 @@ export { validateWorkflow } from '../../mboss-core/src/validate/index.js';
 
 export type { Diagnostic } from '../../mboss-core/src/validate/index.js';
 
+// From `validate/handler-fit`, not `validate`,
+// because the barrel beside it pulls in the whole
+// rule set to answer a question about one node.
+export {
+  decisionValues,
+  handlerFit,
+} from '../../mboss-core/src/validate/handler-fit.js';
+
+export type {
+  HandlerFit,
+  HandlerMisfit,
+} from '../../mboss-core/src/validate/handler-fit.js';
+
 // From `layout/metrics`, not `layout` — the module
 // beside it constructs the layout engine, and the
 // import would come with it.
 export {
-  CONFIG_ROW_HEIGHT,
-  NODE_BASE_HEIGHT,
+  NODE_HEIGHT,
   NODE_WIDTH,
   nodeSize,
   truncateTitle,

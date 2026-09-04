@@ -1,10 +1,4 @@
-import {
-  CONFIG_ROW_HEIGHT,
-  NODE_BASE_HEIGHT,
-  nodeSize,
-  portsOf,
-  type WorkflowNode,
-} from '../core/rules.js';
+import { portsOf, type WorkflowNode } from '../core/rules.js';
 
 /**
  * The lines a node shows under its title.
@@ -17,35 +11,23 @@ import {
  * and a value needs no translating, which is what
  * keeps a browser bundle free of English.
  *
- * The number of lines is fixed per kind, by core,
- * because a node that grew a line while somebody
- * typed would reflow the whole graph. The count is
- * derived from the box core laid out rather than
- * written down again here, so the two cannot
- * disagree.
+ * The number of lines does not depend on what the
+ * node says, because a node that grew a line while
+ * somebody typed would reflow the whole graph. It
+ * is one line for every kind: core lays every kind
+ * out at one height, and that height has room for
+ * a title and a single line under it.
  */
-
-/** How many summary lines a kind's box has room
- *  for. */
-export function summaryRows(node: WorkflowNode): number {
-  return Math.round(
-    (nodeSize(node.kind).height - NODE_BASE_HEIGHT) / CONFIG_ROW_HEIGHT,
-  );
-}
 
 /** Nothing to show on this line. */
 const EMPTY = '—';
 
 /**
- * The lines themselves, padded to the room the
- * layout allowed so that every node of a kind is
- * the height it was laid out at.
+ * The line itself — the first thing the kind has
+ * to say about itself, or nothing.
  */
 export function summaryOf(node: WorkflowNode): string[] {
-  const lines = linesOf(node);
-  const room = summaryRows(node);
-
-  return Array.from({ length: room }, (_, index) => lines[index] ?? EMPTY);
+  return [linesOf(node)[0] ?? EMPTY];
 }
 
 function linesOf(node: WorkflowNode): string[] {

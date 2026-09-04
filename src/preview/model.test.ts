@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import type { DiffSummary } from '../core/index.js';
-import { WorkflowIRSchema } from '../core/rules.js';
+import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
 import {
   makeProject,
   readWorkflowFixture,
@@ -183,6 +183,86 @@ describe('the document a preview draws', () => {
     });
 
     expect(previewOf(proposal, undefined).candidate.revision).toBe(1);
+  });
+});
+
+/**
+ * Where the blocks sit while a proposal is being
+ * read.
+ *
+ * An agent writes semantics and never coordinates,
+ * so a spec arrives with no positions in it at all.
+ * Drawn as it stands, that spec would re-arrange a
+ * canvas somebody laid out by hand the moment an
+ * agent touched anything — and would mark every
+ * block on it as arriving, because every block
+ * would differ from the one on disk. So the
+ * preview is drawn in the layout the approved
+ * document will have, and a coordinate is not
+ * something a block can be said to have changed.
+ */
+describe('the layout a preview is drawn in', () => {
+  /** The same workflow, arranged by hand. */
+  const placed: WorkflowIR = {
+    ...groom,
+    nodes: groom.nodes.map((node, index) => ({
+      ...node,
+      position: { x: 120, y: index * 132 },
+    })),
+  };
+
+  const positionsOf = (ir: WorkflowIR) =>
+    ir.nodes.map((node) => [node.id, node.position] as const);
+
+  it('is the one the document already has', async () => {
+    const proposal = await propose(project, {
+      name: 'groom_booking',
+      spec: specOf({ ...groom, title: 'Groom booking, retitled' }),
+      baseRevision: groom.revision,
+    });
+
+    const { candidate } = previewOf(proposal, placed);
+
+    expect(positionsOf(candidate)).toEqual(positionsOf(placed));
+  });
+
+  it('draws as arriving only the blocks the proposal touched', async () => {
+    const revised = new Set(['find_slot', 'book_appointment']);
+
+    const proposal = await propose(project, {
+      name: 'groom_booking',
+      spec: specOf({
+        ...groom,
+        nodes: groom.nodes.map((node) =>
+          revised.has(node.id) ? { ...node, title: 'Revised' } : node,
+        ),
+      }),
+      baseRevision: groom.revision,
+    });
+
+    expect(previewOf(proposal, placed).proposed).toEqual([...revised]);
+  });
+
+  it('does not draw a block as arriving for having moved', async () => {
+    const proposal = await propose(project, {
+      name: 'groom_booking',
+      spec: specOf({
+        ...placed,
+        nodes: placed.nodes.map((node) =>
+          node.id === 'find_slot'
+            ? { ...node, position: { x: 640, y: 640 } }
+            : node,
+        ),
+      }),
+      baseRevision: groom.revision,
+    });
+
+    const model = previewOf(proposal, placed);
+
+    expect(model.proposed).toEqual([]);
+    expect(
+      model.candidate.nodes.find((node) => node.id === 'find_slot')?.position,
+    ).toEqual({ x: 640, y: 640 });
   });
 });
 

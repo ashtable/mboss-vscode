@@ -7,11 +7,11 @@ import {
   WorkflowIRSchema,
   applyProposal,
   compileProject,
-  layout,
   listProposals,
   loadOrScan,
   mbossDirOf,
   newestSnapshot,
+  place,
   readWorkflow as readWorkflowFile,
   scaffoldProject,
   undo,
@@ -93,6 +93,13 @@ export function readWorkflow(text: string): WorkflowRead {
 /**
  * Where every node goes, keyed by node id.
  *
+ * `place` rather than `layout`, so a block a person
+ * moved stays where they put it and only what
+ * nobody has placed is laid out. A document that
+ * carries no coordinates at all — which is every
+ * document until somebody drags one — is laid out
+ * exactly as `layout` would have.
+ *
  * A plain object rather than the map core hands
  * back, because this crosses into a webview and
  * what crosses has to survive being JSON.
@@ -100,7 +107,7 @@ export function readWorkflow(text: string): WorkflowRead {
 export async function boxesFor(
   ir: WorkflowIR,
 ): Promise<Record<string, NodeBox>> {
-  return Object.fromEntries(await layout(ir));
+  return Object.fromEntries(await place(ir));
 }
 
 /** What core makes of a document as it stands. */

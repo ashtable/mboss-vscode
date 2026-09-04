@@ -1,5 +1,6 @@
 import {
   EdgeSchema,
+  nextEdgeId,
   validateWorkflow,
   type Diagnostic,
   type LibManifest,
@@ -49,7 +50,7 @@ export function wireBetween(
   const producer = ir.nodes.find((node) => node.id === candidate.from.node);
 
   return EdgeSchema.parse({
-    id: nextEdgeId(ir),
+    id: nextEdgeId(ir.edges),
     from: candidate.from,
     to: candidate.to,
     ...(producer?.out === undefined ? {} : { type: producer.out }),
@@ -77,19 +78,4 @@ export function checkCandidateEdge(
   return validateWorkflow(drawn, { manifest }).find(
     (found) => found.code === 'V06' && found.edgeId === wire.id,
   );
-}
-
-/**
- * The next free edge id.
- *
- * Ids are `e` followed by digits and nothing else,
- * so this counts past the highest one rather than
- * filling a gap: a reused id would make an undo
- * that restored the old edge indistinguishable
- * from one that restored the new one.
- */
-export function nextEdgeId(ir: WorkflowIR): string {
-  const used = ir.edges.map((edge) => Number(edge.id.slice(1)));
-
-  return `e${Math.max(0, ...used) + 1}`;
 }
