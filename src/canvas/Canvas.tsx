@@ -293,6 +293,14 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
    * and the document is told what somebody pressed,
    * so what leaves the canvas is what the file no
    * longer holds.
+   *
+   * One message for the whole selection, the way a
+   * drag of three blocks is one move. The library
+   * hands over the wires attached to a block that is
+   * going as well as the block, and a message apiece
+   * would all carry this revision — each applied to
+   * the document as it stands now, so only the last
+   * of them would land.
    */
   const sayDeleted = async ({
     nodes: going,
@@ -301,21 +309,12 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
     nodes: CanvasNode[];
     edges: CanvasEdge[];
   }): Promise<boolean> => {
-    for (const node of going) {
-      postToHost({
-        type: 'deleteNode',
-        baseRevision: ir.revision,
-        nodeId: node.id,
-      });
-    }
-
-    for (const edge of cut) {
-      postToHost({
-        type: 'disconnect',
-        baseRevision: ir.revision,
-        edgeId: edge.id,
-      });
-    }
+    postToHost({
+      type: 'delete',
+      baseRevision: ir.revision,
+      nodeIds: going.map((node) => node.id),
+      edgeIds: cut.map((edge) => edge.id),
+    });
 
     return false;
   };

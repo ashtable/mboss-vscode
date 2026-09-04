@@ -1928,18 +1928,39 @@ test.describe('building the graph', () => {
    * leave the document holding a workflow nobody
    * asked for, so what the key does is say so and
    * wait for the file to come back.
+   *
+   * One message, and one only. The graph library
+   * hands over every wire touching the block as
+   * well as the block, and a message apiece would
+   * all carry this revision — each applied to the
+   * document as it stands now, so only the last of
+   * them would survive and the block would still be
+   * there.
    */
-  test('deletes a block through the document rather than on screen', async ({
+  test('deletes a block and its wires through the document', async ({
     page,
   }) => {
     const harness = await openCanvas(page);
 
     await page.locator('.react-flow__node[data-id="find_slot"]').click();
+    const before = (await harness.posted()).length;
+
     await page.keyboard.press('Delete');
 
-    expect(await harness.postedOfType('deleteNode')).toEqual([
-      { type: 'deleteNode', baseRevision: ir.revision, nodeId: 'find_slot' },
+    expect(await harness.posted()).toHaveLength(before + 1);
+
+    const [sent] = await harness.postedOfType('delete');
+
+    expect(sent).toMatchObject({
+      baseRevision: ir.revision,
+      nodeIds: ['find_slot'],
+    });
+    expect([...(sent!['edgeIds'] as string[])].sort()).toEqual([
+      'e2',
+      'e3',
+      'e8',
     ]);
+
     await expect(
       page.locator('.react-flow__node[data-id="find_slot"]'),
     ).toBeVisible();
@@ -1955,8 +1976,13 @@ test.describe('building the graph', () => {
     await clickWire(page, 'e11');
     await page.keyboard.press('Delete');
 
-    expect(await harness.postedOfType('disconnect')).toEqual([
-      { type: 'disconnect', baseRevision: ir.revision, edgeId: 'e11' },
+    expect(await harness.postedOfType('delete')).toEqual([
+      {
+        type: 'delete',
+        baseRevision: ir.revision,
+        nodeIds: [],
+        edgeIds: ['e11'],
+      },
     ]);
   });
 

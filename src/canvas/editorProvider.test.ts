@@ -389,8 +389,7 @@ describe('an edit from the panel', () => {
       addNode: { type: 'addNode', kind: 'step', position: { x: 8, y: 8 } },
       move: { type: 'move', positions: { find_slot: { x: 8, y: 8 } } },
       arrange: { type: 'arrange' },
-      deleteNode: { type: 'deleteNode', nodeId: 'find_slot' },
-      disconnect: { type: 'disconnect', edgeId: 'e9' },
+      delete: { type: 'delete', nodeIds: ['find_slot'], edgeIds: ['e2'] },
       connect: {
         type: 'connect',
         from: { node: 'find_slot', port: 'out' },
@@ -1205,13 +1204,21 @@ describe('deleting through the document', () => {
     return WorkflowIRSchema.parse(JSON.parse(recorded.written[0]!.text));
   }
 
-  it('bridges the gap a deleted block leaves', async () => {
+  /** One press of the delete key: what was
+   *  selected, and the wires the graph library
+   *  hands over along with it. */
+  function deleting(nodeIds: string[], edgeIds: string[]): void {
     panel.send({
-      type: 'deleteNode',
+      type: 'delete',
       view: 'canvas',
       baseRevision: ir.revision,
-      nodeId: 'record_booking',
+      nodeIds,
+      edgeIds,
     });
+  }
+
+  it('bridges the gap a deleted block leaves', async () => {
+    deleting(['record_booking'], ['e10', 'e11']);
     await settled();
 
     const after = written();
@@ -1225,25 +1232,67 @@ describe('deleting through the document', () => {
     );
   });
 
+  /**
+   * A block and the wires it came with, in one
+   * write.
+   *
+   * The graph library hands over every wire touching
+   * a block that is going, so this is what an
+   * ordinary delete of a wired block looks like. A
+   * message per thing going would carry the base
+   * revision the last one carried, each applied to
+   * the document as it stood before any of them —
+   * so only the last would survive, and the block
+   * would still be there.
+   */
+  it('takes a wired block and its wires in one write', async () => {
+    deleting(['find_slot'], ['e2', 'e3', 'e8']);
+    await settled();
+
+    const after = written();
+
+    expect(after.nodes.map((node) => node.id)).not.toContain('find_slot');
+    expect(after.edges.map((edge) => edge.id)).toEqual([
+      'e1',
+      'e4',
+      'e5',
+      'e6',
+      'e7',
+      'e9',
+      'e10',
+      'e11',
+    ]);
+    expect(after.revision).toBe(ir.revision + 1);
+  });
+
+  it('takes a whole selection in one write', async () => {
+    deleting(['twilio_chat', 'await_reply'], ['e5', 'e6', 'e7']);
+    await settled();
+
+    const after = written();
+
+    expect(after.nodes.map((node) => node.id)).toEqual(
+      ir.nodes
+        .map((node) => node.id)
+        .filter((id) => id !== 'twilio_chat' && id !== 'await_reply'),
+    );
+    expect(after.edges).toContainEqual(
+      expect.objectContaining({
+        from: { node: 'slot_open', port: 'no' },
+        to: { node: 'reply_decision' },
+      }),
+    );
+  });
+
   it('says nothing about a block the document does not have', async () => {
-    panel.send({
-      type: 'deleteNode',
-      view: 'canvas',
-      baseRevision: ir.revision,
-      nodeId: 'no_such_node',
-    });
+    deleting(['no_such_node'], []);
     await settled();
 
     expect(recorded.written).toEqual([]);
   });
 
   it('removes only the wire it was told to', async () => {
-    panel.send({
-      type: 'disconnect',
-      view: 'canvas',
-      baseRevision: ir.revision,
-      edgeId: 'e9',
-    });
+    deleting([], ['e9']);
     await settled();
 
     expect(written().edges.map((edge) => edge.id)).toEqual(

@@ -420,8 +420,7 @@ export class CanvasSession {
     if (message.type === 'addNode') this.addNode(message);
     if (message.type === 'move') this.move(message);
     if (message.type === 'arrange') this.arrange(message.baseRevision);
-    if (message.type === 'deleteNode') this.removeNode(message);
-    if (message.type === 'disconnect') this.disconnect(message);
+    if (message.type === 'delete') this.remove(message);
     if (message.type === 'edit') this.edit(message);
     if (message.type === 'assign') this.assign(message);
     if (message.type === 'text') this.replaceText(message.text);
@@ -624,31 +623,44 @@ export class CanvasSession {
   }
 
   /**
-   * A block taken off the canvas.
+   * What somebody deleted, taken off in one edit.
    *
-   * Bridged rather than simply removed: a block
-   * deleted out of a straight run leaves a run, not
-   * two halves. This is core's own rule, the same one
-   * an agent deleting a block gets.
+   * One edit rather than one per thing, because the
+   * whole selection went at once and every message
+   * about it would carry the same base revision:
+   * applied one after another to the document as it
+   * stood before any of them, only the last would
+   * survive.
+   *
+   * Blocks are bridged rather than simply removed —
+   * a block deleted out of a straight run leaves a
+   * run, not two halves — which is core's own rule,
+   * the same one an agent deleting a block gets. It
+   * takes the wires that touched the block with it,
+   * so what is left to cut is whichever of the named
+   * wires the document still has.
    */
-  private removeNode(edit: { baseRevision: number; nodeId: string }): void {
+  private remove(edit: {
+    baseRevision: number;
+    nodeIds: string[];
+    edgeIds: string[];
+  }): void {
     this.write(edit.baseRevision, (ir) => {
-      const outcome = deleteNode(ir, {
-        nodeId: edit.nodeId,
-        reconnect: true,
-      });
+      let next = ir;
 
-      return outcome.ok ? outcome.ir : undefined;
+      for (const nodeId of edit.nodeIds) {
+        const outcome = deleteNode(next, { nodeId, reconnect: true });
+
+        if (outcome.ok) next = outcome.ir;
+      }
+
+      const cut = next.edges.filter((edge) => !edit.edgeIds.includes(edge.id));
+      if (cut.length !== next.edges.length) next = { ...next, edges: cut };
+
+      // Nothing here was there to take off, so there
+      // is nothing to say.
+      return next === ir ? undefined : next;
     });
-  }
-
-  /** One wire taken out, and nothing else. */
-  private disconnect(edit: { baseRevision: number; edgeId: string }): void {
-    this.write(edit.baseRevision, (ir) =>
-      ir.edges.some((edge) => edge.id === edit.edgeId)
-        ? { ...ir, edges: ir.edges.filter((edge) => edge.id !== edit.edgeId) }
-        : undefined,
-    );
   }
 
   /**

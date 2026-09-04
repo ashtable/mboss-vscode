@@ -94,23 +94,23 @@ const Arrange = z.object({
 });
 
 /**
- * Somebody deleted a block, or a wire.
+ * Somebody deleted what was selected: blocks, wires,
+ * or both.
  *
- * Two messages rather than one, because they are two
- * edits: removing a block bridges what was on either
- * side of it, and removing a wire is exactly that
- * wire going.
+ * One message rather than one per thing going,
+ * because one press of the key is one edit. The
+ * graph library hands over every wire touching a
+ * block that is going as well as the block, and a
+ * message apiece would all carry the same base
+ * revision — each applied to the document as it
+ * stood before any of them, so only the last would
+ * survive.
  */
-const DeleteNode = z.object({
-  type: z.literal('deleteNode'),
+const Delete = z.object({
+  type: z.literal('delete'),
   baseRevision: z.number().int(),
-  nodeId: z.string(),
-});
-
-const Disconnect = z.object({
-  type: z.literal('disconnect'),
-  baseRevision: z.number().int(),
-  edgeId: z.string(),
+  nodeIds: z.array(z.string()),
+  edgeIds: z.array(z.string()),
 });
 
 const Edit = z.object({
@@ -315,8 +315,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('type', [
   AddNode,
   Move,
   Arrange,
-  DeleteNode,
-  Disconnect,
+  Delete,
   Edit,
   Assign,
   Text,
