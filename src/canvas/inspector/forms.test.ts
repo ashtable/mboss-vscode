@@ -89,6 +89,19 @@ const SAMPLES: readonly WorkflowNode[] = [
     config: {},
   }),
   NodeSchema.parse({
+    id: 'route_claim',
+    kind: 'branch',
+    title: 'Which desk?',
+    handler: { export: 'routeClaim' },
+    config: {
+      cases: [
+        { port: 'pay', when: { path: '', op: 'eq', value: 'pay' } },
+        { port: 'refuse', when: { path: '', op: 'eq', value: 'refuse' } },
+      ],
+      elsePort: 'hold',
+    },
+  }),
+  NodeSchema.parse({
     id: 'author_loop',
     kind: 'loop',
     title: 'Draft and revise',
@@ -195,6 +208,8 @@ function set(
         return { ...field, value: typeof value === 'number' ? value : null };
       case 'flag':
         return { ...field, value: Boolean(value) };
+      case 'picker':
+        return { ...field, value: value === null ? undefined : String(value) };
       case 'rows':
         return field;
     }
@@ -444,6 +459,64 @@ describe('a branch', () => {
         expect.objectContaining({ port: 'book_it' }),
       ],
     });
+  });
+});
+
+/**
+ * The function a block runs is chosen from what the
+ * project's code-behind offers, so the field is a
+ * picker rather than a box to type a name into —
+ * and a branch's is called its logic, because the
+ * function is the decision rather than a step the
+ * branch takes.
+ */
+describe('the function a block runs', () => {
+  it('is picked rather than typed', () => {
+    expect(find(sample('parse_request'), 'handler')).toEqual({
+      id: 'handler',
+      control: 'picker',
+      value: 'parseRequest',
+    });
+  });
+
+  it('says nothing where a block has none yet', () => {
+    expect(find(sample('escape'), 'handler')).toEqual({
+      id: 'handler',
+      control: 'picker',
+      value: undefined,
+    });
+  });
+
+  it('comes off the node when it is cleared', () => {
+    const node = sample('parse_request');
+
+    const edited = formToConfig(node, [
+      { id: 'handler', control: 'picker', value: undefined },
+    ]);
+
+    expect(edited).not.toHaveProperty('handler');
+    expect(() => NodeSchema.parse(edited)).not.toThrow();
+  });
+
+  it('is a branch’s logic rather than its handler', () => {
+    const node = sample('route_claim');
+
+    expect(find(node, 'logic')).toEqual({
+      id: 'logic',
+      control: 'picker',
+      value: 'routeClaim',
+    });
+    expect(find(node, 'handler')).toBeUndefined();
+  });
+
+  it('leaves a branch the predicate editor only while it runs none', () => {
+    const predicates = sample('reply_decision');
+    const decided = sample('route_claim');
+
+    expect(find(predicates, 'cases')).toBeDefined();
+    expect(find(predicates, 'elsePort')).toBeDefined();
+    expect(find(decided, 'cases')).toBeUndefined();
+    expect(find(decided, 'elsePort')).toBeUndefined();
   });
 });
 

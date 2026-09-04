@@ -19,6 +19,10 @@ import {
 } from '../core/index.js';
 import {
   NodeSchema,
+  decisionValues,
+  handlerFit,
+  withDecisionCases,
+  type LibFunction,
   type LibManifest,
   type NodeBox,
   type WorkflowIR,
@@ -34,9 +38,11 @@ import type {
   CanvasDocument,
   CanvasInit,
   CanvasInspector,
+  DecisionOutcome,
 } from '../webview/protocol.js';
 
 import { configToForm } from './inspector/forms.js';
+import { misfitNote } from './misfit.js';
 import { wireBetween } from './wiring.js';
 
 /**
@@ -290,6 +296,7 @@ class CanvasSession {
 
     if (message.type === 'connect') this.connect(message);
     if (message.type === 'edit') this.edit(message);
+    if (message.type === 'assign') this.assign(message);
     if (message.type === 'text') this.replaceText(message.text);
 
     return false;
@@ -332,8 +339,36 @@ class CanvasSession {
               node,
               form: configToForm(node),
               revision: this.read.ir.revision,
+              outcomes: this.outcomesOf(node),
             },
     };
+  }
+
+  /**
+   * Where each way out of a decision leads.
+   *
+   * A branch that runs a function has no predicates
+   * to edit — the function decided these — so its
+   * cases are read beside the wires they stand for.
+   * Worked out here because it takes the graph, and
+   * a form is only ever handed one node.
+   */
+  private outcomesOf(node: WorkflowNode): DecisionOutcome[] {
+    if (!this.read.ok) return [];
+    if (node.kind !== 'branch' || node.handler === undefined) return [];
+
+    const ir = this.read.ir;
+
+    return node.config.cases.map((one) => {
+      const edge = ir.edges.find(
+        (wire) => wire.from.node === node.id && wire.from.port === one.port,
+      );
+
+      return {
+        value: String(one.when.value),
+        target: ir.nodes.find((to) => to.id === edge?.to.node)?.title,
+      };
+    });
   }
 
   private select(nodeId: string | null): void {
@@ -406,9 +441,84 @@ class CanvasSession {
       return;
     }
 
-    const node = parsed.data;
+    this.writeNode(edit.baseRevision, parsed.data);
+  }
 
-    this.write(edit.baseRevision, (ir) => ({
+  /**
+   * Which function from the code-behind a block
+   * runs.
+   *
+   * Both ways in — a row in the picker, a chip
+   * dropped on the block — arrive here, and the
+   * rule is asked again: the panel is a frame
+   * running scripts, and the picker that offered
+   * the row and the drop target that took the chip
+   * are the same untrusted place. A misfit is
+   * refused out loud, because a drop that silently
+   * did nothing is a bug report nobody can write.
+   *
+   * A name the manifest has never heard of is not a
+   * misfit. It is somebody naming a function they
+   * have not written yet — the thing the scaffolder
+   * writes a stub for — so it goes in as typed, and
+   * the rules say the code-behind does not export it
+   * until it does.
+   */
+  private assign(edit: {
+    baseRevision: number;
+    nodeId: string;
+    export: string | null;
+  }): void {
+    const node = this.nodeAt(edit.nodeId);
+    if (node === undefined) return;
+
+    const named = edit.export;
+
+    // Clearing leaves a branch's cases where they
+    // are: the person may be going back to
+    // predicates, and the Inspector shows them
+    // again the moment the handler is gone.
+    if (named === null) {
+      this.writeNode(edit.baseRevision, withoutHandler(node));
+
+      return;
+    }
+
+    const fn = this.manifest?.functions.find((one) => one.export === named);
+    const fit = fn === undefined ? undefined : handlerFit(node, fn);
+
+    if (fit?.fits === false) {
+      this.api.info(
+        messages.handlerMisfit(
+          named,
+          node.title,
+          misfitNote(messages.misfitWords(), fit.reason),
+        ),
+      );
+
+      return;
+    }
+
+    // A branch's cases are what its function decides
+    // between, so assigning one rewrites them. An
+    // unwritten function is taken to decide
+    // `true`/`false`, which is what the scaffolded
+    // stub returns and so already fits.
+    this.writeNode(
+      edit.baseRevision,
+      node.kind === 'branch'
+        ? withDecisionCases(
+            { ...node, handler: { export: named } },
+            decisionsOf(fn),
+          )
+        : { ...node, handler: { export: named } },
+    );
+  }
+
+  /** The document with that one node in place of
+   *  the one it has by that id. */
+  private writeNode(baseRevision: number, node: WorkflowNode): void {
+    this.write(baseRevision, (ir) => ({
       ...ir,
       nodes: ir.nodes.map((one) => (one.id === node.id ? node : one)),
     }));
@@ -442,4 +552,27 @@ class CanvasSession {
       nextDocument(edit(this.read.ir)),
     );
   }
+}
+
+/** The node with nothing behind it. */
+function withoutHandler<N extends WorkflowNode>(node: N): N {
+  const cleared = { ...node };
+  delete cleared.handler;
+
+  return cleared;
+}
+
+/**
+ * What a branch's function decides between.
+ *
+ * A function that fits a branch decides something —
+ * that is what fitting means there — and one the
+ * manifest does not know is taken to decide
+ * `true`/`false`, so the stub scaffolds as
+ * `Promise<boolean>` and lands already fitting.
+ */
+function decisionsOf(
+  fn: LibFunction | undefined,
+): readonly (string | boolean)[] {
+  return (fn === undefined ? undefined : decisionValues(fn)) ?? [true, false];
 }

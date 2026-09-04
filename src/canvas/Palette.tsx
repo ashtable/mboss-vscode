@@ -1,10 +1,14 @@
 import {
   NODE_PALETTE,
   type LibFunction,
+  type NodeKind,
   type NodePaletteGroup,
+  type WorkflowNode,
 } from '../core/rules.js';
 import type { CanvasStrings } from '../webview/protocol.js';
-import type { NodeKind } from '../core/rules.js';
+
+import { LIB_FN } from './dragging.js';
+import { FunctionLines, fitsFor, type LibState } from './libFunction.js';
 
 /**
  * What a workflow can be built from: the ten kinds
@@ -17,12 +21,29 @@ import type { NodeKind } from '../core/rules.js';
  * from one menu. Only the words are the
  * extension's, because a library's labels are not
  * localized.
+ *
+ * A `/lib` row is dragged onto a block to say the
+ * block runs it, and it says beforehand whether it
+ * could: the row the selected block already runs is
+ * marked, and one that could not sit there carries
+ * the reason. Nothing here refuses a drag — the
+ * host asks the same rule again and answers out
+ * loud, which is where a person can read it.
  */
 
 export type PaletteProps = {
   strings: CanvasStrings;
   labels: Record<NodeKind, string>;
   lib: LibFunction[] | undefined;
+
+  /** The block the Inspector column is showing,
+   *  which is what a row is judged against. */
+  selected: WorkflowNode | undefined;
+
+  /** Which row is on its way to a block, if one
+   *  is. */
+  dragging: string | undefined;
+  onDragging: (fn: string | undefined) => void;
 };
 
 /** The order the drawers are drawn in, which is the
@@ -34,7 +55,16 @@ const GROUPS: readonly NodePaletteGroup[] = [
   'people',
 ];
 
-export function Palette({ strings, labels, lib }: PaletteProps) {
+export function Palette({
+  strings,
+  labels,
+  lib,
+  selected,
+  dragging,
+  onDragging,
+}: PaletteProps) {
+  const functions = fitsFor(lib ?? [], selected, strings.misfits);
+
   return (
     <aside className="palette">
       <p className="eyebrow text-muted">{strings.blocks}</p>
@@ -60,20 +90,25 @@ export function Palette({ strings, labels, lib }: PaletteProps) {
       <section className="drawer">
         <p className="drawer-name mono text-muted">{strings.lib}</p>
 
-        {lib === undefined || lib.length === 0 ? (
+        {functions.length === 0 ? (
           <p className="drawer-empty text-muted">{strings.noLib}</p>
         ) : (
-          lib.map((fn) => (
+          functions.map(({ fn, note }) => (
             <p
               key={fn.export}
-              className="chip lib-fn"
+              className="lib-fn"
               data-lib-fn={fn.export}
+              data-state={stateOf(fn, selected, dragging)}
               title={fn.doc}
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.setData(LIB_FN, fn.export);
+                event.dataTransfer.effectAllowed = 'copy';
+                onDragging(fn.export);
+              }}
+              onDragEnd={() => onDragging(undefined)}
             >
-              <span className="mono">{fn.export}</span>
-              <span className="signature mono text-muted">
-                {signatureOf(fn)}
-              </span>
+              <FunctionLines fn={fn} note={note} />
             </p>
           ))
         )}
@@ -82,13 +117,12 @@ export function Palette({ strings, labels, lib }: PaletteProps) {
   );
 }
 
-/**
- * What the function takes and what it gives back,
- * which is the only thing about it that decides
- * where on the canvas it can go.
- */
-function signatureOf(fn: LibFunction): string {
-  const takes = fn.params.map((param) => param.type).join(', ');
+function stateOf(
+  fn: LibFunction,
+  selected: WorkflowNode | undefined,
+  dragging: string | undefined,
+): LibState {
+  if (fn.export === dragging) return 'dragging';
 
-  return `${takes || '()'} → ${fn.returnType}`;
+  return selected?.handler?.export === fn.export ? 'assigned' : 'default';
 }

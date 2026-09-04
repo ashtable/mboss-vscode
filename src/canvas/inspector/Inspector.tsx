@@ -1,11 +1,20 @@
 import { useRef, useState } from 'react';
 
-import type { WorkflowNode } from '../../core/rules.js';
-import { postToHost } from '../../webview/client.js';
 import type {
+  HandlerMisfit,
+  LibFunction,
+  WorkflowNode,
+} from '../../core/rules.js';
+import { postToHost } from '../../webview/client.js';
+import { filled } from '../../webview/fill.js';
+import type {
+  Callout as CalloutWords,
   CanvasInspector,
+  DecisionOutcome,
   InspectorStrings,
+  SelectedNode,
 } from '../../webview/protocol.js';
+import { FunctionLines, fitsFor, type LibFit } from '../libFunction.js';
 
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
 
@@ -29,8 +38,24 @@ import { configToForm, formToConfig, type InspectorField } from './forms.js';
  * back what the document says. Never per keystroke
  * — the revision that granularity produces is on
  * screen, in the graph's own caption.
+ *
+ * The function a block runs is the exception, and
+ * is not a field at all: it is picked out of what
+ * the project's code-behind offers, which the form
+ * cannot see, so it goes to the host as its own
+ * message and comes back as a document.
  */
-export function Inspector({ strings, selected }: CanvasInspector) {
+export type InspectorProps = CanvasInspector & {
+  /** What the project's code-behind offers, which
+   *  is what the picker offers. */
+  lib: LibFunction[] | undefined;
+
+  /** Why a function cannot sit behind a block,
+   *  shared with the palette. */
+  misfits: Record<HandlerMisfit['kind'], string>;
+};
+
+export function Inspector({ strings, selected, lib, misfits }: InspectorProps) {
   if (selected === undefined) {
     return (
       <div className="inspector">
@@ -44,30 +69,49 @@ export function Inspector({ strings, selected }: CanvasInspector) {
     <Fields
       key={`${selected.node.id}:${selected.revision}`}
       strings={strings}
-      node={selected.node}
-      revision={selected.revision}
+      selected={selected}
+      lib={lib}
+      misfits={misfits}
     />
   );
 }
 
 function Fields({
   strings,
-  node,
-  revision,
+  selected,
+  lib,
+  misfits,
 }: {
   strings: InspectorStrings;
-  node: WorkflowNode;
-  revision: number;
+  selected: SelectedNode;
+  lib: LibFunction[] | undefined;
+  misfits: Record<HandlerMisfit['kind'], string>;
 }) {
-  const [draft, setDraft] = useState(node);
+  const [draft, setDraft] = useState(selected.node);
   const form = configToForm(draft);
 
   const commit = (field: InspectorField): void => {
     const next = formToConfig(draft, [field]);
 
     setDraft(next);
-    postToHost({ type: 'edit', baseRevision: revision, node: next });
+    postToHost({
+      type: 'edit',
+      baseRevision: selected.revision,
+      node: next,
+    });
   };
+
+  // The picker writes a document rather than a
+  // draft: which function a block runs is a fact
+  // the host checks against the manifest, and on a
+  // branch it decides what the cases are.
+  const assign = (exported: string | null): void =>
+    postToHost({
+      type: 'assign',
+      baseRevision: selected.revision,
+      nodeId: selected.node.id,
+      export: exported,
+    });
 
   return (
     <div className="inspector">
@@ -76,14 +120,38 @@ function Fields({
       </p>
 
       <dl className="fields">
-        {form.fields.map((field) => (
-          <Row
-            key={field.id}
-            strings={strings}
-            field={field}
-            onCommit={commit}
-          />
+        {form.fields.map((field) =>
+          field.control === 'picker' ? (
+            <Picker
+              key={field.id}
+              strings={strings}
+              misfits={misfits}
+              field={field}
+              node={draft}
+              lib={lib}
+              onAssign={assign}
+            />
+          ) : (
+            <Row
+              key={field.id}
+              strings={strings}
+              field={field}
+              onCommit={commit}
+            />
+          ),
+        )}
+
+        {selected.outcomes.map((outcome) => (
+          <Outcome key={outcome.value} strings={strings} outcome={outcome} />
         ))}
+
+        {form.kind !== 'transaction' ? null : (
+          <Told
+            id="database"
+            name={strings.fields.database}
+            value={strings.database}
+          />
+        )}
       </dl>
     </div>
   );
@@ -105,6 +173,254 @@ function Row({
         <Control strings={strings} field={field} onCommit={onCommit} />
       </dd>
     </div>
+  );
+}
+
+/** A row nobody edits: the fact and what it is
+ *  called. */
+function Told({
+  id,
+  name,
+  value,
+}: {
+  id: string;
+  name: string | undefined;
+  value: string;
+}) {
+  return (
+    <div className="field" data-field={id} data-control="told">
+      <dt className="field-name text-muted">{name}</dt>
+      <dd className="field-value mono">{value}</dd>
+    </div>
+  );
+}
+
+/**
+ * One way out of a decision.
+ *
+ * Read rather than edited: the function decided
+ * these, and where each one goes is a wire on the
+ * canvas. Wiring stays a canvas gesture.
+ */
+function Outcome({
+  strings,
+  outcome,
+}: {
+  strings: InspectorStrings;
+  outcome: DecisionOutcome;
+}) {
+  return (
+    <div className="field" data-outcome={outcome.value} data-control="told">
+      <dt className="field-name mono text-muted">{outcome.value} →</dt>
+      <dd className="field-value mono">{outcome.target ?? strings.end}</dd>
+    </div>
+  );
+}
+
+/**
+ * Which function a block runs.
+ *
+ * The list is the manifest put through core's one
+ * rule: what fits is offered, and what does not is
+ * counted and put away rather than dropped, because
+ * a function missing from a list with no
+ * explanation is a bug report nobody can write.
+ *
+ * It ends with the one row the manifest does not
+ * decide — a name for a function that does not
+ * exist yet, which is how the scaffolder is told
+ * what stub to write.
+ */
+function Picker({
+  strings,
+  misfits,
+  field,
+  node,
+  lib,
+  onAssign,
+}: {
+  strings: InspectorStrings;
+  misfits: Record<HandlerMisfit['kind'], string>;
+  field: Extract<InspectorField, { control: 'picker' }>;
+  node: WorkflowNode;
+  lib: LibFunction[] | undefined;
+  onAssign: (exported: string | null) => void;
+}) {
+  const [showing, setShowing] = useState(false);
+
+  const judged = fitsFor(lib ?? [], node, misfits);
+  const fitting = judged.filter((one) => one.fits);
+  const rest = judged.filter((one) => !one.fits);
+
+  const callout =
+    node.kind === 'branch'
+      ? strings.callouts.branch
+      : node.kind === 'transaction'
+        ? strings.callouts.transaction
+        : undefined;
+
+  return (
+    <div className="field" data-field={field.id} data-control="picker">
+      <dt className="field-name text-muted">{strings.fields[field.id]}</dt>
+      <dd className="field-value">
+        <p className="picker-value mono" data-picker-value>
+          {field.value === undefined ? (
+            <span className="picker-nothing">{strings.dropHere}</span>
+          ) : (
+            `${field.value} ▾`
+          )}
+        </p>
+
+        <div className="picker">
+          <p className="drawer-name mono text-muted">{strings.lib}</p>
+
+          {judged.length === 0 ? (
+            <p className="picker-empty text-muted">{strings.noLib}</p>
+          ) : (
+            <>
+              {fitting.map((fit) => (
+                <Offer
+                  key={fit.fn.export}
+                  fit={fit}
+                  assigned={field.value}
+                  onAssign={onAssign}
+                />
+              ))}
+
+              {rest.length === 0 ? null : (
+                <button
+                  type="button"
+                  className="picker-hidden text-muted"
+                  data-picker-hidden
+                  onClick={() => setShowing(!showing)}
+                >
+                  {showing
+                    ? strings.hide
+                    : filled(strings.hidden, String(rest.length))}
+                </button>
+              )}
+
+              {!showing
+                ? null
+                : rest.map((fit) => (
+                    <Offer
+                      key={fit.fn.export}
+                      fit={fit}
+                      assigned={field.value}
+                      onAssign={onAssign}
+                    />
+                  ))}
+            </>
+          )}
+
+          <Named strings={strings} onAssign={onAssign} />
+        </div>
+
+        {callout === undefined ? null : (
+          <Callout kind={node.kind} words={callout} />
+        )}
+      </dd>
+    </div>
+  );
+}
+
+/** One function the picker offers. Choosing the one
+ *  already behind the block is the way back off
+ *  it. */
+function Offer({
+  fit,
+  assigned,
+  onAssign,
+}: {
+  fit: LibFit;
+  assigned: string | undefined;
+  onAssign: (exported: string | null) => void;
+}) {
+  const chosen = assigned === fit.fn.export;
+
+  return (
+    <button
+      type="button"
+      className="lib-fn"
+      data-picker-fn={fit.fn.export}
+      data-state={chosen ? 'assigned' : 'default'}
+      title={fit.fn.doc}
+      onClick={() => onAssign(chosen ? null : fit.fn.export)}
+    >
+      <FunctionLines fn={fit.fn} note={fit.note} />
+    </button>
+  );
+}
+
+/**
+ * A function that is not written yet, named.
+ *
+ * Enter confirms and nothing else does. A name
+ * typed here is what the scaffolder writes a stub
+ * for, so committing it because focus moved would
+ * put a half-typed export in the document and a
+ * file on disk beside it.
+ */
+function Named({
+  strings,
+  onAssign,
+}: {
+  strings: InspectorStrings;
+  onAssign: (exported: string | null) => void;
+}) {
+  const [naming, setNaming] = useState(false);
+  const [typed, setTyped] = useState('');
+
+  return (
+    <div className="lib-fn picker-new" data-picker-new>
+      {naming ? (
+        <input
+          className="mono"
+          type="text"
+          autoFocus
+          spellCheck={false}
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          onBlur={() => setNaming(false)}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setNaming(false);
+
+              return;
+            }
+
+            if (event.key !== 'Enter') return;
+
+            event.preventDefault();
+            setNaming(false);
+
+            if (typed.trim() !== '') onAssign(typed.trim());
+          }}
+        />
+      ) : (
+        <button
+          type="button"
+          className="picker-name"
+          onClick={() => {
+            setTyped('');
+            setNaming(true);
+          }}
+        >
+          {strings.newFunction}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** What a kind's relationship with its code is,
+ *  where a person would otherwise have to guess
+ *  it. */
+function Callout({ kind, words }: { kind: string; words: CalloutWords }) {
+  return (
+    <p className="callout" data-callout={kind}>
+      <strong>{words.title}</strong> {words.body}
+    </p>
   );
 }
 
@@ -187,6 +503,12 @@ function Control({
           ))}
         </div>
       );
+
+    // Drawn by the column itself, because it takes
+    // the project's code-behind and a control here
+    // is handed only the field.
+    case 'picker':
+      return null;
 
     case 'text':
     case 'prose':

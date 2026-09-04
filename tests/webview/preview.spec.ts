@@ -70,11 +70,19 @@ const canvasStrings: CanvasStrings = {
   noLib: 'Nothing scanned yet.',
   unassigned: 'unassigned',
   typedWiring: 'Typed wiring',
+  dragging: 'dragging {0}…',
   groups: {
     start: 'Start',
     work: 'Work',
     control: 'Control',
     people: 'People',
+  },
+  misfits: {
+    'no-handler-kind': 'this block runs no code of its own',
+    'too-many-params': 'takes {0} arguments, needs one',
+    'input-mismatch': 'takes {0}, needs {1}',
+    'output-mismatch': 'returns {0}, needs {1}',
+    'not-a-decision': 'returns {0}, decides nothing',
   },
 };
 
@@ -108,6 +116,18 @@ const inspector: CanvasInspector = {
     ) as CanvasInit['paletteLabels'],
     fields: {},
     options: {},
+    lib: '/lib · matched by signature',
+    hidden: '{0} incompatible functions hidden · show',
+    hide: 'Hide incompatible functions',
+    newFunction: 'New function…',
+    noLib: 'Nothing scanned yet.',
+    dropHere: 'drop a ƒ here',
+    end: 'end',
+    database: 'app postgres · prisma tx',
+    callouts: {
+      branch: { title: 'Branches own no code.', body: 'The function is it.' },
+      transaction: { title: 'One commit.', body: 'Both land together.' },
+    },
   },
   selected: undefined,
 };

@@ -2,7 +2,7 @@ import { l10n } from 'vscode';
 
 import type { AgentId } from './acp/registry.js';
 import type { Failure } from './acp/session.js';
-import type { NodeKind } from './core/rules.js';
+import type { HandlerMisfit, NodeKind } from './core/rules.js';
 import type {
   CanvasStrings,
   InspectorStrings,
@@ -498,6 +498,20 @@ export const messages = {
     l10n.t('That would leave the block half-set, so nothing was saved.'),
 
   /**
+   * A function that cannot sit where somebody put
+   * it.
+   *
+   * Said out loud rather than swallowed: a chip
+   * dropped on a block that quietly does nothing is
+   * a bug report nobody can write. The reason is
+   * core's own, carried in rather than restated
+   * here, so the notification and the greyed row in
+   * the picker say the same thing.
+   */
+  handlerMisfit: (fn: string, title: string, reason: string) =>
+    l10n.t('{0} cannot sit behind {1}: {2}.', fn, title, reason),
+
+  /**
    * The line over a graph nobody has agreed to yet.
    *
    * The mockup puts it in the editor's tab strip.
@@ -728,12 +742,38 @@ export const messages = {
     unassigned: l10n.t('unassigned'),
 
     typedWiring: l10n.t('Typed wiring'),
+
+    // Follows the function's name, in the toolbar,
+    // while a chip is on its way to a block.
+    dragging: l10n.t('dragging {0}…'),
+
     groups: {
       start: l10n.t('Start'),
       work: l10n.t('Work'),
       control: l10n.t('Control'),
       people: l10n.t('People'),
     },
+
+    misfits: messages.misfitWords(),
+  }),
+
+  /**
+   * Why a function cannot sit behind a block, per
+   * the reason core gives.
+   *
+   * Its own entry because the host says the same
+   * thing when it refuses a drop, and two tables
+   * would let the greyed row and the notification
+   * disagree about one pairing. Templates: the type
+   * or the count in them is known only where the
+   * pairing is worked out.
+   */
+  misfitWords: (): Record<HandlerMisfit['kind'], string> => ({
+    'no-handler-kind': l10n.t('this block runs no code of its own'),
+    'too-many-params': l10n.t('takes {0} arguments, needs one'),
+    'input-mismatch': l10n.t('takes {0}, needs {1}'),
+    'output-mismatch': l10n.t('returns {0}, needs {1}'),
+    'not-a-decision': l10n.t('returns {0}, decides nothing'),
   }),
 
   inspectorStrings: (): InspectorStrings => ({
@@ -742,6 +782,33 @@ export const messages = {
     kinds: messages.paletteLabels(),
     fields: inspectorFields(),
     options: inspectorOptions(),
+
+    // The picker's list is the palette's `/lib`
+    // section put through one rule, which is what
+    // its heading says and the palette's does not.
+    lib: l10n.t('/lib · matched by signature'),
+    hidden: l10n.t('{0} incompatible functions hidden · show'),
+    hide: l10n.t('Hide incompatible functions'),
+    newFunction: l10n.t('New function…'),
+    noLib: messages.canvasStrings().noLib,
+    dropHere: l10n.t('drop a ƒ here'),
+    end: l10n.t('end'),
+    database: l10n.t('app postgres · prisma tx'),
+
+    callouts: {
+      branch: {
+        title: l10n.t('Branches own no code.'),
+        body: l10n.t(
+          'The Lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph.',
+        ),
+      },
+      transaction: {
+        title: l10n.t('One commit.'),
+        body: l10n.t(
+          'The function’s table writes and DBOS’s step-completion record land in the same Postgres transaction. Crash mid-step: neither happened; recovery re-runs it exactly once.',
+        ),
+      },
+    },
   }),
 };
 
@@ -759,7 +826,9 @@ function inspectorFields(): Record<string, string> {
     title: l10n.t('title'),
     in: l10n.t('takes'),
     out: l10n.t('produces'),
-    handler: l10n.t('runs'),
+    handler: l10n.t('function'),
+    logic: l10n.t('logic'),
+    database: l10n.t('database'),
     service: l10n.t('service'),
 
     mode: l10n.t('run'),

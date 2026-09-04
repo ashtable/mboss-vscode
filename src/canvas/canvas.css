@@ -117,19 +117,101 @@
   border-color: var(--brand);
 }
 
+/* A function out of the project's code-behind, in
+   the two places one is offered: dragged off the
+   palette onto a block, pressed in the Inspector's
+   picker. One shape, because it is one list — the
+   gesture is what differs. */
 .lib-fn {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 1px;
+  margin: 0 0 var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1.5px dashed transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: grab;
 }
+button.lib-fn {
+  cursor: pointer;
+}
+.lib-fn:hover {
+  background: var(--surface-2);
+}
+
+.lib-name {
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+/* The mark the design puts in front of a function
+   everywhere one is named. A glyph, not a word:
+   nothing here is a string a reader's locale
+   changes. */
+.lib-name::before {
+  content: 'ƒ ';
+  color: var(--ink-faint);
+}
+
 .signature {
   font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
 
+/* Why this one cannot sit behind the block that is
+   selected. There is no grey of its own: not
+   getting the assigned row's treatment is the
+   grey, and the note is what says why. */
+.lib-note {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+/* The function the selected block already runs. */
+.lib-fn[data-state='assigned'] {
+  background: var(--brand-tint);
+  box-shadow: inset 0 0 0 1px var(--brand-ring);
+}
+.lib-fn[data-state='assigned'] .lib-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+.lib-fn[data-state='assigned'] .lib-name::before {
+  color: var(--brand);
+}
+.lib-fn[data-state='assigned']::after {
+  content: '✓';
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-2);
+  color: var(--brand);
+  font-weight: 700;
+}
+
+/* On its way to a block. */
+.lib-fn[data-state='dragging'] {
+  border-color: var(--brand);
+  opacity: 0.85;
+}
+
 .drawer-empty {
   margin: 0;
   font-size: var(--text-sm);
+}
+
+/* What the pointer is holding. The design puts it
+   in the tab strip, which no extension can write
+   into, so it goes at the far end of the toolbar. */
+.carrying {
+  margin: 0 0 0 auto;
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 
 /* The one line of chrome that belongs to a
@@ -268,6 +350,15 @@
   border: 1.5px dashed var(--agent);
   background: var(--surface-ghost);
   box-shadow: none;
+}
+
+/* A function is over this block, on its way to
+   being what it runs. Brand rather than agent: a
+   person is doing this, and purple is somebody
+   else's proposal. */
+.node[data-landing] {
+  border: 1.5px dashed var(--brand);
+  background: var(--brand-tint);
 }
 
 /* The run states. A glow means the run is at this
@@ -512,6 +603,84 @@
 .field-value input[type='checkbox'] {
   margin: 0;
   accent-color: var(--brand);
+}
+
+/* A row that is read rather than edited: where an
+   outcome goes, which database a transaction
+   commits to. Set in mono, because every one of
+   them is a value out of the graph. */
+.field[data-control='told'] .field-value {
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* — the function picker — */
+
+/* The picker breaks the column's label-left rhythm
+   on purpose. What follows the label is a list of
+   signatures, and 8.5ch of label in front of them
+   leaves nothing to read them in. */
+.field[data-control='picker'] {
+  display: block;
+}
+
+.picker-value {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
+/* A block that runs nothing yet says where one
+   goes, rather than leaving a blank to guess at. */
+.picker-nothing {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border: 1.5px dashed var(--hairline-strong);
+  border-radius: var(--r-sm);
+  color: var(--ink-faint);
+}
+
+.picker {
+  margin-bottom: var(--space-2);
+}
+
+.picker-empty {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+
+/* What was left out of the list, and the way to
+   see it. Plain text rather than a button's
+   clothes: it is an aside about the list, not an
+   action on the block. */
+.picker-hidden {
+  all: unset;
+  display: block;
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.picker-name {
+  all: unset;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+/* The system's callout: a tinted block, no border
+   and no icon. Spent on the two kinds whose
+   relationship with their code a person would
+   otherwise have to be told twice. */
+.callout {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-sm);
+  background: var(--info-tint);
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+.callout strong {
+  margin-right: 6px;
+  color: var(--info);
 }
 
 /* A repeating group — a branch's cases, a form's

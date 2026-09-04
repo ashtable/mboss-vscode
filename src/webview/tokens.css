@@ -184,6 +184,7 @@ body {
 
   --brand-tint: color-mix(in srgb, var(--brand) 10%, var(--surface));
   --agent-tint: color-mix(in srgb, var(--agent) 10%, var(--surface));
+  --info-tint: color-mix(in srgb, var(--info) 12%, var(--surface));
   --ok-tint: color-mix(in srgb, var(--ok) 12%, var(--surface));
   --warn-tint: color-mix(in srgb, var(--warn) 14%, var(--surface));
   --fail-tint: color-mix(in srgb, var(--fail) 12%, var(--surface));

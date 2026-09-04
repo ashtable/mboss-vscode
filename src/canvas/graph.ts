@@ -73,6 +73,11 @@ export type Drawing = {
   proposed?: readonly string[];
 
   selected?: string;
+
+  /** Whether what is drawn is the document. It is
+   *  not while a proposal is showing, and nothing
+   *  drawn then may be edited. */
+  editable?: boolean;
 };
 
 /** What a node component is handed. */
@@ -89,6 +94,13 @@ export type CanvasNodeData = {
   line: string;
 
   state: NodeState;
+
+  /** The revision a function dropped on this block
+   *  is assigned against. Absent while the canvas
+   *  is drawing something that is not the document,
+   *  which is what takes the drop away rather than
+   *  leaving it to be refused. */
+  assignAgainst: number | undefined;
 
   [key: string]: unknown;
 };
@@ -141,6 +153,7 @@ export function toReactFlow(
         ports.get(node.id) ?? [],
         stateOf(node.id, arriving, drawing.selected),
         lineOf(node, drawing),
+        drawing.editable === true ? ir.revision : undefined,
       ),
     ),
     edges: ir.edges.map((edge) => ({
@@ -171,6 +184,7 @@ function toCanvasNode(
   ports: string[],
   state: NodeState,
   line: string,
+  assignAgainst: number | undefined,
 ): CanvasNode {
   if (box === undefined) {
     throw new Error(`the layout has no box for \`${node.id}\``);
@@ -188,7 +202,7 @@ function toCanvasNode(
     // because selection is its keyboard handling
     // and its z-order too, not only a colour.
     selected: state === 'selected',
-    data: { node, ports, line, state },
+    data: { node, ports, line, state, assignAgainst },
   };
 }
 

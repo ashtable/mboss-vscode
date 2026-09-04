@@ -11,6 +11,7 @@ import { useMemo, useState } from 'react';
 
 import type { Diagnostic, WorkflowIR } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
+import { filled } from '../webview/fill.js';
 import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
 
 import { Node } from './Node.js';
@@ -58,15 +59,29 @@ const edgeTypes: EdgeTypes = { wire: Wire };
 export function Canvas(init: CanvasInit) {
   const [showing, setShowing] = useState<'canvas' | 'json'>('canvas');
 
+  // Which function is on its way to a block. Held
+  // here rather than in the palette because the
+  // toolbar says so too, and a drag that is
+  // happening is one fact.
+  const [dragging, setDragging] = useState<string | undefined>();
+
   return (
     <main className="canvas">
-      <Toolbar init={init} showing={showing} onShow={setShowing} />
+      <Toolbar
+        init={init}
+        showing={showing}
+        onShow={setShowing}
+        dragging={dragging}
+      />
 
       <div className="workspace">
         <Palette
           strings={init.strings}
           labels={init.paletteLabels}
           lib={init.manifest?.functions}
+          selected={init.inspector.selected?.node}
+          dragging={dragging}
+          onDragging={setDragging}
         />
 
         {init.document.ok ? (
@@ -84,7 +99,11 @@ export function Canvas(init: CanvasInit) {
           </section>
         )}
 
-        <Inspector {...init.inspector} />
+        <Inspector
+          {...init.inspector}
+          lib={init.manifest?.functions}
+          misfits={init.strings.misfits}
+        />
       </div>
     </main>
   );
@@ -94,10 +113,12 @@ function Toolbar({
   init,
   showing,
   onShow,
+  dragging,
 }: {
   init: CanvasInit;
   showing: 'canvas' | 'json';
   onShow: (view: 'canvas' | 'json') => void;
+  dragging: string | undefined;
 }) {
   return (
     <header className="toolbar">
@@ -117,6 +138,12 @@ function Toolbar({
       </div>
 
       <p className="caption text-muted">{init.strings.caption}</p>
+
+      {dragging === undefined ? null : (
+        <p className="carrying mono text-muted" data-dragging>
+          {filled(init.strings.dragging, dragging)}
+        </p>
+      )}
 
       {init.preview === undefined ? null : (
         <p className="preview-line eyebrow" data-preview-headline>
@@ -149,6 +176,7 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
         unassigned: init.strings.unassigned,
         proposed: preview?.proposed,
         selected,
+        editable,
       }),
     [
       ir,
@@ -157,6 +185,7 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
       init.strings.unassigned,
       preview?.proposed,
       selected,
+      editable,
     ],
   );
 

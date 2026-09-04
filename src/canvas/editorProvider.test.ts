@@ -316,6 +316,33 @@ describe('selecting a node', () => {
     expect(labelled(shown)).toBe(true);
   });
 
+  /**
+   * A branch that runs a decision has no predicates
+   * to edit, so its cases are read back as the
+   * wires they stand for — which takes the graph,
+   * and is why the host works them out rather than
+   * the form.
+   */
+  it('reads a decision branch’s cases back as where they lead', async () => {
+    const decided = {
+      ...ir,
+      nodes: ir.nodes.map((node) =>
+        node.id === 'slot_open'
+          ? { ...node, handler: { export: 'tryAgain' } }
+          : node,
+      ),
+    };
+
+    await open(fakeDocument(JSON.stringify(decided)));
+
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'slot_open' });
+    await settled();
+
+    expect(lastCanvasInit().inspector.selected?.outcomes).toEqual([
+      { value: 'true', target: 'Book appointment' },
+    ]);
+  });
+
   it('shows nothing at all once the canvas lets go of it', async () => {
     panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
     await settled();
@@ -411,6 +438,122 @@ describe('an edit from the Inspector column', () => {
 
     expect(recorded.written).toHaveLength(0);
     expect(recorded.told).toHaveLength(1);
+  });
+});
+
+/**
+ * Putting a function from the project's code-behind
+ * behind a block.
+ *
+ * One rule decides whether it may sit there, and
+ * the host asks it again on the way in: the picker
+ * that offered the row and the node that took the
+ * drop are both a frame running scripts. A name the
+ * manifest has never heard of is a different thing
+ * — somebody naming a function they have not
+ * written yet, which is what the scaffolder writes
+ * the stub for — so it goes in as typed and the
+ * rules say so until the code exists.
+ */
+describe('assigning a function to a block', () => {
+  /** The canvas over a project whose code-behind
+   *  has been read. */
+  async function openScanned(): Promise<void> {
+    const project = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+
+    await open(fakeDocument(readFileSync(path, 'utf8'), path));
+    await until(() => lastCanvasInit().manifest !== undefined);
+  }
+
+  function assign(nodeId: string, exported: string | null): void {
+    panel.send({
+      type: 'assign',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      nodeId,
+      export: exported,
+    });
+  }
+
+  /** The one node the write is about, as it was
+   *  written. */
+  function wrote(id: string) {
+    expect(recorded.written).toHaveLength(1);
+
+    const written = WorkflowIRSchema.parse(
+      JSON.parse(recorded.written[0]!.text),
+    );
+
+    return written.nodes.find((node) => node.id === id)!;
+  }
+
+  it('writes one that fits, and seeds the branch’s cases from it', async () => {
+    await openScanned();
+
+    assign('slot_open', 'tryAgain');
+    await settled();
+
+    const node = wrote('slot_open');
+
+    expect(node.handler).toEqual({ export: 'tryAgain' });
+    expect(node.kind === 'branch' && node.config.cases).toEqual([
+      expect.objectContaining({
+        port: 'yes',
+        when: { path: '', op: 'eq', value: true },
+      }),
+      expect.objectContaining({
+        port: 'no',
+        when: { path: '', op: 'eq', value: false },
+      }),
+    ]);
+  });
+
+  it('refuses one that does not fit, and writes nothing', async () => {
+    await openScanned();
+    const before = recorded.told.length;
+
+    assign('slot_open', 'parseRequest');
+    await settled();
+
+    expect(recorded.written).toEqual([]);
+    expect(recorded.told.length).toBe(before + 1);
+  });
+
+  it('writes a name the code-behind has never heard of', async () => {
+    await openScanned();
+
+    assign('slot_open', 'decideLater');
+    await settled();
+
+    const node = wrote('slot_open');
+
+    expect(node.handler).toEqual({ export: 'decideLater' });
+    expect(
+      node.kind === 'branch' && node.config.cases.map((one) => one.when.value),
+    ).toEqual([true, false]);
+  });
+
+  it('clears the handler and leaves a branch’s cases alone', async () => {
+    const decided = {
+      ...ir,
+      nodes: ir.nodes.map((node) =>
+        node.id === 'slot_open'
+          ? { ...node, handler: { export: 'tryAgain' } }
+          : node,
+      ),
+    };
+
+    await open(fakeDocument(JSON.stringify(decided)));
+
+    assign('slot_open', null);
+    await settled();
+
+    const node = wrote('slot_open');
+    const before = decided.nodes.find((one) => one.id === 'slot_open')!;
+
+    expect(node).not.toHaveProperty('handler');
+    expect(node.kind === 'branch' && node.config).toEqual(before.config);
   });
 });
 

@@ -19,6 +19,7 @@ export type InspectorField =
   | { id: string; control: 'number'; value: number | null }
   | { id: string; control: 'choice'; value: string; options: readonly string[] }
   | { id: string; control: 'flag'; value: boolean }
+  | { id: string; control: 'picker'; value: string | undefined }
   | { id: string; control: 'rows'; rows: InspectorField[][] };
 
 /** One field of one subject, both ways. */
@@ -148,6 +149,29 @@ export function flag<S>(
     read: (subject) => ({ id, control: 'flag', value: get(subject) ?? false }),
     write: (subject, field) =>
       field.control === 'flag' ? set(subject, field.value) : subject,
+  };
+}
+
+/**
+ * One name out of a list the document does not
+ * hold.
+ *
+ * The list is the project's code-behind, which the
+ * form has no way to see, so this carries the name
+ * and nothing else — who may be named is the
+ * picker's business, and `undefined` is a field
+ * nobody has chosen for yet.
+ */
+export function picker<S>(
+  id: string,
+  get: (subject: S) => string | undefined,
+  set: (subject: S, value: string | undefined) => S,
+): Lens<S> {
+  return {
+    id,
+    read: (subject) => ({ id, control: 'picker', value: get(subject) }),
+    write: (subject, field) =>
+      field.control === 'picker' ? set(subject, field.value) : subject,
   };
 }
 

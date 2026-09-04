@@ -1,7 +1,10 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { useState, type DragEvent } from 'react';
 
 import { truncateTitle } from '../core/rules.js';
+import { postToHost } from '../webview/client.js';
 
+import { LIB_FN, carries } from './dragging.js';
 import { TARGET_PORT, type CanvasNode } from './graph.js';
 import { NodeIcon, TONE } from './icons.js';
 
@@ -27,12 +30,62 @@ import { NodeIcon, TONE } from './icons.js';
  * fills it and never measures anything: a box that
  * sized itself to its text would sit at
  * coordinates computed for a different box.
+ *
+ * A block is also where a function from the palette
+ * lands. Whether it may sit there is not decided
+ * here — the host asks core the same question the
+ * palette and the picker ask, and says so out loud
+ * when the answer is no.
  */
 export function Node({ data }: NodeProps<CanvasNode>) {
-  const { node, ports, state } = data;
+  const { node, ports, state, assignAgainst } = data;
+  const [landing, setLanding] = useState(false);
+
+  // The three of them exist together or not at
+  // all: a block takes a function only while what
+  // is drawn is the document.
+  const dropping =
+    assignAgainst === undefined
+      ? {}
+      : {
+          // The types are readable mid-drag and the
+          // data is not, so what is being carried
+          // is all a hover can ask about.
+          onDragOver: (event: DragEvent<HTMLDivElement>) => {
+            if (!carries(event.dataTransfer, LIB_FN)) return;
+
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+            setLanding(true);
+          },
+
+          onDragLeave: () => setLanding(false),
+
+          onDrop: (event: DragEvent<HTMLDivElement>) => {
+            const exported = event.dataTransfer.getData(LIB_FN);
+
+            event.preventDefault();
+            setLanding(false);
+
+            if (exported === '') return;
+
+            postToHost({
+              type: 'assign',
+              baseRevision: assignAgainst,
+              nodeId: node.id,
+              export: exported,
+            });
+          },
+        };
 
   return (
-    <div className="node" data-node-kind={node.kind} data-state={state}>
+    <div
+      className="node"
+      data-node-kind={node.kind}
+      data-state={state}
+      data-landing={landing ? 'lib-fn' : undefined}
+      {...dropping}
+    >
       <Handle type="target" position={Position.Top} id={TARGET_PORT} />
 
       <NodeIcon kind={node.kind} tone={TONE[state]} />

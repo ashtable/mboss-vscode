@@ -35,6 +35,7 @@ export {
   nextEdgeId,
   portsOf,
   starterNode,
+  withDecisionCases,
   withoutPositions,
 } from '../../mboss-core/src/ir/index.js';
 

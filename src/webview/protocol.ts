@@ -7,6 +7,7 @@ import type {
 } from '../canvas/inspector/forms.js';
 import type {
   Diagnostic,
+  HandlerMisfit,
   LibManifest,
   NodeBox,
   NodeKind,
@@ -147,6 +148,23 @@ export type CanvasStrings = {
 
   /** Titles the rejection callout. */
   typedWiring: string;
+
+  /** `dragging {0}…`, over a function on its way to
+   *  a block. */
+  dragging: string;
+
+  /**
+   * Why a function cannot sit behind a block, per
+   * the reason core gives.
+   *
+   * Here rather than in the column's own words
+   * because the palette and the picker both say it,
+   * and they are two drawers of one list. The
+   * values a note names — a type, a count — are
+   * known only where the pairing is worked out, so
+   * these are templates the view fills.
+   */
+  misfits: Record<HandlerMisfit['kind'], string>;
 };
 
 export type CanvasDocument =
@@ -172,6 +190,29 @@ export type SelectedNode = {
 
   /** What the edit will be made against. */
   revision: number;
+
+  /** Where a decision's outcomes lead, empty for
+   *  every block that is not a branch running
+   *  one. */
+  outcomes: DecisionOutcome[];
+};
+
+/**
+ * One thing a branch's function can decide, and
+ * where the run goes when it does.
+ *
+ * The word for an outcome nothing is wired to is
+ * the column's, not this — the host says which
+ * block, or none, and the column draws it.
+ */
+export type DecisionOutcome = {
+  /** The value the function returns to take this
+   *  way out, as it reads. */
+  value: string;
+
+  /** The block it leads to, absent where the port
+   *  is unwired. */
+  target: string | undefined;
 };
 
 export type InspectorStrings = {
@@ -189,7 +230,41 @@ export type InspectorStrings = {
 
   /** Per `<field id>.<option value>`. */
   options: Record<string, string>;
+
+  /** Over the list of functions the picker
+   *  offers. */
+  lib: string;
+
+  /** `{0} incompatible functions hidden · show`,
+   *  and the way back. */
+  hidden: string;
+  hide: string;
+
+  /** The one row the manifest does not decide. */
+  newFunction: string;
+
+  /** Why the list is empty when there is no
+   *  code-behind to read. */
+  noLib: string;
+
+  /** Stands in for the value of a block that runs
+   *  nothing yet. */
+  dropHere: string;
+
+  /** Where an outcome goes when nothing is wired to
+   *  its port. */
+  end: string;
+
+  /** The one thing a transaction's `database` row
+   *  says. */
+  database: string;
+
+  /** The two kinds whose relationship with their
+   *  code needs saying out loud. */
+  callouts: Record<'branch' | 'transaction', Callout>;
 };
+
+export type Callout = { title: string; body: string };
 
 /**
  * The agent panel's whole picture.

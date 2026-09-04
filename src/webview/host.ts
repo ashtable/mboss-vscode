@@ -60,6 +60,23 @@ const Edit = z.object({
 });
 
 /**
+ * Which function from the project's code-behind a
+ * block runs.
+ *
+ * The export is a name and not a function the
+ * webview looked up: whether it may sit behind that
+ * block is decided against the manifest the host
+ * holds, and `null` is the block being taken off
+ * whatever it was running.
+ */
+const Assign = z.object({
+  type: z.literal('assign'),
+  baseRevision: z.number().int(),
+  nodeId: z.string(),
+  export: z.string().nullable(),
+});
+
+/**
  * The JSON view committing what somebody typed.
  *
  * The text goes into the document as it is: it is
@@ -236,6 +253,7 @@ export const WebviewMessageSchema = z.discriminatedUnion('type', [
   Select,
   Connect,
   Edit,
+  Assign,
   Text,
   Prompt,
   Cancel,

@@ -7,17 +7,20 @@ import { configToForm } from '../../src/canvas/inspector/forms.js';
 import {
   NODE_PALETTE,
   WorkflowIRSchema,
+  handlerFit,
   nodeSize,
   starterNode,
   validateWorkflow,
   type LibManifest,
   type NodeKind,
   type WorkflowIR,
+  type WorkflowNode,
 } from '../../src/core/rules.js';
 import type {
   CanvasInit,
   CanvasInspector,
   CanvasStrings,
+  DecisionOutcome,
   InspectorStrings,
 } from '../../src/webview/protocol.js';
 
@@ -71,11 +74,19 @@ const canvasStrings: CanvasStrings = {
   noLib: 'Nothing scanned yet.',
   unassigned: 'unassigned',
   typedWiring: 'Typed wiring',
+  dragging: 'dragging {0}…',
   groups: {
     start: 'Start',
     work: 'Work',
     control: 'Control',
     people: 'People',
+  },
+  misfits: {
+    'no-handler-kind': 'this block runs no code',
+    'too-many-params': 'takes {0} arguments, needs one',
+    'input-mismatch': 'takes {0}, needs {1}',
+    'output-mismatch': 'returns {0}, needs {1}',
+    'not-a-decision': 'returns {0}, decides nothing',
   },
 };
 
@@ -157,6 +168,8 @@ const inspectorStrings: InspectorStrings = {
       'in',
       'out',
       'handler',
+      'logic',
+      'database',
       'cases',
       'elsePort',
       'port',
@@ -168,17 +181,67 @@ const inspectorStrings: InspectorStrings = {
     ].map((id) => [id, id]),
   ),
   options: {},
+  lib: '/lib · matched by signature',
+  hidden: '{0} incompatible functions hidden · show',
+  hide: 'Hide incompatible functions',
+  newFunction: 'New function…',
+  noLib: 'Nothing scanned yet.',
+  dropHere: 'drop a ƒ here',
+  end: 'end',
+  database: 'app postgres · prisma tx',
+  callouts: {
+    branch: {
+      title: 'Branches own no code.',
+      body: 'The Lib function is the logic.',
+    },
+    transaction: {
+      title: 'One commit.',
+      body: 'The writes and the step record land together.',
+    },
+  },
 };
 
 /** What the host sends back once it has been told
  *  which block was clicked. */
-function showing(nodeId: string): CanvasInspector {
-  const node = ir.nodes.find((one) => one.id === nodeId)!;
+function showing(
+  nodeId: string,
+  over: Partial<WorkflowNode> = {},
+): CanvasInspector {
+  const node = {
+    ...ir.nodes.find((one) => one.id === nodeId)!,
+    ...over,
+  } as WorkflowNode;
 
   return {
     strings: inspectorStrings,
-    selected: { node, form: configToForm(node), revision: ir.revision },
+    selected: {
+      node,
+      form: configToForm(node),
+      revision: ir.revision,
+      outcomes: outcomesOf(node),
+    },
   };
+}
+
+/**
+ * Where each outcome of a decision goes, worked out
+ * the way the host works it out — from the document
+ * rather than from a list written into the spec, so
+ * the assertion cannot drift from the graph.
+ */
+function outcomesOf(node: WorkflowNode): DecisionOutcome[] {
+  if (node.kind !== 'branch' || node.handler === undefined) return [];
+
+  return node.config.cases.map((one) => {
+    const edge = ir.edges.find(
+      (wire) => wire.from.node === node.id && wire.from.port === one.port,
+    );
+
+    return {
+      value: String(one.when.value),
+      target: ir.nodes.find((to) => to.id === edge?.to.node)?.title,
+    };
+  });
 }
 
 /** The graph, on a page, showing the canonical
@@ -709,6 +772,232 @@ test.describe('the Inspector column', () => {
       inspectorStrings.nothingSelected,
     );
     await expect(page.locator('[data-field]')).toHaveCount(0);
+  });
+});
+
+/**
+ * Which function a block runs, chosen from what the
+ * project's code-behind actually offers.
+ *
+ * The list is the manifest put through one rule —
+ * the same rule the drop target asks and the same
+ * one validation reports — so what fits is offered
+ * and what does not is counted and put away rather
+ * than hidden: a function missing from a list with
+ * no explanation is a bug report nobody can write.
+ */
+test.describe('the function picker', () => {
+  /** What core says can sit behind that block, so
+   *  the assertion cannot drift from the rule. */
+  function fitting(nodeId: string): string[] {
+    const node = ir.nodes.find((one) => one.id === nodeId)!;
+
+    return manifest.functions
+      .filter((fn) => handlerFit(node, fn).fits)
+      .map((fn) => fn.export);
+  }
+
+  async function openPicker(page: Page) {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('slot_open') }));
+
+    return harness;
+  }
+
+  test('offers what fits, and counts what does not', async ({ page }) => {
+    await openPicker(page);
+
+    const fits = fitting('slot_open');
+    expect(fits.length).toBeGreaterThan(0);
+    expect(fits.length).toBeLessThan(manifest.functions.length);
+
+    await expect(page.locator('[data-picker-fn]')).toHaveText(
+      fits.map((name) => new RegExp(`^${name}`)),
+    );
+    await expect(page.locator('[data-picker-hidden]')).toHaveText(
+      `${manifest.functions.length - fits.length} incompatible functions hidden · show`,
+    );
+  });
+
+  test('shows the rest, each with what is wrong with it', async ({ page }) => {
+    await openPicker(page);
+
+    await page.locator('[data-picker-hidden]').click();
+
+    await expect(page.locator('[data-picker-fn]')).toHaveCount(
+      manifest.functions.length,
+    );
+    await expect(
+      page.locator('[data-picker-fn="parseRequest"] .lib-note'),
+    ).toHaveText('returns BookingReq, decides nothing');
+    await expect(
+      page.locator('[data-picker-fn="autoApprove"] .lib-note'),
+    ).toHaveText('takes ExpenseClaim, needs SlotGrid');
+
+    await page.locator('[data-picker-hidden]').click();
+    await expect(page.locator('[data-picker-fn]')).toHaveCount(
+      fitting('slot_open').length,
+    );
+  });
+
+  test('assigns the row that was picked', async ({ page }) => {
+    const harness = await openPicker(page);
+
+    await page.locator('[data-picker-fn="tryAgain"]').click();
+
+    expect(await harness.postedOfType('assign')).toEqual([
+      {
+        type: 'assign',
+        baseRevision: ir.revision,
+        nodeId: 'slot_open',
+        export: 'tryAgain',
+      },
+    ]);
+  });
+
+  /**
+   * The one row the manifest does not decide. A
+   * person names a function before they write it —
+   * which is exactly what the scaffolder writes the
+   * stub for — so the picker cannot be manifest-only
+   * without taking that path away.
+   */
+  test('takes a name for a function nobody has written', async ({ page }) => {
+    const harness = await openPicker(page);
+
+    await page.locator('[data-picker-new]').click();
+
+    const field = page.locator('[data-picker-new] input');
+    await field.fill('decideLater');
+    await field.press('Enter');
+
+    expect(await harness.postedOfType('assign')).toEqual([
+      {
+        type: 'assign',
+        baseRevision: ir.revision,
+        nodeId: 'slot_open',
+        export: 'decideLater',
+      },
+    ]);
+  });
+
+  test('puts the row back when the name is abandoned', async ({ page }) => {
+    const harness = await openPicker(page);
+
+    await page.locator('[data-picker-new]').click();
+
+    const field = page.locator('[data-picker-new] input');
+    await field.fill('decideLater');
+    await field.press('Escape');
+
+    await expect(field).toHaveCount(0);
+    await expect(page.locator('[data-picker-new]')).toHaveText(
+      inspectorStrings.newFunction,
+    );
+    expect(await harness.postedOfType('assign')).toEqual([]);
+  });
+
+  test('says why there is nothing to pick from', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(
+      canvasInit({
+        manifest: undefined,
+        inspector: showing('slot_open'),
+      }),
+    );
+
+    await expect(page.locator('[data-picker-fn]')).toHaveCount(0);
+    await expect(page.locator('.picker-empty')).toHaveText(
+      inspectorStrings.noLib,
+    );
+    await expect(page.locator('[data-picker-new]')).toBeVisible();
+  });
+
+  /**
+   * The two kinds whose relationship with their
+   * code is the thing a person gets wrong: a branch
+   * owns none of it, and a transaction's writes ride
+   * on the step record.
+   */
+  test('says what a branch and a transaction are', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('slot_open') }));
+
+    await expect(page.locator('[data-callout="branch"]')).toContainText(
+      inspectorStrings.callouts.branch.title,
+    );
+
+    await harness.show(canvasInit({ inspector: showing('record_booking') }));
+
+    await expect(page.locator('[data-callout="transaction"]')).toContainText(
+      inspectorStrings.callouts.transaction.title,
+    );
+    await expect(page.locator('[data-field="database"]')).toContainText(
+      inspectorStrings.database,
+    );
+  });
+
+  /**
+   * A branch that runs a decision has no predicates
+   * to edit — so its cases are read, not typed, and
+   * they name where each outcome goes.
+   */
+  test('reads a decision’s outcomes rather than editing them', async ({
+    page,
+  }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(
+      canvasInit({
+        inspector: showing('slot_open', { handler: { export: 'tryAgain' } }),
+      }),
+    );
+
+    await expect(page.locator('[data-outcome="true"]')).toContainText(
+      'Book appointment',
+    );
+    await expect(page.locator('[data-field="cases"]')).toHaveCount(0);
+  });
+});
+
+/**
+ * The other way a function gets behind a block:
+ * dragged out of the palette and dropped on it. The
+ * palette says which of its rows could sit behind
+ * the block that is selected, so a drag starts from
+ * something a person can already see will land.
+ */
+test.describe('dragging a function onto a block', () => {
+  test('marks the row the selected block already runs', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+
+    await expect(page.locator('[data-lib-fn="findSlot"]')).toHaveAttribute(
+      'data-state',
+      'assigned',
+    );
+    await expect(
+      page.locator('[data-lib-fn="parseRequest"] .lib-note'),
+    ).toHaveText('takes WebhookEvent, needs BookingReq');
+  });
+
+  test('tells the host to put it behind the block it landed on', async ({
+    page,
+  }) => {
+    const harness = await openCanvas(page);
+
+    await page.dragAndDrop(
+      '[data-lib-fn="tryAgain"]',
+      '.react-flow__node[data-id="slot_open"] .node',
+    );
+
+    expect(await harness.postedOfType('assign')).toEqual([
+      {
+        type: 'assign',
+        baseRevision: ir.revision,
+        nodeId: 'slot_open',
+        export: 'tryAgain',
+      },
+    ]);
   });
 });
 
