@@ -54,13 +54,21 @@ const Connect = z.object({
   to: z.object({ node: z.string() }),
 });
 
-/** Somebody dropped a block of that kind on the
- *  canvas, at that spot. */
+/**
+ * Somebody dropped a block of that kind on the
+ * canvas, at that spot.
+ *
+ * A wire, where they let go of it over one: the
+ * block goes into that wire rather than beside it.
+ * Which wire may be split is the host's question,
+ * not the panel's, so this carries only the name.
+ */
 const AddNode = z.object({
   type: z.literal('addNode'),
   baseRevision: z.number().int(),
   kind: NodeKindSchema,
   position: PositionSchema,
+  spliceEdge: z.string().optional(),
 });
 
 /**

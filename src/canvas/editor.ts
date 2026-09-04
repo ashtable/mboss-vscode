@@ -23,6 +23,7 @@ import {
   decisionValues,
   deleteNode,
   handlerFit,
+  portsOf,
   starterId,
   starterNode,
   withDecisionCases,
@@ -573,11 +574,18 @@ export class CanvasSession {
    * has said what it does yet — that is the
    * Inspector's next question, which is why the new
    * block is what the column then shows.
+   *
+   * Let go of over a wire, it goes into the wire
+   * rather than beside it. A wire that cannot be
+   * split takes the whole edit down with it: half a
+   * splice is a block sitting loose on a graph
+   * somebody meant to put it into.
    */
   private addNode(edit: {
     baseRevision: number;
     kind: NodeKind;
     position: Position;
+    spliceEdge?: string;
   }): void {
     if (!this.read.ok) return;
 
@@ -589,8 +597,11 @@ export class CanvasSession {
 
     const wrote = this.write(edit.baseRevision, (ir) => {
       const pinned = pin(ir, this.boxes);
+      const placed = { ...pinned, nodes: [...pinned.nodes, added] };
 
-      return { ...pinned, nodes: [...pinned.nodes, added] };
+      return edit.spliceEdge === undefined
+        ? placed
+        : spliced(placed, edit.spliceEdge, added);
     });
 
     if (wrote) this.selected = id;
@@ -838,6 +849,54 @@ function pin(ir: WorkflowIR, boxes: Record<string, NodeBox>): WorkflowIR {
         ? node
         : { ...node, position: { x: box.x, y: box.y } };
     }),
+  };
+}
+
+/**
+ * The document with a block put inside one of its
+ * wires.
+ *
+ * The wire now ends at the block, and a second wire
+ * carries on from it to wherever the first one went,
+ * so a run that went through two blocks goes through
+ * three in the same order.
+ *
+ * Two wires it will not split. One that is not
+ * there, because the panel is a frame running
+ * scripts and may be naming a graph that has moved
+ * on. And a loop-closing one, because what comes
+ * back round would come back round to a block
+ * created a moment ago — a document core refuses,
+ * and refusing it here is what keeps the block from
+ * being written without its wires.
+ *
+ * The new block is left by its first way out. Every
+ * kind but a branch and an approval has exactly one,
+ * and those two have a first case rather than an
+ * `out` — naming a port they do not have would write
+ * a wire that leaves nowhere.
+ */
+function spliced(
+  ir: WorkflowIR,
+  edgeId: string,
+  added: WorkflowNode,
+): WorkflowIR | undefined {
+  const split = ir.edges.find((edge) => edge.id === edgeId);
+  if (split === undefined || split.back) return undefined;
+
+  const onward = wireBetween(ir, {
+    from: { node: added.id, port: portsOf(added)[0]! },
+    to: split.to,
+  });
+
+  return {
+    ...ir,
+    edges: [
+      ...ir.edges.map((edge) =>
+        edge.id === edgeId ? { ...edge, to: { node: added.id } } : edge,
+      ),
+      onward,
+    ],
   };
 }
 

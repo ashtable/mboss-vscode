@@ -967,13 +967,14 @@ describe('placing blocks by hand', () => {
     return written.nodes.find((node) => node.id === id)?.position;
   }
 
-  function addStep(position = { x: 320, y: 480 }): void {
+  function addStep(position = { x: 320, y: 480 }, spliceEdge?: string): void {
     panel.send({
       type: 'addNode',
       view: 'canvas',
       baseRevision: ir.revision,
       kind: 'step',
       position,
+      ...(spliceEdge === undefined ? {} : { spliceEdge }),
     });
   }
 
@@ -987,6 +988,71 @@ describe('placing blocks by hand', () => {
     expect(added.kind).toBe('step');
     expect(added.title).toBe(messages.paletteLabels().step);
     expect(added.position).toEqual({ x: 320, y: 480 });
+  });
+
+  /**
+   * A block let go of on a wire goes into it. The
+   * wire ends at the new block, and a second wire
+   * carries on to wherever the first one went — so
+   * the run that went through two blocks goes
+   * through three, in the same order.
+   */
+  it('splices the block into the wire it was dropped on', async () => {
+    const split = ir.edges.find((edge) => edge.id === 'e2')!;
+
+    addStep({ x: 160, y: 240 }, 'e2');
+    await settled();
+
+    const written = wrote();
+
+    expect(written.nodes).toHaveLength(ir.nodes.length + 1);
+    expect(written.edges).toHaveLength(ir.edges.length + 1);
+
+    const added = written.nodes.at(-1)!;
+    const before = written.edges.find((edge) => edge.id === 'e2')!;
+    const after = written.edges.at(-1)!;
+
+    // Into the block, and out of it to where the
+    // wire used to go.
+    expect(before.from).toEqual(split.from);
+    expect(before.to).toEqual({ node: added.id });
+    expect(after.from).toEqual({ node: added.id, port: 'out' });
+    expect(after.to).toEqual(split.to);
+  });
+
+  it('wires the block to nothing when it was dropped on nothing', async () => {
+    addStep();
+    await settled();
+
+    const written = wrote();
+
+    expect(written.nodes).toHaveLength(ir.nodes.length + 1);
+    expect(written.edges.map((edge) => edge.id)).toEqual(
+      ir.edges.map((edge) => edge.id),
+    );
+  });
+
+  /**
+   * A loop-closing wire cannot be split. What came
+   * back round would come back round to a block
+   * created a moment ago, which is a document core
+   * refuses — so the whole edit is refused here,
+   * block included, rather than half-written.
+   *
+   * The canvas offers no gap on one, so this only
+   * arrives from a frame running scripts. That is
+   * exactly why it is checked here.
+   */
+  it('refuses a wire it could not split', async () => {
+    const file = livingDocument();
+    await open(file.document);
+
+    addStep({ x: 160, y: 240 }, 'e8');
+    addStep({ x: 160, y: 240 }, 'e_nope');
+    await settled();
+
+    expect(recorded.written).toEqual([]);
+    expect(lastCanvasInit().inspector.selected).toBeUndefined();
   });
 
   it('pins every other block to the box it was drawn with', async () => {
