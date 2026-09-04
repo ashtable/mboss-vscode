@@ -7,7 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { DIST } from '../../src/build.js';
 
 import { layoutKeyOf } from '../../src/canvas/graph.js';
-import { GRID } from '../../src/canvas/grid.js';
+import { GRID, snap } from '../../src/canvas/grid.js';
 import { configToForm } from '../../src/canvas/inspector/forms.js';
 import {
   NODE_PALETTE,
@@ -86,6 +86,8 @@ const canvasStrings: CanvasStrings = {
   spliceHere: 'splice here',
   spliceNote: 'edge splits on drop',
   dragHint: 'drag starts after {0} px of movement · esc cancels',
+  readout: 'x {0} · y {1}',
+  snapped: '{0} — snapped',
   groups: {
     start: 'Start',
     work: 'Work',
@@ -2027,6 +2029,380 @@ test.describe('dragging a block onto the canvas', () => {
 });
 
 /**
+ * The fixture's own layout, moved onto the grid.
+ *
+ * Core lays a graph out on a spacing of its own,
+ * which is not this one, so every block on a
+ * freshly-arranged graph starts a fraction of a
+ * square off. That is the ordinary case and most of
+ * the specs below want it — but the ones that turn
+ * on whether the grid moved anything need a graph
+ * that is already sitting on it.
+ */
+const onGrid: CanvasInit['boxes'] = Object.fromEntries(
+  Object.entries(boxes).map(([id, box]) => [
+    id,
+    { ...box, x: snap(box.x), y: snap(box.y) },
+  ]),
+);
+
+/**
+ * The same ten blocks in one column, small enough
+ * that the graph is drawn as far in as the canvas
+ * allows.
+ *
+ * The browser hands a synthetic pointer whole
+ * pixels, so a gesture can only ask for an exact
+ * number of grid squares where the zoom is a whole
+ * number too. A graph well inside its pane is drawn
+ * at the furthest in the canvas goes, which is one.
+ */
+const stacked: CanvasInit['boxes'] = Object.fromEntries(
+  ir.nodes.map((node, index) => {
+    const { width, height } = nodeSize(node.kind);
+
+    return [node.id, { x: 0, y: index * height, w: width, h: height }];
+  }),
+);
+
+/** Two shadows: near and soft, the way something
+ *  held above a surface casts them. */
+const LIFTED =
+  'rgba(23, 26, 35, 0.08) 0px 2px 6px 0px, ' +
+  'rgba(23, 26, 35, 0.12) 0px 12px 32px 0px';
+
+/** The ring, the softer ring around it, and the two
+ *  the block was already sitting on. */
+const SELECTED =
+  'rgb(83, 103, 255) 0px 0px 0px 1.5px, ' +
+  'color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 5px, ' +
+  'rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, ' +
+  'rgba(23, 26, 35, 0.07) 0px 4px 12px 0px';
+
+/**
+ * Moving a block that is already on the graph.
+ *
+ * The gesture writes where blocks are and nothing
+ * else: the wires are the document's, and a person
+ * tidying a picture has not said anything about what
+ * runs after what. The specs below say what is drawn
+ * while a block is in the air, and the last of them
+ * says the wiring came through untouched.
+ */
+test.describe('moving a block by hand', () => {
+  /**
+   * Where the block was, outlined and neutral. Every
+   * other thing a gesture draws is brand blue
+   * because a person is doing it; the place they
+   * have left is not something they are doing, and a
+   * blue hole would read as an offer to put
+   * something back.
+   */
+  test('outlines the slot the block came out of', async ({ page }) => {
+    await openAtRest(page);
+    await holdNode(page, 'find_slot', { x: 70, y: 50 });
+
+    const slot = page.locator('[data-old-slot]');
+
+    await expect(slot).toHaveCount(1);
+    await expect(slot).toHaveCSS('border-top-style', 'dashed');
+    await expect(slot).toHaveCSS(
+      'border-top-color',
+      'color(srgb 0.231373 0.231373 0.231373 / 0.22)',
+    );
+
+    await page.mouse.up();
+    await expect(slot).toHaveCount(0);
+  });
+
+  /**
+   * Two shadows on the wrapper and four inside it,
+   * never one merged value. The block is raised off
+   * the graph and lit as the one being looked at,
+   * and they are two facts: merging them into one
+   * shadow would lose whichever the merge favoured.
+   *
+   * Nothing selected it from the host's side here.
+   * The block a hand is holding is the block that
+   * hand is about to be asked about, so the lift
+   * says so itself.
+   */
+  test('lifts the block off the graph while it is held', async ({ page }) => {
+    await openAtRest(page);
+    await holdNode(page, 'find_slot', { x: 70, y: 50 });
+
+    const lift = page.locator('.react-flow__node[data-id="find_slot"] .lift');
+    const block = nodeBody(page, 'find_slot');
+
+    await expect(lift).toHaveCSS('box-shadow', LIFTED);
+    await expect(block).toHaveAttribute('data-state', 'selected');
+    await expect(block).toHaveCSS('box-shadow', SELECTED);
+
+    await page.mouse.up();
+    await expect(lift).toHaveCount(0);
+  });
+
+  test('says where the block is while it is in the air', async ({ page }) => {
+    await openAtRest(page, { boxes: onGrid });
+    await holdNode(page, 'find_slot', { x: 70, y: 50 });
+
+    const readout = page.locator('[data-readout]');
+    const at = await flowPosition(page, 'find_slot');
+
+    await expect(readout).toContainText(`x ${at.x} · y ${at.y}`);
+    await expect(readout).toHaveCSS('color', 'rgb(83, 103, 255)');
+    await expect(readout).toHaveCSS('font-size', '10px');
+
+    await page.mouse.up();
+    await expect(readout).toHaveCount(0);
+  });
+
+  /**
+   * A block off a freshly-arranged graph is moved by
+   * the grid on the first pixel, and then it is
+   * simply not where the pointer is. The readout is
+   * what explains that, so it has to say it.
+   */
+  test('says when the grid moved it off the pointer', async ({ page }) => {
+    await openAtRest(page);
+    await holdNode(page, 'find_slot', { x: 70, y: 50 });
+
+    await expect(page.locator('[data-readout]')).toContainText(' — snapped');
+
+    await page.mouse.up();
+  });
+
+  /**
+   * And says nothing of the kind where the grid
+   * moved nothing. Without this case a readout that
+   * appended the word every time would pass the one
+   * above, and the word would mean nothing.
+   */
+  test('says nothing of the kind when it was already on it', async ({
+    page,
+  }) => {
+    await openAtRest(page, { boxes: stacked });
+
+    // Said out loud, because the case below is
+    // exactly one square of pointer travel and only
+    // a whole-numbered zoom can express one.
+    const scale = await zoom(page);
+    expect(scale).toBe(2);
+
+    const from = await holdNode(page, 'find_slot', { x: 4, y: 4 });
+
+    // One square, in one movement, measured from
+    // where the drag counts rather than from where
+    // the pointer went down. In one movement because
+    // the readout answers for where the block last
+    // went: a hand that stopped part of the way
+    // there would be told about the part.
+    await page.mouse.move(from.x + GRID * scale, from.y + GRID * scale);
+
+    const readout = page.locator('[data-readout]');
+
+    // Said first, so that a readout which never
+    // appeared fails as itself rather than passing
+    // as a word nobody wrote.
+    await expect(readout).toHaveCount(1);
+    await expect(readout).not.toContainText('snapped');
+
+    await page.mouse.up();
+  });
+
+  /**
+   * Two blocks are lined up when their centres share
+   * an axis, and the line says so while there is
+   * still a hand on the block to do something about
+   * it.
+   */
+  test('draws a line through a block it has come level with', async ({
+    page,
+  }) => {
+    await openAtRest(page, { boxes: onGrid });
+
+    const scale = await zoom(page);
+    await holdNode(page, 'find_slot', { x: 0, y: 60 * scale });
+
+    const guide = page.locator('[data-snap-guide]');
+
+    await expect(guide).toHaveCount(1);
+    await expect(guide).toHaveCSS('opacity', '0.55');
+    await expect(guide).toHaveCSS('border-left-style', 'dashed');
+    await expect(guide).toHaveCSS('border-left-color', 'rgb(83, 103, 255)');
+
+    await page.mouse.up();
+    await expect(guide).toHaveCount(0);
+  });
+
+  /**
+   * Absent from the page, not merely invisible: a
+   * line drawn wherever the block happens to be says
+   * "lined up" everywhere, which says it nowhere.
+   */
+  test('draws none where nothing is level with it', async ({ page }) => {
+    await openAtRest(page, { boxes: onGrid });
+
+    const scale = await zoom(page);
+    await holdNode(page, 'find_slot', { x: 60 * scale, y: 60 * scale });
+
+    // The block really did travel, so the missing
+    // line is a line that was not drawn rather than a
+    // gesture that never got going.
+    const at = await flowPosition(page, 'find_slot');
+    expect(at.x).toBeGreaterThan(onGrid['find_slot']!.x + GRID);
+
+    await expect(page.locator('[data-readout]')).toHaveCount(1);
+    await expect(page.locator('[data-snap-guide]')).toHaveCount(0);
+
+    await page.mouse.up();
+  });
+
+  test('lands the block on the grid', async ({ page }) => {
+    const harness = await openAtRest(page);
+
+    await holdNode(page, 'find_slot', { x: 70, y: 50 });
+    await page.mouse.up();
+
+    const sent = await harness.postedOfType('move');
+    const positions = sent[0]!.positions as Record<
+      string,
+      { x: number; y: number }
+    >;
+
+    expect(positions['find_slot']!.x % GRID).toBe(0);
+    expect(positions['find_slot']!.y % GRID).toBe(0);
+  });
+
+  /**
+   * Moving a block says where it is and nothing
+   * else. A wire that changed colour under a hand
+   * tidying the picture would be saying the tidying
+   * had changed what runs after what.
+   */
+  test('leaves every wire attached to it exactly as it was', async ({
+    page,
+  }) => {
+    await openAtRest(page);
+
+    const wires = ['e2', 'e3'].map((id) =>
+      page.locator(`.react-flow__edge[data-id="${id}"] path.wire`),
+    );
+
+    const before = await Promise.all(
+      wires.map(async (wire) => await strokeOf(wire)),
+    );
+
+    await holdNode(page, 'find_slot', { x: 70, y: 50 });
+
+    // The lift says the block really is off the
+    // graph, so an unchanged wire is a wire that
+    // held rather than a drag that never happened.
+    await expect(
+      page.locator('.react-flow__node[data-id="find_slot"] .lift'),
+    ).toHaveCount(1);
+
+    expect(
+      await Promise.all(wires.map(async (wire) => await strokeOf(wire))),
+    ).toEqual(before);
+
+    await page.mouse.up();
+  });
+
+  test('nudges the selected block one square with an arrow key', async ({
+    page,
+  }) => {
+    const harness = await openAtRest(page, { boxes: onGrid });
+
+    await nodeBody(page, 'find_slot').click();
+    await page.keyboard.press('ArrowRight');
+
+    const sent = await harness.postedOfType('move');
+    expect(sent).toHaveLength(1);
+
+    const positions = sent[0]!.positions as Record<
+      string,
+      { x: number; y: number }
+    >;
+
+    // Every block, the way a drag names every block:
+    // the first move a person makes pins the graph.
+    expect(Object.keys(positions).sort()).toEqual(
+      ir.nodes.map((one) => one.id).sort(),
+    );
+    expect(positions['find_slot']).toEqual({
+      x: onGrid['find_slot']!.x + GRID,
+      y: onGrid['find_slot']!.y,
+    });
+  });
+
+  /**
+   * A key held down repeats, and a message per
+   * repeat would be several messages carrying one
+   * base revision — the first landing and the rest
+   * refused as stale. One press, however long, is
+   * one edit.
+   */
+  test('writes once for a key held down, not once a repeat', async ({
+    page,
+  }) => {
+    const harness = await openAtRest(page, { boxes: onGrid });
+
+    await nodeBody(page, 'find_slot').click();
+
+    await page.keyboard.down('ArrowRight');
+    await page.keyboard.down('ArrowRight');
+    await page.keyboard.down('ArrowRight');
+    await page.keyboard.up('ArrowRight');
+
+    const sent = await harness.postedOfType('move');
+    expect(sent).toHaveLength(1);
+
+    const positions = sent[0]!.positions as Record<
+      string,
+      { x: number; y: number }
+    >;
+
+    // Three squares, in one message: the repeats
+    // moved the block and the release reported it.
+    expect(positions['find_slot']).toEqual({
+      x: onGrid['find_slot']!.x + GRID * 3,
+      y: onGrid['find_slot']!.y,
+    });
+  });
+
+  /**
+   * The whole row exists to say this. Where blocks
+   * sit is a person's business; what runs after what
+   * is the document's, and a gesture about the first
+   * must not touch the second.
+   */
+  test('never says a word about the wiring', async ({ page }) => {
+    const harness = await openAtRest(page);
+
+    await holdNode(page, 'find_slot', { x: 70, y: 50 });
+    await page.mouse.up();
+
+    await nodeBody(page, 'parse_request').click();
+    await page.keyboard.press('ArrowDown');
+
+    expect(await harness.postedOfType('connect')).toHaveLength(0);
+    expect(await harness.postedOfType('delete')).toHaveLength(0);
+
+    const moves = await harness.postedOfType('move');
+
+    // Both gestures reported, so the three claims
+    // below are about what they said rather than
+    // about their silence.
+    expect(moves).toHaveLength(2);
+
+    for (const sent of moves) {
+      expect(Object.keys(sent)).toEqual(['type', 'baseRevision', 'positions']);
+    }
+  });
+});
+
+/**
  * Building the graph by hand: a block dragged in
  * from the rail, a block moved, and the graph laid
  * out again.
@@ -2490,6 +2866,54 @@ async function holdBlock(
   return at;
 }
 
+/**
+ * Presses on a block already on the graph and moves
+ * it that far, still holding it.
+ *
+ * In screen pixels, because that is what a hand
+ * moves. The graph is fitted to its pane, so a
+ * caller who means a distance on the graph itself
+ * has to multiply by the zoom.
+ *
+ * Two moves rather than one, because the graph
+ * spends the first of them deciding that this is a
+ * drag and moves nothing. What comes back is where
+ * the drag counts from, which is what a caller who
+ * means an exact distance has to measure from.
+ */
+async function holdNode(
+  page: Page,
+  id: string,
+  by: { x: number; y: number },
+): Promise<{ x: number; y: number }> {
+  const node = page.locator(`.react-flow__node[data-id="${id}"]`);
+
+  // Pointed at rather than aimed at: hovering waits
+  // for the block to hold still, and the canvas
+  // fits the graph to its pane a frame or two after
+  // the view opens. A press aimed at where a block
+  // was lands on the graph behind it.
+  await node.hover();
+
+  const box = (await node.boundingBox())!;
+
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  const from = { x: at.x + 4, y: at.y + 4 };
+
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.move(at.x + by.x, at.y + by.y, { steps: 4 });
+
+  return from;
+}
+
+/** What colour a wire is actually drawn in, resolved
+ *  rather than as the sheet spells it. */
+async function strokeOf(wire: Locator): Promise<string> {
+  return await wire.evaluate((path) => getComputedStyle(path).stroke);
+}
+
 /** The same, carried well past the threshold and out
  *  over open canvas, with nothing let go of. */
 async function dragBlockOverPane(page: Page, kind: NodeKind): Promise<void> {
@@ -2540,9 +2964,40 @@ async function inViewOf(inner: Locator, outer: Locator): Promise<boolean> {
   );
 }
 
+/**
+ * Waits for the graph to stop moving itself.
+ *
+ * The canvas fits the graph to its pane once the
+ * blocks have been measured, which is a frame or
+ * two after the view opens. A coordinate read before
+ * that is a coordinate the graph is about to change,
+ * and a pointer aimed at it lands on nothing.
+ */
+async function graphAtRest(page: Page): Promise<void> {
+  const transform = async (): Promise<string> =>
+    await page
+      .locator('.react-flow__viewport')
+      .evaluate((viewport) => (viewport as HTMLElement).style.transform);
+
+  let last = await transform();
+
+  await expect
+    .poll(async () => {
+      const now = await transform();
+      const still = now !== '' && now === last;
+
+      last = now;
+
+      return still;
+    })
+    .toBe(true);
+}
+
 /** How far the graph is zoomed in, read off the
  *  transform the library sets. */
 async function zoom(page: Page): Promise<number> {
+  await graphAtRest(page);
+
   return await page.evaluate(() => {
     const viewport = document.querySelector(
       '.react-flow__viewport',

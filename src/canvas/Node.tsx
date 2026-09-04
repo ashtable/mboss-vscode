@@ -37,9 +37,16 @@ import { NodeIcon, TONE } from './icons.js';
  * palette and the picker ask, and says so out loud
  * when the answer is no.
  */
-export function Node({ data }: NodeProps<CanvasNode>) {
-  const { node, ports, state, assignAgainst } = data;
+export function Node({ data, dragging }: NodeProps<CanvasNode>) {
+  const { node, ports, assignAgainst } = data;
   const [landing, setLanding] = useState(false);
+
+  // A block a hand is holding is the block that hand
+  // is about to be asked about, so it wears the
+  // state it will wear the moment it lands rather
+  // than waiting for the document to say so. What is
+  // in the air is what is being looked at.
+  const state = dragging ? 'selected' : data.state;
 
   // The three of them exist together or not at
   // all: a block takes a function only while what
@@ -78,7 +85,7 @@ export function Node({ data }: NodeProps<CanvasNode>) {
           },
         };
 
-  return (
+  const block = (
     <div
       className="node"
       data-node-kind={node.kind}
@@ -106,6 +113,13 @@ export function Node({ data }: NodeProps<CanvasNode>) {
       ))}
     </div>
   );
+
+  // A wrapper only while the block is in the air, so
+  // that the shadow of being raised and the shadow
+  // of being selected sit on two elements. One
+  // element cannot carry both without merging them,
+  // and a merged shadow says neither thing.
+  return dragging ? <div className="lift">{block}</div> : block;
 }
 
 /**

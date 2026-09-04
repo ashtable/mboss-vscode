@@ -812,6 +812,19 @@ export const messages = {
     // held to another.
     dragHint: l10n.t('drag starts after {0} px of movement · esc cancels'),
 
+    // Over a block being moved. The coordinates are
+    // the graph's own, which is what the document
+    // holds and what the picker beside the canvas
+    // would show — a person moving a block by hand
+    // is entitled to the same numbers.
+    readout: l10n.t('x {0} · y {1}'),
+
+    // Said only where the grid actually moved the
+    // block off the pointer, because otherwise the
+    // block is simply not where the hand left it
+    // and nothing on screen explains why.
+    snapped: l10n.t('{0} — snapped'),
+
     groups: {
       start: l10n.t('Start'),
       work: l10n.t('Work'),

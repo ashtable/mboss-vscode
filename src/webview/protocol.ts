@@ -205,6 +205,19 @@ export type CanvasStrings = {
   dragHint: string;
 
   /**
+   * `x {0} · y {1}`, over a block being moved, and
+   * `{0} — snapped` around it on the moves where the
+   * grid put the block somewhere the pointer did
+   * not.
+   *
+   * Two sentences because the second is a remark
+   * about the first, and a locale that puts its
+   * remarks first can say so.
+   */
+  readout: string;
+  snapped: string;
+
+  /**
    * Why a function cannot sit behind a block, per
    * the reason core gives.
    *

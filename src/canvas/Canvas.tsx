@@ -10,8 +10,15 @@ import {
   type Connection,
   type EdgeTypes,
   type NodeTypes,
+  type OnNodeDrag,
 } from '@xyflow/react';
-import { useMemo, useState, type PointerEvent } from 'react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 
 import {
   nodeSize,
@@ -29,6 +36,7 @@ import { Node } from './Node.js';
 import { Palette } from './Palette.js';
 import { Wire, WireMarkers } from './Wire.js';
 import { GhostNode } from './drag/GhostNode.js';
+import { OldSlot, Readout, SnapGuides, type Lift } from './drag/Lift.js';
 import { SpliceGaps } from './drag/SpliceGaps.js';
 import { gapUnder, spliceGaps, type SpliceGap } from './drag/gaps.js';
 import { pastThreshold } from './drag/gesture.js';
@@ -38,7 +46,7 @@ import {
   type CanvasEdge,
   type CanvasNode,
 } from './graph.js';
-import { GRID } from './grid.js';
+import { GRID, guides, movedByGrid } from './grid.js';
 import { Inspector, showInspectorHeading } from './inspector/Inspector.js';
 import { checkCandidateEdge } from './wiring.js';
 
@@ -82,6 +90,9 @@ const edgeTypes: EdgeTypes = { wire: Wire };
 /** Both spellings of the same key, because which one
  *  a keyboard has is not the person's choice. */
 const DELETE_KEYS = ['Backspace', 'Delete'];
+
+/** The four that move a block a square at a time. */
+const NUDGE_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
 
 export function Canvas(init: CanvasInit) {
   const [showing, setShowing] = useState<'canvas' | 'json'>('canvas');
@@ -164,6 +175,19 @@ function Workspace({
   const [carried, setCarried] = useState<Carried | undefined>();
   const { screenToFlowPosition } = useReactFlow();
 
+  /**
+   * Where the pointer is on the graph, off the grid.
+   *
+   * The graph snaps what a person drags across it,
+   * and asked plainly this would come back snapped
+   * too. But the grid is about where a block lands;
+   * a ghost that moved in twenty-pixel steps would
+   * stop being the thing under the pointer, which is
+   * the one job it has.
+   */
+  const pointerOn = (at: { x: number; y: number }): Position =>
+    screenToFlowPosition(at, { snapToGrid: false });
+
   const document = init.document;
 
   // A block can only be placed on a graph that is
@@ -220,7 +244,7 @@ function Workspace({
 
       if (!moved && !pastThreshold(from, at)) return;
 
-      const landing = landingFor(kind, screenToFlowPosition(at), gaps);
+      const landing = landingFor(kind, pointerOn(at), gaps);
 
       postToHost({
         type: 'addNode',
@@ -238,7 +262,7 @@ function Workspace({
       showInspectorHeading();
     };
 
-    const off = (key: KeyboardEvent): void => {
+    const off = (key: globalThis.KeyboardEvent): void => {
       if (key.key === 'Escape') stop();
     };
 
@@ -249,7 +273,7 @@ function Workspace({
 
   const flying =
     carried?.moved === true
-      ? inFlight(init, carried, screenToFlowPosition(carried.at), gaps)
+      ? inFlight(init, carried, pointerOn(carried.at), gaps)
       : undefined;
 
   return (
@@ -518,7 +542,7 @@ function Graph({
     );
   }
 
-  const { getNodes } = useReactFlow<CanvasNode>();
+  const { getNodes, screenToFlowPosition } = useReactFlow<CanvasNode>();
 
   /**
    * Asked as a person drags onto a handle, before
@@ -596,6 +620,145 @@ function Graph({
     });
   };
 
+  // What is drawn around a block while a hand has
+  // it: the slot it left, the lines it has come
+  // level with, and where it is.
+  const [lift, setLift] = useState<Lift | undefined>();
+
+  /**
+   * Where the block was and where the pointer was,
+   * both at the moment it was picked up.
+   *
+   * Kept so the readout can answer the one question
+   * a grid provokes: is the block not under my
+   * pointer because I put it there, or because the
+   * grid did?
+   */
+  const grabbed = useRef<{ at: Position; pointer: Position }>(undefined);
+
+  /**
+   * Where the pointer is on the graph, off the grid.
+   *
+   * A drag arrives on either kind of event, and a
+   * finger reports itself in a list; there is always
+   * one, because these are the events a drag is made
+   * of. Un-snapped on purpose — the graph rounds
+   * what it moves, and whether it rounded is the
+   * thing being measured.
+   */
+  const pointerOn = (event: MouseEvent | TouchEvent): Position => {
+    const at = 'touches' in event ? event.touches[0]! : event;
+
+    return screenToFlowPosition(
+      { x: at.clientX, y: at.clientY },
+      { snapToGrid: false },
+    );
+  };
+
+  /**
+   * What to draw around the block, given where it
+   * has got to.
+   *
+   * The lines are worked out against every block
+   * that is standing still — the others in a
+   * multiple selection travel with this one, so a
+   * line through them would be drawn at the start of
+   * the drag and never move again.
+   */
+  const around = (
+    node: CanvasNode,
+    moving: CanvasNode[],
+    from: Position,
+    snapped: boolean,
+  ): Lift => {
+    const held = new Set(moving.map((one) => one.id));
+    const centre = (one: CanvasNode): number =>
+      one.position.x + (one.width ?? 0) / 2;
+
+    return {
+      from,
+      at: node.position,
+      snapped,
+      guides: guides(
+        centre(node),
+        getNodes()
+          .filter((one) => !held.has(one.id))
+          .map(centre),
+      ),
+    };
+  };
+
+  const pickUp: OnNodeDrag<CanvasNode> = (event, node, moving) => {
+    grabbed.current = { at: node.position, pointer: pointerOn(event) };
+
+    setLift(around(node, moving, node.position, false));
+  };
+
+  const carry: OnNodeDrag<CanvasNode> = (event, node, moving) => {
+    const held = grabbed.current;
+
+    if (held === undefined) return;
+
+    const pointer = pointerOn(event);
+    const wanted = {
+      x: held.at.x + (pointer.x - held.pointer.x),
+      y: held.at.y + (pointer.y - held.pointer.y),
+    };
+
+    setLift(around(node, moving, held.at, movedByGrid(wanted, node.position)));
+  };
+
+  const putDown = (): void => {
+    grabbed.current = undefined;
+    setLift(undefined);
+    sayMoved();
+  };
+
+  /**
+   * The graph as somebody found it when they started
+   * pressing an arrow key.
+   *
+   * A held key repeats, and the block moves on every
+   * repeat. One message per repeat would be a dozen
+   * messages all carrying the base revision the
+   * first of them spent, so the message goes when
+   * the key comes back up: a long press is one edit.
+   *
+   * Kept as a string because the only question ever
+   * asked of it is whether anything moved at all. An
+   * arrow key pressed with nothing under it must not
+   * write a document.
+   */
+  const nudging = useRef<string | undefined>(undefined);
+
+  const everywhere = (): string =>
+    getNodes()
+      .map((node) => `${node.id}:${node.position.x},${node.position.y}`)
+      .join(' ');
+
+  /**
+   * Caught on the way down rather than on the way
+   * back up, because the block's own handler is what
+   * moves it and that runs first. By the time a key
+   * press had bubbled this far, the graph as it was
+   * would already be the graph as it is.
+   */
+  const startNudge = (key: KeyboardEvent<HTMLDivElement>): void => {
+    if (!NUDGE_KEYS.includes(key.key)) return;
+    if (nudging.current !== undefined) return;
+
+    nudging.current = everywhere();
+  };
+
+  const endNudge = (key: KeyboardEvent<HTMLDivElement>): void => {
+    if (!NUDGE_KEYS.includes(key.key)) return;
+
+    const was = nudging.current;
+    nudging.current = undefined;
+
+    if (was !== undefined && was !== everywhere()) sayMoved();
+  };
+
   return (
     <section className="graph">
       {preview === undefined ? null : <Banner preview={preview} />}
@@ -618,7 +781,13 @@ function Graph({
           isValidConnection={allow}
           deleteKeyCode={editable ? DELETE_KEYS : null}
           onBeforeDelete={sayDeleted}
-          onNodeDragStop={sayMoved}
+          onNodeDragStart={pickUp}
+          onNodeDrag={carry}
+          onNodeDragStop={putDown}
+          onKeyDownCapture={startNudge}
+          onKeyUp={endNudge}
+          snapToGrid
+          snapGrid={[GRID, GRID]}
           onConnect={(connection) => {
             setRefused(undefined);
             postToHost({
@@ -648,6 +817,12 @@ function Graph({
         >
           <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
 
+          {/* Drawn over the pane rather than on the
+              graph, because a centreline is about a
+              whole column and the graph itself has
+              no top or bottom to reach. */}
+          {lift === undefined ? null : <SnapGuides at={lift.guides} />}
+
           {/* Drawn inside the graph's own transform,
               because a gap belongs to a wire and the
               block being carried is about to belong
@@ -662,6 +837,15 @@ function Graph({
               />
 
               <GhostNode {...carrying.ghost} />
+            </ViewportPortal>
+          )}
+
+          {/* Both of these belong to a block that is
+              on the graph, so they travel with it. */}
+          {lift === undefined ? null : (
+            <ViewportPortal>
+              <OldSlot at={lift.from} />
+              <Readout lift={lift} strings={init.strings} />
             </ViewportPortal>
           )}
         </ReactFlow>

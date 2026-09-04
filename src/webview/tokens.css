@@ -112,6 +112,14 @@
   --elev-1: 0 1px 2px rgb(23 26 35 / 5%);
   --elev-2: 0 1px 3px rgb(23 26 35 / 6%), 0 4px 12px rgb(23 26 35 / 7%);
 
+  /* Off the surface altogether, for the one thing
+     that is: a block a hand has picked up. The
+     near shadow moves a little way out and the far
+     one a long way, because that is what height
+     looks like — a single darker shadow reads as a
+     heavier block rather than a raised one. */
+  --elev-3: 0 2px 6px rgb(23 26 35 / 8%), 0 12px 32px rgb(23 26 35 / 12%);
+
   /* One transform in the whole system. Anything
      that answers a pointer answers with this and
      nothing else — a second kind of movement is how
@@ -249,6 +257,7 @@ body.vscode-dark {
   --on-brand: #0c0f15;
   --elev-1: 0 1px 2px rgb(0 0 0 / 30%);
   --elev-2: 0 1px 3px rgb(0 0 0 / 35%), 0 4px 12px rgb(0 0 0 / 40%);
+  --elev-3: 0 2px 6px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 50%);
 }
 
 /* High-contrast themes draw structure with borders

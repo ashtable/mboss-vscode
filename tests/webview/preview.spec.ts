@@ -77,6 +77,8 @@ const canvasStrings: CanvasStrings = {
   spliceHere: 'splice here',
   spliceNote: 'edge splits on drop',
   dragHint: 'drag starts after {0} px of movement · esc cancels',
+  readout: 'x {0} · y {1}',
+  snapped: '{0} — snapped',
   groups: {
     start: 'Start',
     work: 'Work',

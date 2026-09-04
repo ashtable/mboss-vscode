@@ -353,6 +353,60 @@ button.lib-fn {
   color: var(--brand);
 }
 
+/* — moving a block that is already on the graph — */
+
+/* The block, off the surface. Its own shadow, over
+   the one the block inside is already casting: it is
+   raised and it is the one being looked at, and
+   those are two facts rather than one darker one. */
+.lift {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-3);
+}
+
+/* Where it came from. Neutral, not brand: every
+   other mark a gesture leaves is blue because
+   somebody is doing it, and having left a place is
+   not something anybody is doing. */
+.old-slot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  border: 1.5px dashed var(--hairline-strong);
+  border-radius: var(--r-md);
+  pointer-events: none;
+}
+
+/* The centreline through the blocks it has come
+   level with. Hairline and half-there, because it is
+   about the block being moved rather than about the
+   ones standing still. */
+.snap-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--brand);
+  opacity: var(--drag-guide);
+  pointer-events: none;
+}
+
+/* Where the block is, in numbers, above it. Clear of
+   the block rather than on it, so that neither has
+   to be read through the other. */
+.move-readout {
+  position: absolute;
+  top: -22px;
+  left: 0;
+  font-size: 10px;
+  color: var(--brand);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* — a proposal, over the graph it is about — */
 
 /* Dashed, like the blocks under it: the whole strip
