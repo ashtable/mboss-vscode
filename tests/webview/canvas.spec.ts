@@ -121,6 +121,7 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     manifest,
     inspector: { strings: inspectorStrings, selected: undefined },
     preview: undefined,
+    run: undefined,
     ...over,
   };
 }
@@ -868,6 +869,47 @@ test.describe('the state a block is in', () => {
       await expect(block).toHaveCSS('box-shadow', shadow);
       await expect(block).toHaveCSS('border-top-color', edge);
     }
+  });
+
+  /**
+   * The same states, arriving the way they really
+   * arrive: on the init message, over a graph
+   * nobody has touched. What the tones look like is
+   * held above — this holds that a run reaches the
+   * blocks and the wires at all, including the
+   * block it is at, which the ledger never names.
+   */
+  test('takes its tones from the run the window is following', async ({
+    page,
+  }) => {
+    await openAtRest(page, {
+      run: {
+        workflowId: 'wf_1',
+        workflow: 'groom_booking',
+        status: 'PENDING',
+        steps: [
+          { name: 'parse_request', nodeId: 'parse_request', state: 'done' },
+          { name: 'find_slot', nodeId: 'find_slot', state: 'done' },
+        ],
+        recovered: false,
+        outcome: 'running',
+      },
+    });
+
+    await expect(nodeBody(page, 'find_slot')).toHaveAttribute(
+      'data-state',
+      'done',
+    );
+    await expect(nodeBody(page, 'twilio_chat')).toHaveAttribute(
+      'data-state',
+      'running',
+    );
+    await expect(
+      page.locator('.react-flow__edge[data-id="e2"] .wire'),
+    ).toHaveAttribute('data-state', 'done');
+    await expect(
+      page.locator('.react-flow__edge[data-id="e5"] .wire'),
+    ).toHaveAttribute('data-state', 'active');
   });
 });
 

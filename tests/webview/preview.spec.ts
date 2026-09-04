@@ -161,6 +161,7 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     manifest: undefined,
     inspector,
     preview: preview(),
+    run: undefined,
     ...over,
   };
 }

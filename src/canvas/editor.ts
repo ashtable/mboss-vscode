@@ -39,6 +39,7 @@ import { messages } from '../messages.js';
 import type { PreviewModel } from '../preview/model.js';
 import type { PreviewStore } from '../preview/store.js';
 import { canvasPreview } from '../preview/view.js';
+import type { LiveRun } from '../runs/watch.js';
 import type { VsCodeApi } from '../vscodeApi.js';
 import { mountWebview, type WebviewMessage } from '../webview/host.js';
 import type {
@@ -104,6 +105,25 @@ export type CanvasTrust = {
  */
 export type NoteEntry = (entry: ToolEntry) => void;
 
+/**
+ * The run somebody is following, as the canvas
+ * reads it.
+ *
+ * A slice of the runs store rather than the store
+ * itself: a canvas draws where a run has got to and
+ * has no business starting one, stopping the stack
+ * or reading the history. The store is followed the
+ * way the proposals are, because a run moves while
+ * the document sits still.
+ */
+export type CanvasRuns = {
+  /** The run being followed, whatever workflow it
+   *  belongs to. */
+  live(): LiveRun | undefined;
+
+  onChanged(listener: () => void): Disposable;
+};
+
 export class WorkflowCanvasEditor implements CustomTextEditorProvider {
   static readonly viewType = 'mboss.workflowCanvas';
 
@@ -125,6 +145,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     private readonly extensionUri: Uri,
     private readonly api: VsCodeApi,
     private readonly preview: PreviewStore,
+    private readonly runs: CanvasRuns,
     private readonly trust: CanvasTrust,
     private readonly note: NoteEntry,
   ) {}
@@ -133,12 +154,13 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     extensionUri: Uri,
     api: VsCodeApi,
     preview: PreviewStore,
+    runs: CanvasRuns,
     trust: CanvasTrust,
     note: NoteEntry,
   ): Disposable {
     return window.registerCustomEditorProvider(
       WorkflowCanvasEditor.viewType,
-      new WorkflowCanvasEditor(extensionUri, api, preview, trust, note),
+      new WorkflowCanvasEditor(extensionUri, api, preview, runs, trust, note),
       { supportsMultipleEditorsPerDocument: false },
     );
   }
@@ -161,6 +183,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       document,
       this.api,
       this.preview,
+      this.runs,
       this.trust,
       this.note,
     );
@@ -193,6 +216,19 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       void session.reread().then(post);
     });
 
+    // A run moves while the document sits still, so
+    // this is a repaint rather than a re-read: the
+    // layout key is untouched and the tones are
+    // patched over blocks that stay where they are.
+    // The store speaks up for everything it holds —
+    // a stack coming up, a filter changing — and
+    // most runs are runs of some other workflow, so
+    // the session says whether this canvas is
+    // drawing anything different.
+    const followed = this.runs.onChanged(() => {
+      if (session.followRun()) post();
+    });
+
     // A manifest is a type-check of the project's
     // code-behind, which is far too slow to open a
     // file behind. The canvas draws without one and
@@ -211,6 +247,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       mounted.dispose();
       changed.dispose();
       proposed.dispose();
+      followed.dispose();
       trusted.dispose();
     });
   }
@@ -248,10 +285,15 @@ export class CanvasSession {
    */
   private selected: string | undefined;
 
+  /** The run being followed, when it is a run of
+   *  this workflow. */
+  private run: LiveRun | undefined;
+
   constructor(
     private readonly document: TextDocument,
     private readonly api: VsCodeApi,
     private readonly preview: PreviewStore,
+    private readonly runs: CanvasRuns,
     private readonly trust: CanvasTrust,
     private readonly note: NoteEntry,
   ) {}
@@ -280,7 +322,31 @@ export class CanvasSession {
 
     this.boxes = this.read.ok ? await boxesFor(this.read.ir) : {};
 
+    this.followRun();
     this.reselect();
+  }
+
+  /**
+   * Takes the run this canvas is about, and answers
+   * whether the panel is now drawing a different
+   * one.
+   *
+   * The store follows whatever run a person started,
+   * which is usually a run of some other workflow —
+   * matched on the name the file carries, the same
+   * one a proposal is matched on. Compared by
+   * identity because the store hands out a new
+   * reading each time the ledger says something new.
+   */
+  followRun(): boolean {
+    const live = this.runs.live();
+    const here = live?.workflow === this.name ? live : undefined;
+
+    if (here === this.run) return false;
+
+    this.run = here;
+
+    return true;
   }
 
   /**
@@ -324,6 +390,7 @@ export class CanvasSession {
       manifest: this.manifest,
       inspector: this.inspector(),
       preview: this.live === undefined ? undefined : canvasPreview(this.live),
+      run: this.run,
     };
   }
 

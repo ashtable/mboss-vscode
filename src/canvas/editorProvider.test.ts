@@ -16,10 +16,15 @@ import { previewStore, type PreviewStore } from '../preview/store.js';
 import { makeProject, writeWorkflow } from '../test-support/project.js';
 import { fileExists } from '../test-support/repo.js';
 import { propose, specOf } from '../test-support/proposals.js';
+import type { LiveRun } from '../runs/watch.js';
 import type { VsCodeApi } from '../vscodeApi.js';
 import type { CanvasInit, CanvasInspector } from '../webview/protocol.js';
 
-import { WorkflowCanvasEditor, type CanvasTrust } from './editor.js';
+import {
+  WorkflowCanvasEditor,
+  type CanvasRuns,
+  type CanvasTrust,
+} from './editor.js';
 
 /**
  * The editor a workflow opens in, driven the way
@@ -172,6 +177,42 @@ function trust(trusted: boolean): FakeTrust {
   };
 }
 
+/** The runs store, as the canvas reads one, with a
+ *  way to say a watcher heard something. */
+type FakeRuns = CanvasRuns & { heard(run: LiveRun | undefined): void };
+
+function runsSaying(): FakeRuns {
+  const listeners: (() => void)[] = [];
+  let live: LiveRun | undefined;
+
+  return {
+    live: () => live,
+    onChanged: (listener) => {
+      listeners.push(listener);
+
+      return { dispose: () => {} };
+    },
+    heard: (run) => {
+      live = run;
+      for (const listener of listeners) listener();
+    },
+  };
+}
+
+/** One run of a workflow, as far as a canvas reads
+ *  one: whose it is, and which blocks it has been
+ *  through. */
+function runOf(workflow: string): LiveRun {
+  return {
+    workflowId: 'wf_1',
+    workflow,
+    status: 'PENDING',
+    steps: [{ name: 'parse_request', nodeId: 'parse_request', state: 'done' }],
+    recovered: false,
+    outcome: 'running',
+  };
+}
+
 let recorded: Recorded;
 let panel: FakeWebview;
 
@@ -179,6 +220,7 @@ async function open(
   document = fakeDocument(),
   preview = previewsIn([]),
   trusted: CanvasTrust = trust(true),
+  runs: CanvasRuns = runsSaying(),
 ): Promise<void> {
   recorded = recorder();
   panel = fakeWebview();
@@ -187,6 +229,7 @@ async function open(
     extensionUri,
     recorded.api,
     preview,
+    runs,
     trusted,
     (entry) => recorded.noted.push(entry),
   );
@@ -477,6 +520,7 @@ describe('selecting a node', () => {
       extensionUri,
       recorded.api,
       previewsIn([]),
+      runsSaying(),
       trust(true),
       () => {},
     ).resolveCustomTextEditor(
@@ -1131,6 +1175,68 @@ describe('the layout the panel is drawing', () => {
     await file.saved();
 
     expect(lastCanvasInit().layoutKey).not.toBe(before);
+  });
+});
+
+/**
+ * The run this canvas is about, while somebody is
+ * following one.
+ *
+ * A run is a fact about the workflow rather than
+ * about the document, so it arrives without the
+ * document changing — which is exactly the case the
+ * layout key exists for. It is also the one thing
+ * on this canvas that belongs to another window's
+ * subject entirely: the store follows whatever run
+ * a person started, and most of them are runs of
+ * some other workflow.
+ */
+describe('a run of the workflow on screen', () => {
+  it('is patched in, leaving the layout where it was', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), trust(true), runs);
+
+    const before = lastCanvasInit().layoutKey;
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    expect(lastCanvasInit().run?.workflowId).toBe('wf_1');
+    expect(lastCanvasInit().layoutKey).toBe(before);
+  });
+
+  it('is a run this canvas already had when it opened', async () => {
+    const runs = runsSaying();
+    runs.heard(runOf('groom_booking'));
+
+    await open(fakeDocument(), previewsIn([]), trust(true), runs);
+
+    expect(lastCanvasInit().run?.workflowId).toBe('wf_1');
+  });
+
+  it('says nothing about a run of some other workflow', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), trust(true), runs);
+
+    const posted = panel.posted.length;
+
+    runs.heard(runOf('invoice_dunning'));
+    await settled();
+
+    expect(lastCanvasInit().run).toBeUndefined();
+    expect(panel.posted).toHaveLength(posted);
+  });
+
+  it('lets go of a run the store has let go of', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), trust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+    runs.heard(undefined);
+    await settled();
+
+    expect(lastCanvasInit().run).toBeUndefined();
   });
 });
 

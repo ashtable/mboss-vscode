@@ -156,6 +156,7 @@ export function activate(context: ExtensionContext): void {
       context.extensionUri,
       api,
       preview,
+      runs,
       editor,
       (entry) => panel.note(entry),
     ),

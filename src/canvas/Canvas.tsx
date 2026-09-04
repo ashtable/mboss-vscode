@@ -214,6 +214,7 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
         proposed: preview?.proposed,
         selected,
         editable,
+        run: init.run,
       }),
     [
       ir,
@@ -223,6 +224,7 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
       preview?.proposed,
       selected,
       editable,
+      init.run,
     ],
   );
 

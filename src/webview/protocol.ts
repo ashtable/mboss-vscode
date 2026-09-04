@@ -111,6 +111,18 @@ export type CanvasInit = {
    * based on.
    */
   preview: CanvasPreview | undefined;
+
+  /**
+   * The run this canvas is drawing itself against.
+   *
+   * The one the window is following, and only when
+   * it is a run of this workflow — every other
+   * canvas is told nothing. It arrives without the
+   * document changing, so it leaves `layoutKey`
+   * alone and is patched over blocks that stay
+   * where they are.
+   */
+  run: LiveRun | undefined;
 };
 
 export type CanvasPreview = {

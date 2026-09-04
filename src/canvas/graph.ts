@@ -9,6 +9,7 @@ import {
   type WorkflowIR,
   type WorkflowNode,
 } from '../core/rules.js';
+import type { LiveRun, LiveStep, StepState } from '../runs/watch.js';
 
 /**
  * A workflow document, as the graph library wants
@@ -30,20 +31,20 @@ import {
  * thing on the canvas colour is spent on.
  *
  * The first three are facts about the document and
- * about what a person is looking at. The last four
- * are facts about a run, and no run is watched
- * yet — they are named here, and styled in the
- * sheet, so that following one is a matter of
- * filling them in rather than of reshaping this.
+ * about what a person is looking at. The rest are
+ * facts about a run.
  */
-export type NodeState =
-  | 'dormant'
-  | 'selected'
-  | 'proposed'
-  | 'running'
-  | 'waiting'
-  | 'failed'
-  | 'done';
+export type NodeState = 'dormant' | 'selected' | 'proposed' | RunState;
+
+/**
+ * What a run says about a block: the three states
+ * the ledger records, and the one it only implies.
+ *
+ * Written as the watcher's own three plus one so
+ * that a state the ledger gains cannot be missed
+ * here.
+ */
+export type RunState = StepState | 'running';
 
 /** What is happening along a wire. Same story: a
  *  wire is structure until a run is going through
@@ -78,6 +79,10 @@ export type Drawing = {
    *  not while a proposal is showing, and nothing
    *  drawn then may be edited. */
   editable?: boolean;
+
+  /** The run this canvas is about, while somebody is
+   *  following one of this workflow. */
+  run?: LiveRun;
 };
 
 /** What a node component is handed. */
@@ -185,6 +190,7 @@ export function toReactFlow(
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
   const arriving = new Set(drawing.proposed ?? []);
   const ports = new Map(ir.nodes.map((node) => [node.id, portsOf(node)]));
+  const run = tonesOf(ir, drawing.run);
 
   return {
     nodes: ir.nodes.map((node) =>
@@ -192,7 +198,7 @@ export function toReactFlow(
         node,
         boxes[node.id],
         ports.get(node.id) ?? [],
-        stateOf(node.id, arriving, drawing.selected),
+        stateOf(node.id, arriving, drawing.selected, run.nodes),
         lineOf(node, drawing),
         drawing.editable === true ? ir.revision : undefined,
       ),
@@ -212,7 +218,7 @@ export function toReactFlow(
           (ports.get(edge.from.node)?.length ?? 0) > 1
             ? edge.from.port
             : undefined,
-        state: 'idle',
+        state: run.edges.get(edge.id) ?? 'idle',
         back: edge.back,
       },
     })),
@@ -247,15 +253,177 @@ function toCanvasNode(
   };
 }
 
+/**
+ * What a block is drawn in when more than one thing
+ * is true about it.
+ *
+ * What the person is doing, then what an agent is
+ * asking for, then what the run is doing. A halo
+ * answers a click that just happened, and a
+ * proposal is not the document at all — a run's
+ * colours outlast both, and are the ones to give
+ * way.
+ */
 function stateOf(
   id: string,
   proposed: ReadonlySet<string>,
   selected: string | undefined,
+  run: ReadonlyMap<string, RunState>,
 ): NodeState {
   if (id === selected) return 'selected';
   if (proposed.has(id)) return 'proposed';
 
-  return 'dormant';
+  return run.get(id) ?? 'dormant';
+}
+
+/**
+ * What a run puts on the picture, as two lookups.
+ *
+ * Worked out in one pass rather than per node
+ * because an edge's tone is the tone of the blocks
+ * at its ends, and where the run is *now* takes a
+ * walk over the graph that neither a node nor an
+ * edge could do for itself.
+ */
+type RunTones = {
+  nodes: ReadonlyMap<string, RunState>;
+  edges: ReadonlyMap<string, EdgeState>;
+};
+
+/** The tone a wire takes from the block it feeds:
+ *  what happened there is what happened along it. */
+const EDGE_FOR: Record<RunState, EdgeState> = {
+  done: 'done',
+  failed: 'failed',
+  waiting: 'waiting',
+  running: 'active',
+};
+
+/** Loudest last. A block that failed is the one
+ *  worth finding across a graph, and one still
+ *  parked has not finished whatever else it
+ *  recorded. */
+const LOUDNESS: readonly StepState[] = ['done', 'waiting', 'failed'];
+
+function tonesOf(ir: WorkflowIR, run: LiveRun | undefined): RunTones {
+  if (run === undefined) return { nodes: new Map(), edges: new Map() };
+
+  const recorded = recordedStates(run.steps);
+  const nodes = new Map<string, RunState>(recorded);
+
+  // Only a run that is still going is ahead of what
+  // the ledger holds. A parked one is at the block
+  // it parked on, one that ended is where it ended,
+  // and one the watch let go of is somewhere nobody
+  // is being told about any more.
+  const ahead =
+    run.outcome === 'running'
+      ? frontierFrom(ir, run.steps.at(-1)?.nodeId, recorded)
+      : { nodes: new Set<string>(), edges: new Set<string>() };
+
+  for (const id of ahead.nodes) nodes.set(id, 'running');
+
+  const edges = new Map<string, EdgeState>();
+
+  for (const edge of ir.edges) {
+    if (ahead.edges.has(edge.id)) {
+      edges.set(edge.id, 'active');
+      continue;
+    }
+
+    const from = nodes.get(edge.from.node);
+    const to = nodes.get(edge.to.node);
+
+    // A wire whose ends the ledger says nothing
+    // about stays structure — including the two
+    // either side of a branch that recorded
+    // nothing, because which way that one went is
+    // not written down anywhere.
+    if (from === undefined || to === undefined) continue;
+
+    edges.set(edge.id, EDGE_FOR[to]);
+  }
+
+  return { nodes, edges };
+}
+
+/**
+ * What the ledger says about each block.
+ *
+ * A block can own several rows — one per round of a
+ * loop, one per item of a fan-out, the two halves
+ * of a wait — so the loudest of them is the one the
+ * block is drawn in.
+ */
+function recordedStates(
+  steps: readonly LiveStep[],
+): ReadonlyMap<string, StepState> {
+  const states = new Map<string, StepState>();
+
+  for (const step of steps) {
+    const held = states.get(step.nodeId);
+
+    if (
+      held === undefined ||
+      LOUDNESS.indexOf(step.state) > LOUDNESS.indexOf(held)
+    ) {
+      states.set(step.nodeId, step.state);
+    }
+  }
+
+  return states;
+}
+
+/**
+ * Where a run in flight has got to, and the wires it
+ * is travelling to get there.
+ *
+ * The ledger records a step when it completes and
+ * never when it starts, so nothing in it says where
+ * the run is now. What can be said is what is
+ * immediately past the last block it heard from —
+ * "the run is somewhere here" — and that is what
+ * this works out.
+ *
+ * A branch deciding on predicates writes no row at
+ * all: it is decided in the generated code. So the
+ * walk goes through one to whatever it leads to,
+ * rather than stopping at a block that never runs.
+ */
+function frontierFrom(
+  ir: WorkflowIR,
+  from: string | undefined,
+  recorded: ReadonlyMap<string, StepState>,
+): { nodes: ReadonlySet<string>; edges: ReadonlySet<string> } {
+  const nodes = new Set<string>();
+  const edges = new Set<string>();
+
+  if (from === undefined) return { nodes, edges };
+
+  const kinds = new Map(ir.nodes.map((node) => [node.id, node.kind]));
+  const walked = new Set<string>();
+
+  const step = (at: string): void => {
+    if (walked.has(at)) return;
+    walked.add(at);
+
+    for (const edge of ir.edges) {
+      if (edge.from.node !== at) continue;
+
+      // A block the ledger already holds is behind
+      // the run rather than ahead of it.
+      if (recorded.has(edge.to.node)) continue;
+
+      edges.add(edge.id);
+
+      if (kinds.get(edge.to.node) === 'branch') step(edge.to.node);
+      else nodes.add(edge.to.node);
+    }
+  };
+
+  step(from);
+
+  return { nodes, edges };
 }
 
 /**

@@ -10,8 +10,15 @@ import {
   type NodeBox,
   type NodeKind,
 } from '../core/rules.js';
+import type { LiveOutcome, LiveRun, StepState } from '../runs/watch.js';
 
-import { toReactFlow, type Drawing } from './graph.js';
+import {
+  toReactFlow,
+  type CanvasNode,
+  type Drawing,
+  type EdgeState,
+  type NodeState,
+} from './graph.js';
 
 /**
  * The canvas draws exactly what core laid out,
@@ -56,6 +63,54 @@ const labels = Object.fromEntries(
  *  says so. */
 function drawing(over: Partial<Drawing> = {}): Drawing {
   return { labels, unassigned: 'unassigned', ...over };
+}
+
+/**
+ * A run of this workflow, as the watcher reports
+ * one.
+ *
+ * The steps are given in the order the ledger holds
+ * them, which is the order they ran in — the last
+ * of them is the one the frontier is worked out
+ * from.
+ */
+function run(
+  steps: readonly (readonly [string, StepState])[],
+  outcome: LiveOutcome = 'running',
+): LiveRun {
+  return {
+    workflowId: 'wf_1',
+    workflow: ir.name,
+    status: outcome === 'running' ? 'PENDING' : 'SUCCESS',
+    steps: steps.map(([nodeId, state]) => ({ name: nodeId, nodeId, state })),
+    recovered: false,
+    outcome,
+  };
+}
+
+/** The whole path a completed run of this workflow
+ *  leaves behind, taking the branch that goes for
+ *  the chat. */
+const WHOLE_RUN = [
+  ['parse_request', 'done'],
+  ['find_slot', 'done'],
+  ['twilio_chat', 'done'],
+  ['await_reply', 'done'],
+  ['book_appointment', 'done'],
+  ['record_booking', 'done'],
+  ['send_confirmation', 'done'],
+] as const;
+
+function statesOf(nodes: CanvasNode[]): Record<string, NodeState> {
+  return Object.fromEntries(nodes.map((node) => [node.id, node.data.state]));
+}
+
+function wireStates(over: Partial<Drawing>): Record<string, EdgeState> {
+  const { edges } = toReactFlow(ir, boxes, drawing(over));
+
+  return Object.fromEntries(
+    edges.map((edge) => [edge.id, edge.data?.state ?? 'idle']),
+  );
 }
 
 describe('toReactFlow', () => {
@@ -206,9 +261,155 @@ describe('the state a node is drawn in', () => {
 });
 
 /**
- * Nothing has been run yet, so every wire is
- * structure. The four states a run gives an edge
- * arrive with the run.
+ * Where a run has got to, which is two questions
+ * the ledger answers differently.
+ *
+ * A block it holds a step for is drawn in that
+ * step's state, and that is a reading. Where the
+ * run is *now* is not written down anywhere — a
+ * step is recorded when it completes and never when
+ * it starts — so it is derived from the shape of
+ * the graph, and everything below is about that
+ * derivation being honest rather than optimistic.
+ */
+describe('the state a run puts a block in', () => {
+  it('takes the state of the step the ledger holds for it', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run(
+          [
+            ['parse_request', 'done'],
+            ['find_slot', 'failed'],
+          ],
+          'failed',
+        ),
+      }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      parse_request: 'done',
+      find_slot: 'failed',
+      booking_requested: 'dormant',
+    });
+  });
+
+  /**
+   * A branch deciding on predicates is decided in
+   * the generated code and writes no row at all, so
+   * a frontier that stopped at one would say the run
+   * is sitting at a block that never runs.
+   */
+  it('lights what is past the last step, through a branch that records none', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([
+          ['parse_request', 'done'],
+          ['find_slot', 'done'],
+        ]),
+      }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      find_slot: 'done',
+      slot_open: 'dormant',
+      book_appointment: 'running',
+      twilio_chat: 'running',
+      record_booking: 'dormant',
+    });
+  });
+
+  /** Written against a run that stopped in the
+   *  middle, because a run that reached the end of
+   *  the graph would have nothing ahead of it to get
+   *  wrong. */
+  it('leaves a run that has ended no frontier at all', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run(
+          [
+            ['parse_request', 'done'],
+            ['find_slot', 'done'],
+            ['twilio_chat', 'done'],
+            ['await_reply', 'done'],
+            ['book_appointment', 'failed'],
+          ],
+          'failed',
+        ),
+      }),
+    );
+
+    expect(nodes.filter((node) => node.data.state === 'running')).toEqual([]);
+    expect(statesOf(nodes)).toMatchObject({
+      book_appointment: 'failed',
+      record_booking: 'dormant',
+    });
+  });
+
+  it('draws every block a run went through as done', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({ run: run(WHOLE_RUN, 'done') }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      send_confirmation: 'done',
+      await_reply: 'done',
+      slot_open: 'dormant',
+    });
+  });
+
+  /** A parked run is at the block it parked on.
+   *  Lighting what comes next would say it had got
+   *  past something it is waiting on a person for. */
+  it('leaves a run parked on a person no frontier either', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run(
+          [
+            ['parse_request', 'done'],
+            ['find_slot', 'done'],
+            ['twilio_chat', 'done'],
+            ['await_reply', 'waiting'],
+          ],
+          'waiting',
+        ),
+      }),
+    );
+
+    expect(nodes.filter((node) => node.data.state === 'running')).toEqual([]);
+    expect(statesOf(nodes)['await_reply']).toBe('waiting');
+  });
+
+  it('shows the block a person clicked as the one they clicked', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([['parse_request', 'done']]),
+        selected: 'parse_request',
+      }),
+    );
+
+    expect(statesOf(nodes)['parse_request']).toBe('selected');
+  });
+});
+
+/**
+ * A wire is drawn in what happened at the block it
+ * feeds, so a wire whose two ends the ledger says
+ * nothing about stays structure — including the two
+ * either side of a branch that recorded nothing,
+ * because which way that one went is not written
+ * down.
  */
 describe('the state a wire is drawn in', () => {
   it('is idle while no run is being watched', () => {
@@ -217,6 +418,60 @@ describe('the state a wire is drawn in', () => {
     expect(edges.map((edge) => edge.data?.state)).toEqual(
       ir.edges.map(() => 'idle'),
     );
+  });
+
+  it('is active along every wire the run is travelling now', () => {
+    expect(
+      wireStates({
+        run: run([
+          ['parse_request', 'done'],
+          ['find_slot', 'done'],
+        ]),
+      }),
+    ).toMatchObject({
+      e2: 'done',
+      e3: 'active',
+      e4: 'active',
+      e5: 'active',
+      e10: 'idle',
+    });
+  });
+
+  it('is done along the wires a finished run went down', () => {
+    expect(wireStates({ run: run(WHOLE_RUN, 'done') })).toMatchObject({
+      e2: 'done',
+      e10: 'done',
+      e11: 'done',
+      e3: 'idle',
+    });
+  });
+
+  it('carries the tone of the block it feeds', () => {
+    expect(
+      wireStates({
+        run: run(
+          [
+            ['parse_request', 'done'],
+            ['find_slot', 'done'],
+            ['twilio_chat', 'done'],
+            ['await_reply', 'waiting'],
+          ],
+          'waiting',
+        ),
+      })['e6'],
+    ).toBe('waiting');
+
+    expect(
+      wireStates({
+        run: run(
+          [
+            ['parse_request', 'done'],
+            ['find_slot', 'failed'],
+          ],
+          'failed',
+        ),
+      })['e2'],
+    ).toBe('failed');
   });
 });
 
