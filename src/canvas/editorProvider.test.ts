@@ -8,6 +8,7 @@ import { fakeWebview, type FakeWebview } from '../../test/doubles/webview.js';
 import type { ToolEntry } from '../acp/transcript.js';
 import {
   WorkflowIRSchema,
+  starterNode,
   withDecisionCases,
   type WorkflowIR,
 } from '../core/rules.js';
@@ -17,7 +18,7 @@ import { makeProject, writeWorkflow } from '../test-support/project.js';
 import { fileExists } from '../test-support/repo.js';
 import { propose, specOf } from '../test-support/proposals.js';
 import type { LiveRun } from '../runs/watch.js';
-import type { VsCodeApi } from '../vscodeApi.js';
+import type { PickChoice, VsCodeApi } from '../vscodeApi.js';
 import type { CanvasInit, CanvasInspector } from '../webview/protocol.js';
 
 import {
@@ -66,6 +67,14 @@ type Recorded = {
    *  transcript. */
   noted: ToolEntry[];
 
+  /** Every list somebody was asked to choose
+   *  from. */
+  asked: { title: string; choices: PickChoice[] }[];
+
+  /** What they choose next. Nothing is a picker
+   *  dismissed. */
+  answers: (id: string | undefined) => void;
+
   change: (document: { uri: { toString(): string } }) => void;
 };
 
@@ -73,18 +82,29 @@ function recorder(): Recorded {
   const written: Written[] = [];
   const told: string[] = [];
   const noted: ToolEntry[] = [];
+  const asked: { title: string; choices: PickChoice[] }[] = [];
   const watchers: ((document: never) => void)[] = [];
+  const answer: { id: string | undefined } = { id: undefined };
 
   return {
     written,
     told,
     noted,
+    asked,
+    answers: (id) => {
+      answer.id = id;
+    },
     change: (document) => {
       for (const watcher of watchers) watcher(document as never);
     },
     api: {
       info: (message) => told.push(message),
       run: () => Promise.resolve(),
+      pick: (title, choices) => {
+        asked.push({ title, choices });
+
+        return Promise.resolve(answer.id);
+      },
       replaceDocument: (document, next) => {
         written.push({ path: document.uri.path, text: next });
 
@@ -339,7 +359,7 @@ describe('an edit from the panel', () => {
       type: 'connect',
       view: 'canvas',
       baseRevision: ir.revision,
-      from: { node: 'find_slot', port: 'out' },
+      from: { node: 'find_slot' },
       to: { node: 'book_appointment' },
     });
     await settled();
@@ -351,7 +371,7 @@ describe('an edit from the panel', () => {
     );
 
     expect(written.edges.at(-1)).toMatchObject({
-      from: { node: 'find_slot', port: 'out' },
+      from: { node: 'find_slot' },
       to: { node: 'book_appointment' },
     });
   });
@@ -361,7 +381,7 @@ describe('an edit from the panel', () => {
       type: 'connect',
       view: 'canvas',
       baseRevision: ir.revision,
-      from: { node: 'find_slot', port: 'out' },
+      from: { node: 'find_slot' },
       to: { node: 'book_appointment' },
     });
     await settled();
@@ -376,7 +396,7 @@ describe('an edit from the panel', () => {
       type: 'connect',
       view: 'canvas',
       baseRevision: ir.revision - 1,
-      from: { node: 'find_slot', port: 'out' },
+      from: { node: 'find_slot' },
       to: { node: 'book_appointment' },
     });
     await settled();
@@ -415,7 +435,7 @@ describe('an edit from the panel', () => {
       delete: { type: 'delete', nodeIds: ['find_slot'], edgeIds: ['e2'] },
       connect: {
         type: 'connect',
-        from: { node: 'find_slot', port: 'out' },
+        from: { node: 'find_slot' },
         to: { node: 'book_appointment' },
       },
     };
@@ -429,6 +449,165 @@ describe('an edit from the panel', () => {
         expect(recorded.told).toEqual([messages.canvasEditStale()]);
       });
     }
+  });
+});
+
+/**
+ * A block has one dot to leave by and may have
+ * several ways out, so which way a wire leaves by
+ * is a question rather than something aimed at. It
+ * is asked here, once the drop has happened, and
+ * `'out'` is not an answer a panel may give: it is
+ * not a port a branch has, and a wire naming it
+ * would be a document nobody wrote.
+ */
+describe('which way out a new wire leaves by', () => {
+  /** The document plus a block with two ways out of
+   *  it, wired to nothing. */
+  function withApproval(): WorkflowIR {
+    return {
+      ...ir,
+      nodes: [...ir.nodes, starterNode('approval', 'sign_off', 'Sign off')],
+    };
+  }
+
+  it('takes the only one there is without asking', async () => {
+    panel.send({
+      type: 'connect',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      from: { node: 'find_slot' },
+      to: { node: 'book_appointment' },
+    });
+    await settled();
+
+    expect(recorded.asked).toEqual([]);
+
+    const written = WorkflowIRSchema.parse(
+      JSON.parse(recorded.written[0]!.text),
+    );
+
+    expect(written.edges.at(-1)).toMatchObject({
+      from: { node: 'find_slot' },
+      to: { node: 'book_appointment' },
+    });
+  });
+
+  it('asks a branch by what its cases decide, and writes the port', async () => {
+    recorded.answers('no');
+
+    panel.send({
+      type: 'connect',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      from: { node: 'slot_open' },
+      to: { node: 'send_confirmation' },
+    });
+    await settled();
+
+    expect(recorded.asked).toHaveLength(1);
+    expect(recorded.asked[0]!.choices).toEqual([
+      { label: 'true', id: 'yes', detail: 'yes' },
+      { label: messages.canvasFallThrough(), id: 'no', detail: 'no' },
+    ]);
+
+    const written = WorkflowIRSchema.parse(
+      JSON.parse(recorded.written[0]!.text),
+    );
+
+    expect(written.edges.at(-1)).toMatchObject({
+      from: { node: 'slot_open', port: 'no' },
+      to: { node: 'send_confirmation' },
+    });
+  });
+
+  it('asks an approval by its two outcomes, and writes the port', async () => {
+    const document = withApproval();
+    await open(fakeDocument(JSON.stringify(document)));
+
+    recorded.answers('rejected');
+
+    panel.send({
+      type: 'connect',
+      view: 'canvas',
+      baseRevision: document.revision,
+      from: { node: 'sign_off' },
+      to: { node: 'send_confirmation' },
+    });
+    await settled();
+
+    expect(recorded.asked[0]?.choices.map((choice) => choice.id)).toEqual([
+      'approved',
+      'rejected',
+    ]);
+
+    const written = WorkflowIRSchema.parse(
+      JSON.parse(recorded.written[0]!.text),
+    );
+
+    expect(written.edges.at(-1)).toMatchObject({
+      from: { node: 'sign_off', port: 'rejected' },
+      to: { node: 'send_confirmation' },
+    });
+  });
+
+  it('writes nothing when nobody answers', async () => {
+    recorded.answers(undefined);
+
+    panel.send({
+      type: 'connect',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      from: { node: 'slot_open' },
+      to: { node: 'send_confirmation' },
+    });
+    await settled();
+
+    expect(recorded.asked).toHaveLength(1);
+    expect(recorded.written).toEqual([]);
+  });
+
+  it('writes a block and the wire that reaches it in one edit', async () => {
+    panel.send({
+      type: 'addNode',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      kind: 'step',
+      position: { x: 400, y: 600 },
+      connectFrom: { node: 'find_slot' },
+    });
+    await settled();
+
+    expect(recorded.written).toHaveLength(1);
+
+    const written = WorkflowIRSchema.parse(
+      JSON.parse(recorded.written[0]!.text),
+    );
+    const added = written.nodes.at(-1)!;
+
+    expect(written.nodes).toHaveLength(ir.nodes.length + 1);
+    expect(written.edges).toHaveLength(ir.edges.length + 1);
+    expect(written.edges.at(-1)).toMatchObject({
+      from: { node: 'find_slot', port: 'out' },
+      to: { node: added.id },
+    });
+  });
+
+  it('writes neither the block nor the wire when nobody answers', async () => {
+    recorded.answers(undefined);
+
+    panel.send({
+      type: 'addNode',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      kind: 'step',
+      position: { x: 400, y: 600 },
+      connectFrom: { node: 'slot_open' },
+    });
+    await settled();
+
+    expect(recorded.asked).toHaveLength(1);
+    expect(recorded.written).toEqual([]);
   });
 });
 

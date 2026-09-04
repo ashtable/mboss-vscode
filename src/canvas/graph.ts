@@ -90,10 +90,6 @@ export type CanvasNodeData = {
   /** The document's node, whole. */
   node: WorkflowNode;
 
-  /** The ports its outgoing wires leave from, in
-   *  the order they are drawn. */
-  ports: string[];
-
   /** The one line under the title, already in the
    *  reader's language. */
   line: string;
@@ -130,6 +126,21 @@ export type CanvasEdge = Edge<CanvasEdgeData, 'wire'>;
 
 /** The one target handle every node carries. */
 export const TARGET_PORT = 'in';
+
+/**
+ * The one source handle every node carries, however
+ * many ways out the document gives it.
+ *
+ * A dot is ten pixels wide and out of sight until a
+ * pointer is on the block that owns it, so three of
+ * them on a branch are three things nobody can aim
+ * at. Every wire therefore leaves by the same dot,
+ * and which way out it takes is asked once it has
+ * landed. Which way each wire already took is on
+ * the wire, in its label, where there is room to
+ * read it.
+ */
+export const SOURCE_PORT = 'out';
 
 /**
  * The identity of one picture: this document, laid
@@ -197,7 +208,6 @@ export function toReactFlow(
       toCanvasNode(
         node,
         boxes[node.id],
-        ports.get(node.id) ?? [],
         stateOf(node.id, arriving, drawing.selected, run.nodes),
         lineOf(node, drawing),
         drawing.editable === true ? ir.revision : undefined,
@@ -207,7 +217,7 @@ export function toReactFlow(
       id: edge.id,
       type: 'wire',
       source: edge.from.node,
-      sourceHandle: edge.from.port,
+      sourceHandle: SOURCE_PORT,
       target: edge.to.node,
       targetHandle: TARGET_PORT,
       data: {
@@ -228,7 +238,6 @@ export function toReactFlow(
 function toCanvasNode(
   node: WorkflowNode,
   box: NodeBox | undefined,
-  ports: string[],
   state: NodeState,
   line: string,
   assignAgainst: number | undefined,
@@ -249,7 +258,7 @@ function toCanvasNode(
     // because selection is its keyboard handling
     // and its z-order too, not only a colour.
     selected: state === 'selected',
-    data: { node, ports, line, state, assignAgainst },
+    data: { node, line, state, assignAgainst },
   };
 }
 

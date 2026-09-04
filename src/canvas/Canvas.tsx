@@ -556,10 +556,7 @@ function Graph({
     const found = checkCandidateEdge(
       ir,
       {
-        from: {
-          node: connection.source,
-          port: connection.sourceHandle ?? 'out',
-        },
+        from: { node: connection.source },
         to: { node: connection.target },
       },
       init.manifest,
@@ -790,13 +787,15 @@ function Graph({
           snapGrid={[GRID, GRID]}
           onConnect={(connection) => {
             setRefused(undefined);
+            // No port. A block has one dot to leave
+            // by however many ways out it has, so
+            // naming one here would be this panel
+            // deciding something nobody was asked —
+            // and `out` is not a port a branch has.
             postToHost({
               type: 'connect',
               baseRevision: ir.revision,
-              from: {
-                node: connection.source,
-                port: connection.sourceHandle ?? 'out',
-              },
+              from: { node: connection.source },
               to: { node: connection.target },
             });
           }}

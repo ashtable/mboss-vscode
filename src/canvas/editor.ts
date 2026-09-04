@@ -41,7 +41,7 @@ import type { PreviewModel } from '../preview/model.js';
 import type { PreviewStore } from '../preview/store.js';
 import { canvasPreview } from '../preview/view.js';
 import type { LiveRun } from '../runs/watch.js';
-import type { VsCodeApi } from '../vscodeApi.js';
+import type { PickChoice, VsCodeApi } from '../vscodeApi.js';
 import { mountWebview, type WebviewMessage } from '../webview/host.js';
 import type {
   CanvasDocument,
@@ -464,8 +464,13 @@ export class CanvasSession {
       return true;
     }
 
-    if (message.type === 'connect') this.connect(message);
-    if (message.type === 'addNode') this.addNode(message);
+    // Both of these may have to ask which way out of
+    // a block the new wire leaves by, so both answer
+    // later. What they do when they land is write the
+    // document, and the panel is drawn again from
+    // that rather than from here.
+    if (message.type === 'connect') void this.connect(message);
+    if (message.type === 'addNode') void this.addNode(message);
     if (message.type === 'move') this.move(message);
     if (message.type === 'arrange') this.arrange(message.baseRevision);
     if (message.type === 'delete') this.remove(message);
@@ -610,15 +615,50 @@ export class CanvasSession {
     void this.api.replaceDocument(this.document, text);
   }
 
-  private connect(edit: {
+  /**
+   * A wire somebody drew, once they let go of it.
+   *
+   * The panel names the two blocks and no port,
+   * because a block has one dot to leave by however
+   * many ways out it has. Which way out this wire
+   * takes is therefore asked here, against the ports
+   * the document says that block has — and where
+   * there is only one there is nothing to ask.
+   */
+  private async connect(edit: {
     baseRevision: number;
-    from: { node: string; port: string };
+    from: { node: string };
     to: { node: string };
-  }): void {
+  }): Promise<void> {
+    const port = await this.wayOutOf(edit.from.node);
+    if (port === undefined) return;
+
     this.write(edit.baseRevision, (ir) => ({
       ...ir,
-      edges: [...ir.edges, wireBetween(ir, { from: edit.from, to: edit.to })],
+      edges: [
+        ...ir.edges,
+        wireBetween(ir, { from: { node: edit.from.node, port }, to: edit.to }),
+      ],
     }));
+  }
+
+  /**
+   * Which way out of a block a new wire leaves by.
+   *
+   * Nothing where the question was asked and nobody
+   * answered, which takes the whole edit down with
+   * it: a wire has to leave by something, and
+   * picking one on somebody's behalf would write a
+   * document they did not ask for.
+   */
+  private async wayOutOf(nodeId: string): Promise<string | undefined> {
+    const node = this.nodeAt(nodeId);
+    if (node === undefined) return undefined;
+
+    const ways = waysOutOf(node);
+    if (ways.length < 2) return ways[0]?.id;
+
+    return await this.api.pick(messages.canvasChoosePort(), ways);
   }
 
   /**
@@ -635,14 +675,27 @@ export class CanvasSession {
    * split takes the whole edit down with it: half a
    * splice is a block sitting loose on a graph
    * somebody meant to put it into.
+   *
+   * Let go of at the end of a wire being drawn, it
+   * is what that wire was looking for, and the block
+   * and the wire are written together — one edit,
+   * one undo, because half of it is a block nobody
+   * asked for or a wire to nowhere.
    */
-  private addNode(edit: {
+  private async addNode(edit: {
     baseRevision: number;
     kind: NodeKind;
     position: Position;
     spliceEdge?: string;
-  }): void {
+    connectFrom?: { node: string };
+  }): Promise<void> {
     if (!this.read.ok) return;
+
+    const from = edit.connectFrom;
+    const port =
+      from === undefined ? undefined : await this.wayOutOf(from.node);
+
+    if (from !== undefined && port === undefined) return;
 
     const id = starterId(this.read.ir, edit.kind);
     const added = {
@@ -654,9 +707,22 @@ export class CanvasSession {
       const pinned = pin(ir, this.boxes);
       const placed = { ...pinned, nodes: [...pinned.nodes, added] };
 
-      return edit.spliceEdge === undefined
-        ? placed
-        : spliced(placed, edit.spliceEdge, added);
+      if (edit.spliceEdge !== undefined) {
+        return spliced(placed, edit.spliceEdge, added);
+      }
+
+      if (from === undefined || port === undefined) return placed;
+
+      return {
+        ...placed,
+        edges: [
+          ...placed.edges,
+          wireBetween(placed, {
+            from: { node: from.node, port },
+            to: { node: added.id },
+          }),
+        ],
+      };
     });
 
     if (wrote) this.selected = id;
@@ -966,6 +1032,42 @@ function spliced(
       onward,
     ],
   };
+}
+
+/**
+ * The ways out of a block, as somebody is asked to
+ * choose between them.
+ *
+ * A branch's cases read as what they decide, since
+ * that is the question a person answered when they
+ * wrote them and `yes` is a port rather than an
+ * answer. A case with nothing decided yet — a
+ * branch tests a path rather than a value until a
+ * function is put behind it — has only its port to
+ * go by, and so does every other kind. The port
+ * comes along underneath either way, because it is
+ * what the wire will be labelled with on the
+ * canvas.
+ */
+function waysOutOf(node: WorkflowNode): PickChoice[] {
+  if (node.kind !== 'branch') {
+    return portsOf(node).map((port) => ({ label: port, id: port }));
+  }
+
+  const cases = node.config.cases.map((one) => ({
+    label: one.when.value === undefined ? one.port : String(one.when.value),
+    id: one.port,
+    detail: one.port,
+  }));
+
+  return [
+    ...cases,
+    {
+      label: messages.canvasFallThrough(),
+      id: node.config.elsePort,
+      detail: node.config.elsePort,
+    },
+  ];
 }
 
 /** The node with nothing behind it. */

@@ -674,6 +674,31 @@ test.describe('one block', () => {
   });
 
   /**
+   * One dot to leave by, whatever the block does
+   * with what leaves.
+   *
+   * A branch has three ways out and a dot is ten
+   * pixels wide and out of sight until a pointer is
+   * on the block. Three of those are not something
+   * anybody can aim at, so which way out a wire takes
+   * is asked once it has landed instead.
+   */
+  test('has one dot to leave by however many ways out it has', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    const branch = page.locator('.react-flow__node[data-id="reply_decision"]');
+
+    expect(ir.nodes.find((node) => node.id === 'reply_decision')).toMatchObject(
+      { kind: 'branch' },
+    );
+
+    await expect(branch.locator('.react-flow__handle-bottom')).toHaveCount(1);
+    await expect(branch.locator('.react-flow__handle-top')).toHaveCount(1);
+  });
+
+  /**
    * Every port on the canvas, not only the ones
    * under the pointer: mid-drag a person is looking
    * for somewhere to land, and a target that only
@@ -1067,6 +1092,12 @@ test.describe('drawing a wire', () => {
     expect(await harness.postedOfType('connect')).toEqual([]);
   });
 
+  /**
+   * The two blocks and no port. Which way out of the
+   * first this wire takes is the host's question,
+   * asked once the wire has landed — the panel has
+   * one dot to draw from and no answer to give.
+   */
   test('accepts one the types allow, and tells the host once', async ({
     page,
   }) => {
@@ -1082,7 +1113,7 @@ test.describe('drawing a wire', () => {
       {
         type: 'connect',
         baseRevision: ir.revision,
-        from: { node: 'find_slot', port: 'out' },
+        from: { node: 'find_slot' },
         to: { node: 'book_appointment' },
       },
     ]);

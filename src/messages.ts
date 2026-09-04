@@ -494,6 +494,22 @@ export const messages = {
 
   canvasEditStale: () =>
     l10n.t('This graph changed while you were editing it. Try that again.'),
+
+  /**
+   * Over the list of ways out of a block, once a
+   * wire has been let go of on something.
+   *
+   * A block has one dot to leave by however many
+   * ways out it has, because a ten-pixel dot that
+   * only appears on hover is not something anybody
+   * can aim at three of. So the question is asked
+   * where the eyes already are, after the drop.
+   */
+  canvasChoosePort: () => l10n.t('Which way out does this wire leave by?'),
+
+  /** The way out a branch takes when none of its
+   *  cases decided. */
+  canvasFallThrough: () => l10n.t('anything else'),
   inspectorEditRefused: () =>
     l10n.t('That would leave the block half-set, so nothing was saved.'),
 

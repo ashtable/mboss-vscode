@@ -36,6 +36,19 @@ export type VsCodeApi = {
   run(command: string, ...args: unknown[]): Promise<void>;
 
   /**
+   * Asks for one of a short list, and answers with
+   * the chosen entry's id — or nothing, when the
+   * list was dismissed.
+   *
+   * A picker rather than a panel because what it
+   * asks about is a gesture already under way: a
+   * question that appears where the eyes are, is
+   * answered in one keystroke, and takes the edit
+   * down with it when nobody answers.
+   */
+  pick(title: string, choices: PickChoice[]): Promise<string | undefined>;
+
+  /**
    * Replaces a document's whole text.
    *
    * Through VS Code rather than through the file,
@@ -52,11 +65,31 @@ export type VsCodeApi = {
   onDocumentChanged(listener: (document: TextDocument) => void): Disposable;
 };
 
+/** One entry of a picker: what it reads as, what it
+ *  is, and a second line where the two differ. */
+export type PickChoice = {
+  label: string;
+  id: string;
+  detail?: string;
+};
+
 export function vsCodeApi(): VsCodeApi {
   return {
     info: (message) => void window.showInformationMessage(message),
     run: async (command, ...args) => {
       await commands.executeCommand(command, ...args);
+    },
+    pick: async (title, choices) => {
+      const picked = await window.showQuickPick(
+        choices.map((choice) => ({
+          label: choice.label,
+          detail: choice.detail,
+          id: choice.id,
+        })),
+        { title },
+      );
+
+      return picked?.id;
     },
     replaceDocument: async (document, text) => {
       const edit = new WorkspaceEdit();

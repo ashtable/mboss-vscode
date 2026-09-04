@@ -157,24 +157,31 @@ describe('toReactFlow', () => {
     }
   });
 
-  it('leaves a node with one way out no port to choose from', () => {
-    const { nodes, edges } = toReactFlow(ir, boxes, drawing());
+  /**
+   * One dot to leave by, however many ways out the
+   * document gives a block.
+   *
+   * Which way out each wire took is on the wire
+   * instead — where there is room to read it, and
+   * where it is only worth saying at all when there
+   * was a choice.
+   */
+  it('leaves every wire by the one dot its block has', () => {
+    const { edges } = toReactFlow(ir, boxes, drawing());
 
-    const step = nodes.find((node) => node.id === 'parse_request');
-    expect(step?.data.ports).toEqual(['out']);
+    const branch = edges.filter((edge) => edge.source === 'reply_decision');
 
-    expect(edges.find((edge) => edge.id === 'e2')?.sourceHandle).toBe('out');
+    expect(branch.length).toBeGreaterThan(1);
+    expect(edges.map((edge) => edge.sourceHandle)).toEqual(
+      edges.map(() => 'out'),
+    );
   });
 
-  it('gives a branch one handle per case and one for the fall-through', () => {
-    const { nodes, edges } = toReactFlow(ir, boxes, drawing());
+  it('names the port a wire took only where there was a choice', () => {
+    const { edges } = toReactFlow(ir, boxes, drawing());
 
-    const branch = nodes.find((node) => node.id === 'reply_decision');
-    expect(branch?.data.ports).toEqual(['new_time', 'book_it', 'stop']);
-
-    expect(edges.find((edge) => edge.id === 'e9')?.sourceHandle).toBe(
-      'book_it',
-    );
+    expect(edges.find((edge) => edge.id === 'e2')?.data?.port).toBeUndefined();
+    expect(edges.find((edge) => edge.id === 'e9')?.data?.port).toBe('book_it');
   });
 
   it('marks the loop-closing edge so it can be drawn against the flow', () => {

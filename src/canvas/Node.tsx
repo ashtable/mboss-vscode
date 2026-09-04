@@ -5,7 +5,12 @@ import { truncateTitle, type NodeKind } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 
 import { LIB_FN, carries } from './dragging.js';
-import { TARGET_PORT, type CanvasNode, type NodeState } from './graph.js';
+import {
+  SOURCE_PORT,
+  TARGET_PORT,
+  type CanvasNode,
+  type NodeState,
+} from './graph.js';
 import { NodeIcon, TONE } from './icons.js';
 
 /**
@@ -38,7 +43,7 @@ import { NodeIcon, TONE } from './icons.js';
  * when the answer is no.
  */
 export function Node({ data, dragging }: NodeProps<CanvasNode>) {
-  const { node, ports, assignAgainst } = data;
+  const { node, assignAgainst } = data;
   const [landing, setLanding] = useState(false);
 
   // A block a hand is holding is the block that hand
@@ -102,15 +107,7 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
         state={state}
       />
 
-      {ports.map((port, index) => (
-        <Handle
-          key={port}
-          type="source"
-          position={Position.Bottom}
-          id={port}
-          style={{ left: across(index, ports.length) }}
-        />
-      ))}
+      <Handle type="source" position={Position.Bottom} id={SOURCE_PORT} />
     </div>
   );
 
@@ -155,10 +152,4 @@ export function BlockFace({
       </div>
     </>
   );
-}
-
-/** Where one of a block's outgoing wires leaves
- *  from, as a fraction across its bottom edge. */
-function across(index: number, count: number): string {
-  return `${((index + 1) / (count + 1)) * 100}%`;
 }

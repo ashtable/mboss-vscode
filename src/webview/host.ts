@@ -47,10 +47,23 @@ const Select = z.object({
   nodeId: z.string().nullable(),
 });
 
+/**
+ * Somebody drew a wire from one block to another.
+ *
+ * The source block and no port. A block has one dot
+ * to leave by however many ways out it has — a
+ * ten-pixel dot that appears on hover is not
+ * something anybody can aim at three of — so which
+ * way out this wire takes is asked at the drop, by
+ * the host, against the ports the document says
+ * that block has. A panel naming one would be a
+ * panel deciding it, and `'out'` is not a port a
+ * branch has.
+ */
 const Connect = z.object({
   type: z.literal('connect'),
   baseRevision: z.number().int(),
-  from: z.object({ node: z.string(), port: z.string() }),
+  from: z.object({ node: z.string() }),
   to: z.object({ node: z.string() }),
 });
 
@@ -62,6 +75,11 @@ const Connect = z.object({
  * block goes into that wire rather than beside it.
  * Which wire may be split is the host's question,
  * not the panel's, so this carries only the name.
+ *
+ * A block, where the drop ended a wire that started
+ * on one: the new block is what that wire was
+ * looking for, and the two are written together.
+ * The port is the host's question there too.
  */
 const AddNode = z.object({
   type: z.literal('addNode'),
@@ -69,6 +87,7 @@ const AddNode = z.object({
   kind: NodeKindSchema,
   position: PositionSchema,
   spliceEdge: z.string().optional(),
+  connectFrom: z.object({ node: z.string() }).optional(),
 });
 
 /**
