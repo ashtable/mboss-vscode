@@ -56,6 +56,17 @@ export type Watchers = Disposable & {
 
   /** Fires when a proposal appears or changes. */
   onProposal(listener: (path: string) => void): Disposable;
+
+  /**
+   * Fires with a project that has just been
+   * generated.
+   *
+   * Which is also the moment its code-behind was
+   * last read, and that is what anything drawing a
+   * palette or checking a wire against the handlers
+   * is holding a copy of.
+   */
+  onGenerated(listener: (project: string) => void): Disposable;
 };
 
 export function watchProjects(
@@ -67,7 +78,8 @@ export function watchProjects(
   const writes = new SelfWrites();
   const debouncer = new Debouncer(opts?.debounceMs);
   const held = new Map<string, Problem[]>();
-  const proposals: ((path: string) => void)[] = [];
+  const proposals = emitter<string>();
+  const generated = emitter<string>();
   const subscriptions: Disposable[] = [];
 
   /**
@@ -89,6 +101,7 @@ export function watchProjects(
     held.set(project, result.problems);
     problems.publish([...held.values()].flat());
     status.codegenFinished(result.ms, result.ok);
+    generated.fire(project);
 
     return result;
   };
@@ -111,9 +124,7 @@ export function watchProjects(
     subscriptions.push(
       host.watch(folder, WORKFLOW_GLOB, (path) => changed(folder, path)),
       host.watch(folder, LIB_GLOB, (path) => changed(folder, path)),
-      host.watch(folder, PROPOSAL_GLOB, (path) => {
-        for (const listener of proposals) listener(path);
-      }),
+      host.watch(folder, PROPOSAL_GLOB, (path) => proposals.fire(path)),
     );
   }
 
@@ -167,22 +178,47 @@ export function watchProjects(
       return { ran: true, ok, ms, problems };
     },
 
-    onProposal: (listener) => {
-      proposals.push(listener);
-
-      return {
-        dispose: () => {
-          const at = proposals.indexOf(listener);
-
-          if (at >= 0) proposals.splice(at, 1);
-        },
-      };
-    },
+    onProposal: proposals.on,
+    onGenerated: generated.on,
 
     dispose: () => {
       debouncer.dispose();
       for (const subscription of subscriptions) subscription.dispose();
       problems.dispose();
+    },
+  };
+}
+
+/**
+ * A list of listeners and the way off it.
+ *
+ * The editor's own `EventEmitter` would do, but it
+ * would put `vscode` in this file — and everything
+ * else here reaches the editor through the host it
+ * was handed, which is what lets these be driven
+ * by a spec at all.
+ */
+function emitter<T>(): {
+  fire(value: T): void;
+  on(listener: (value: T) => void): Disposable;
+} {
+  const listeners: ((value: T) => void)[] = [];
+
+  return {
+    fire: (value) => {
+      for (const listener of listeners) listener(value);
+    },
+
+    on: (listener) => {
+      listeners.push(listener);
+
+      return {
+        dispose: () => {
+          const at = listeners.indexOf(listener);
+
+          if (at >= 0) listeners.splice(at, 1);
+        },
+      };
     },
   };
 }

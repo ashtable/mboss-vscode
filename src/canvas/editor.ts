@@ -125,6 +125,23 @@ export type CanvasRuns = {
   onChanged(listener: () => void): Disposable;
 };
 
+/**
+ * The project's code-behind, as the canvas hears
+ * about it.
+ *
+ * A slice of the watchers rather than the watchers
+ * themselves: a canvas has nothing to generate and
+ * no problems to publish. What it needs is the one
+ * fact that a project has been generated, because
+ * that is when its `lib/` was last read — and a
+ * function written while a tab is open belongs in
+ * that tab's palette, its picker and its wiring
+ * rules rather than only in the next one.
+ */
+export type CanvasCode = {
+  onGenerated(listener: (project: string) => void): Disposable;
+};
+
 export class WorkflowCanvasEditor implements CustomTextEditorProvider {
   static readonly viewType = 'mboss.workflowCanvas';
 
@@ -148,6 +165,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     private readonly preview: PreviewStore,
     private readonly runs: CanvasRuns,
     private readonly trust: CanvasTrust,
+    private readonly code: CanvasCode,
     private readonly note: NoteEntry,
   ) {}
 
@@ -157,11 +175,20 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     preview: PreviewStore,
     runs: CanvasRuns,
     trust: CanvasTrust,
+    code: CanvasCode,
     note: NoteEntry,
   ): Disposable {
     return window.registerCustomEditorProvider(
       WorkflowCanvasEditor.viewType,
-      new WorkflowCanvasEditor(extensionUri, api, preview, runs, trust, note),
+      new WorkflowCanvasEditor(
+        extensionUri,
+        api,
+        preview,
+        runs,
+        trust,
+        code,
+        note,
+      ),
       { supportsMultipleEditorsPerDocument: false },
     );
   }
@@ -243,6 +270,17 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       void session.scan().then(post);
     });
 
+    // A function written into `lib/` while this tab
+    // is open is one the palette, the picker and the
+    // wiring rules should know about, and closing the
+    // tab is no way to say so. Asked again whenever
+    // the project has been generated, which is when
+    // its code-behind was last read; the scan itself
+    // is a hash of the files when nothing changed.
+    const rescanned = this.code.onGenerated((project) => {
+      if (session.inProject(project)) void session.scan().then(post);
+    });
+
     panel.onDidDispose(() => {
       WorkflowCanvasEditor.open.delete(panel);
       mounted.dispose();
@@ -250,6 +288,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       proposed.dispose();
       followed.dispose();
       trusted.dispose();
+      rescanned.dispose();
     });
   }
 }
@@ -351,12 +390,15 @@ export class CanvasSession {
   }
 
   /**
-   * Scans the project's code-behind, once.
+   * Reads the project's code-behind.
    *
    * The scan type-checks `lib/` and caches what it
    * found inside the project, so it is the one
    * thing this editor does that a restricted window
-   * must not do. Called again when trust arrives.
+   * must not do. Asked again when trust arrives and
+   * whenever the code has been generated since, so
+   * that a handler somebody has just written is one
+   * this canvas offers.
    */
   async scan(): Promise<void> {
     if (!this.trust.isTrusted()) return;
@@ -365,6 +407,12 @@ export class CanvasSession {
     if (project === undefined) return;
 
     this.manifest = await Promise.resolve(manifestFor(project));
+  }
+
+  /** Whether the document this canvas is drawing is
+   *  one of that project's. */
+  inProject(project: string): boolean {
+    return projectOf(this.document.uri.fsPath) === project;
   }
 
   init(): CanvasInit {

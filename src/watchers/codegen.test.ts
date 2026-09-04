@@ -369,6 +369,24 @@ describe('the watchers', () => {
     expect(status.finished[0]?.ms).toBeGreaterThanOrEqual(0);
   });
 
+  /**
+   * Said out loud, because a generation is also the
+   * moment a project's code-behind was last read —
+   * and an open canvas draws its palette, its picker
+   * and its typed wiring from that.
+   */
+  it('say which project has been generated', async () => {
+    const { project, host, watchers } = await watching({ lib: 'lib' });
+    writeWorkflow(project, 'groom_booking');
+    const seen: string[] = [];
+    watchers.onGenerated((one) => void seen.push(one));
+
+    host.fire(LIB_GLOB, join(project, 'lib', 'findSlot.ts'));
+
+    await until(() => seen.length === 1);
+    expect(seen).toEqual([project]);
+  });
+
   it('notice a proposal arriving', async () => {
     const { project, host, watchers } = await watching();
     const seen: string[] = [];

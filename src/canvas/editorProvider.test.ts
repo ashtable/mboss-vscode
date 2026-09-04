@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -22,6 +22,7 @@ import type { CanvasInit, CanvasInspector } from '../webview/protocol.js';
 
 import {
   WorkflowCanvasEditor,
+  type CanvasCode,
   type CanvasRuns,
   type CanvasTrust,
 } from './editor.js';
@@ -199,6 +200,25 @@ function runsSaying(): FakeRuns {
   };
 }
 
+/** The code-behind, as the canvas hears about it,
+ *  with a way to say a project has been generated. */
+type FakeCode = CanvasCode & { generated(project: string): void };
+
+function codeSaying(): FakeCode {
+  const listeners: ((project: string) => void)[] = [];
+
+  return {
+    onGenerated: (listener) => {
+      listeners.push(listener);
+
+      return { dispose: () => {} };
+    },
+    generated: (project) => {
+      for (const listener of listeners) listener(project);
+    },
+  };
+}
+
 /** One run of a workflow, as far as a canvas reads
  *  one: whose it is, and which blocks it has been
  *  through. */
@@ -215,6 +235,7 @@ function runOf(workflow: string): LiveRun {
 
 let recorded: Recorded;
 let panel: FakeWebview;
+let coded: FakeCode;
 
 async function open(
   document = fakeDocument(),
@@ -224,6 +245,7 @@ async function open(
 ): Promise<void> {
   recorded = recorder();
   panel = fakeWebview();
+  coded = codeSaying();
 
   const editor = new WorkflowCanvasEditor(
     extensionUri,
@@ -231,6 +253,7 @@ async function open(
     preview,
     runs,
     trusted,
+    coded,
     (entry) => recorded.noted.push(entry),
   );
 
@@ -560,6 +583,7 @@ describe('selecting a node', () => {
       previewsIn([]),
       runsSaying(),
       trust(true),
+      codeSaying(),
       () => {},
     ).resolveCustomTextEditor(
       fakeDocument(text, '/project/.mboss/workflows/other.workflow.json'),
@@ -936,6 +960,68 @@ describe('opening a workflow in a trusted window', () => {
 
     await until(() => lastCanvasInit().manifest !== undefined);
     expect(fileExists(join(project, '.mboss', 'manifest.json'))).toBe(true);
+  });
+});
+
+/**
+ * A function written while the canvas is open.
+ *
+ * The manifest is what the palette's `/lib` drawer
+ * and the Inspector's picker are drawn from, and
+ * what the host decides a handler's fit against. One
+ * read when the tab opened and never again means a
+ * function somebody has just written does not exist
+ * as far as this canvas is concerned, and closing
+ * the tab and opening it again is the only way to
+ * say otherwise.
+ */
+describe('code written while a canvas is open', () => {
+  /** A handler somebody adds to the project mid-
+   *  session. Its types are its own, so writing it
+   *  changes one file and nothing else. */
+  const RESCHEDULE = `export async function reschedule(req: {
+  at: string;
+}): Promise<{ moved: boolean }> {
+  return { moved: req.at !== '' };
+}
+`;
+
+  /** The canvas over a project whose code-behind
+   *  has been read once already. */
+  async function openScanned(project: string): Promise<void> {
+    const path = writeWorkflow(project, 'groom_booking');
+
+    await open(fakeDocument(readFileSync(path, 'utf8'), path));
+    await until(() => lastCanvasInit().manifest !== undefined);
+  }
+
+  it('reaches the panel without the tab being opened again', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    await openScanned(project);
+
+    writeFileSync(join(project, 'lib', 'reschedule.ts'), RESCHEDULE, 'utf8');
+    coded.generated(project);
+
+    await until(() =>
+      (lastCanvasInit().manifest?.functions ?? []).some(
+        (fn) => fn.export === 'reschedule',
+      ),
+    );
+  });
+
+  /** Reading a project's code-behind is a type-check
+   *  of every file in it, so a canvas does it for
+   *  the project it is in and no other. */
+  it('leaves a canvas in another project alone', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    await openScanned(project);
+
+    const before = panel.posted.length;
+
+    coded.generated(join(project, 'elsewhere'));
+    for (let tries = 0; tries < 20; tries += 1) await settled();
+
+    expect(panel.posted).toHaveLength(before);
   });
 });
 

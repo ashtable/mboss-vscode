@@ -158,6 +158,7 @@ export function activate(context: ExtensionContext): void {
       preview,
       runs,
       editor,
+      watchers,
       (entry) => panel.note(entry),
     ),
     AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview),
