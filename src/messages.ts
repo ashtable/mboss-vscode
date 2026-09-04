@@ -802,8 +802,23 @@ export const messages = {
   }),
 
   canvasStrings: (): CanvasStrings => ({
+    /**
+     * The second half of this used to say the
+     * layout was deterministic and never
+     * hand-drawn. It was, once. A block can now be
+     * carried in from the rail, moved by hand and
+     * left where it was let go of, and the document
+     * keeps that coordinate — so the old sentence
+     * read as a promise the canvas breaks the first
+     * time somebody drags anything. What is still
+     * true is the half about orchestration, and
+     * what a person needs to know beside an Arrange
+     * button is that laying it out again is
+     * something they ask for rather than something
+     * that happens to them.
+     */
     caption: l10n.t(
-      'Workflow IR — source of truth for orchestration · layout is deterministic, never hand-drawn',
+      'Workflow IR — source of truth for orchestration · blocks stay where you put them',
     ),
     unreadable: l10n.t('This file is not a workflow document.'),
     canvas: l10n.t('Canvas'),

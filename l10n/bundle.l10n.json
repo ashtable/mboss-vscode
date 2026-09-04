@@ -170,7 +170,7 @@
   "Wait": "Wait",
   "Approval": "Approval",
   "Email": "Email",
-  "Workflow IR — source of truth for orchestration · layout is deterministic, never hand-drawn": "Workflow IR — source of truth for orchestration · layout is deterministic, never hand-drawn",
+  "Workflow IR — source of truth for orchestration · blocks stay where you put them": "Workflow IR — source of truth for orchestration · blocks stay where you put them",
   "This file is not a workflow document.": "This file is not a workflow document.",
   "Canvas": "Canvas",
   "JSON": "JSON",
