@@ -327,10 +327,12 @@ body.vscode-high-contrast-light {
 
 /* A wire carrying a run right now. The dashes march
    from source to target, which is the direction the
-   value is going. */
+   value is going. Two whole dashes of the 6/5
+   pattern the canvas draws them in, so the march
+   has no seam where the animation repeats. */
 @keyframes sig-edge-flow {
   to {
-    stroke-dashoffset: -16;
+    stroke-dashoffset: -22;
   }
 }
 

@@ -7,8 +7,11 @@ import { configToForm } from '../../src/canvas/inspector/forms.js';
 import {
   NODE_PALETTE,
   WorkflowIRSchema,
+  nodeSize,
+  starterNode,
   validateWorkflow,
   type LibManifest,
+  type NodeKind,
   type WorkflowIR,
 } from '../../src/core/rules.js';
 import type {
@@ -65,6 +68,7 @@ const canvasStrings: CanvasStrings = {
   blocks: 'Blocks',
   lib: '/lib · from manifest',
   noLib: 'Nothing scanned yet.',
+  unassigned: 'unassigned',
   typedWiring: 'Typed wiring',
   groups: {
     start: 'Start',
@@ -92,6 +96,54 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     preview: undefined,
     ...over,
   };
+}
+
+/**
+ * A block of every kind, in a column.
+ *
+ * The canonical fixture is a real workflow and so
+ * uses six of the ten kinds. Seeing that each kind
+ * draws its own glyph takes a document that holds
+ * them all, which no workflow anybody would write
+ * does.
+ */
+const everyKind = WorkflowIRSchema.parse({
+  $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+  version: 1,
+  revision: 1,
+  name: 'every_kind',
+  nodes: NODE_PALETTE.map((entry) =>
+    starterNode(entry.kind, slugOf(entry.kind), entry.label),
+  ),
+  edges: [],
+});
+
+const everyKindBoxes: CanvasInit['boxes'] = Object.fromEntries(
+  everyKind.nodes.map((node, index) => {
+    const { width, height } = nodeSize(node.kind);
+
+    return [node.id, { x: 0, y: index * 90, w: width, h: height }];
+  }),
+);
+
+/** A kind's id, written the way node ids are: a
+ *  lower-case slug, so `apiCall` is `api_call`. */
+function slugOf(kind: NodeKind): string {
+  return kind.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+}
+
+/** The column of every kind, on a page. */
+async function openEveryKind(page: Page) {
+  const harness = await mount(page, 'canvas');
+  await harness.show(
+    canvasInit({
+      document: { ok: true, ir: everyKind },
+      boxes: everyKindBoxes,
+      diagnostics: [],
+    }),
+  );
+
+  return harness;
 }
 
 const inspectorStrings: InspectorStrings = {
@@ -215,23 +267,6 @@ test.describe('the graph', () => {
   });
 
   /**
-   * The one kind that lands whole or not at all is
-   * still told apart, and now that is all it is:
-   * the registration marks the drawing used to
-   * carry are ornament, and the system draws none.
-   */
-  test('tells the transaction apart, without ornament', async ({ page }) => {
-    await openCanvas(page);
-
-    await expect(page.locator('[data-node-kind="transaction"]')).toHaveClass(
-      /block-transaction/,
-    );
-
-    await expect(page.locator('.blueprint')).toHaveCount(0);
-    await expect(page.locator('.corner')).toHaveCount(0);
-  });
-
-  /**
    * The two faces are vendored because a webview
    * cannot reach a font host: `font-src` is the
    * extension's own origin and nothing else. So a
@@ -267,14 +302,20 @@ test.describe('the graph', () => {
     );
   });
 
-  test('labels each wire with the type flowing along it', async ({ page }) => {
+  /**
+   * Which outcome a wire carries is worth reading
+   * where a block has more than one; on a graph
+   * where every block has one way out it would be
+   * eleven wires wearing the word `out`.
+   */
+  test('names the port a wire leaves by, where there was a choice', async ({
+    page,
+  }) => {
     await openCanvas(page);
 
-    for (const edge of ir.edges) {
-      await expect(page.locator(`[data-edge-label="${edge.id}"]`)).toHaveText(
-        edge.type!,
-      );
-    }
+    await expect(page.locator('[data-edge-port="e9"]')).toHaveText('book_it');
+    await expect(page.locator('[data-edge-port="e4"]')).toHaveText('yes');
+    await expect(page.locator('[data-edge-port="e2"]')).toHaveCount(0);
   });
 
   test('draws the loop-closing wire against the flow', async ({ page }) => {
@@ -286,6 +327,170 @@ test.describe('the graph', () => {
     await expect(
       page.locator('.react-flow__edge[data-id="e7"] .wire-back'),
     ).toHaveCount(0);
+  });
+
+  /**
+   * A marker is referenced by id, so a wire whose
+   * id names nothing draws a line with no head on
+   * it and says nothing about that at all. The
+   * state comes back off the same element, because
+   * everything a run will colour hangs off it.
+   */
+  test('points each wire at the block it feeds', async ({ page }) => {
+    await openCanvas(page);
+
+    const drawn = await page
+      .locator('.react-flow__edge[data-id="e2"] .wire')
+      .evaluate((wire) => ({
+        marker: wire.getAttribute('marker-end'),
+        state: wire.getAttribute('data-state'),
+      }));
+
+    expect(drawn).toEqual({
+      marker: 'url(#wire-arrow-idle)',
+      state: 'idle',
+    });
+    await expect(page.locator('#wire-arrow-idle')).toBeAttached();
+  });
+});
+
+/**
+ * A block says four things and no more: what kind
+ * it is, what it is called, which code runs there,
+ * and what is happening to it. Everything the
+ * drawing used to carry beside those — the id, the
+ * config lines, the type chip on every wire, a
+ * square at every port — was detail a person
+ * reading a canvas across a room cannot use.
+ */
+test.describe('one block', () => {
+  test('wears a glyph of its own kind, and no kind wears two', async ({
+    page,
+  }) => {
+    await openEveryKind(page);
+
+    const glyphs = await page
+      .locator('.node-icon svg')
+      .evaluateAll((icons) =>
+        icons.map((icon) =>
+          [...icon.querySelectorAll('path')]
+            .map((path) => path.getAttribute('d'))
+            .join(' '),
+        ),
+      );
+
+    expect(glyphs).toHaveLength(NODE_PALETTE.length);
+    expect(new Set(glyphs).size).toBe(NODE_PALETTE.length);
+  });
+
+  test('names the function it runs', async ({ page }) => {
+    await openCanvas(page);
+
+    await expect(nodeLine(page, 'parse_request')).toHaveText('ƒ parseRequest');
+  });
+
+  test('says a block that runs code of its own has none yet', async ({
+    page,
+  }) => {
+    await openEveryKind(page);
+
+    await expect(nodeLine(page, 'step')).toHaveText('Step · unassigned');
+    await expect(nodeLine(page, 'branch')).toHaveText('Branch · unassigned');
+  });
+
+  test('says only what a block that runs no code of its own is', async ({
+    page,
+  }) => {
+    await openEveryKind(page);
+
+    await expect(nodeLine(page, 'trigger')).toHaveText('Trigger');
+    await expect(nodeLine(page, 'loop')).toHaveText('Loop');
+  });
+
+  test('carries nothing else — no id, no config, no type chips', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    const node = page.locator('.react-flow__node[data-id="find_slot"]');
+
+    await expect(node.locator('p')).toHaveText([
+      'Find open slot',
+      'ƒ findSlot',
+    ]);
+
+    await expect(page.locator('.wire-label')).toHaveCount(0);
+  });
+
+  /**
+   * Connecting is a drag from a port, so the ports
+   * have to be there — out of sight until the
+   * pointer is on the block that owns them, or
+   * until a wire is already being drawn.
+   */
+  test('keeps its ports out of sight until they are wanted', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    const handle = sourceHandle(page, 'find_slot', 'out');
+
+    await expect(handle).toHaveCSS('opacity', '0');
+    await expect(handle).toHaveCSS('border-radius', '50%');
+
+    await page.locator('.react-flow__node[data-id="find_slot"]').hover();
+    await expect(handle).toHaveCSS('opacity', '1');
+  });
+
+  /**
+   * Every port on the canvas, not only the ones
+   * under the pointer: mid-drag a person is looking
+   * for somewhere to land, and a target that only
+   * appears once it is already hovered is one they
+   * have to find blind.
+   */
+  test('shows every port while a wire is being drawn', async ({ page }) => {
+    await openCanvas(page);
+
+    const landing = targetHandle(page, 'book_appointment');
+    await expect(landing).toHaveCSS('opacity', '0');
+
+    const from = (await sourceHandle(page, 'find_slot', 'out').boundingBox())!;
+
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + 40, from.y + 40, { steps: 4 });
+
+    await expect(landing).toHaveCSS('opacity', '1');
+
+    await page.mouse.up();
+  });
+
+  test('is drawn as proposed while an agent is asking for it', async ({
+    page,
+  }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(
+      canvasInit({
+        preview: {
+          headline: 'PREVIEW',
+          banner: undefined,
+          warning: undefined,
+          proposed: ['await_reply'],
+          named: ['Wait for SMS reply'],
+          more: undefined,
+        },
+      }),
+    );
+
+    await expect(nodeBody(page, 'await_reply')).toHaveAttribute(
+      'data-state',
+      'proposed',
+    );
+    await expect(nodeBody(page, 'find_slot')).toHaveAttribute(
+      'data-state',
+      'dormant',
+    );
   });
 });
 
@@ -401,9 +606,14 @@ test.describe('selecting a block', () => {
     const harness = await mount(page, 'canvas');
     await harness.show(canvasInit({ selected: 'find_slot' }));
 
-    await expect(
-      page.locator('.react-flow__node[data-id="find_slot"] .block'),
-    ).toHaveAttribute('data-selected', 'true');
+    await expect(nodeBody(page, 'find_slot')).toHaveAttribute(
+      'data-state',
+      'selected',
+    );
+    await expect(nodeBody(page, 'parse_request')).toHaveAttribute(
+      'data-state',
+      'dormant',
+    );
   });
 });
 
@@ -541,6 +751,17 @@ test.describe('the built bundles', () => {
 });
 
 /* — driving the page — */
+
+/** The block itself, inside the wrapper the graph
+ *  library positions. */
+function nodeBody(page: Page, node: string): Locator {
+  return page.locator(`.react-flow__node[data-id="${node}"] .node`);
+}
+
+/** The one mono line under a block's title. */
+function nodeLine(page: Page, node: string): Locator {
+  return nodeBody(page, node).locator('.node-line');
+}
 
 function sourceHandle(page: Page, node: string, port: string): Locator {
   return page.locator(

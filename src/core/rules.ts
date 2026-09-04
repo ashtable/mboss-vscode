@@ -34,6 +34,7 @@ export {
   carryPositions,
   nextEdgeId,
   portsOf,
+  starterNode,
   withoutPositions,
 } from '../../mboss-core/src/ir/index.js';
 
@@ -58,6 +59,7 @@ export type { Diagnostic } from '../../mboss-core/src/validate/index.js';
 // because the barrel beside it pulls in the whole
 // rule set to answer a question about one node.
 export {
+  HANDLER_KINDS,
   decisionValues,
   handlerFit,
 } from '../../mboss-core/src/validate/handler-fit.js';

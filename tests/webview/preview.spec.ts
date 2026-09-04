@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
   NODE_PALETTE,
@@ -67,6 +67,7 @@ const canvasStrings: CanvasStrings = {
   blocks: 'Blocks',
   lib: '/lib · from manifest',
   noLib: 'Nothing scanned yet.',
+  unassigned: 'unassigned',
   typedWiring: 'Typed wiring',
   groups: {
     start: 'Start',
@@ -219,33 +220,33 @@ test.describe('the canvas in preview', () => {
     await openCanvas(page);
 
     for (const id of PROPOSED) {
-      await expect(
-        page.locator(`.react-flow__node[data-id="${id}"] .block`),
-      ).toHaveAttribute('data-proposed', 'true');
+      await expect(nodeBody(page, id)).toHaveAttribute(
+        'data-state',
+        'proposed',
+      );
     }
 
-    await expect(
-      page.locator('.react-flow__node[data-id="find_slot"] .block'),
-    ).not.toHaveAttribute('data-proposed', 'true');
+    await expect(nodeBody(page, 'find_slot')).toHaveAttribute(
+      'data-state',
+      'dormant',
+    );
 
     // Dashed and see-through: the plotting grid
     // shows faintly through a block that is not
     // there yet.
-    const style = await page
-      .locator('.react-flow__node[data-id="twilio_chat"] .block')
-      .evaluate((block) => {
-        const found = getComputedStyle(block);
+    const style = await nodeBody(page, 'twilio_chat').evaluate((block) => {
+      const found = getComputedStyle(block);
 
-        return {
-          border: found.borderTopStyle,
-          background: found.backgroundColor,
-        };
-      });
+      return {
+        border: found.borderTopStyle,
+        background: found.backgroundColor,
+      };
+    });
 
     expect(style.border).toBe('dashed');
     // However the browser chose to write the
     // colour, the alpha is the part that matters.
-    expect(style.background).toContain('0.82');
+    expect(style.background).toContain('0.72');
   });
 
   test('names the first few blocks and counts the rest', async ({ page }) => {
@@ -307,11 +308,18 @@ test.describe('the canvas in preview', () => {
     await harness.show(canvasInit({ preview: undefined }));
 
     await expect(page.locator('[data-preview-banner]')).toHaveCount(0);
-    await expect(
-      page.locator('.react-flow__node[data-id="twilio_chat"] .block'),
-    ).not.toHaveAttribute('data-proposed', 'true');
+    await expect(nodeBody(page, 'twilio_chat')).toHaveAttribute(
+      'data-state',
+      'dormant',
+    );
   });
 });
+
+/** The block itself, inside the wrapper the graph
+ *  library positions. */
+function nodeBody(page: Page, node: string): Locator {
+  return page.locator(`.react-flow__node[data-id="${node}"] .node`);
+}
 
 test.describe('the panel, with a proposal outstanding', () => {
   test('offers to apply it, and to ask for something else', async ({

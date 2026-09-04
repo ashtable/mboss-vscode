@@ -142,6 +142,10 @@ export type CanvasStrings = {
    *  there is no manifest. */
   noLib: string;
 
+  /** Follows the kind on a block that runs code
+   *  nobody has named yet. */
+  unassigned: string;
+
   /** Titles the rejection callout. */
   typedWiring: string;
 };

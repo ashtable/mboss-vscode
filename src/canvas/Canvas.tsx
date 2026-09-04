@@ -13,9 +13,9 @@ import type { Diagnostic, WorkflowIR } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
 
-import { Block } from './Block.js';
+import { Node } from './Node.js';
 import { Palette } from './Palette.js';
-import { Wire } from './Wire.js';
+import { Wire, WireMarkers } from './Wire.js';
 import { toReactFlow, type CanvasEdge } from './graph.js';
 import { checkCandidateEdge } from './wiring.js';
 
@@ -30,26 +30,25 @@ import '@xyflow/react/dist/style.css';
  * screen. This file decides only how those look
  * and what a person's gestures mean.
  *
- * Positions are the layout's and are not
- * persisted — the document has no coordinate
- * fields at all — so blocks do not drag. Moving
- * one would be a change a person could see and the
- * file could not hold.
+ * Every block is where the layout put it, and
+ * blocks do not drag yet: nothing here writes a
+ * position back, so a block a person moved would
+ * spring back the next time the document was read.
  */
 
 /** Defined once. React Flow remounts every node
  *  when this object changes identity. */
 const nodeTypes: NodeTypes = {
-  trigger: Block,
-  step: Block,
-  transaction: Block,
-  apiCall: Block,
-  branch: Block,
-  loop: Block,
-  durableWait: Block,
-  approval: Block,
-  emailSend: Block,
-  codeStep: Block,
+  trigger: Node,
+  step: Node,
+  transaction: Node,
+  apiCall: Node,
+  branch: Node,
+  loop: Node,
+  durableWait: Node,
+  approval: Node,
+  emailSend: Node,
+  codeStep: Node,
 };
 
 const edgeTypes: EdgeTypes = { wire: Wire };
@@ -136,17 +135,21 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
   const editable = preview === undefined;
 
   const { nodes, edges } = useMemo(
-    () => toReactFlow(ir, init.boxes, preview?.proposed),
-    [ir, init.boxes, preview?.proposed],
-  );
-
-  const drawn = useMemo(
     () =>
-      nodes.map((node) => ({
-        ...node,
-        selected: node.id === init.selected,
-      })),
-    [nodes, init.selected],
+      toReactFlow(ir, init.boxes, {
+        labels: init.paletteLabels,
+        unassigned: init.strings.unassigned,
+        proposed: preview?.proposed,
+        selected: init.selected,
+      }),
+    [
+      ir,
+      init.boxes,
+      init.paletteLabels,
+      init.strings.unassigned,
+      preview?.proposed,
+      init.selected,
+    ],
   );
 
   /**
@@ -180,8 +183,10 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
       {preview === undefined ? null : <Banner preview={preview} />}
 
       <div className="graph-flow">
+        <WireMarkers />
+
         <ReactFlow
-          nodes={drawn}
+          nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}

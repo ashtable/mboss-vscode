@@ -721,6 +721,12 @@ export const messages = {
     blocks: l10n.t('Blocks'),
     lib: l10n.t('/lib · from manifest'),
     noLib: l10n.t('No code-behind has been scanned yet.'),
+
+    // Follows the kind — `Step · unassigned` —
+    // rather than standing alone, which is why it
+    // is lowercase and why it is one word.
+    unassigned: l10n.t('unassigned'),
+
     typedWiring: l10n.t('Typed wiring'),
     groups: {
       start: l10n.t('Start'),
