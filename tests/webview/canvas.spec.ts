@@ -221,7 +221,7 @@ const inspectorStrings: InspectorStrings = {
     },
     transaction: {
       title: 'One commit.',
-      body: 'The writes and the step record land together.',
+      body: 'The writes and the record of them land together.',
     },
   },
 };

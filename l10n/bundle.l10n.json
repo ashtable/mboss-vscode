@@ -291,7 +291,7 @@
   "Branches own no code.": "Branches own no code.",
   "The Lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph.": "The Lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph.",
   "One commit.": "One commit.",
-  "The function’s table writes and DBOS’s step-completion record land in the same Postgres transaction. Crash mid-step: neither happened; recovery re-runs it exactly once.": "The function’s table writes and DBOS’s step-completion record land in the same Postgres transaction. Crash mid-step: neither happened; recovery re-runs it exactly once.",
+  "The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.": "The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.",
   "logic": "logic",
   "database": "database"
 }

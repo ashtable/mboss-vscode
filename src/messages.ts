@@ -868,10 +868,18 @@ export const messages = {
           'The Lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph.',
         ),
       },
+      // Which record commits with the writes is the
+      // whole point, and it is not the step's. A
+      // step's completion is recorded in the system
+      // database, which is a different database and
+      // so a different transaction. What rides along
+      // with the writes is the datasource's own
+      // completion row, in the app's Postgres — the
+      // one the row beside this callout names.
       transaction: {
         title: l10n.t('One commit.'),
         body: l10n.t(
-          'The function’s table writes and DBOS’s step-completion record land in the same Postgres transaction. Crash mid-step: neither happened; recovery re-runs it exactly once.',
+          'The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.',
         ),
       },
     },
