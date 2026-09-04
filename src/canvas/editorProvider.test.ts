@@ -369,6 +369,45 @@ describe('an edit from the panel', () => {
 
     expect(recorded.written).toHaveLength(0);
   });
+
+  /**
+   * Every edit the panel can make, not only the one
+   * above.
+   *
+   * The base revision is the whole of what keeps an
+   * edit made against a graph nobody is looking at
+   * any more from landing on the graph they are. A
+   * handler that wrote to the document directly
+   * rather than through the door that checks would
+   * pass every other test in this file, because
+   * every other test sends the revision that is
+   * current — so this one sends the revision before
+   * it, once per kind of edit.
+   */
+  describe('made against a graph that has moved on', () => {
+    const edits = {
+      addNode: { type: 'addNode', kind: 'step', position: { x: 8, y: 8 } },
+      move: { type: 'move', positions: { find_slot: { x: 8, y: 8 } } },
+      arrange: { type: 'arrange' },
+      deleteNode: { type: 'deleteNode', nodeId: 'find_slot' },
+      disconnect: { type: 'disconnect', edgeId: 'e9' },
+      connect: {
+        type: 'connect',
+        from: { node: 'find_slot', port: 'out' },
+        to: { node: 'book_appointment' },
+      },
+    };
+
+    for (const [kind, edit] of Object.entries(edits)) {
+      it(`says so rather than writing what ${kind} asked for`, async () => {
+        panel.send({ ...edit, view: 'canvas', baseRevision: ir.revision - 1 });
+        await settled();
+
+        expect(recorded.written).toEqual([]);
+        expect(recorded.told).toEqual([messages.canvasEditStale()]);
+      });
+    }
+  });
 });
 
 describe('a change from anywhere else', () => {
