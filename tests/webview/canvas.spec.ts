@@ -7,6 +7,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { DIST } from '../../src/build.js';
 
 import { layoutKeyOf } from '../../src/canvas/graph.js';
+import { GRID } from '../../src/canvas/grid.js';
 import { configToForm } from '../../src/canvas/inspector/forms.js';
 import {
   NODE_PALETTE,
@@ -367,13 +368,35 @@ test.describe('the graph', () => {
     }
   });
 
-  test('is plotted on a dot grid', async ({ page }) => {
+  /**
+   * At the spacing a block lands on, not at one of
+   * its own. Dots a block never comes to rest on
+   * are a grid a person cannot use to line anything
+   * up, which is worse than no grid at all.
+   *
+   * Read back through the zoom, because the pattern
+   * is painted in screen pixels and the grid is a
+   * fact about the graph's own coordinates.
+   */
+  test('is plotted on the dot grid a block lands on', async ({ page }) => {
     await openCanvas(page);
 
     await expect(page.locator('.react-flow__background')).toBeVisible();
     await expect(
       page.locator('.react-flow__background pattern circle').first(),
     ).toBeAttached();
+
+    const painted = Number(
+      await page
+        .locator('.react-flow__background pattern')
+        .first()
+        .getAttribute('width'),
+    );
+
+    // To the pixel, because the zoom is read back
+    // out of a transform the browser has already
+    // rounded to write it down.
+    expect(Math.round(painted / (await zoom(page)))).toBe(GRID);
   });
 
   /**
@@ -2162,6 +2185,18 @@ async function rubberBand(page: Page, ids: string[]): Promise<void> {
   await expect(page.locator('.react-flow__node.selected')).toHaveCount(
     ids.length,
   );
+}
+
+/** How far the graph is zoomed in, read off the
+ *  transform the library sets. */
+async function zoom(page: Page): Promise<number> {
+  return await page.evaluate(() => {
+    const viewport = document.querySelector(
+      '.react-flow__viewport',
+    ) as HTMLElement;
+
+    return Number(/scale\(([\d.]+)\)/.exec(viewport.style.transform)![1]);
+  });
 }
 
 /** Where the graph library put a node, in the

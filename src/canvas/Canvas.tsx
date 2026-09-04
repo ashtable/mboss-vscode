@@ -26,6 +26,7 @@ import { Palette } from './Palette.js';
 import { Wire, WireMarkers } from './Wire.js';
 import { NODE_KIND, carries } from './dragging.js';
 import { toReactFlow, type CanvasEdge, type CanvasNode } from './graph.js';
+import { GRID } from './grid.js';
 import { Inspector } from './inspector/Inspector.js';
 import { checkCandidateEdge } from './wiring.js';
 
@@ -416,7 +417,7 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
               : undefined
           }
         >
-          <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+          <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
         </ReactFlow>
       </div>
 
