@@ -83,10 +83,11 @@ describe('the shipped assets', () => {
  *
  * The server's repository nests the skill and runs
  * this check against the copy *it* pins, which is
- * why it is repeated here: this extension ships a
- * different, later revision of the skill beside
- * that server's bundle, and a check of somebody
- * else's pin says nothing about this pair. A skill
+ * why it is repeated here: the skill beside that
+ * bundle is the one *this* repository pins, and
+ * the two have disagreed before. A check of
+ * somebody else's pin says nothing about the pair
+ * that actually ships together. A skill
  * naming a tool the bundle does not register is an
  * agent calling into nothing, with the failure
  * arriving as far from here as it is possible to

@@ -35,19 +35,22 @@ describe('the nested library', () => {
  * And the two the extension ships copies of.
  *
  * The server's repository nests the skill as well,
- * so one pin would have done — except that its
- * gitlink sits on an older revision than the
- * skill's own released branch, and vendoring
- * through it ships a skill missing a reference file
- * and carrying two rules its author has since
- * corrected. Two pins, named here, and the tool
- * surface they have to agree on is asserted where
- * the assets are read.
+ * so one pin looks as though it would have done.
+ * It would not. Which skill this extension ships
+ * would then be whatever somebody else's gitlink
+ * happened to say, and a bump of the server can
+ * carry the skill backwards as readily as
+ * forwards — which is how the two came to disagree
+ * once already, over a reference file and two
+ * rules the skill's author had since corrected.
+ * Naming both makes the pair a decision taken
+ * here, and the tool surface they have to agree on
+ * is asserted where the assets are read.
  */
 describe('the vendored control plane', () => {
   it('takes the server from its released branch', () => {
     expect(gitmodules).toMatch(/^\s*path = mboss-mcp-server$/m);
-    expect(gitmodules).toMatch(/^\s*branch = mcp-server-v0\.0\.1$/m);
+    expect(gitmodules).toMatch(/^\s*branch = mcp-server-v0\.0\.2$/m);
   });
 
   it('takes the skill from its own released branch', () => {
