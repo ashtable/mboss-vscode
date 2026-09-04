@@ -2,10 +2,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fakeWebview, type FakeWebview } from '../../test/doubles/webview.js';
 import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
+import { messages } from '../messages.js';
 import { previewStore, type PreviewStore } from '../preview/store.js';
 import { makeProject, writeWorkflow } from '../test-support/project.js';
 import { fileExists } from '../test-support/repo.js';
@@ -89,6 +90,36 @@ function fakeDocument(
   const uri = { path, fsPath: path, toString: () => `file://${path}` };
 
   return { uri, getText: () => contents } as never;
+}
+
+/**
+ * A document that keeps what was written to it.
+ *
+ * The canvas writes through `replaceDocument` and
+ * reads the file again when VS Code says it
+ * changed, so anything about what the canvas does
+ * *after* a write needs a document that remembers
+ * one.
+ */
+function livingDocument(contents = text) {
+  const path = '/project/.mboss/workflows/groom_booking.workflow.json';
+  const uri = { path, fsPath: path, toString: () => `file://${path}` };
+
+  let says = contents;
+  const document = { uri, getText: () => says } as never;
+
+  return {
+    document,
+
+    /** What VS Code does once a write lands: the
+     *  file says the new thing, and every panel
+     *  showing it is told. */
+    saved: async () => {
+      says = recorded.written.at(-1)!.text;
+      recorded.change(document);
+      await settled();
+    },
+  };
 }
 
 const extensionUri = { path: '/ext' } as never;
@@ -182,6 +213,14 @@ function lastCanvasInit(): CanvasInit {
 
 beforeEach(async () => {
   await open();
+});
+
+// The provider keeps a handle on every open canvas
+// so a command can find the one in front of
+// somebody, and a panel nobody closed would still be
+// in front of somebody in the next test.
+afterEach(() => {
+  panel.close();
 });
 
 describe('opening a workflow', () => {
@@ -565,7 +604,9 @@ describe('assigning a function to a block', () => {
  * anyway is refused here too.
  */
 describe('a proposal about the document on screen', () => {
-  it('takes the canvas over, and nothing on it edits', async () => {
+  /** The canvas over a workflow an agent has asked
+   *  to rewrite. */
+  async function openProposed(): Promise<void> {
     const project = await makeProject();
     const path = writeWorkflow(project, 'groom_booking');
 
@@ -579,6 +620,10 @@ describe('a proposal about the document on screen', () => {
     await preview.reloadAll();
 
     await open(fakeDocument(readFileSync(path, 'utf8'), path), preview);
+  }
+
+  it('takes the canvas over, and nothing on it edits', async () => {
+    await openProposed();
 
     const init = lastCanvasInit();
 
@@ -593,6 +638,22 @@ describe('a proposal about the document on screen', () => {
 
     expect(recorded.written).toEqual([]);
     expect(lastCanvasInit().inspector.selected).toBeUndefined();
+  });
+
+  /**
+   * The panel refuses an edit too, but a command has
+   * no panel to be refused by — and what is on screen
+   * is a draft, so laying it out again would put
+   * content nobody approved into the file.
+   */
+  it('cannot be arranged from the command either', async () => {
+    await openProposed();
+    panel.focus();
+
+    WorkflowCanvasEditor.active()?.arrange();
+    await settled();
+
+    expect(recorded.written).toEqual([]);
   });
 });
 
@@ -669,6 +730,283 @@ describe('opening a workflow in a trusted window', () => {
 
     await until(() => lastCanvasInit().manifest !== undefined);
     expect(fileExists(join(project, '.mboss', 'manifest.json'))).toBe(true);
+  });
+});
+
+/**
+ * Where the blocks sit, which is a fact about the
+ * document rather than about the panel drawing it.
+ *
+ * A person's first move pins the whole graph: the
+ * canvas writes a position for every node, not only
+ * the one that was touched, so a document is either
+ * fully placed or not placed at all. The one case in
+ * between — an agent adding a block to a document
+ * somebody has arranged — is core's to answer, and
+ * the canvas must not answer it a second way by
+ * pinning over the top.
+ */
+describe('placing blocks by hand', () => {
+  /** The document as the canvas wrote it. */
+  function wrote(index = 0): WorkflowIR {
+    expect(recorded.written.length).toBeGreaterThan(index);
+
+    return WorkflowIRSchema.parse(JSON.parse(recorded.written[index]!.text));
+  }
+
+  /** Where a node ended up, in the document that was
+   *  written. */
+  function placed(written: WorkflowIR, id: string) {
+    return written.nodes.find((node) => node.id === id)?.position;
+  }
+
+  function addStep(position = { x: 320, y: 480 }): void {
+    panel.send({
+      type: 'addNode',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      kind: 'step',
+      position,
+    });
+  }
+
+  it('writes the block that was dropped in, where it was dropped', async () => {
+    addStep();
+    await settled();
+
+    const added = wrote().nodes.at(-1)!;
+
+    expect(added.id).toBe('step');
+    expect(added.kind).toBe('step');
+    expect(added.title).toBe(messages.paletteLabels().step);
+    expect(added.position).toEqual({ x: 320, y: 480 });
+  });
+
+  it('pins every other block to the box it was drawn with', async () => {
+    const { boxes } = lastCanvasInit();
+
+    addStep();
+    await settled();
+
+    const written = wrote();
+
+    for (const node of ir.nodes) {
+      expect(placed(written, node.id)).toEqual({
+        x: boxes[node.id]!.x,
+        y: boxes[node.id]!.y,
+      });
+    }
+  });
+
+  /** Somebody has arranged this graph and an agent
+   *  has added a block to it since. Core parks the
+   *  unplaced one; pinning it here would be a second
+   *  answer to the same question. */
+  it('leaves a half-placed document to core', async () => {
+    const halfPlaced = {
+      ...ir,
+      nodes: ir.nodes.map((node) =>
+        node.id === 'find_slot' ? node : { ...node, position: { x: 0, y: 0 } },
+      ),
+    };
+
+    await open(fakeDocument(JSON.stringify(halfPlaced)));
+
+    addStep();
+    await settled();
+
+    expect(placed(wrote(), 'find_slot')).toBeUndefined();
+  });
+
+  it('shows the block it just added', async () => {
+    const file = livingDocument();
+    await open(file.document);
+
+    addStep();
+    await file.saved();
+
+    expect(lastCanvasInit().inspector.selected?.node.id).toBe('step');
+  });
+
+  it('writes every position a move carries, and pins the rest', async () => {
+    const { boxes } = lastCanvasInit();
+
+    panel.send({
+      type: 'move',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      positions: { find_slot: { x: 140, y: 260 } },
+    });
+    await settled();
+
+    const written = wrote();
+
+    expect(placed(written, 'find_slot')).toEqual({ x: 140, y: 260 });
+    expect(placed(written, 'parse_request')).toEqual({
+      x: boxes['parse_request']!.x,
+      y: boxes['parse_request']!.y,
+    });
+  });
+
+  it('lets go of every position when the graph is arranged', async () => {
+    const file = livingDocument();
+    await open(file.document);
+
+    addStep();
+    await file.saved();
+
+    panel.send({
+      type: 'arrange',
+      view: 'canvas',
+      baseRevision: ir.revision + 1,
+    });
+    await settled();
+
+    expect(wrote(1).nodes.map((node) => node.position)).toEqual(
+      wrote(1).nodes.map(() => undefined),
+    );
+  });
+
+  /**
+   * The command does what the toolbar button does,
+   * on the canvas a person is looking at — which is
+   * the only one it could sensibly mean.
+   */
+  it('arranges from the command, on the canvas in front of somebody', async () => {
+    const file = livingDocument();
+    await open(file.document);
+    panel.focus();
+
+    addStep();
+    await file.saved();
+
+    WorkflowCanvasEditor.active()?.arrange();
+    await settled();
+
+    expect(wrote(1).nodes.every((node) => node.position === undefined)).toBe(
+      true,
+    );
+  });
+
+  it('is no canvas at all once the tab is closed', async () => {
+    panel.focus();
+    panel.close();
+
+    expect(WorkflowCanvasEditor.active()).toBeUndefined();
+  });
+});
+
+/**
+ * Deleting, which the document does and the canvas
+ * does not.
+ *
+ * React Flow would happily drop a node out of its
+ * own copy and leave the file holding a workflow
+ * nobody asked for, so the key posts a message and
+ * the picture changes when the document does.
+ */
+describe('deleting through the document', () => {
+  function written(): WorkflowIR {
+    expect(recorded.written).toHaveLength(1);
+
+    return WorkflowIRSchema.parse(JSON.parse(recorded.written[0]!.text));
+  }
+
+  it('bridges the gap a deleted block leaves', async () => {
+    panel.send({
+      type: 'deleteNode',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      nodeId: 'record_booking',
+    });
+    await settled();
+
+    const after = written();
+
+    expect(after.nodes.map((node) => node.id)).not.toContain('record_booking');
+    expect(after.edges).toContainEqual(
+      expect.objectContaining({
+        from: { node: 'book_appointment', port: 'out' },
+        to: { node: 'send_confirmation' },
+      }),
+    );
+  });
+
+  it('says nothing about a block the document does not have', async () => {
+    panel.send({
+      type: 'deleteNode',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      nodeId: 'no_such_node',
+    });
+    await settled();
+
+    expect(recorded.written).toEqual([]);
+  });
+
+  it('removes only the wire it was told to', async () => {
+    panel.send({
+      type: 'disconnect',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      edgeId: 'e9',
+    });
+    await settled();
+
+    expect(written().edges.map((edge) => edge.id)).toEqual(
+      ir.edges.filter((edge) => edge.id !== 'e9').map((edge) => edge.id),
+    );
+  });
+});
+
+/**
+ * When the panel throws away the nodes it is holding
+ * and takes the host's.
+ *
+ * It has to hold its own once a person can drag one:
+ * a message arriving mid-drag would put the node back
+ * where the document still says it is. So the host
+ * says which layout this is, and everything that is
+ * not the layout — a selection, a manifest finishing
+ * — leaves that key alone and is patched in.
+ */
+describe('the layout the panel is drawing', () => {
+  it('keeps its key while only the selection moves', async () => {
+    const before = lastCanvasInit().layoutKey;
+
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
+    await settled();
+
+    expect(lastCanvasInit().layoutKey).toBe(before);
+  });
+
+  it('keeps its key while the code-behind is being read', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+
+    await open(fakeDocument(readFileSync(path, 'utf8'), path));
+    const before = lastCanvasInit().layoutKey;
+
+    await until(() => lastCanvasInit().manifest !== undefined);
+
+    expect(lastCanvasInit().layoutKey).toBe(before);
+  });
+
+  it('takes a new key once a block has been moved', async () => {
+    const file = livingDocument();
+    await open(file.document);
+
+    const before = lastCanvasInit().layoutKey;
+
+    panel.send({
+      type: 'move',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      positions: { find_slot: { x: 140, y: 260 } },
+    });
+    await file.saved();
+
+    expect(lastCanvasInit().layoutKey).not.toBe(before);
   });
 });
 

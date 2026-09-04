@@ -34,6 +34,11 @@ const noRunWorkflow = (): Promise<void> => {
   throw new Error('this command should not have started a run');
 };
 
+/** The same, for laying a graph out again. */
+const noArrange = (): Promise<void> => {
+  throw new Error('this command should not have arranged anything');
+};
+
 /** An editor that only records what it was asked. */
 function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
   const shown: string[] = [];
@@ -74,6 +79,7 @@ describe('the contributed commands', () => {
           noStack,
           noStack,
           noRunWorkflow,
+          noArrange,
         ),
       ).sort(),
     ).toEqual([...contributed].sort());
@@ -95,6 +101,7 @@ describe('the contributed commands', () => {
       async () => void asked.push('start stack'),
       async () => void asked.push('stop stack'),
       async () => void asked.push('run workflow'),
+      async () => void asked.push('arrange workflow'),
     );
 
     await handlers['mboss.newProject']?.();
@@ -103,6 +110,7 @@ describe('the contributed commands', () => {
     await handlers['mboss.startStack']?.();
     await handlers['mboss.stopStack']?.();
     await handlers['mboss.runWorkflow']?.();
+    await handlers['mboss.arrangeWorkflow']?.();
 
     expect(asked).toEqual([
       'new project',
@@ -111,6 +119,7 @@ describe('the contributed commands', () => {
       'start stack',
       'stop stack',
       'run workflow',
+      'arrange workflow',
     ]);
   });
 
@@ -131,6 +140,7 @@ describe('the contributed commands', () => {
       async () => void asked.push('start'),
       async () => void asked.push('stop'),
       noRunWorkflow,
+      noArrange,
     );
 
     await handlers['_mboss.startStack#sideBar']?.();
@@ -151,6 +161,7 @@ describe('the contributed commands', () => {
       noStack,
       noStack,
       noRunWorkflow,
+      noArrange,
     )['mboss.openAgentSidebar']?.();
 
     expect(api.ran).toEqual(['mboss.agentSidebar.focus']);
@@ -174,6 +185,7 @@ describe('the contributed commands', () => {
       noStack,
       noStack,
       noRunWorkflow,
+      noArrange,
     )['mboss.openRuns']?.();
 
     expect(api.ran).toEqual(['mboss.runs.focus']);
@@ -199,6 +211,7 @@ describe('generating code', () => {
       noStack,
       noStack,
       noRunWorkflow,
+      noArrange,
     )['mboss.generateCode']?.();
 
     return api.shown;

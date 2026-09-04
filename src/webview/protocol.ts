@@ -71,6 +71,20 @@ export type CanvasInit = {
    *  could not be read. */
   boxes: Record<string, NodeBox>;
 
+  /**
+   * Which picture this is: the document and the
+   * layout it is drawn in, as one string.
+   *
+   * The canvas holds its own nodes once a person can
+   * drag one — a message arriving mid-drag would put
+   * the block back where the document still says it
+   * is — so it takes the host's nodes back only when
+   * this changes. A selection, a manifest that
+   * finished scanning and a run's progress leave it
+   * alone and are patched in.
+   */
+  layoutKey: string;
+
   /** What core makes of the document as it
    *  stands. */
   diagnostics: Diagnostic[];
@@ -148,6 +162,10 @@ export type CanvasStrings = {
 
   /** Titles the rejection callout. */
   typedWiring: string;
+
+  /** The toolbar button that lays the graph out
+   *  again. */
+  arrange: string;
 
   /** `dragging {0}…`, over a function on its way to
    *  a block. */

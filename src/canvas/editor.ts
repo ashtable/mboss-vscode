@@ -20,11 +20,17 @@ import {
 import {
   NodeSchema,
   decisionValues,
+  deleteNode,
   handlerFit,
+  starterId,
+  starterNode,
   withDecisionCases,
+  withoutPositions,
   type LibFunction,
   type LibManifest,
   type NodeBox,
+  type NodeKind,
+  type Position,
   type WorkflowIR,
   type WorkflowNode,
 } from '../core/rules.js';
@@ -41,6 +47,7 @@ import type {
   DecisionOutcome,
 } from '../webview/protocol.js';
 
+import { layoutKeyOf } from './graph.js';
 import { configToForm } from './inspector/forms.js';
 import { misfitNote } from './misfit.js';
 import { wireBetween } from './wiring.js';
@@ -88,6 +95,20 @@ export type CanvasTrust = {
 export class WorkflowCanvasEditor implements CustomTextEditorProvider {
   static readonly viewType = 'mboss.workflowCanvas';
 
+  /**
+   * Every canvas that is open, so a command can find
+   * the one it is about.
+   *
+   * A command runs from the palette with no argument
+   * and no idea which tab is in front of anybody, and
+   * a workflow is edited in a panel rather than in a
+   * `TextEditor` the platform would hand over. So the
+   * panels say who they are, and the platform's own
+   * `active` flag answers which of them a person is
+   * looking at.
+   */
+  private static readonly open = new Map<WebviewPanel, CanvasSession>();
+
   constructor(
     private readonly extensionUri: Uri,
     private readonly api: VsCodeApi,
@@ -108,6 +129,16 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     );
   }
 
+  /** The canvas a person is looking at, if one is on
+   *  screen. */
+  static active(): CanvasSession | undefined {
+    for (const [panel, session] of WorkflowCanvasEditor.open) {
+      if (panel.active) return session;
+    }
+
+    return undefined;
+  }
+
   async resolveCustomTextEditor(
     document: TextDocument,
     panel: WebviewPanel,
@@ -119,6 +150,8 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       this.trust,
     );
     await session.reread();
+
+    WorkflowCanvasEditor.open.set(panel, session);
 
     const post = (): void => void panel.webview.postMessage(session.init());
 
@@ -159,6 +192,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     });
 
     panel.onDidDispose(() => {
+      WorkflowCanvasEditor.open.delete(panel);
       mounted.dispose();
       changed.dispose();
       proposed.dispose();
@@ -176,7 +210,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
  * shown, and because the document — not the panel
  * — is what an edit is made against.
  */
-class CanvasSession {
+export class CanvasSession {
   private read: CanvasDocument = { ok: false, detail: '' };
 
   private boxes: Record<string, NodeBox> = {};
@@ -259,6 +293,10 @@ class CanvasSession {
       document: this.read,
       boxes: this.boxes,
 
+      // An unreadable document draws no graph at all,
+      // so there is no picture for a key to name.
+      layoutKey: this.read.ok ? layoutKeyOf(this.read.ir, this.boxes) : '',
+
       // A proposal shows what the rules found when
       // it was written, which is what the agent was
       // told and what a person is being asked to
@@ -295,11 +333,36 @@ class CanvasSession {
     }
 
     if (message.type === 'connect') this.connect(message);
+    if (message.type === 'addNode') this.addNode(message);
+    if (message.type === 'move') this.move(message);
+    if (message.type === 'arrange') this.arrange(message.baseRevision);
+    if (message.type === 'deleteNode') this.removeNode(message);
+    if (message.type === 'disconnect') this.disconnect(message);
     if (message.type === 'edit') this.edit(message);
     if (message.type === 'assign') this.assign(message);
     if (message.type === 'text') this.replaceText(message.text);
 
     return false;
+  }
+
+  /**
+   * Lets go of every position, so that the next read
+   * lays the graph out again.
+   *
+   * The one edit that deletes coordinates rather than
+   * writing them, which is what keeps there from
+   * being a second layout mode: the document falls
+   * back to what the engine computes, and the next
+   * move pins it again.
+   *
+   * The toolbar button carries the revision it was
+   * drawn at; the palette command has none to carry,
+   * and means the canvas as it is right now.
+   */
+  arrange(baseRevision?: number): void {
+    if (!this.read.ok) return;
+
+    this.write(baseRevision ?? this.read.ir.revision, withoutPositions);
   }
 
   /**
@@ -420,6 +483,81 @@ class CanvasSession {
   }
 
   /**
+   * A block dropped on the canvas.
+   *
+   * It lands with the smallest config its kind
+   * accepts and the kind's own name, because nobody
+   * has said what it does yet — that is the
+   * Inspector's next question, which is why the new
+   * block is what the column then shows.
+   */
+  private addNode(edit: {
+    baseRevision: number;
+    kind: NodeKind;
+    position: Position;
+  }): void {
+    if (!this.read.ok) return;
+
+    const id = starterId(this.read.ir, edit.kind);
+    const added = {
+      ...starterNode(edit.kind, id, messages.paletteLabels()[edit.kind]),
+      position: edit.position,
+    };
+
+    const wrote = this.write(edit.baseRevision, (ir) => {
+      const pinned = pin(ir, this.boxes);
+
+      return { ...pinned, nodes: [...pinned.nodes, added] };
+    });
+
+    if (wrote) this.selected = id;
+  }
+
+  /** Where the blocks are now, after somebody moved
+   *  one. */
+  private move(edit: {
+    baseRevision: number;
+    positions: Record<string, Position>;
+  }): void {
+    this.write(edit.baseRevision, (ir) => ({
+      ...ir,
+      nodes: pin(ir, this.boxes).nodes.map((node) => {
+        const moved = edit.positions[node.id];
+
+        return moved === undefined ? node : { ...node, position: moved };
+      }),
+    }));
+  }
+
+  /**
+   * A block taken off the canvas.
+   *
+   * Bridged rather than simply removed: a block
+   * deleted out of a straight run leaves a run, not
+   * two halves. This is core's own rule, the same one
+   * an agent deleting a block gets.
+   */
+  private removeNode(edit: { baseRevision: number; nodeId: string }): void {
+    this.write(edit.baseRevision, (ir) => {
+      const outcome = deleteNode(ir, {
+        nodeId: edit.nodeId,
+        reconnect: true,
+      });
+
+      return outcome.ok ? outcome.ir : undefined;
+    });
+  }
+
+  /** One wire taken out, and nothing else. */
+  private disconnect(edit: { baseRevision: number; edgeId: string }): void {
+    this.write(edit.baseRevision, (ir) =>
+      ir.edges.some((edge) => edge.id === edit.edgeId)
+        ? { ...ir, edges: ir.edges.filter((edge) => edge.id !== edit.edgeId) }
+        : undefined,
+    );
+  }
+
+  /**
    * An edit from the Inspector column.
    *
    * The node is parsed rather than trusted — it
@@ -534,24 +672,73 @@ class CanvasSession {
    * against content nobody is looking at any more
    * is how a change disappears without anyone
    * being told.
+   *
+   * An edit with nothing to say — a block that is
+   * not there, a wire already gone — answers with
+   * nothing and is not written: raising the revision
+   * over an unchanged document would spend somebody
+   * else's base revision on no change at all.
+   *
+   * Nothing is written at all while a proposal is on
+   * screen. The panel refuses an edit there too, but
+   * this is the door every edit comes through — a
+   * command has no panel to be refused by — and what
+   * is drawn then is somebody's draft rather than the
+   * file.
+   *
+   * Answers whether anything was written.
    */
   private write(
     baseRevision: number,
-    edit: (ir: WorkflowIR) => WorkflowIR,
-  ): void {
-    if (!this.read.ok) return;
+    edit: (ir: WorkflowIR) => WorkflowIR | undefined,
+  ): boolean {
+    if (!this.read.ok || this.live !== undefined) return false;
 
     if (baseRevision !== this.read.ir.revision) {
       this.api.info(messages.canvasEditStale());
 
-      return;
+      return false;
     }
 
-    void this.api.replaceDocument(
-      this.document,
-      nextDocument(edit(this.read.ir)),
-    );
+    const next = edit(this.read.ir);
+    if (next === undefined) return false;
+
+    void this.api.replaceDocument(this.document, nextDocument(next));
+
+    return true;
   }
+}
+
+/**
+ * The document with every block's position filled
+ * in, when nobody has placed one yet.
+ *
+ * A person's first move pins the whole graph, from
+ * the boxes the canvas was drawn with. Writing only
+ * the block they touched would leave the rest to be
+ * laid out around it, and the graph would rearrange
+ * itself under a drag — so a document is either
+ * fully placed or not placed at all.
+ *
+ * The one document this leaves alone is a
+ * half-placed one, where somebody has arranged the
+ * graph and an agent has added a block to it since.
+ * Where that block goes is core's answer, and
+ * pinning here would be a second one.
+ */
+function pin(ir: WorkflowIR, boxes: Record<string, NodeBox>): WorkflowIR {
+  if (ir.nodes.some((node) => node.position !== undefined)) return ir;
+
+  return {
+    ...ir,
+    nodes: ir.nodes.map((node) => {
+      const box = boxes[node.id];
+
+      return box === undefined
+        ? node
+        : { ...node, position: { x: box.x, y: box.y } };
+    }),
+  };
 }
 
 /** The node with nothing behind it. */

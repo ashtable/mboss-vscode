@@ -7,7 +7,7 @@ import {
 } from '../core/rules.js';
 import type { CanvasStrings } from '../webview/protocol.js';
 
-import { LIB_FN } from './dragging.js';
+import { LIB_FN, NODE_KIND } from './dragging.js';
 import { FunctionLines, fitsFor, type LibState } from './libFunction.js';
 
 /**
@@ -22,13 +22,20 @@ import { FunctionLines, fitsFor, type LibState } from './libFunction.js';
  * extension's, because a library's labels are not
  * localized.
  *
- * A `/lib` row is dragged onto a block to say the
- * block runs it, and it says beforehand whether it
- * could: the row the selected block already runs is
- * marked, and one that could not sit there carries
- * the reason. Nothing here refuses a drag — the
- * host asks the same rule again and answers out
- * loud, which is where a person can read it.
+ * Both sections are dragged, and they land in
+ * different places: a block chip is dropped on the
+ * canvas to create one, a `/lib` row on a block to
+ * say the block runs it. Each carries its own media
+ * type, so neither drop target accepts what it could
+ * do nothing with.
+ *
+ * A `/lib` row also says beforehand whether it could
+ * sit where it is going: the row the selected block
+ * already runs is marked, and one that could not sit
+ * there carries the reason. Nothing here refuses a
+ * drag — the host asks the same rule again and
+ * answers out loud, which is where a person can read
+ * it.
  */
 
 export type PaletteProps = {
@@ -79,6 +86,11 @@ export function Palette({
                 key={entry.kind}
                 className="chip"
                 data-palette-kind={entry.kind}
+                draggable
+                onDragStart={(event) => {
+                  event.dataTransfer.setData(NODE_KIND, entry.kind);
+                  event.dataTransfer.effectAllowed = 'copy';
+                }}
               >
                 {labels[entry.kind]}
               </p>

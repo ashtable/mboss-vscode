@@ -12,6 +12,17 @@
 export const LIB_FN = 'application/x-mboss-lib-fn';
 
 /**
+ * A block of one kind, on its way onto the canvas.
+ *
+ * Its own type rather than the one above, because
+ * the two land in different places: a function is
+ * dropped on a block, a kind is dropped on the
+ * canvas, and each drop target should accept only
+ * what it can do something with.
+ */
+export const NODE_KIND = 'application/x-mboss-node-kind';
+
+/**
  * Whether the drag under the pointer is carrying
  * one.
  *

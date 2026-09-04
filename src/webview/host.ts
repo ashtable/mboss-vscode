@@ -1,6 +1,7 @@
 import { Uri, type Disposable, type Webview } from 'vscode';
 import { z } from 'zod';
 
+import { NodeKindSchema, PositionSchema } from '../core/rules.js';
 import { RUN_FILTERS } from '../runs/queries.js';
 
 import { pageNonce, webviewPage } from './html.js';
@@ -51,6 +52,57 @@ const Connect = z.object({
   baseRevision: z.number().int(),
   from: z.object({ node: z.string(), port: z.string() }),
   to: z.object({ node: z.string() }),
+});
+
+/** Somebody dropped a block of that kind on the
+ *  canvas, at that spot. */
+const AddNode = z.object({
+  type: z.literal('addNode'),
+  baseRevision: z.number().int(),
+  kind: NodeKindSchema,
+  position: PositionSchema,
+});
+
+/**
+ * Somebody moved a block.
+ *
+ * Every block's position, not the one that moved: a
+ * person's first move pins the whole graph, so that
+ * a document is either fully placed or not placed at
+ * all — and dragging a selection of three is one
+ * write rather than three.
+ */
+const Move = z.object({
+  type: z.literal('move'),
+  baseRevision: z.number().int(),
+  positions: z.record(z.string(), PositionSchema),
+});
+
+/** Somebody asked for the graph to be laid out
+ *  again. */
+const Arrange = z.object({
+  type: z.literal('arrange'),
+  baseRevision: z.number().int(),
+});
+
+/**
+ * Somebody deleted a block, or a wire.
+ *
+ * Two messages rather than one, because they are two
+ * edits: removing a block bridges what was on either
+ * side of it, and removing a wire is exactly that
+ * wire going.
+ */
+const DeleteNode = z.object({
+  type: z.literal('deleteNode'),
+  baseRevision: z.number().int(),
+  nodeId: z.string(),
+});
+
+const Disconnect = z.object({
+  type: z.literal('disconnect'),
+  baseRevision: z.number().int(),
+  edgeId: z.string(),
 });
 
 const Edit = z.object({
@@ -252,6 +304,11 @@ export const WebviewMessageSchema = z.discriminatedUnion('type', [
   Ready,
   Select,
   Connect,
+  AddNode,
+  Move,
+  Arrange,
+  DeleteNode,
+  Disconnect,
   Edit,
   Assign,
   Text,

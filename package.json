@@ -70,6 +70,12 @@
         "category": "%commands.category%"
       },
       {
+        "command": "mboss.arrangeWorkflow",
+        "title": "%commands.arrangeWorkflow.title%",
+        "category": "%commands.category%",
+        "enablement": "activeCustomEditorId == mboss.workflowCanvas"
+      },
+      {
         "command": "_mboss.refreshRuns#sideBar",
         "title": "%commands.refreshRuns.title%",
         "category": "%commands.category%",

@@ -34,6 +34,7 @@ export function commandHandlers(
   startStack: () => Promise<void>,
   stopStack: () => Promise<void>,
   runWorkflow: () => Promise<void>,
+  arrangeWorkflow: () => Promise<void>,
 ): Record<string, () => Promise<void>> {
   return {
     'mboss.newProject': newProject,
@@ -54,6 +55,12 @@ export function commandHandlers(
     'mboss.startStack': startStack,
     'mboss.stopStack': stopStack,
     'mboss.runWorkflow': runWorkflow,
+
+    // Enabled only over an open canvas, which the
+    // manifest says and this does not have to check:
+    // the one it would act on is the tab in front of
+    // the person who ran it.
+    'mboss.arrangeWorkflow': arrangeWorkflow,
 
     // The three commands that are not in the
     // palette. Each sits on the run list's own

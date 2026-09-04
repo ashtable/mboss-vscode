@@ -6,6 +6,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { DIST } from '../../src/build.js';
 
+import { layoutKeyOf } from '../../src/canvas/graph.js';
 import { configToForm } from '../../src/canvas/inspector/forms.js';
 import {
   NODE_PALETTE,
@@ -77,6 +78,7 @@ const canvasStrings: CanvasStrings = {
   noLib: 'Nothing scanned yet.',
   unassigned: 'unassigned',
   typedWiring: 'Typed wiring',
+  arrange: 'Arrange',
   dragging: 'dragging {0}…',
   groups: {
     start: 'Start',
@@ -98,13 +100,22 @@ const paletteLabels = Object.fromEntries(
 ) as CanvasInit['paletteLabels'];
 
 function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
+  const shown = { document: { ok: true, ir } as CanvasInit['document'], boxes };
+  const drawn = { ...shown, ...over };
+
   return {
     type: 'init',
     view: 'canvas',
     strings: canvasStrings,
     paletteLabels,
-    document: { ok: true, ir },
-    boxes,
+    ...shown,
+
+    // Worked out the way the host works it out, so a
+    // spec that shows a different graph gets a
+    // different key without having to say so.
+    layoutKey: drawn.document.ok
+      ? layoutKeyOf(drawn.document.ir, drawn.boxes)
+      : '',
     diagnostics: validateWorkflow(ir, { manifest }),
     manifest,
     inspector: { strings: inspectorStrings, selected: undefined },
@@ -1395,6 +1406,152 @@ test.describe('dragging a function onto a block', () => {
 });
 
 /**
+ * Building the graph by hand: a block dragged in
+ * from the rail, a block moved, and the graph laid
+ * out again.
+ *
+ * Every one of them is a message. Nothing here
+ * writes the picture it is drawing — the document
+ * does, and the canvas draws what comes back —
+ * which is what puts a drag on VS Code's undo
+ * stack beside every other edit to the file.
+ */
+test.describe('building the graph', () => {
+  test('drops a new block where the pointer let go of it', async ({ page }) => {
+    const harness = await openCanvas(page);
+
+    await page.dragAndDrop('[data-palette-kind="step"]', '.react-flow__pane', {
+      targetPosition: { x: 240, y: 180 },
+    });
+
+    const sent = await harness.postedOfType('addNode');
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      type: 'addNode',
+      baseRevision: ir.revision,
+      kind: 'step',
+    });
+
+    const at = sent[0]!.position as { x: number; y: number };
+    expect(Number.isInteger(at.x)).toBe(true);
+    expect(Number.isInteger(at.y)).toBe(true);
+  });
+
+  /**
+   * Every node's position, not the one that moved:
+   * a person's first move pins the whole graph, and
+   * dragging a selection of three is one write.
+   */
+  test('tells the host where every block is once one is moved', async ({
+    page,
+  }) => {
+    const harness = await openCanvas(page);
+
+    const node = page.locator('.react-flow__node[data-id="find_slot"]');
+    const from = (await node.boundingBox())!;
+
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 60, from.y + 40, {
+      steps: 8,
+    });
+    await page.mouse.up();
+
+    const sent = await harness.postedOfType('move');
+    expect(sent).toHaveLength(1);
+
+    const positions = sent[0]!.positions as Record<
+      string,
+      { x: number; y: number }
+    >;
+
+    expect(Object.keys(positions).sort()).toEqual(
+      ir.nodes.map((one) => one.id).sort(),
+    );
+    expect(positions['find_slot']!.x).toBeGreaterThan(boxes['find_slot']!.x);
+  });
+
+  test('asks for the graph to be laid out again', async ({ page }) => {
+    const harness = await openCanvas(page);
+
+    await page.locator('[data-arrange]').click();
+
+    expect(await harness.postedOfType('arrange')).toEqual([
+      { type: 'arrange', baseRevision: ir.revision },
+    ]);
+  });
+
+  /**
+   * The key deletes nothing locally. React Flow
+   * would drop the node out of its own copy and
+   * leave the document holding a workflow nobody
+   * asked for, so what the key does is say so and
+   * wait for the file to come back.
+   */
+  test('deletes a block through the document rather than on screen', async ({
+    page,
+  }) => {
+    const harness = await openCanvas(page);
+
+    await page.locator('.react-flow__node[data-id="find_slot"]').click();
+    await page.keyboard.press('Delete');
+
+    expect(await harness.postedOfType('deleteNode')).toEqual([
+      { type: 'deleteNode', baseRevision: ir.revision, nodeId: 'find_slot' },
+    ]);
+    await expect(
+      page.locator('.react-flow__node[data-id="find_slot"]'),
+    ).toBeVisible();
+  });
+
+  test('deletes a wire the same way', async ({ page }) => {
+    const harness = await openCanvas(page);
+
+    // The wire out of the last block: the
+    // loop-closing one elbows over half the graph,
+    // and a click that landed on that would be a
+    // spec about the wrong edge.
+    await clickWire(page, 'e11');
+    await page.keyboard.press('Delete');
+
+    expect(await harness.postedOfType('disconnect')).toEqual([
+      { type: 'disconnect', baseRevision: ir.revision, edgeId: 'e11' },
+    ]);
+  });
+
+  /**
+   * The canvas holds its own nodes once they can be
+   * dragged, so a message that is not a new layout
+   * — a manifest finishing, a different block
+   * selected — must not put them back where the
+   * document says they are.
+   */
+  test('keeps a block where it was dragged until the document answers', async ({
+    page,
+  }) => {
+    const harness = await openCanvas(page);
+
+    const node = page.locator('.react-flow__node[data-id="find_slot"]');
+    const from = (await node.boundingBox())!;
+
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(from.x + from.width / 2 + 60, from.y + 40, {
+      steps: 8,
+    });
+    await page.mouse.up();
+
+    const moved = await flowPosition(page, 'find_slot');
+
+    // The same layout, with the code-behind now read.
+    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+
+    expect(await flowPosition(page, 'find_slot')).toEqual(moved);
+  });
+});
+
+/**
  * The chrome follows the theme, which is the one
  * thing every VS Code user notices immediately. The
  * three appearances are checked for the ground
@@ -1524,6 +1681,23 @@ async function dragBetween(
     steps: 12,
   });
   await page.mouse.up();
+}
+
+/**
+ * Clicks a wire on its own hit area.
+ *
+ * By the middle of the box rather than by the
+ * element, because a straight vertical line has a
+ * bounding box no wider than nothing and there is no
+ * point in it Playwright will consent to click.
+ */
+async function clickWire(page: Page, edge: string): Promise<void> {
+  const hit = page.locator(
+    `.react-flow__edge[data-id="${edge}"] .react-flow__edge-interaction`,
+  );
+  const box = (await hit.boundingBox())!;
+
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 }
 
 /** Where the graph library put a node, in the

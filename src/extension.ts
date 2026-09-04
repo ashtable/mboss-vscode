@@ -121,6 +121,7 @@ export function activate(context: ExtensionContext): void {
     () => runs.stackUp(),
     () => runs.stackDown(),
     runWorkflowCommand(runWorkflowHost(), runs),
+    async () => WorkflowCanvasEditor.active()?.arrange(),
   );
   for (const [id, handle] of Object.entries(handlers)) {
     context.subscriptions.push(commands.registerCommand(id, handle));

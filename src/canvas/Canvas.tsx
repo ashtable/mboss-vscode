@@ -3,13 +3,20 @@ import {
   BackgroundVariant,
   ReactFlow,
   ReactFlowProvider,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
   type Connection,
   type EdgeTypes,
   type NodeTypes,
 } from '@xyflow/react';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type DragEvent } from 'react';
 
-import type { Diagnostic, WorkflowIR } from '../core/rules.js';
+import {
+  NodeKindSchema,
+  type Diagnostic,
+  type WorkflowIR,
+} from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
 import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
@@ -17,7 +24,8 @@ import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
 import { Node } from './Node.js';
 import { Palette } from './Palette.js';
 import { Wire, WireMarkers } from './Wire.js';
-import { toReactFlow, type CanvasEdge } from './graph.js';
+import { NODE_KIND, carries } from './dragging.js';
+import { toReactFlow, type CanvasEdge, type CanvasNode } from './graph.js';
 import { Inspector } from './inspector/Inspector.js';
 import { checkCandidateEdge } from './wiring.js';
 
@@ -33,10 +41,12 @@ import '@xyflow/react/dist/style.css';
  * screen. This file decides only how those look
  * and what a person's gestures mean.
  *
- * Every block is where the layout put it, and
- * blocks do not drag yet: nothing here writes a
- * position back, so a block a person moved would
- * spring back the next time the document was read.
+ * Nothing here writes the picture it is drawing.
+ * Dropping a block in, moving one, deleting one,
+ * laying the graph out again — each is a message,
+ * and what comes back is the document. That is what
+ * puts a drag on VS Code's undo stack beside every
+ * other edit to the file.
  */
 
 /** Defined once. React Flow remounts every node
@@ -55,6 +65,10 @@ const nodeTypes: NodeTypes = {
 };
 
 const edgeTypes: EdgeTypes = { wire: Wire };
+
+/** Both spellings of the same key, because which one
+ *  a keyboard has is not the person's choice. */
+const DELETE_KEYS = ['Backspace', 'Delete'];
 
 export function Canvas(init: CanvasInit) {
   const [showing, setShowing] = useState<'canvas' | 'json'>('canvas');
@@ -120,6 +134,16 @@ function Toolbar({
   onShow: (view: 'canvas' | 'json') => void;
   dragging: string | undefined;
 }) {
+  // Laying the graph out again is an edit to the
+  // document, so it is offered only where there is a
+  // document to edit: not over a file that will not
+  // parse, and not over a proposal nobody has
+  // approved.
+  const arrangeable =
+    init.document.ok && init.preview === undefined
+      ? init.document.ir.revision
+      : undefined;
+
   return (
     <header className="toolbar">
       <div className="segments" role="group">
@@ -138,6 +162,19 @@ function Toolbar({
       </div>
 
       <p className="caption text-muted">{init.strings.caption}</p>
+
+      {arrangeable === undefined ? null : (
+        <button
+          type="button"
+          className="action"
+          data-arrange
+          onClick={() =>
+            postToHost({ type: 'arrange', baseRevision: arrangeable })
+          }
+        >
+          {init.strings.arrange}
+        </button>
+      )}
 
       {dragging === undefined ? null : (
         <p className="carrying mono text-muted" data-dragging>
@@ -169,7 +206,7 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
   // the halo and the fields are the same fact.
   const selected = init.inspector.selected?.node.id;
 
-  const { nodes, edges } = useMemo(
+  const drawn = useMemo(
     () =>
       toReactFlow(ir, init.boxes, {
         labels: init.paletteLabels,
@@ -188,6 +225,37 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
       editable,
     ],
   );
+
+  /**
+   * The graph library owns the nodes on screen while
+   * a person is dragging one, so the canvas holds its
+   * own copy rather than deriving one from every
+   * message: a message arriving mid-drag would put
+   * the block back where the document still says it
+   * is.
+   *
+   * What the host sends is therefore taken two ways.
+   * A new picture — the key changed — replaces them.
+   * The same picture with something else true about
+   * it, a block selected or a manifest that finished
+   * scanning, is patched over the top and leaves
+   * every block where it is.
+   */
+  const [nodes, setNodes, onNodesChange] = useNodesState(drawn.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(drawn.edges);
+  const [shown, setShown] = useState({ key: init.layoutKey, drawn });
+
+  if (shown.drawn !== drawn) {
+    setShown({ key: init.layoutKey, drawn });
+    setEdges(drawn.edges);
+    setNodes(
+      shown.key === init.layoutKey
+        ? (held) => whereTheyAre(held, drawn.nodes)
+        : drawn.nodes,
+    );
+  }
+
+  const { screenToFlowPosition, getNodes } = useReactFlow<CanvasNode>();
 
   /**
    * Asked as a person drags onto a handle, before
@@ -215,6 +283,76 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
     return found === undefined;
   };
 
+  /**
+   * What the key pressed over a selection means.
+   *
+   * Nothing is deleted here: the library is told no
+   * and the document is told what somebody pressed,
+   * so what leaves the canvas is what the file no
+   * longer holds.
+   */
+  const sayDeleted = async ({
+    nodes: going,
+    edges: cut,
+  }: {
+    nodes: CanvasNode[];
+    edges: CanvasEdge[];
+  }): Promise<boolean> => {
+    for (const node of going) {
+      postToHost({
+        type: 'deleteNode',
+        baseRevision: ir.revision,
+        nodeId: node.id,
+      });
+    }
+
+    for (const edge of cut) {
+      postToHost({
+        type: 'disconnect',
+        baseRevision: ir.revision,
+        edgeId: edge.id,
+      });
+    }
+
+    return false;
+  };
+
+  /**
+   * Where every block is now.
+   *
+   * Every one, not the one that moved: a person's
+   * first move pins the whole graph, and dragging a
+   * selection of three is one edit rather than three.
+   */
+  const sayMoved = (): void => {
+    postToHost({
+      type: 'move',
+      baseRevision: ir.revision,
+      positions: Object.fromEntries(
+        getNodes().map((node) => [node.id, rounded(node.position)]),
+      ),
+    });
+  };
+
+  /** A block of one kind, let go of over the canvas
+   *  at the point the pointer was at. */
+  const dropKind = (event: DragEvent<HTMLDivElement>): void => {
+    const kind = NodeKindSchema.safeParse(
+      event.dataTransfer.getData(NODE_KIND),
+    );
+    if (!editable || !kind.success) return;
+
+    event.preventDefault();
+    postToHost({
+      type: 'addNode',
+      baseRevision: ir.revision,
+      kind: kind.data,
+      position: rounded(
+        screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+      ),
+    });
+  };
+
   return (
     <section className="graph">
       {preview === undefined ? null : <Banner preview={preview} />}
@@ -225,14 +363,30 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
         <ReactFlow
           nodes={nodes}
           edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
           edgeTypes={edgeTypes}
-          nodesDraggable={false}
+          nodesDraggable={editable}
           nodesConnectable={editable}
           elementsSelectable={editable}
           fitView
           proOptions={{ hideAttribution: true }}
           isValidConnection={allow}
+          deleteKeyCode={editable ? DELETE_KEYS : null}
+          onBeforeDelete={sayDeleted}
+          onNodeDragStop={sayMoved}
+          onDrop={dropKind}
+          // The types a drag carries are readable
+          // while it is in flight and its data is
+          // not, so what is being held is all a
+          // hover can ask about.
+          onDragOver={(event: DragEvent<HTMLDivElement>) => {
+            if (!editable || !carries(event.dataTransfer, NODE_KIND)) return;
+
+            event.preventDefault();
+            event.dataTransfer.dropEffect = 'copy';
+          }}
           onConnect={(connection) => {
             setRefused(undefined);
             postToHost({
@@ -276,6 +430,31 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
       )}
     </section>
   );
+}
+
+/**
+ * The blocks as the host has just drawn them, each
+ * left where the canvas currently has it.
+ *
+ * The layout is the same one — that is what a
+ * matching key means — so the only block that can be
+ * somewhere else is one under a pointer right now,
+ * which is exactly the block that must not move.
+ */
+function whereTheyAre(held: CanvasNode[], drawn: CanvasNode[]): CanvasNode[] {
+  const at = new Map(held.map((node) => [node.id, node.position]));
+
+  return drawn.map((node) => ({
+    ...node,
+    position: at.get(node.id) ?? node.position,
+  }));
+}
+
+/** A position the document can hold: coordinates are
+ *  whole pixels, and nothing draws a fraction of
+ *  one. */
+function rounded(at: { x: number; y: number }): { x: number; y: number } {
+  return { x: Math.round(at.x), y: Math.round(at.y) };
 }
 
 /**

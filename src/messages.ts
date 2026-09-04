@@ -743,6 +743,11 @@ export const messages = {
 
     typedWiring: l10n.t('Typed wiring'),
 
+    // The toolbar's own word for what the palette
+    // calls Arrange Workflow. Shorter because the
+    // toolbar is already on the workflow.
+    arrange: l10n.t('Arrange'),
+
     // Follows the function's name, in the toolbar,
     // while a chip is on its way to a block.
     dragging: l10n.t('dragging {0}…'),

@@ -127,6 +127,47 @@ export type CanvasEdge = Edge<CanvasEdgeData, 'wire'>;
 export const TARGET_PORT = 'in';
 
 /**
+ * The identity of one picture: this document, laid
+ * out here.
+ *
+ * The canvas holds its own nodes once a person can
+ * drag one, so it has to tell a message that is a
+ * different picture from one that is the same
+ * picture with something else true about it — a
+ * different block selected, a manifest that finished
+ * scanning. Those leave this key alone and are
+ * patched in; anything that changes what is drawn
+ * changes it, and the canvas takes the host's nodes
+ * back.
+ *
+ * The revision leads because that is the number a
+ * person can check by eye, but it cannot carry this
+ * alone: a proposal is drawn at the revision of the
+ * file it is a proposal about.
+ */
+export function layoutKeyOf(
+  ir: WorkflowIR,
+  boxes: Record<string, NodeBox>,
+): string {
+  return `${ir.revision}:${hashOf(
+    JSON.stringify([ir.nodes, ir.edges, boxes]),
+  )}`;
+}
+
+/** A short, stable stand-in for a string, so a key
+ *  stays a key rather than a copy of the document. */
+function hashOf(text: string): string {
+  let hash = 0x811c9dc5;
+
+  for (let at = 0; at < text.length; at += 1) {
+    hash ^= text.charCodeAt(at);
+    hash = Math.imul(hash, 0x01000193);
+  }
+
+  return (hash >>> 0).toString(36);
+}
+
+/**
  * Turns a document plus its computed boxes into
  * the nodes and edges the canvas renders.
  *

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { layoutKeyOf } from '../../src/canvas/graph.js';
 import {
   NODE_PALETTE,
   WorkflowIRSchema,
@@ -70,6 +71,7 @@ const canvasStrings: CanvasStrings = {
   noLib: 'Nothing scanned yet.',
   unassigned: 'unassigned',
   typedWiring: 'Typed wiring',
+  arrange: 'Arrange',
   dragging: 'dragging {0}…',
   groups: {
     start: 'Start',
@@ -154,6 +156,7 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     ) as CanvasInit['paletteLabels'],
     document: { ok: true, ir },
     boxes,
+    layoutKey: layoutKeyOf(ir, boxes),
     diagnostics: [],
     manifest: undefined,
     inspector,

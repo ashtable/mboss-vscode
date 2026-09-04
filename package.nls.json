@@ -10,6 +10,7 @@
   "commands.startStack.title": "Start Local Stack",
   "commands.stopStack.title": "Stop Local Stack",
   "commands.runWorkflow.title": "Run Workflow…",
+  "commands.arrangeWorkflow.title": "Arrange Workflow",
   "commands.refreshRuns.title": "Read Runs Again",
   "viewsContainers.mboss.title": "mBoss",
   "views.agentSidebar.name": "Agent",

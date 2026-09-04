@@ -61,6 +61,27 @@
   color: var(--on-brand);
 }
 
+/* The toolbar's one action. Quiet: laying the graph
+   out again is something a person does now and then,
+   not the thing this screen is for. */
+.action {
+  appearance: none;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: var(--text-xs);
+  padding: 3px 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.action:hover {
+  background: var(--surface-2);
+}
+
 .toolbar .caption {
   margin: 0;
   font-size: var(--text-sm);

@@ -28,6 +28,7 @@ type Command = {
   title: string;
   category?: string;
   icon?: string;
+  enablement?: string;
 };
 type View = { type?: string; id: string; name: string; when?: string };
 type Menu = { command: string; when?: string; group?: string };
@@ -62,7 +63,7 @@ describe('commands', () => {
 
   const palette = commands.filter((entry) => !isSideBar(entry.command));
 
-  it('offers exactly the eight the design names', () => {
+  it('offers exactly the nine the design names', () => {
     expect(palette.map((entry) => entry.command)).toEqual([
       'mboss.newProject',
       'mboss.openRuns',
@@ -72,7 +73,21 @@ describe('commands', () => {
       'mboss.startStack',
       'mboss.stopStack',
       'mboss.runWorkflow',
+      'mboss.arrangeWorkflow',
     ]);
+  });
+
+  /**
+   * Laying a graph out again means nothing without a
+   * graph on screen, so the palette greys the entry
+   * out rather than offering a command that would
+   * have to ask which canvas it was about.
+   */
+  it('greys out the one that is about the canvas in front of you', () => {
+    expect(
+      commands.find((entry) => entry.command === 'mboss.arrangeWorkflow')
+        ?.enablement,
+    ).toBe('activeCustomEditorId == mboss.workflowCanvas');
   });
 
   it('localizes every title', () => {
@@ -158,6 +173,7 @@ describe('commands', () => {
       'Start Local Stack',
       'Stop Local Stack',
       'Run Workflow…',
+      'Arrange Workflow',
     ]);
   });
 });
