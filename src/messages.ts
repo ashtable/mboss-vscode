@@ -512,6 +512,16 @@ export const messages = {
     l10n.t('{0} cannot sit behind {1}: {2}.', fn, title, reason),
 
   /**
+   * The transcript's row for a function assigned
+   * from the canvas.
+   *
+   * A verb, in the shape the agent's own rows have
+   * — what tells this one apart is the rail saying
+   * a person did it, not different wording.
+   */
+  canvasAssignVerb: () => l10n.t('Assign lib fn'),
+
+  /**
    * The line over a graph nobody has agreed to yet.
    *
    * The mockup puts it in the editor's tab strip.
@@ -592,6 +602,42 @@ export const messages = {
 
   undoRefused: (detail: string) => l10n.t('That was not undone: {0}', detail),
 
+  /**
+   * The transcript's row for an approval.
+   *
+   * A verb and, beside it, the workflow it was
+   * done to — the shape the agent's own rows have.
+   */
+  previewApplyVerb: () => l10n.t('Apply proposal'),
+
+  /**
+   * The turn the Fix action on a codegen
+   * diagnostic sends.
+   *
+   * Each finding's own sentence, word for word.
+   * They already name the block they are about, in
+   * the wording the agent sees driving the control
+   * plane, and a second wording composed here would
+   * be a second thing to keep true.
+   */
+  previewCodegenFix: (workflow: string, findings: string) =>
+    l10n.t(
+      'Applying the proposal for {0} left these errors: {1} Fix the blocks and handlers they name.',
+      workflow,
+      findings,
+    ),
+
+  /**
+   * The one thing to do about a diagnostic
+   * something can be done about.
+   *
+   * Read by whoever notes the diagnostic rather
+   * than by the panel: only the writer knows what
+   * pressing it will ask for, so it carries the
+   * word with the prompt.
+   */
+  diagnosticFix: () => l10n.t('Fix'),
+
   sidebarHeading: () => l10n.t('Agent'),
 
   /**
@@ -664,7 +710,6 @@ export const messages = {
     changedSince: l10n.t('changed since · nothing to undo'),
     showLines: l10n.t('{0} lines · show'),
     planProgress: l10n.t('Plan · {0}/{1}'),
-    fix: l10n.t('Fix'),
   }),
 
   /**

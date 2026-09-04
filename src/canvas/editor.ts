@@ -9,6 +9,7 @@ import {
   type WebviewPanel,
 } from 'vscode';
 
+import type { ToolEntry } from '../acp/transcript.js';
 import {
   boxesFor,
   checkWorkflow,
@@ -92,6 +93,17 @@ export type CanvasTrust = {
   onTrustGranted(listener: () => void): Disposable;
 };
 
+/**
+ * Adding a row to the agent's transcript.
+ *
+ * A function rather than the panel itself: the
+ * canvas has nothing to ask an agent and nothing
+ * to read back from one. What it has is a change a
+ * person made, which belongs in the column beside
+ * the changes the agent made.
+ */
+export type NoteEntry = (entry: ToolEntry) => void;
+
 export class WorkflowCanvasEditor implements CustomTextEditorProvider {
   static readonly viewType = 'mboss.workflowCanvas';
 
@@ -114,6 +126,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     private readonly api: VsCodeApi,
     private readonly preview: PreviewStore,
     private readonly trust: CanvasTrust,
+    private readonly note: NoteEntry,
   ) {}
 
   static register(
@@ -121,10 +134,11 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     api: VsCodeApi,
     preview: PreviewStore,
     trust: CanvasTrust,
+    note: NoteEntry,
   ): Disposable {
     return window.registerCustomEditorProvider(
       WorkflowCanvasEditor.viewType,
-      new WorkflowCanvasEditor(extensionUri, api, preview, trust),
+      new WorkflowCanvasEditor(extensionUri, api, preview, trust, note),
       { supportsMultipleEditorsPerDocument: false },
     );
   }
@@ -148,6 +162,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       this.api,
       this.preview,
       this.trust,
+      this.note,
     );
     await session.reread();
 
@@ -238,6 +253,7 @@ export class CanvasSession {
     private readonly api: VsCodeApi,
     private readonly preview: PreviewStore,
     private readonly trust: CanvasTrust,
+    private readonly note: NoteEntry,
   ) {}
 
   /**
@@ -642,7 +658,7 @@ export class CanvasSession {
     // unwritten function is taken to decide
     // `true`/`false`, which is what the scaffolded
     // stub returns and so already fits.
-    this.writeNode(
+    const written = this.writeNode(
       edit.baseRevision,
       node.kind === 'branch'
         ? withDecisionCases(
@@ -651,12 +667,29 @@ export class CanvasSession {
           )
         : { ...node, handler: { export: named } },
     );
+
+    // Only what actually landed. A refused or stale
+    // edit has already been said out loud, and a
+    // row about it would claim the document
+    // changed.
+    if (written) {
+      this.note({
+        at: 'tool',
+        id: `assign:${node.id}:${edit.baseRevision}`,
+        by: 'person',
+        kind: 'edit',
+        verb: messages.canvasAssignVerb(),
+        target: `${named} → ${node.title}`,
+        status: 'applied',
+        body: [],
+      });
+    }
   }
 
   /** The document with that one node in place of
    *  the one it has by that id. */
-  private writeNode(baseRevision: number, node: WorkflowNode): void {
-    this.write(baseRevision, (ir) => ({
+  private writeNode(baseRevision: number, node: WorkflowNode): boolean {
+    return this.write(baseRevision, (ir) => ({
       ...ir,
       nodes: ir.nodes.map((one) => (one.id === node.id ? node : one)),
     }));

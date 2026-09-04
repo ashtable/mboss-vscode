@@ -1,6 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 
-import type { FileEditEntry, SessionUpdate } from '../../src/acp/transcript.js';
+import type {
+  DiagnosticEntry,
+  FileEditEntry,
+  SessionUpdate,
+} from '../../src/acp/transcript.js';
 import { foldUpdates } from '../../src/acp/transcript.js';
 import type {
   SidebarInit,
@@ -60,7 +64,6 @@ const strings: SidebarStrings = {
   changedSince: 'changed since · nothing to undo',
   showLines: '{0} lines · show',
   planProgress: 'Plan · {0}/{1}',
-  fix: 'Fix',
 };
 
 const said = (body: string): SessionUpdate => ({
@@ -370,6 +373,63 @@ test.describe('the plan', () => {
     await expect(steps).toHaveCount(3);
     await expect(steps.nth(0)).toHaveAttribute('data-status', 'completed');
     await expect(steps.nth(1)).toContainText('Scaffold handlers');
+  });
+});
+
+/**
+ * Something the extension found, and the one thing
+ * to do about it.
+ *
+ * The sentence the Fix button sends was written
+ * beside the rows by whoever noted them, so the
+ * panel sends it back untouched: it has no idea
+ * what regenerating or a run found, and composing
+ * a request of its own would be a second wording
+ * to keep true.
+ */
+test.describe('a diagnostic', () => {
+  const entry: DiagnosticEntry = {
+    at: 'diagnostic',
+    id: 'codegen:groom_booking:8',
+    source: 'codegen',
+    rows: [
+      { code: 'V07', message: 'Open at requested time? names no handler.' },
+    ],
+    fix: { label: 'Fix', prompt: 'Fix the blocks this names.' },
+  };
+
+  test('draws what was found under where it came from', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(sidebarInit({ transcript: [entry] }));
+
+    const found = page.locator('.diagnostic');
+
+    await expect(found).toHaveAttribute('data-source', 'codegen');
+    await expect(found.locator('.diagnostic-row')).toContainText(
+      'Open at requested time? names no handler.',
+    );
+  });
+
+  test('hands the whole thing back on one press', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(sidebarInit({ transcript: [entry] }));
+    await page.locator('[data-fix]').click();
+
+    expect(await harness.postedOfType('prompt')).toEqual([
+      { type: 'prompt', text: 'Fix the blocks this names.' },
+    ]);
+  });
+
+  test('offers nothing on one nothing can be asked about', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({ transcript: [{ ...entry, fix: undefined }] }),
+    );
+
+    await expect(page.locator('[data-fix]')).toHaveCount(0);
   });
 });
 

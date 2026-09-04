@@ -218,13 +218,13 @@ describe('generating code', () => {
   };
 
   it('says how long it took', async () => {
-    expect(await ran({ ran: true, ok: true, ms: 42 })).toEqual([
+    expect(await ran({ ran: true, ok: true, ms: 42, problems: [] })).toEqual([
       expect.stringContaining('42'),
     ]);
   });
 
   it('says when a workflow produced nothing', async () => {
-    const [message] = await ran({ ran: true, ok: false, ms: 42 });
+    const [message] = await ran({ ran: true, ok: false, ms: 42, problems: [] });
 
     expect(message?.length).toBeGreaterThan(0);
   });

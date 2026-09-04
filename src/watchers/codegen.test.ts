@@ -447,9 +447,23 @@ describe('generating on demand', () => {
 
     const run = await watchers.generateNow();
 
-    expect(run).toEqual({ ran: true, ok: true, ms: expect.any(Number) });
+    expect(run).toMatchObject({ ran: true, ok: true, ms: expect.any(Number) });
     expect(generatedFiles(project)).toContain(
       'src/workflows/groom_booking.workflow.ts',
+    );
+  });
+
+  /** Handed back as well as published, because the
+   *  caller that asked for this generation may be
+   *  the one that caused what it found. */
+  it('hands back what it found', async () => {
+    const { project, watchers } = await watching({ lib: 'lib-broken' });
+    writeWorkflow(project, 'empty_draft');
+
+    const run = await watchers.generateNow();
+
+    expect(run.ran && run.problems).toContainEqual(
+      expect.objectContaining({ file: join(project, 'lib', 'broken.ts') }),
     );
   });
 

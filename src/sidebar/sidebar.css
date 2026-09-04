@@ -434,6 +434,26 @@ body {
   font-size: var(--text-sm);
 }
 
+.diagnostic-fix {
+  margin: var(--space-2) 0 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.diagnostic-fix:hover {
+  transform: translateY(var(--lift));
+  border-color: var(--brand);
+}
+
 /* — the plan — */
 
 .plan-toggle {

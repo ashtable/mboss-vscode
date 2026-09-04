@@ -61,8 +61,13 @@ function trustingHost(
     said,
     folders: () => folders,
     isTrusted: () => true,
-    regenerate: async () => void said.push('regenerated'),
+    regenerate: async () => {
+      said.push('regenerated');
+
+      return [];
+    },
     notify: async (text) => void said.push(text),
+    note: () => {},
     say: (message) => void said.push(message),
   };
 }

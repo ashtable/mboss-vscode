@@ -65,8 +65,13 @@ export function activate(context: ExtensionContext): void {
   const preview = previewStore({
     folders: () => editor.folders(),
     isTrusted: () => editor.isTrusted(),
-    regenerate: async () => void (await watchers.generateNow()),
+    regenerate: async () => {
+      const run = await watchers.generateNow();
+
+      return run.ran ? run.problems : [];
+    },
     notify: (text) => panel.send(text),
+    note: (entry) => panel.note(entry),
     say: (message) => api.info(message),
   });
 
@@ -147,7 +152,13 @@ export function activate(context: ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    WorkflowCanvasEditor.register(context.extensionUri, api, preview, editor),
+    WorkflowCanvasEditor.register(
+      context.extensionUri,
+      api,
+      preview,
+      editor,
+      (entry) => panel.note(entry),
+    ),
     AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview),
     RunsListView.register(context.extensionUri, runs, see),
     see.register(),

@@ -197,7 +197,6 @@ const sidebarStrings: SidebarStrings = {
   changedSince: 'changed since · nothing to undo',
   showLines: '{0} lines · show',
   planProgress: 'Plan · {0}/{1}',
-  fix: 'Fix',
 };
 
 function sidebarInit(card: SidebarPreview | undefined): SidebarInit {

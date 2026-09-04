@@ -423,10 +423,6 @@ export type SidebarStrings = {
   /** `Plan · {0}/{1}`, the collapsed row over the
    *  checklist. */
   planProgress: string;
-
-  /** The action on a diagnostic that can be acted
-   *  on. */
-  fix: string;
 };
 
 /**

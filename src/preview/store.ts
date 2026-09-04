@@ -2,8 +2,10 @@ import { sep } from 'node:path';
 
 import type { Disposable } from 'vscode';
 
+import type { DiagnosticEntry, ToolEntry } from '../acp/transcript.js';
 import { controlDir, type DiffSummary } from '../core/index.js';
 import { messages } from '../messages.js';
+import type { Problem } from '../problem.js';
 
 import { approveProposal } from './approve.js';
 import { livePreviews } from './live.js';
@@ -33,12 +35,16 @@ export type PreviewHost = {
    *  contents may be executed and written to. */
   isTrusted(): boolean;
 
-  /** Regenerates every project and publishes what
-   *  that found. */
-  regenerate(): Promise<void>;
+  /** Regenerates every project, publishes what
+   *  that found, and hands it back. */
+  regenerate(): Promise<Problem[]>;
 
   /** Says something to the agent, as a turn. */
   notify(text: string): Promise<void>;
+
+  /** Adds a row to the agent's transcript, written
+   *  by the extension rather than by the agent. */
+  note(entry: ToolEntry | DiagnosticEntry): void;
 
   /** Tells the person something they can act on. */
   say(message: string): void;
@@ -190,11 +196,15 @@ export function previewStore(host: PreviewHost): PreviewStore {
        * in the extension host's log.
        */
       const unfinished: string[] = [];
-      const tried = async (step: () => Promise<void>): Promise<void> => {
+      const tried = async <T>(
+        step: () => Promise<T>,
+      ): Promise<T | undefined> => {
         try {
-          await step();
+          return await step();
         } catch (error) {
           unfinished.push(String(error));
+
+          return undefined;
         }
       };
 
@@ -202,7 +212,15 @@ export function previewStore(host: PreviewHost): PreviewStore {
         const outcome = await approveProposal(
           {
             project,
-            regenerate: () => tried(() => host.regenerate()),
+            applied: () => host.note(appliedRow(id, model.workflow)),
+            regenerate: async () => {
+              const reported = (await tried(() => host.regenerate())) ?? [];
+              const errors = errorsIn(project, reported);
+
+              if (errors.length > 0) {
+                host.note(codegenDiagnostic(id, model.workflow, errors));
+              }
+            },
             notify: (text) => tried(() => host.notify(text)),
           },
           id,
@@ -240,7 +258,10 @@ export function previewStore(host: PreviewHost): PreviewStore {
       if (last === undefined || !host.isTrusted()) return;
 
       const outcome = await undoLast(
-        { project: last.project, regenerate: () => host.regenerate() },
+        {
+          project: last.project,
+          regenerate: async () => void (await host.regenerate()),
+        },
         last.workflow,
       );
 
@@ -263,6 +284,80 @@ export function previewStore(host: PreviewHost): PreviewStore {
     dispose: () => {
       listeners.clear();
       live.clear();
+    },
+  };
+}
+
+/**
+ * The row an approval leaves in the transcript.
+ *
+ * It sits in the same column as the agent's own
+ * rows, because that is the order the two happened
+ * in, and it says `person` so that the column
+ * cannot be read as the agent having applied its
+ * own proposal.
+ */
+function appliedRow(id: string, workflow: string): ToolEntry {
+  return {
+    at: 'tool',
+    id: `apply:${id}`,
+    by: 'person',
+    kind: 'edit',
+    verb: messages.previewApplyVerb(),
+    target: workflow,
+    status: 'applied',
+    body: [],
+  };
+}
+
+/**
+ * The findings an approval has to answer for.
+ *
+ * Regenerating covers every folder in the window,
+ * so another project's are not its business. And a
+ * warning is what is left to do rather than what
+ * went wrong — the approval has already asked the
+ * agent to get on with the handlers.
+ */
+function errorsIn(project: string, problems: readonly Problem[]): Problem[] {
+  return problems.filter(
+    (problem) =>
+      problem.severity === 'error' && problem.file.startsWith(project + sep),
+  );
+}
+
+/**
+ * What regenerating found in what was just
+ * applied, with the sentence that hands it back.
+ *
+ * The findings go in word for word: they were
+ * written to be read beside the block they are
+ * about, and the agent reads the same sentences
+ * through the control plane.
+ *
+ * `codegen` names the pass rather than describing
+ * it, the way a run's diagnostic is named by its
+ * workflow and id, so it is not translated.
+ */
+function codegenDiagnostic(
+  id: string,
+  workflow: string,
+  errors: readonly Problem[],
+): DiagnosticEntry {
+  return {
+    at: 'diagnostic',
+    id: `codegen:${id}`,
+    source: 'codegen',
+    rows: errors.map((problem) => ({
+      code: problem.code,
+      message: problem.message,
+    })),
+    fix: {
+      label: messages.diagnosticFix(),
+      prompt: messages.previewCodegenFix(
+        workflow,
+        errors.map((problem) => problem.message).join(' '),
+      ),
     },
   };
 }

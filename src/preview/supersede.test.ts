@@ -185,8 +185,9 @@ function quietHost(folders: string[]): PreviewHost {
   return {
     folders: () => folders,
     isTrusted: () => true,
-    regenerate: async () => {},
+    regenerate: async () => [],
     notify: async () => {},
+    note: () => {},
     say: () => {},
   };
 }

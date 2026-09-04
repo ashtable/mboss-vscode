@@ -45,7 +45,7 @@ export const PROPOSAL_GLOB = '.mboss/proposals/*';
 /** What came of asking for a generation now. */
 export type CodegenRun =
   | { ran: false; reason: 'untrusted' | 'noProject' }
-  | { ran: true; ok: boolean; ms: number };
+  | { ran: true; ok: boolean; ms: number; problems: Problem[] };
 
 export type Watchers = Disposable & {
   /**
@@ -154,15 +154,17 @@ export function watchProjects(
 
       let ms = 0;
       let ok = true;
+      const problems: Problem[] = [];
 
       for (const project of projects) {
         const result = await run(project);
 
         ms += result.ms;
         ok = ok && result.ok;
+        problems.push(...result.problems);
       }
 
-      return { ran: true, ok, ms };
+      return { ran: true, ok, ms, problems };
     },
 
     onProposal: (listener) => {

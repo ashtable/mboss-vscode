@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fakeWebview, type FakeWebview } from '../../test/doubles/webview.js';
+import type { ToolEntry } from '../acp/transcript.js';
 import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
 import { previewStore, type PreviewStore } from '../preview/store.js';
@@ -50,17 +51,24 @@ type Recorded = {
   api: VsCodeApi;
   written: Written[];
   told: string[];
+
+  /** What the canvas wrote into the agent's
+   *  transcript. */
+  noted: ToolEntry[];
+
   change: (document: { uri: { toString(): string } }) => void;
 };
 
 function recorder(): Recorded {
   const written: Written[] = [];
   const told: string[] = [];
+  const noted: ToolEntry[] = [];
   const watchers: ((document: never) => void)[] = [];
 
   return {
     written,
     told,
+    noted,
     change: (document) => {
       for (const watcher of watchers) watcher(document as never);
     },
@@ -131,8 +139,9 @@ function previewsIn(folders: string[]): PreviewStore {
   return previewStore({
     folders: () => folders,
     isTrusted: () => true,
-    regenerate: async () => {},
+    regenerate: async () => [],
     notify: async () => {},
+    note: () => {},
     say: (message) => recorded.told.push(message),
   });
 }
@@ -175,6 +184,7 @@ async function open(
     recorded.api,
     preview,
     trusted,
+    (entry) => recorded.noted.push(entry),
   );
 
   await editor.resolveCustomTextEditor(document, panel.panel);
@@ -427,6 +437,7 @@ describe('selecting a node', () => {
       recorded.api,
       previewsIn([]),
       trust(true),
+      () => {},
     ).resolveCustomTextEditor(
       fakeDocument(text, '/project/.mboss/workflows/other.workflow.json'),
       other.panel,
@@ -571,6 +582,39 @@ describe('assigning a function to a block', () => {
     expect(
       node.kind === 'branch' && node.config.cases.map((one) => one.when.value),
     ).toEqual([true, false]);
+  });
+
+  /**
+   * The canvas is the other place a person changes
+   * the document, and the transcript is where what
+   * happened to it is read. A block that gained a
+   * function without a row there reads, later, as
+   * something the agent must have done.
+   */
+  it('writes a row for what the person did', async () => {
+    await openScanned();
+
+    assign('slot_open', 'tryAgain');
+    await settled();
+
+    expect(recorded.noted).toEqual([
+      expect.objectContaining({
+        at: 'tool',
+        by: 'person',
+        status: 'applied',
+        verb: messages.canvasAssignVerb(),
+        target: 'tryAgain → Open at requested time?',
+      }),
+    ]);
+  });
+
+  it('writes no row for an assignment it refused', async () => {
+    await openScanned();
+
+    assign('slot_open', 'parseRequest');
+    await settled();
+
+    expect(recorded.noted).toEqual([]);
   });
 
   it('clears the handler and leaves a branch’s cases alone', async () => {

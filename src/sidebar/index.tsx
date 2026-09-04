@@ -499,6 +499,8 @@ function DiffLineRow({ line }: { line: DiffLine }) {
  * panel adds no wording of its own.
  */
 function Diagnostic({ entry }: { entry: DiagnosticEntry }) {
+  const fix = entry.fix;
+
   return (
     <div className="diagnostic" data-source={entry.source}>
       <p className="eyebrow">{entry.source}</p>
@@ -512,6 +514,20 @@ function Diagnostic({ entry }: { entry: DiagnosticEntry }) {
           <span>{row.message}</span>
         </p>
       ))}
+
+      {/* The one thing to do about it, which is to
+          hand it back: the prompt was written
+          beside the rows by whoever noted them. */}
+      {fix === undefined ? null : (
+        <button
+          type="button"
+          className="diagnostic-fix"
+          data-fix
+          onClick={() => postToHost({ type: 'prompt', text: fix.prompt })}
+        >
+          {fix.label}
+        </button>
+      )}
     </div>
   );
 }
