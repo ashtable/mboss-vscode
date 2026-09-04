@@ -1100,6 +1100,79 @@ test.describe('the view toggle', () => {
   });
 });
 
+/**
+ * The toolbar's one action.
+ *
+ * There is a palette entry for this too, and the
+ * palette entry is what a keybinding binds to — but
+ * nobody opens a palette to find out what a screen
+ * can do. Somebody who has dragged their blocks into
+ * a mess needs to be able to see the way out of it.
+ */
+test.describe('the Arrange button', () => {
+  test('is on the toolbar, saying what it does', async ({ page }) => {
+    await openCanvas(page);
+
+    const arrange = page.locator('.toolbar [data-arrange]');
+
+    await expect(arrange).toBeVisible();
+    await expect(arrange).toHaveText(canvasStrings.arrange);
+  });
+
+  /**
+   * Quiet, and shaped like the rest of the chrome:
+   * laying the graph out again is something a person
+   * does now and then, and a button that shouted
+   * would be competing with the graph it is about.
+   */
+  test('wears the shape of an action nobody needs often', async ({ page }) => {
+    await openCanvas(page);
+
+    const arrange = page.locator('[data-arrange]');
+
+    await expect(arrange).toHaveCSS('border-radius', '6px');
+    await expect(arrange).toHaveCSS('padding', '3px 10px');
+    await expect(arrange).toHaveCSS('font-weight', '600');
+    await expect(arrange).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(arrange).toHaveCSS(
+      'color',
+      'color(srgb 0.231373 0.231373 0.231373 / 0.62)',
+    );
+    await expect(arrange).toHaveCSS(
+      'transition',
+      'background 0.12s cubic-bezier(0.2, 0, 0, 1)',
+    );
+
+    // It takes a ground only under the pointer,
+    // which is the whole of its reaction.
+    await arrange.hover();
+    await expect(arrange).toHaveCSS(
+      'background-color',
+      'color(srgb 0.928078 0.928078 0.928078)',
+    );
+  });
+
+  /**
+   * Gone, rather than there and refusing. Laying the
+   * graph out again is an edit, and there is nothing
+   * to edit over a file that will not parse or over
+   * a draft nobody has approved.
+   */
+  test('is not offered where there is nothing to edit', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+
+    await harness.show(canvasInit({ preview: proposing('await_reply') }));
+    await expect(page.locator('[data-arrange]')).toHaveCount(0);
+
+    await harness.show(
+      canvasInit({
+        document: { ok: false, detail: 'Not a workflow document.' },
+      }),
+    );
+    await expect(page.locator('[data-arrange]')).toHaveCount(0);
+  });
+});
+
 test.describe('selecting a block', () => {
   test('tells the host which one', async ({ page }) => {
     const harness = await openCanvas(page);
@@ -1747,6 +1820,75 @@ test.describe('building the graph', () => {
     expect(positions['find_slot']!.x).toBeGreaterThan(boxes['find_slot']!.x);
   });
 
+  /**
+   * Three blocks dragged together are one edit.
+   *
+   * The gesture is reported once and names
+   * everything that moved in it. A handler that
+   * wrote a document per block would spend the base
+   * revision on the first one and have the other two
+   * refused as stale — two thirds of a drag silently
+   * lost, which is exactly the kind of thing nobody
+   * notices until the file is wrong.
+   */
+  test('writes a whole selection once, not once a block', async ({ page }) => {
+    const harness = await openCanvas(page);
+
+    const moving = ['booking_requested', 'parse_request', 'find_slot'];
+
+    const before = new Map(
+      await Promise.all(
+        ir.nodes.map(
+          async (node) => [node.id, await flowPosition(page, node.id)] as const,
+        ),
+      ),
+    );
+
+    await rubberBand(page, moving);
+
+    const grabbed = page.locator('.react-flow__node[data-id="find_slot"]');
+    const from = (await grabbed.boundingBox())!;
+
+    await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      from.x + from.width / 2 + 80,
+      from.y + from.height / 2 + 40,
+      { steps: 8 },
+    );
+    await page.mouse.up();
+
+    const sent = await harness.postedOfType('move');
+    expect(sent).toHaveLength(1);
+
+    const positions = sent[0]!.positions as Record<
+      string,
+      { x: number; y: number }
+    >;
+
+    expect(Object.keys(positions).sort()).toEqual(
+      ir.nodes.map((one) => one.id).sort(),
+    );
+
+    for (const [id, at] of Object.entries(positions)) {
+      // Whole pixels, every one of them: the
+      // document's own schema refuses a fraction,
+      // and a rejected move is a drag that did
+      // nothing.
+      expect(Number.isInteger(at.x)).toBe(true);
+      expect(Number.isInteger(at.y)).toBe(true);
+
+      const was = before.get(id)!;
+
+      if (moving.includes(id)) {
+        expect(at.x).toBeGreaterThan(was.x);
+        expect(at.y).toBeGreaterThan(was.y);
+      } else {
+        expect(at).toEqual({ x: Math.round(was.x), y: Math.round(was.y) });
+      }
+    }
+  });
+
   test('asks for the graph to be laid out again', async ({ page }) => {
     const harness = await openCanvas(page);
 
@@ -1973,6 +2115,53 @@ async function clickWire(page: Page, edge: string): Promise<void> {
   const box = (await hit.boundingBox())!;
 
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+/**
+ * Selects exactly those blocks, by drawing a box
+ * around them.
+ *
+ * A box rather than a modifier and a click: which
+ * key adds to a selection is the platform's answer,
+ * and this browser answers with the one the same
+ * platform turns into a context menu. Shift and a
+ * box mean the same thing everywhere.
+ *
+ * The box spans the pane, so it starts on ground
+ * rather than on a block, and reaches a little way
+ * past the group in each direction — far enough to
+ * hold all of it, nowhere near the next block up or
+ * down.
+ */
+async function rubberBand(page: Page, ids: string[]): Promise<void> {
+  const pane = (await page.locator('.react-flow__pane').boundingBox())!;
+  const wanted = await Promise.all(
+    ids.map(
+      async (id) =>
+        (await page
+          .locator(`.react-flow__node[data-id="${id}"]`)
+          .boundingBox())!,
+    ),
+  );
+
+  const clearance = 8;
+  const top = Math.min(...wanted.map((box) => box.y)) - clearance;
+  const bottom =
+    Math.max(...wanted.map((box) => box.y + box.height)) + clearance;
+
+  await page.keyboard.down('Shift');
+  await page.mouse.move(pane.x + 2, top);
+  await page.mouse.down();
+  await page.mouse.move(pane.x + pane.width - 2, bottom, { steps: 8 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+
+  // Said here so that a box that caught the wrong
+  // blocks fails as itself, rather than as whatever
+  // the drag afterwards then wrote.
+  await expect(page.locator('.react-flow__node.selected')).toHaveCount(
+    ids.length,
+  );
 }
 
 /** Where the graph library put a node, in the
