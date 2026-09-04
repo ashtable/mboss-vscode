@@ -59,7 +59,7 @@ const PATHS: Record<NodeKind, readonly string[]> = {
   transaction: [
     'M3 5v14a9 3 0 0 0 18 0V5',
     'M3 12a9 3 0 0 0 18 0',
-    'M21 5a9 3 1 1-18 0 9 3 0 0 1 18 0Z',
+    'M21 5a9 3 0 0 1-18 0 9 3 0 0 1 18 0Z',
   ],
 
   // globe

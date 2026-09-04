@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
+
+import { DIST } from '../../src/build.js';
 
 import { configToForm } from '../../src/canvas/inspector/forms.js';
 import {
@@ -253,6 +256,26 @@ async function openCanvas(page: Page, theme: ThemeKind = 'light') {
   return harness;
 }
 
+/**
+ * The same page, with nothing on it still moving.
+ *
+ * A block's edge, its shadow and its lift are
+ * transitioned, and a block a run is at breathes
+ * for as long as the run lasts — so a style read
+ * while any of that is in flight is a number
+ * nobody chose. Somebody who asked for less
+ * movement is shown the value the sheet settles
+ * on, and that is the value worth holding.
+ */
+async function openAtRest(page: Page, over: Partial<CanvasInit> = {}) {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+
+  const harness = await mount(page, 'canvas');
+  await harness.show(canvasInit(over));
+
+  return harness;
+}
+
 test.describe('the palette', () => {
   test('offers the catalog’s ten kinds, in its order', async ({ page }) => {
     await openCanvas(page);
@@ -419,6 +442,60 @@ test.describe('the graph', () => {
 });
 
 /**
+ * The glyph each kind is drawn in, written out.
+ *
+ * Ten distinct glyphs are not ten right ones: a
+ * Loop wearing the Trigger's bolt differs from
+ * everything else on the canvas and is still
+ * wrong. These say which is which, so that
+ * changing one is something somebody decides
+ * rather than something that happens.
+ */
+const ICON_PATHS: Record<NodeKind, readonly string[]> = {
+  trigger: [
+    'M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z',
+  ],
+  step: [
+    'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z',
+    'm3.3 7 8.7 5 8.7-5',
+    'M12 22V12',
+  ],
+  transaction: [
+    'M3 5v14a9 3 0 0 0 18 0V5',
+    'M3 12a9 3 0 0 0 18 0',
+    'M21 5a9 3 0 0 1-18 0 9 3 0 0 1 18 0Z',
+  ],
+  apiCall: [
+    'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z',
+    'M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20',
+    'M2 12h20',
+  ],
+  branch: [
+    'M16 3h5v5',
+    'M8 3H3v5',
+    'M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3',
+    'm15 9 6-6',
+  ],
+  loop: [
+    'm17 2 4 4-4 4',
+    'M3 11v-1a4 4 0 0 1 4-4h14',
+    'm7 22-4-4 4-4',
+    'M21 13v1a4 4 0 0 1-4 4H3',
+  ],
+  durableWait: ['M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Z', 'M12 6v6l4 2'],
+  approval: [
+    'm16 11 2 2 4-4',
+    'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2',
+    'M13 7a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z',
+  ],
+  emailSend: [
+    'M2 6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z',
+    'm22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7',
+  ],
+  codeStep: ['m16 18 6-6-6-6', 'm8 6-6 6 6 6'],
+};
+
+/**
  * A block says four things and no more: what kind
  * it is, what it is called, which code runs there,
  * and what is happening to it. Everything the
@@ -445,6 +522,44 @@ test.describe('one block', () => {
 
     expect(glyphs).toHaveLength(NODE_PALETTE.length);
     expect(new Set(glyphs).size).toBe(NODE_PALETTE.length);
+  });
+
+  test('draws each kind in the glyph chosen for it', async ({ page }) => {
+    await openEveryKind(page);
+
+    const drawn: Record<string, (string | null)[]> = {};
+
+    for (const { kind } of NODE_PALETTE) {
+      drawn[kind] = await nodeBody(page, slugOf(kind))
+        .locator('.node-icon path')
+        .evaluateAll((paths) => paths.map((path) => path.getAttribute('d')));
+    }
+
+    expect(drawn).toEqual(ICON_PATHS);
+  });
+
+  /**
+   * A path the browser cannot parse is dropped in
+   * silence. The glyph comes out missing a stroke,
+   * which reads as a slightly different icon rather
+   * than as a broken one, and the console is the
+   * only place it is ever mentioned.
+   */
+  test('draws all ten without the browser refusing a stroke', async ({
+    page,
+  }) => {
+    const complaints: string[] = [];
+
+    page.on('console', (message) => {
+      if (message.type() === 'error') complaints.push(message.text());
+    });
+
+    await openEveryKind(page);
+
+    await expect(page.locator('.node-icon svg')).toHaveCount(
+      NODE_PALETTE.length,
+    );
+    expect(complaints).toEqual([]);
   });
 
   test('names the function it runs', async ({ page }) => {
@@ -555,6 +670,284 @@ test.describe('one block', () => {
       'data-state',
       'dormant',
     );
+  });
+});
+
+/** An agent's proposal covering one block of the
+ *  canonical fixture. */
+const proposing = (id: string): CanvasInit['preview'] => ({
+  headline: 'PREVIEW',
+  banner: undefined,
+  warning: undefined,
+  proposed: [id],
+  named: ['Wait for SMS reply'],
+  more: undefined,
+});
+
+/** What a run puts on a block, and what is left of
+ *  it once the run has gone past. */
+const RUN_STATES = [
+  {
+    state: 'running',
+    edge: 'rgba(0, 0, 0, 0)',
+    shadow:
+      'rgb(23, 184, 144) 0px 0px 0px 1.5px, color(srgb 0.0901961 0.721569 0.564706 / 0.3) 0px 0px 12px 0px',
+  },
+  {
+    state: 'waiting',
+    edge: 'rgba(0, 0, 0, 0)',
+    shadow:
+      'rgb(233, 162, 59) 0px 0px 0px 1.5px, color(srgb 0.913725 0.635294 0.231373 / 0.3) 0px 0px 12px 0px',
+  },
+  {
+    state: 'failed',
+    edge: 'rgba(0, 0, 0, 0)',
+    shadow:
+      'rgb(238, 93, 104) 0px 0px 0px 1.5px, color(srgb 0.933333 0.364706 0.407843 / 0.28) 0px 0px 12px 0px',
+  },
+  {
+    state: 'done',
+    edge: 'color(srgb 0.231373 0.231373 0.231373 / 0.14)',
+    shadow: 'rgba(23, 26, 35, 0.05) 0px 1px 2px 0px',
+  },
+] as const;
+
+/**
+ * What a block wears for the state it is in.
+ *
+ * Colour on this canvas is spent on one thing:
+ * what is happening to a block right now. Three of
+ * the states are facts about the document and
+ * about what a person is looking at, and a block
+ * arrives in them from a message. The four a run
+ * gives a block have nothing sending them yet, so
+ * those are put on the block here the way a run
+ * will put them there — what is held below is the
+ * sheet, not the plumbing that will reach it.
+ *
+ * Every value is written out rather than read back
+ * off the token it came from. Read back, each
+ * check passes whatever the token was changed to,
+ * which is the one thing it exists to catch.
+ */
+test.describe('the state a block is in', () => {
+  test('rests on a hairline, barely off the ground', async ({ page }) => {
+    await openAtRest(page);
+
+    const block = nodeBody(page, 'find_slot');
+
+    await expect(block).toHaveCSS('border-top-width', '1px');
+    await expect(block).toHaveCSS('border-top-style', 'solid');
+    await expect(block).toHaveCSS(
+      'border-top-color',
+      'color(srgb 0.231373 0.231373 0.231373 / 0.14)',
+    );
+    await expect(block).toHaveCSS(
+      'box-shadow',
+      'rgba(23, 26, 35, 0.05) 0px 1px 2px 0px',
+    );
+    await expect(block).toHaveCSS('transform', 'none');
+  });
+
+  test('darkens its edge and lifts under the pointer', async ({ page }) => {
+    await openAtRest(page);
+
+    const block = nodeBody(page, 'find_slot');
+    await block.hover();
+
+    await expect(block).toHaveCSS(
+      'border-top-color',
+      'color(srgb 0.231373 0.231373 0.231373 / 0.22)',
+    );
+    await expect(block).toHaveCSS(
+      'box-shadow',
+      'rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
+    );
+    // One pixel up, as the browser spells it. It is
+    // the only transform anywhere in this system.
+    await expect(block).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, -1)');
+  });
+
+  test('wears the ring whole when it is the one selected', async ({ page }) => {
+    await openAtRest(page, { inspector: showing('find_slot') });
+
+    const block = nodeBody(page, 'find_slot');
+
+    await expect(block).toHaveCSS('border-top-color', 'rgba(0, 0, 0, 0)');
+    // Four shadows and not one merged value: the
+    // ring, the softer ring around it, and the two
+    // the block was already sitting on. Selected is
+    // lit and still raised.
+    await expect(block).toHaveCSS(
+      'box-shadow',
+      'rgb(83, 103, 255) 0px 0px 0px 1.5px, color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 5px, rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
+    );
+    await expect(block).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, -1)');
+  });
+
+  test('is dashed and ghosted while an agent is asking for it', async ({
+    page,
+  }) => {
+    await openAtRest(page, { preview: proposing('await_reply') });
+
+    const block = nodeBody(page, 'await_reply');
+
+    await expect(block).toHaveCSS('border-top-style', 'dashed');
+    await expect(block).toHaveCSS('border-top-color', 'rgb(149, 103, 255)');
+    // The sheet asks for a pixel and a half; a
+    // display with whole pixels rounds it down, and
+    // it is the dashes that carry the meaning.
+    await expect(block).toHaveCSS('border-top-width', '1px');
+    // No shadow at all. A block nobody has approved
+    // sitting on the same ground as the ones on
+    // disk is exactly the confusion the dashes are
+    // there to prevent.
+    await expect(block).toHaveCSS('box-shadow', 'none');
+    await expect(block).toHaveCSS(
+      'background-color',
+      'color(srgb 0.972549 0.972549 0.972549 / 0.72)',
+    );
+  });
+
+  test('is the selected one when it is both selected and proposed', async ({
+    page,
+  }) => {
+    await openAtRest(page, {
+      inspector: showing('await_reply'),
+      preview: proposing('await_reply'),
+    });
+
+    const block = nodeBody(page, 'await_reply');
+
+    // The three treatments never combine. A block
+    // wearing a dashed edge and a halo at once says
+    // two things a person has to choose between.
+    await expect(block).toHaveAttribute('data-state', 'selected');
+    await expect(block).toHaveCSS('border-top-style', 'solid');
+    await expect(block).toHaveCSS(
+      'box-shadow',
+      'rgb(83, 103, 255) 0px 0px 0px 1.5px, color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 5px, rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
+    );
+  });
+
+  test('glows where a run is, and wears nothing once it is past', async ({
+    page,
+  }) => {
+    await openAtRest(page);
+
+    const block = nodeBody(page, 'find_slot');
+
+    for (const { state, edge, shadow } of RUN_STATES) {
+      await block.evaluate(
+        (element, value) => element.setAttribute('data-state', value),
+        state,
+      );
+
+      await expect(block).toHaveCSS('box-shadow', shadow);
+      await expect(block).toHaveCSS('border-top-color', edge);
+    }
+  });
+});
+
+/** Tint and ink per tone, as the browser resolves
+ *  the mixes over this harness' light surface. */
+const TONE_COLOURS = [
+  {
+    tone: 'neutral',
+    tint: 'color(srgb 0.928078 0.928078 0.928078)',
+    ink: 'color(srgb 0.231373 0.231373 0.231373 / 0.62)',
+  },
+  {
+    tone: 'brand',
+    tint: 'color(srgb 0.907843 0.915686 0.975294)',
+    ink: 'rgb(83, 103, 255)',
+  },
+  {
+    tone: 'agent',
+    tint: 'color(srgb 0.933725 0.915686 0.975294)',
+    ink: 'rgb(149, 103, 255)',
+  },
+  {
+    tone: 'ok',
+    tint: 'color(srgb 0.866667 0.942431 0.923608)',
+    ink: 'rgb(23, 184, 144)',
+  },
+  {
+    tone: 'warn',
+    tint: 'color(srgb 0.964314 0.925333 0.868784)',
+    ink: 'rgb(233, 162, 59)',
+  },
+  {
+    tone: 'fail',
+    tint: 'color(srgb 0.967843 0.899608 0.904784)',
+    ink: 'rgb(238, 93, 104)',
+  },
+] as const;
+
+/**
+ * The tile the glyph sits in, and the one place on
+ * a block that state is spent as colour.
+ */
+test.describe('the tile a block’s glyph sits in', () => {
+  test('is coloured by the state, never by the kind', async ({ page }) => {
+    await openEveryKind(page);
+
+    // Ten kinds, one tone between them. Ten kinds
+    // in ten colours is a legend to memorise, and
+    // the block worth finding across a graph is the
+    // one something is happening to.
+    await expect(page.locator('.node-icon[data-tone="neutral"]')).toHaveCount(
+      NODE_PALETTE.length,
+    );
+  });
+
+  test('turns brand for the selected block, agent for a proposed one', async ({
+    page,
+  }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(
+      canvasInit({
+        inspector: showing('find_slot'),
+        preview: proposing('await_reply'),
+      }),
+    );
+
+    await expect(tile(page, 'find_slot')).toHaveAttribute('data-tone', 'brand');
+    await expect(tile(page, 'await_reply')).toHaveAttribute(
+      'data-tone',
+      'agent',
+    );
+    await expect(tile(page, 'parse_request')).toHaveAttribute(
+      'data-tone',
+      'neutral',
+    );
+  });
+
+  test('paints each tone in its own tint and ink', async ({ page }) => {
+    await openCanvas(page);
+
+    const square = tile(page, 'find_slot');
+
+    for (const { tone, tint, ink } of TONE_COLOURS) {
+      await square.evaluate(
+        (element, value) => element.setAttribute('data-tone', value),
+        tone,
+      );
+
+      await expect(square).toHaveCSS('background-color', tint);
+      await expect(square).toHaveCSS('color', ink);
+    }
+  });
+
+  test('is a small square with a smaller glyph inside it', async ({ page }) => {
+    await openCanvas(page);
+
+    const square = tile(page, 'find_slot');
+
+    await expect(square).toHaveCSS('width', '28px');
+    await expect(square).toHaveCSS('height', '28px');
+    await expect(square).toHaveCSS('border-radius', '6px');
+    await expect(square.locator('svg')).toHaveCSS('width', '15px');
   });
 });
 
@@ -1062,6 +1455,23 @@ test.describe('the built bundles', () => {
       'DOEK',
     );
   });
+
+  /**
+   * The ten glyphs are paths written out in this
+   * repository. An icon package pulled in beside
+   * them would ship a thousand more to draw ten,
+   * and the two sets would drift apart the first
+   * time either was touched.
+   */
+  test('draw their glyphs from here, not from an icon package', () => {
+    const bundle = readFileSync(join(DIST, 'webview', 'canvas.js'), 'utf8');
+
+    // Said both ways round. A scan pointed at the
+    // wrong file finds nothing, and finding nothing
+    // is what this would otherwise call a pass.
+    expect(bundle).toContain(ICON_PATHS.trigger[0]);
+    expect(bundle).not.toContain('lucide');
+  });
 });
 
 /* — driving the page — */
@@ -1075,6 +1485,11 @@ function nodeBody(page: Page, node: string): Locator {
 /** The one mono line under a block's title. */
 function nodeLine(page: Page, node: string): Locator {
   return nodeBody(page, node).locator('.node-line');
+}
+
+/** The tile a block's glyph sits in. */
+function tile(page: Page, node: string): Locator {
+  return nodeBody(page, node).locator('.node-icon');
 }
 
 function sourceHandle(page: Page, node: string, port: string): Locator {
