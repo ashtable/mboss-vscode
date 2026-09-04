@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { fakeWebview, type FakeWebview } from '../../test/doubles/webview.js';
 import type { ToolEntry } from '../acp/transcript.js';
-import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
+import {
+  WorkflowIRSchema,
+  withDecisionCases,
+  type WorkflowIR,
+} from '../core/rules.js';
 import { messages } from '../messages.js';
 import { previewStore, type PreviewStore } from '../preview/store.js';
 import { makeProject, writeWorkflow } from '../test-support/project.js';
@@ -392,6 +396,43 @@ describe('selecting a node', () => {
     ]);
   });
 
+  /**
+   * A decision can bring more ways out than the
+   * branch has wires — three outcomes onto a branch
+   * somebody has wired twice. The unwired one names
+   * no block, and the column is what says the run
+   * stops there. Naming a block for it would be a
+   * lie, and leaving it out altogether would hide a
+   * way out that exists.
+   */
+  it('names no block for a way out nothing is wired to', async () => {
+    const branch = ir.nodes.find((node) => node.id === 'slot_open')!;
+    if (branch.kind !== 'branch') throw new Error('slot_open is not a branch');
+
+    const decided = {
+      ...ir,
+      nodes: ir.nodes.map((node) =>
+        node.id === 'slot_open'
+          ? {
+              ...withDecisionCases(branch, ['pay', 'refuse', 'hold']),
+              handler: { export: 'routeClaim' },
+            }
+          : node,
+      ),
+    };
+
+    await open(fakeDocument(JSON.stringify(decided)));
+
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'slot_open' });
+    await settled();
+
+    expect(lastCanvasInit().inspector.selected?.outcomes).toEqual([
+      { value: 'pay', target: 'Book appointment' },
+      { value: 'refuse', target: 'Twilio chat — you decide' },
+      { value: 'hold', target: undefined },
+    ]);
+  });
+
   it('shows nothing at all once the canvas lets go of it', async () => {
     panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
     await settled();
@@ -537,6 +578,45 @@ describe('assigning a function to a block', () => {
 
     return written.nodes.find((node) => node.id === id)!;
   }
+
+  /**
+   * The ordinary case, and the one every other test
+   * here happens not to cover: a block that is not a
+   * branch, given the function it will run. Nothing
+   * about its config is the picker's business, and
+   * the seeding a branch gets must not follow the
+   * function onto a step.
+   */
+  it('writes one that fits a block that decides nothing', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+
+    // The same workflow with one step's function
+    // taken off, which is the state a person is in
+    // when they reach for the picker at all.
+    const bare = {
+      ...ir,
+      nodes: ir.nodes.map((node) =>
+        node.id === 'find_slot'
+          ? Object.fromEntries(
+              Object.entries(node).filter(([key]) => key !== 'handler'),
+            )
+          : node,
+      ),
+    };
+
+    await open(fakeDocument(JSON.stringify(bare), path));
+    await until(() => lastCanvasInit().manifest !== undefined);
+
+    assign('find_slot', 'findSlot');
+    await settled();
+
+    const node = wrote('find_slot');
+
+    expect(node.handler).toEqual({ export: 'findSlot' });
+    expect(node.kind).toBe('step');
+    expect(node.config).toEqual({});
+  });
 
   it('writes one that fits, and seeds the branch’s cases from it', async () => {
     await openScanned();
