@@ -487,6 +487,22 @@ describe('the function a block runs', () => {
     });
   });
 
+  it('goes onto the node when one is picked', () => {
+    const node = sample('escape');
+
+    const edited = formToConfig(node, [
+      { id: 'handler', control: 'picker', value: 'retryOnce' },
+    ]);
+
+    expect(edited.handler).toEqual({ export: 'retryOnce' });
+    expect(find(edited, 'handler')).toEqual({
+      id: 'handler',
+      control: 'picker',
+      value: 'retryOnce',
+    });
+    expect(() => NodeSchema.parse(edited)).not.toThrow();
+  });
+
   it('comes off the node when it is cleared', () => {
     const node = sample('parse_request');
 
@@ -517,6 +533,31 @@ describe('the function a block runs', () => {
     expect(find(predicates, 'elsePort')).toBeDefined();
     expect(find(decided, 'cases')).toBeUndefined();
     expect(find(decided, 'elsePort')).toBeUndefined();
+  });
+
+  /**
+   * Two branches showing the two states prove the
+   * states exist. This proves one branch moves
+   * between them, which is the thing a person does:
+   * they try a function, decide the predicates said
+   * it better, and take the function back off.
+   */
+  it('gives one branch its predicate editor back and takes it away again', () => {
+    const decided = sample('route_claim');
+
+    const cleared = formToConfig(decided, [
+      { id: 'logic', control: 'picker', value: undefined },
+    ]);
+
+    expect(find(cleared, 'cases')).toBeDefined();
+    expect(find(cleared, 'elsePort')).toBeDefined();
+
+    const again = formToConfig(cleared, [
+      { id: 'logic', control: 'picker', value: 'routeClaim' },
+    ]);
+
+    expect(find(again, 'cases')).toBeUndefined();
+    expect(find(again, 'elsePort')).toBeUndefined();
   });
 });
 
