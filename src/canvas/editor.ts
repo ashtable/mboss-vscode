@@ -441,11 +441,19 @@ export class CanvasSession {
    * The toolbar button carries the revision it was
    * drawn at; the palette command has none to carry,
    * and means the canvas as it is right now.
+   *
+   * A graph nobody has placed is already the one the
+   * engine lays out, so there is nothing there to let
+   * go of and nothing is written.
    */
   arrange(baseRevision?: number): void {
     if (!this.read.ok) return;
 
-    this.write(baseRevision ?? this.read.ir.revision, withoutPositions);
+    this.write(baseRevision ?? this.read.ir.revision, (ir) =>
+      ir.nodes.some((node) => node.position !== undefined)
+        ? withoutPositions(ir)
+        : undefined,
+    );
   }
 
   /**

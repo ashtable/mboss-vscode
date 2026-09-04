@@ -1140,6 +1140,29 @@ describe('placing blocks by hand', () => {
   });
 
   /**
+   * A graph nobody has placed is already the one
+   * the engine lays out, so there is nothing there
+   * for arranging to let go of.
+   *
+   * Writing it anyway would raise the revision over
+   * a document that says exactly what it said
+   * before — marking the tab dirty, spending the
+   * base revision somebody else's edit was made
+   * against, and putting a no-op on the undo stack.
+   */
+  it('writes nothing when there is no position to let go of', async () => {
+    panel.send({
+      type: 'arrange',
+      view: 'canvas',
+      baseRevision: ir.revision,
+    });
+    await settled();
+
+    expect(recorded.written).toEqual([]);
+    expect(recorded.told).toEqual([]);
+  });
+
+  /**
    * The command does what the toolbar button does,
    * on the canvas a person is looking at — which is
    * the only one it could sensibly mean.
