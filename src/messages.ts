@@ -538,6 +538,22 @@ export const messages = {
   canvasAssignVerb: () => l10n.t('Assign lib fn'),
 
   /**
+   * What that row was done to: the function, the
+   * kind of block that took it, and the block's
+   * own title.
+   *
+   * The kind is there because a title is whatever
+   * somebody typed and two of them can read alike
+   * — the kind is what says the function landed on
+   * the block that was meant. Its word comes from
+   * the palette's table rather than a second one
+   * here, so a block is called the same thing
+   * wherever it is named.
+   */
+  canvasAssignTarget: (fn: string, kind: string, title: string) =>
+    l10n.t('{0} → {1} "{2}"', fn, kind, title),
+
+  /**
    * The line over a graph nobody has agreed to yet.
    *
    * The mockup puts it in the editor's tab strip.

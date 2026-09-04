@@ -955,6 +955,12 @@ describe('assigning a function to a block', () => {
    * happened to it is read. A block that gained a
    * function without a row there reads, later, as
    * something the agent must have done.
+   *
+   * The row names the kind as well as the title,
+   * because a title is whatever somebody typed and
+   * two of them can read alike. Which kind of block
+   * took the function is what says whether the
+   * assignment was the one meant.
    */
   it('writes a row for what the person did', async () => {
     await openScanned();
@@ -968,7 +974,7 @@ describe('assigning a function to a block', () => {
         by: 'person',
         status: 'applied',
         verb: messages.canvasAssignVerb(),
-        target: 'tryAgain → Open at requested time?',
+        target: 'tryAgain → Branch "Open at requested time?"',
       }),
     ]);
   });

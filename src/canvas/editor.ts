@@ -891,7 +891,11 @@ export class CanvasSession {
         by: 'person',
         kind: 'edit',
         verb: messages.canvasAssignVerb(),
-        target: `${named} → ${node.title}`,
+        target: messages.canvasAssignTarget(
+          named,
+          messages.paletteLabels()[node.kind],
+          node.title,
+        ),
         status: 'applied',
         body: [],
       });

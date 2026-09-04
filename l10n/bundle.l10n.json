@@ -275,6 +275,7 @@
   "The workflow {0} failed with: {1}. Look at it and tell me what went wrong.": "The workflow {0} failed with: {1}. Look at it and tell me what went wrong.",
   "{0} cannot sit behind {1}: {2}.": "{0} cannot sit behind {1}: {2}.",
   "Assign lib fn": "Assign lib fn",
+  "{0} → {1} \"{2}\"": "{0} → {1} \"{2}\"",
   "dragging {0}…": "dragging {0}…",
   "this block runs no code of its own": "this block runs no code of its own",
   "takes {0} arguments, needs one": "takes {0} arguments, needs one",
