@@ -133,6 +133,28 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
 }
 
 /**
+ * The mark at the end of a block, saying what the
+ * run did there. Keyed on state, the way the tile's
+ * tone is.
+ *
+ * The three states that are not a run leave none at
+ * all. The block a run is at leaves an empty one on
+ * purpose: what it wears is a dot the stylesheet
+ * draws, because a tick on a block that has not
+ * finished is the one thing this set must never
+ * say.
+ */
+const RUN_MARK: Record<NodeState, string | undefined> = {
+  dormant: undefined,
+  selected: undefined,
+  proposed: undefined,
+  running: '',
+  waiting: '↻',
+  failed: '✕',
+  done: '✓',
+};
+
+/**
  * What a block looks like: its glyph, its name and
  * the code behind it.
  *
@@ -155,6 +177,8 @@ export function BlockFace({
   line: string;
   state: NodeState;
 }) {
+  const mark = RUN_MARK[state];
+
   return (
     <>
       <NodeIcon kind={kind} tone={TONE[state]} />
@@ -163,6 +187,12 @@ export function BlockFace({
         <p className="node-title">{truncateTitle(title)}</p>
         <p className="node-line mono">{line}</p>
       </div>
+
+      {mark === undefined ? null : (
+        <span className="node-run" data-run={state}>
+          {mark}
+        </span>
+      )}
     </>
   );
 }

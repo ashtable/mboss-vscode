@@ -610,6 +610,38 @@ button.lib-fn {
   text-overflow: ellipsis;
 }
 
+/* What the run did here, at the end of the row
+   because it is the last thing to become true about
+   a block. A block no run has reached carries none,
+   so there is nothing to leave room for. */
+.node-run {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+.node-run[data-run='done'] {
+  color: var(--ok);
+}
+.node-run[data-run='failed'] {
+  color: var(--fail);
+}
+/* Still turning, because whatever it is parked on
+   has not answered yet. */
+.node-run[data-run='waiting'] {
+  color: var(--warn);
+  animation: sig-spin var(--dur-slow) linear infinite;
+}
+/* A dot, never a tick: the run has not finished
+   here, and the block must not say it has. */
+.node-run[data-run='running'] {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: sig-pulse 1.2s ease-in-out infinite;
+}
+
 /* — wires — */
 
 .react-flow__edge .wire {

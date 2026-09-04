@@ -22,6 +22,7 @@ import {
   type WorkflowIR,
   type WorkflowNode,
 } from '../../src/core/rules.js';
+import type { LiveOutcome, LiveRun, StepState } from '../../src/runs/watch.js';
 import type {
   CanvasInit,
   CanvasInspector,
@@ -779,6 +780,52 @@ const proposing = (id: string): CanvasInit['preview'] => ({
   more: undefined,
 });
 
+/**
+ * A run of the fixture's workflow, as the watcher
+ * reports one.
+ *
+ * The steps are in the order the ledger holds them,
+ * which is the order they ran in — the last of them
+ * is the one the block the run is at is worked out
+ * from.
+ */
+function runOf(
+  steps: readonly (readonly [string, StepState])[],
+  outcome: LiveOutcome = 'running',
+): LiveRun {
+  return {
+    workflowId: 'wf_1',
+    workflow: ir.name,
+    status: outcome === 'running' ? 'PENDING' : 'SUCCESS',
+    steps: steps.map(([nodeId, state]) => ({ name: nodeId, nodeId, state })),
+    recovered: false,
+    outcome,
+  };
+}
+
+/** A run still going: two blocks behind it, and a
+ *  branch ahead that records nothing, so both of
+ *  the blocks past it are where the run might be. */
+const IN_FLIGHT = [
+  ['parse_request', 'done'],
+  ['find_slot', 'done'],
+] as const;
+
+/** A run parked on a person, at the block that is
+ *  waiting for them. */
+const PARKED = [
+  ['parse_request', 'done'],
+  ['find_slot', 'done'],
+  ['twilio_chat', 'done'],
+  ['await_reply', 'waiting'],
+] as const;
+
+/** A run that stopped where it broke. */
+const BROKEN = [
+  ['parse_request', 'done'],
+  ['find_slot', 'failed'],
+] as const;
+
 /** What a run puts on a block, and what is left of
  *  it once the run has gone past. */
 const RUN_STATES = [
@@ -944,6 +991,53 @@ test.describe('the state a block is in', () => {
   });
 
   /**
+   * The glow on the block a run is at is not a
+   * fixed shadow but one that swells and falls
+   * back, which is the difference between a block
+   * that is running and one that stopped in a state
+   * worth a colour.
+   */
+  test('breathes where the run is, and holds still where it is not', async ({
+    page,
+  }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    await expect(nodeBody(page, 'twilio_chat')).toHaveCSS(
+      'animation-name',
+      'sig-breathe',
+    );
+    await expect(nodeBody(page, 'find_slot')).toHaveCSS(
+      'animation-name',
+      'none',
+    );
+  });
+
+  /**
+   * Somebody who asked for less movement gets the
+   * same picture without it. Read both ways round,
+   * because a duration that was never running would
+   * pass a check that only reads it afterwards.
+   */
+  test('collapses that breath for somebody who asked for less movement', async ({
+    page,
+  }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ run: runOf(IN_FLIGHT) }));
+
+    const block = nodeBody(page, 'twilio_chat');
+
+    await expect(block).toHaveCSS('animation-duration', '1.6s');
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
+    // A hundredth of a millisecond, as the browser
+    // spells it back. Collapsed rather than removed:
+    // the block still ends up wearing what the sheet
+    // was animating it towards.
+    await expect(block).toHaveCSS('animation-duration', '1e-05s');
+  });
+
+  /**
    * The same states, arriving the way they really
    * arrive: on the init message, over a graph
    * nobody has touched. What the tones look like is
@@ -954,19 +1048,7 @@ test.describe('the state a block is in', () => {
   test('takes its tones from the run the window is following', async ({
     page,
   }) => {
-    await openAtRest(page, {
-      run: {
-        workflowId: 'wf_1',
-        workflow: 'groom_booking',
-        status: 'PENDING',
-        steps: [
-          { name: 'parse_request', nodeId: 'parse_request', state: 'done' },
-          { name: 'find_slot', nodeId: 'find_slot', state: 'done' },
-        ],
-        recovered: false,
-        outcome: 'running',
-      },
-    });
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
 
     await expect(nodeBody(page, 'find_slot')).toHaveAttribute(
       'data-state',
@@ -976,12 +1058,120 @@ test.describe('the state a block is in', () => {
       'data-state',
       'running',
     );
-    await expect(
-      page.locator('.react-flow__edge[data-id="e2"] .wire'),
-    ).toHaveAttribute('data-state', 'done');
-    await expect(
-      page.locator('.react-flow__edge[data-id="e5"] .wire'),
-    ).toHaveAttribute('data-state', 'active');
+    await expect(wireBody(page, 'e2')).toHaveAttribute('data-state', 'done');
+    await expect(wireBody(page, 'e5')).toHaveAttribute('data-state', 'active');
+  });
+});
+
+/**
+ * The mark at the end of a block: what the run did
+ * here, in one glyph.
+ *
+ * The glow says where the run is and the mark says
+ * what came of it, and between them a person
+ * crossing the room can read a run off the shape of
+ * the graph. The block the run is at is the one
+ * that matters: it wears a dot and never a tick,
+ * because a block that has not finished saying it
+ * has is the one thing this set must never do.
+ */
+test.describe('the mark a run leaves on a block', () => {
+  test('ticks a block the run has been through', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    const mark = runMark(page, 'find_slot');
+
+    await expect(mark).toHaveText('✓');
+    await expect(mark).toHaveCSS('color', 'rgb(23, 184, 144)');
+  });
+
+  test('pulses a dot, and no tick, where the run is now', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    const mark = runMark(page, 'twilio_chat');
+
+    await expect(mark).toBeEmpty();
+    await expect(mark).toHaveCSS('width', '7px');
+    await expect(mark).toHaveCSS('height', '7px');
+    await expect(mark).toHaveCSS('background-color', 'rgb(23, 184, 144)');
+    await expect(mark).toHaveCSS('animation-name', 'sig-pulse');
+    await expect(nodeBody(page, 'twilio_chat')).not.toContainText('✓');
+  });
+
+  test('crosses the block a run stopped at', async ({ page }) => {
+    await openAtRest(page, { run: runOf(BROKEN, 'failed') });
+
+    const mark = runMark(page, 'find_slot');
+
+    await expect(mark).toHaveText('✕');
+    await expect(mark).toHaveCSS('color', 'rgb(238, 93, 104)');
+  });
+
+  test('turns a mark on the block a run is parked at', async ({ page }) => {
+    await openAtRest(page, { run: runOf(PARKED, 'waiting') });
+
+    const mark = runMark(page, 'await_reply');
+
+    await expect(mark).toHaveText('↻');
+    await expect(mark).toHaveCSS('color', 'rgb(233, 162, 59)');
+    await expect(mark).toHaveCSS('animation-name', 'sig-spin');
+  });
+
+  /** The mark is the run's, so a canvas nobody is
+   *  following a run on carries none — and neither
+   *  does a block the run has not reached. */
+  test('leaves a block no run has been near unmarked', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    await expect(runMark(page, 'record_booking')).toHaveCount(0);
+
+    await openAtRest(page);
+
+    await expect(runMark(page, 'find_slot')).toHaveCount(0);
+  });
+});
+
+/**
+ * What a run does to a wire.
+ *
+ * The dashes march the way the value is going, so
+ * they are drawn only along the wires something is
+ * actually going down. A solid line is structure,
+ * and a canvas of marching dashes would say the
+ * whole workflow was running at once.
+ */
+test.describe('the dashes on a wire a run is going down', () => {
+  test('marches them along the wire the run is travelling', async ({
+    page,
+  }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    const wire = wireBody(page, 'e5');
+
+    await expect(wire).toHaveCSS('stroke-dasharray', '6px, 5px');
+    await expect(wire).toHaveCSS('animation-name', 'sig-edge-flow');
+  });
+
+  test('marches them into the block a run is parked at', async ({ page }) => {
+    await openAtRest(page, { run: runOf(PARKED, 'waiting') });
+
+    const wire = wireBody(page, 'e6');
+
+    await expect(wire).toHaveCSS('stroke-dasharray', '6px, 5px');
+    await expect(wire).toHaveCSS('animation-name', 'sig-edge-flow');
+  });
+
+  test('leaves the wires nothing is going down solid', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    // One the run has been down, and one it has not
+    // reached: neither is carrying anything now.
+    for (const id of ['e2', 'e10']) {
+      const wire = wireBody(page, id);
+
+      await expect(wire).toHaveCSS('stroke-dasharray', 'none');
+      await expect(wire).toHaveCSS('animation-name', 'none');
+    }
   });
 });
 
@@ -3002,6 +3192,18 @@ test.describe('the built bundles', () => {
  *  library positions. */
 function nodeBody(page: Page, node: string): Locator {
   return page.locator(`.react-flow__node[data-id="${node}"] .node`);
+}
+
+/** The mark at the end of a block, saying what the
+ *  run did there. */
+function runMark(page: Page, node: string): Locator {
+  return nodeBody(page, node).locator('[data-run]');
+}
+
+/** The line of one wire, which is what the run is
+ *  drawn on rather than the group around it. */
+function wireBody(page: Page, edge: string): Locator {
+  return page.locator(`.react-flow__edge[data-id="${edge}"] .wire`);
 }
 
 /** The ring around a block a wire being drawn could
