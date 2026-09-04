@@ -72,7 +72,11 @@ const canvasStrings: CanvasStrings = {
   unassigned: 'unassigned',
   typedWiring: 'Typed wiring',
   arrange: 'Arrange',
-  dragging: 'dragging {0}…',
+  libFnDragging: 'dragging {0}…',
+  blockDragging: '{0} · dragging',
+  spliceHere: 'splice here',
+  spliceNote: 'edge splits on drop',
+  dragHint: 'drag starts after {0} px of movement · esc cancels',
   groups: {
     start: 'Start',
     work: 'Work',

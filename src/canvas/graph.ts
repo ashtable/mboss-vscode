@@ -436,7 +436,7 @@ function frontierFrom(
  * trigger, and saying otherwise would send a
  * person looking for code to write.
  */
-function lineOf(node: WorkflowNode, drawing: Drawing): string {
+export function lineOf(node: WorkflowNode, drawing: Drawing): string {
   if (node.handler !== undefined) return `ƒ ${node.handler.export}`;
 
   const label = drawing.labels[node.kind];

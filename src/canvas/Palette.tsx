@@ -1,3 +1,5 @@
+import type { PointerEvent } from 'react';
+
 import {
   NODE_PALETTE,
   type LibFunction,
@@ -5,9 +7,11 @@ import {
   type NodePaletteGroup,
   type WorkflowNode,
 } from '../core/rules.js';
+import { filled } from '../webview/fill.js';
 import type { CanvasStrings } from '../webview/protocol.js';
 
-import { LIB_FN, NODE_KIND } from './dragging.js';
+import { LIB_FN } from './dragging.js';
+import { DRAG_THRESHOLD } from './drag/gesture.js';
 import { FunctionLines, fitsFor, type LibState } from './libFunction.js';
 
 /**
@@ -23,11 +27,17 @@ import { FunctionLines, fitsFor, type LibState } from './libFunction.js';
  * localized.
  *
  * Both sections are dragged, and they land in
- * different places: a block chip is dropped on the
- * canvas to create one, a `/lib` row on a block to
- * say the block runs it. Each carries its own media
- * type, so neither drop target accepts what it could
- * do nothing with.
+ * different places: a block chip is carried onto the
+ * canvas to create one, a `/lib` row onto a block to
+ * say the block runs it. The two are dragged
+ * differently as well. A row travels the browser's
+ * own way, carrying a media type no other drop
+ * target accepts, because all that matters is which
+ * block it was let go of on. A chip is a press the
+ * canvas watches, because everything about that
+ * gesture is where the pointer is: how far it has
+ * gone, which wire it is over, and whether it was
+ * called off before it was let go of.
  *
  * A `/lib` row also says beforehand whether it could
  * sit where it is going: the row the selected block
@@ -51,6 +61,16 @@ export type PaletteProps = {
    *  is. */
   dragging: string | undefined;
   onDragging: (fn: string | undefined) => void;
+
+  /** Which kind of block has left the rail, if one
+   *  has. */
+  carrying: NodeKind | undefined;
+
+  /** Somebody pressed a block chip. Whether that
+   *  becomes a drag is decided by how far the
+   *  pointer goes next, which is the canvas' to
+   *  watch. */
+  onCarry: (kind: NodeKind, event: PointerEvent<HTMLElement>) => void;
 };
 
 /** The order the drawers are drawn in, which is the
@@ -69,6 +89,8 @@ export function Palette({
   selected,
   dragging,
   onDragging,
+  carrying,
+  onCarry,
 }: PaletteProps) {
   const functions = fitsFor(lib ?? [], selected, strings.misfits);
 
@@ -86,13 +108,23 @@ export function Palette({
                 key={entry.kind}
                 className="chip"
                 data-palette-kind={entry.kind}
-                draggable
-                onDragStart={(event) => {
-                  event.dataTransfer.setData(NODE_KIND, entry.kind);
-                  event.dataTransfer.effectAllowed = 'copy';
+                data-state={carrying === entry.kind ? 'dragging' : undefined}
+                // A press rather than the browser's
+                // own drag, because everything that
+                // follows is about where the pointer
+                // is: how far it has gone, which gap
+                // it is over, and whether Escape came
+                // before it was let go of. A native
+                // drag hands all three to the
+                // browser and gives back a drop.
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  onCarry(entry.kind, event);
                 }}
               >
-                {labels[entry.kind]}
+                {carrying === entry.kind
+                  ? filled(strings.blockDragging, labels[entry.kind])
+                  : labels[entry.kind]}
               </p>
             ),
           )}
@@ -125,6 +157,14 @@ export function Palette({
           ))
         )}
       </section>
+
+      {/* How the gesture works, said where it starts.
+          A drag that will not begin until the pointer
+          has travelled, and cancels on a key, is not
+          something a person discovers by trying. */}
+      <p className="drag-hint" data-drag-hint>
+        {filled(strings.dragHint, String(DRAG_THRESHOLD))}
+      </p>
     </aside>
   );
 }

@@ -181,7 +181,28 @@ export type CanvasStrings = {
 
   /** `dragging {0}…`, over a function on its way to
    *  a block. */
-  dragging: string;
+  libFnDragging: string;
+
+  /**
+   * `{0} · dragging`, on the rail's own chip while a
+   * block is on its way onto the canvas.
+   *
+   * Its own sentence rather than the one above,
+   * because the two are different journeys — a
+   * function is going to a block, a block is going
+   * to the graph — and a person part-way through one
+   * should not have to work out which they started.
+   */
+  blockDragging: string;
+
+  /** What a gap on a wire says, and what letting go
+   *  in it would do. */
+  spliceHere: string;
+  spliceNote: string;
+
+  /** `drag starts after {0} px of movement · esc
+   *  cancels`, under the rail. */
+  dragHint: string;
 
   /**
    * Why a function cannot sit behind a block, per

@@ -1,5 +1,5 @@
 /**
- * What a drag onto the canvas is carrying.
+ * What a drag onto a block is carrying.
  *
  * A private media type rather than `text/plain`, so
  * a block only accepts a drag that came from the
@@ -8,19 +8,14 @@
  *
  * The name is the only payload: what it means is
  * decided against the manifest, by the host.
+ *
+ * A block chip carries nothing at all. It is dragged
+ * as a press the canvas watches rather than as a
+ * drag the browser runs, because where the pointer
+ * is on the way — not only where it ended up — is
+ * what that gesture means.
  */
 export const LIB_FN = 'application/x-mboss-lib-fn';
-
-/**
- * A block of one kind, on its way onto the canvas.
- *
- * Its own type rather than the one above, because
- * the two land in different places: a function is
- * dropped on a block, a kind is dropped on the
- * canvas, and each drop target should accept only
- * what it can do something with.
- */
-export const NODE_KIND = 'application/x-mboss-node-kind';
 
 /**
  * Whether the drag under the pointer is carrying

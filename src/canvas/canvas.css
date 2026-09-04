@@ -23,6 +23,16 @@
   grid-template-rows: auto 1fr;
   height: 100vh;
   box-sizing: border-box;
+
+  /* How solid a thing under the pointer looks.
+     Declared here rather than in the token sheet:
+     that sheet carries state, provenance and
+     elevation, and none of these is any of those —
+     they are three hand-picked strengths for three
+     things that are happening rather than true. */
+  --drag-ghost: 0.8;
+  --drag-guide: 0.55;
+  --drag-dim: 0.4;
 }
 
 /* — the toolbar — */
@@ -136,6 +146,26 @@
 }
 .chip:hover {
   border-color: var(--brand);
+}
+
+/* On its way onto the canvas. Filled rather than
+   ghosted, and dashed at a full pixel: the chip is
+   what a person left behind, and it should read as
+   the source of what they are holding rather than
+   as something half-there itself. That is the
+   opposite of the `/lib` row, which fades because
+   the row *is* the thing travelling. */
+.chip[data-state='dragging'] {
+  border: 1px dashed var(--brand);
+  background: var(--brand-tint);
+}
+
+/* How the gesture works, under the rail it starts
+   in. */
+.drag-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
 }
 
 /* A function out of the project's code-behind, in
@@ -260,6 +290,67 @@ button.lib-fn {
   position: relative;
   flex: 1;
   min-height: 0;
+}
+
+/* — carrying a block onto the graph — */
+
+/* The block a person is holding, drawn where the
+   pointer has it. Half-there because it is not on
+   the graph yet, and out of the way of every hit
+   test because the pointer is aiming through it. */
+.ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: var(--drag-ghost);
+  pointer-events: none;
+}
+
+/* The pointer's own arrow, on the corner of
+   whatever is following it. */
+.cursor-badge {
+  position: absolute;
+  right: -6px;
+  bottom: -8px;
+}
+
+/* Where a block could go in. Every wire opens one
+   while something is in flight, so the whole offer
+   is readable at once. */
+.splice-gap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed var(--brand);
+  border-radius: var(--r-md);
+  pointer-events: none;
+}
+
+/* Only the one under the pointer is filled in, and
+   only it says what would happen. Filling all of
+   them would say the block was about to go into
+   all of them. */
+.splice-gap[data-under] {
+  background: var(--brand-tint);
+}
+
+.splice-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--brand);
+}
+
+.splice-note {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--brand);
 }
 
 /* — a proposal, over the graph it is about — */

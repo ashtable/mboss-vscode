@@ -293,5 +293,9 @@
   "One commit.": "One commit.",
   "The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.": "The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.",
   "logic": "logic",
-  "database": "database"
+  "database": "database",
+  "{0} · dragging": "{0} · dragging",
+  "splice here": "splice here",
+  "edge splits on drop": "edge splits on drop",
+  "drag starts after {0} px of movement · esc cancels": "drag starts after {0} px of movement · esc cancels"
 }

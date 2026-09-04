@@ -795,7 +795,22 @@ export const messages = {
 
     // Follows the function's name, in the toolbar,
     // while a chip is on its way to a block.
-    dragging: l10n.t('dragging {0}…'),
+    libFnDragging: l10n.t('dragging {0}…'),
+
+    // On the rail's own chip, while a block is on
+    // its way onto the canvas. The chip is where a
+    // person's eye already is, so it is the chip
+    // that says so rather than the toolbar.
+    blockDragging: l10n.t('{0} · dragging'),
+
+    spliceHere: l10n.t('splice here'),
+    spliceNote: l10n.t('edge splits on drop'),
+
+    // The number is the gesture's own, filled in
+    // where the drag is worked out, so the sentence
+    // cannot say one distance while the pointer is
+    // held to another.
+    dragHint: l10n.t('drag starts after {0} px of movement · esc cancels'),
 
     groups: {
       start: l10n.t('Start'),

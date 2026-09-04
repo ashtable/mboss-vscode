@@ -3,6 +3,7 @@ import {
   BackgroundVariant,
   ReactFlow,
   ReactFlowProvider,
+  ViewportPortal,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -10,11 +11,14 @@ import {
   type EdgeTypes,
   type NodeTypes,
 } from '@xyflow/react';
-import { useMemo, useState, type DragEvent } from 'react';
+import { useMemo, useState, type PointerEvent } from 'react';
 
 import {
-  NodeKindSchema,
+  nodeSize,
+  starterNode,
   type Diagnostic,
+  type NodeKind,
+  type Position,
   type WorkflowIR,
 } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
@@ -24,10 +28,18 @@ import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
 import { Node } from './Node.js';
 import { Palette } from './Palette.js';
 import { Wire, WireMarkers } from './Wire.js';
-import { NODE_KIND, carries } from './dragging.js';
-import { toReactFlow, type CanvasEdge, type CanvasNode } from './graph.js';
+import { GhostNode } from './drag/GhostNode.js';
+import { SpliceGaps } from './drag/SpliceGaps.js';
+import { gapUnder, spliceGaps, type SpliceGap } from './drag/gaps.js';
+import { pastThreshold } from './drag/gesture.js';
+import {
+  lineOf,
+  toReactFlow,
+  type CanvasEdge,
+  type CanvasNode,
+} from './graph.js';
 import { GRID } from './grid.js';
-import { Inspector } from './inspector/Inspector.js';
+import { Inspector, showInspectorHeading } from './inspector/Inspector.js';
 import { checkCandidateEdge } from './wiring.js';
 
 import '@xyflow/react/dist/style.css';
@@ -89,39 +101,276 @@ export function Canvas(init: CanvasInit) {
         dragging={dragging}
       />
 
-      <div className="workspace">
-        <Palette
-          strings={init.strings}
-          labels={init.paletteLabels}
-          lib={init.manifest?.functions}
-          selected={init.inspector.selected?.node}
+      {/* The whole workspace sits inside the graph
+          library's provider rather than only the
+          graph. A block dragged off the rail is drawn
+          in the graph's own coordinates from the
+          moment it leaves, so the rail and the pane
+          are two halves of one gesture and both need
+          to know where the graph is. */}
+      <ReactFlowProvider>
+        <Workspace
+          init={init}
+          showing={showing}
           dragging={dragging}
           onDragging={setDragging}
         />
-
-        {init.document.ok ? (
-          showing === 'canvas' ? (
-            <ReactFlowProvider>
-              <Graph init={init} ir={init.document.ir} />
-            </ReactFlowProvider>
-          ) : (
-            <Json ir={init.document.ir} readOnly={init.preview !== undefined} />
-          )
-        ) : (
-          <section className="unreadable">
-            <p className="title">{init.strings.unreadable}</p>
-            <p className="mono text-muted">{init.document.detail}</p>
-          </section>
-        )}
-
-        <Inspector
-          {...init.inspector}
-          lib={init.manifest?.functions}
-          misfits={init.strings.misfits}
-        />
-      </div>
+      </ReactFlowProvider>
     </main>
   );
+}
+
+/**
+ * A block on its way from the rail onto the graph.
+ *
+ * A press is not yet a drag: `moved` is what says
+ * the pointer has travelled far enough to mean it,
+ * and until it has, nothing is drawn and nothing
+ * will be written.
+ */
+type Carried = {
+  kind: NodeKind;
+
+  /** Where the pointer is, in the page's own
+   *  coordinates. */
+  at: { x: number; y: number };
+
+  moved: boolean;
+};
+
+/**
+ * The three columns, and the gesture that runs
+ * across two of them.
+ *
+ * Dragging a block out of the rail is a press the
+ * canvas watches rather than a drag the browser
+ * runs. Everything about it is where the pointer is
+ * — how far it has gone, which wire it is over,
+ * whether Escape came first — and a native drag
+ * hands all three to the browser and gives back only
+ * a drop.
+ */
+function Workspace({
+  init,
+  showing,
+  dragging,
+  onDragging,
+}: {
+  init: CanvasInit;
+  showing: 'canvas' | 'json';
+  dragging: string | undefined;
+  onDragging: (fn: string | undefined) => void;
+}) {
+  const [carried, setCarried] = useState<Carried | undefined>();
+  const { screenToFlowPosition } = useReactFlow();
+
+  const document = init.document;
+
+  // A block can only be placed on a graph that is
+  // showing and that is the file: there is nowhere
+  // to aim on a JSON view, and nothing to edit on a
+  // proposal.
+  const placing =
+    document.ok && showing === 'canvas' && init.preview === undefined;
+
+  const gaps = useMemo(
+    () => (document.ok ? spliceGaps(document.ir, init.boxes) : []),
+    [document, init.boxes],
+  );
+
+  /**
+   * Everything after the press.
+   *
+   * The graph as it stands is taken here, at the
+   * moment the press happens, and the whole gesture
+   * is answered against it — including its revision.
+   * That is the graph the person aimed at, and if the
+   * file has moved on by the time they let go, the
+   * host refuses the edit and says so, which is what
+   * it does for every other edit made against a graph
+   * that moved.
+   */
+  const carry = (kind: NodeKind, press: PointerEvent<HTMLElement>): void => {
+    if (!placing || !document.ok) return;
+
+    const from = { x: press.clientX, y: press.clientY };
+    const ir = document.ir;
+    let moved = false;
+
+    setCarried({ kind, at: from, moved });
+
+    const stop = (): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('keydown', off);
+      setCarried(undefined);
+    };
+
+    const move = (dragged: globalThis.PointerEvent): void => {
+      const at = { x: dragged.clientX, y: dragged.clientY };
+
+      moved = moved || pastThreshold(from, at);
+      setCarried({ kind, at, moved });
+    };
+
+    const release = (let_go: globalThis.PointerEvent): void => {
+      const at = { x: let_go.clientX, y: let_go.clientY };
+
+      stop();
+
+      if (!moved && !pastThreshold(from, at)) return;
+
+      const landing = landingFor(kind, screenToFlowPosition(at), gaps);
+
+      postToHost({
+        type: 'addNode',
+        baseRevision: ir.revision,
+        kind,
+        position: rounded(landing.lands),
+        ...(landing.gap === undefined
+          ? {}
+          : { spliceEdge: landing.gap.edgeId }),
+      });
+
+      // A block that has just arrived says nothing
+      // about itself yet, and the column beside the
+      // canvas is where that gets said.
+      showInspectorHeading();
+    };
+
+    const off = (key: KeyboardEvent): void => {
+      if (key.key === 'Escape') stop();
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', release);
+    window.addEventListener('keydown', off);
+  };
+
+  const flying =
+    carried?.moved === true
+      ? inFlight(init, carried, screenToFlowPosition(carried.at), gaps)
+      : undefined;
+
+  return (
+    <div className="workspace">
+      <Palette
+        strings={init.strings}
+        labels={init.paletteLabels}
+        lib={init.manifest?.functions}
+        selected={init.inspector.selected?.node}
+        dragging={dragging}
+        onDragging={onDragging}
+        carrying={flying?.ghost.kind}
+        onCarry={carry}
+      />
+
+      {document.ok ? (
+        showing === 'canvas' ? (
+          <Graph init={init} ir={document.ir} carrying={flying} />
+        ) : (
+          <Json ir={document.ir} readOnly={init.preview !== undefined} />
+        )
+      ) : (
+        <section className="unreadable">
+          <p className="title">{init.strings.unreadable}</p>
+          <p className="mono text-muted">{document.detail}</p>
+        </section>
+      )}
+
+      <Inspector
+        {...init.inspector}
+        lib={init.manifest?.functions}
+        misfits={init.strings.misfits}
+      />
+    </div>
+  );
+}
+
+/** What the graph draws while a block is in flight
+ *  over it. */
+type Carrying = {
+  gaps: readonly SpliceGap[];
+
+  /** The wire the drop would split, if the pointer
+   *  is over one. */
+  under: string | undefined;
+
+  ghost: { kind: NodeKind; title: string; line: string; at: Position };
+};
+
+/**
+ * What the pointer is holding, and where letting go
+ * would put it.
+ *
+ * They are not the same place, and saying so is the
+ * point. What is held hangs up and to the left of
+ * the pointer, with the arrow on its own corner
+ * marking where the pointer actually is — a block is
+ * 230 pixels wide, and one drawn centred on the
+ * pointer covers the gap it is about to go into.
+ *
+ * Where it lands is the gap's own slot whenever
+ * there is a gap under the pointer. The gap is drawn
+ * where the block will be and says as much, so that
+ * is the promise to keep; over open canvas there is
+ * no promise but the shape being carried, and the
+ * block lands exactly there.
+ */
+function landingFor(
+  kind: NodeKind,
+  at: Position,
+  gaps: readonly SpliceGap[],
+): { held: Position; lands: Position; gap: SpliceGap | undefined } {
+  const gap = gapUnder(gaps, at);
+  const { width, height } = nodeSize(kind);
+  const held = { x: at.x - width, y: at.y - height };
+
+  return {
+    gap,
+    held,
+    lands:
+      gap === undefined
+        ? held
+        : { x: gap.at.x - width / 2, y: gap.at.y - height / 2 },
+  };
+}
+
+/**
+ * The block being carried, as the graph has to draw
+ * it.
+ *
+ * It wears the name and the line the block will wear
+ * once it lands, worked out from the block it is
+ * about to become — so what a person is holding
+ * looks like what they are about to have.
+ */
+function inFlight(
+  init: CanvasInit,
+  carried: Carried,
+  at: Position,
+  gaps: readonly SpliceGap[],
+): Carrying {
+  const landing = landingFor(carried.kind, at, gaps);
+  const block = starterNode(
+    carried.kind,
+    'carried',
+    init.paletteLabels[carried.kind],
+  );
+
+  return {
+    gaps,
+    under: landing.gap?.edgeId,
+    ghost: {
+      kind: carried.kind,
+      title: block.title,
+      line: lineOf(block, {
+        labels: init.paletteLabels,
+        unassigned: init.strings.unassigned,
+      }),
+      at: landing.held,
+    },
+  };
 }
 
 function Toolbar({
@@ -179,7 +428,7 @@ function Toolbar({
 
       {dragging === undefined ? null : (
         <p className="carrying mono text-muted" data-dragging>
-          {filled(init.strings.dragging, dragging)}
+          {filled(init.strings.libFnDragging, dragging)}
         </p>
       )}
 
@@ -192,7 +441,18 @@ function Toolbar({
   );
 }
 
-function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
+function Graph({
+  init,
+  ir,
+  carrying,
+}: {
+  init: CanvasInit;
+  ir: WorkflowIR;
+
+  /** The block in flight over the graph, while
+   *  somebody is carrying one. */
+  carrying: Carrying | undefined;
+}) {
   const [refused, setRefused] = useState<Diagnostic | undefined>();
 
   // While a proposal is showing, the graph is not
@@ -258,7 +518,7 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
     );
   }
 
-  const { screenToFlowPosition, getNodes } = useReactFlow<CanvasNode>();
+  const { getNodes } = useReactFlow<CanvasNode>();
 
   /**
    * Asked as a person drags onto a handle, before
@@ -336,25 +596,6 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
     });
   };
 
-  /** A block of one kind, let go of over the canvas
-   *  at the point the pointer was at. */
-  const dropKind = (event: DragEvent<HTMLDivElement>): void => {
-    const kind = NodeKindSchema.safeParse(
-      event.dataTransfer.getData(NODE_KIND),
-    );
-    if (!editable || !kind.success) return;
-
-    event.preventDefault();
-    postToHost({
-      type: 'addNode',
-      baseRevision: ir.revision,
-      kind: kind.data,
-      position: rounded(
-        screenToFlowPosition({ x: event.clientX, y: event.clientY }),
-      ),
-    });
-  };
-
   return (
     <section className="graph">
       {preview === undefined ? null : <Banner preview={preview} />}
@@ -378,17 +619,6 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
           deleteKeyCode={editable ? DELETE_KEYS : null}
           onBeforeDelete={sayDeleted}
           onNodeDragStop={sayMoved}
-          onDrop={dropKind}
-          // The types a drag carries are readable
-          // while it is in flight and its data is
-          // not, so what is being held is all a
-          // hover can ask about.
-          onDragOver={(event: DragEvent<HTMLDivElement>) => {
-            if (!editable || !carries(event.dataTransfer, NODE_KIND)) return;
-
-            event.preventDefault();
-            event.dataTransfer.dropEffect = 'copy';
-          }}
           onConnect={(connection) => {
             setRefused(undefined);
             postToHost({
@@ -417,6 +647,23 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
           }
         >
           <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+
+          {/* Drawn inside the graph's own transform,
+              because a gap belongs to a wire and the
+              block being carried is about to belong
+              to the graph: both pan and zoom with
+              everything else. */}
+          {carrying === undefined ? null : (
+            <ViewportPortal>
+              <SpliceGaps
+                gaps={carrying.gaps}
+                under={carrying.under}
+                strings={init.strings}
+              />
+
+              <GhostNode {...carrying.ghost} />
+            </ViewportPortal>
+          )}
         </ReactFlow>
       </div>
 

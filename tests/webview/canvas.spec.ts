@@ -81,7 +81,11 @@ const canvasStrings: CanvasStrings = {
   unassigned: 'unassigned',
   typedWiring: 'Typed wiring',
   arrange: 'Arrange',
-  dragging: 'dragging {0}…',
+  libFnDragging: 'dragging {0}…',
+  blockDragging: '{0} · dragging',
+  spliceHere: 'splice here',
+  spliceNote: 'edge splits on drop',
+  dragHint: 'drag starts after {0} px of movement · esc cancels',
   groups: {
     start: 'Start',
     work: 'Work',
@@ -1777,6 +1781,252 @@ test.describe('dragging a function onto a block', () => {
 });
 
 /**
+ * Dragging a block off the rail and onto the graph.
+ *
+ * A real press and a real pointer, because every
+ * part of this is about where the pointer is: the
+ * drag does not begin until it has moved far enough
+ * to mean it, the graph opens a gap on every wire
+ * while it is in flight, and where it is let go of
+ * decides whether the block goes into a wire or sits
+ * on its own.
+ *
+ * The whole thing is drawn in the canvas' own blue.
+ * Purple on this canvas means an agent wrote it, and
+ * every one of these marks is the person's own hand.
+ */
+test.describe('dragging a block onto the canvas', () => {
+  /**
+   * Four pixels of movement, because a press is how
+   * a person points at something too. A block that
+   * left the rail on the first pixel would leave it
+   * every time somebody read the label.
+   */
+  test('waits for the pointer to mean it', async ({ page }) => {
+    await openCanvas(page);
+
+    const chip = await holdBlock(page, 'step', 2);
+    await expect(page.locator('[data-ghost]')).toHaveCount(0);
+    await expect(page.locator('[data-splice-gap]')).toHaveCount(0);
+
+    await page.mouse.move(chip.x + 40, chip.y);
+    await expect(page.locator('[data-ghost]')).toHaveCount(1);
+
+    await page.mouse.up();
+  });
+
+  test('opens a gap on every wire the block could go into', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+    await dragBlockOverPane(page, 'step');
+
+    const forward = ir.edges.filter((edge) => !edge.back);
+
+    await expect(page.locator('[data-splice-gap]')).toHaveCount(forward.length);
+
+    for (const edge of ir.edges) {
+      await expect(page.locator(`[data-splice-gap="${edge.id}"]`)).toHaveCount(
+        edge.back ? 0 : 1,
+      );
+    }
+
+    await page.mouse.up();
+  });
+
+  /**
+   * The block itself, half-there, with the pointer's
+   * own arrow on it.
+   *
+   * Both halves said out loud. A ghost at full
+   * opacity would read as a block that has already
+   * landed, and one without the arrow would leave a
+   * person hunting for where the pointer actually
+   * is on a shape 230 pixels wide.
+   */
+  test('carries a half-there block under the pointer', async ({ page }) => {
+    await openAtRest(page);
+    await dragBlockOverPane(page, 'step');
+
+    const ghost = page.locator('[data-ghost]');
+
+    await expect(ghost).toHaveCSS('opacity', '0.8');
+    await expect(ghost.locator('.node[data-state="selected"]')).toBeVisible();
+    await expect(ghost.locator('svg.cursor-badge')).toBeVisible();
+
+    await page.mouse.up();
+  });
+
+  /**
+   * The rail says which block left it, in its own
+   * words — not the ones a function on its way to a
+   * block uses. They are two different journeys and
+   * a person mid-drag should not have to work out
+   * which one they started.
+   */
+  test('says on the chip which block is on its way', async ({ page }) => {
+    await openCanvas(page);
+    await dragBlockOverPane(page, 'step');
+
+    const chip = page.locator('[data-palette-kind="step"]');
+
+    await expect(chip).toHaveText('Step · dragging');
+    await expect(chip).toHaveAttribute('data-state', 'dragging');
+    await expect(page.locator('[data-dragging]')).toHaveCount(0);
+
+    await page.mouse.up();
+  });
+
+  /**
+   * Every wire offers a gap; one of them is the
+   * offer. Filling all ten in would say the block
+   * was about to go into all ten.
+   */
+  test('offers the splice only where the pointer is', async ({ page }) => {
+    await openAtRest(page);
+    await dragBlockOverPane(page, 'step');
+    await overGap(page, 'e2');
+
+    const under = page.locator('[data-splice-gap][data-under]');
+
+    await expect(under).toHaveCount(1);
+    await expect(under).toHaveAttribute('data-splice-gap', 'e2');
+    await expect(under.locator('.splice-title')).toHaveText('splice here');
+    await expect(under.locator('.splice-note')).toHaveText(
+      'edge splits on drop',
+    );
+
+    // `--brand-tint`, which is the brand mixed into
+    // the surface behind it.
+    await expect(under).toHaveCSS(
+      'background-color',
+      'color(srgb 0.907843 0.915686 0.975294)',
+    );
+    await expect(page.locator('[data-splice-gap="e3"]')).toHaveCSS(
+      'background-color',
+      'rgba(0, 0, 0, 0)',
+    );
+    await expect(
+      page.locator('[data-splice-gap="e3"] .splice-title'),
+    ).toHaveCount(0);
+
+    await page.mouse.up();
+  });
+
+  test('puts the block into the wire it was let go of on', async ({ page }) => {
+    const harness = await openCanvas(page);
+
+    await dragBlockOverPane(page, 'step');
+    await overGap(page, 'e2');
+    await page.mouse.up();
+
+    const sent = await harness.postedOfType('addNode');
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      type: 'addNode',
+      baseRevision: ir.revision,
+      kind: 'step',
+      spliceEdge: 'e2',
+    });
+  });
+
+  /** Let go of over open canvas, it goes where it
+   *  was let go of and joins nothing. */
+  test('leaves it wired to nothing where no wire was under it', async ({
+    page,
+  }) => {
+    const harness = await openCanvas(page);
+
+    await dragBlockOverPane(page, 'step');
+    await page.mouse.up();
+
+    const sent = await harness.postedOfType('addNode');
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!['spliceEdge']).toBeUndefined();
+
+    const at = sent[0]!['position'] as { x: number; y: number };
+    expect(Number.isInteger(at.x)).toBe(true);
+    expect(Number.isInteger(at.y)).toBe(true);
+  });
+
+  /**
+   * Escape puts it back, and the proof is finishing
+   * the gesture anyway.
+   *
+   * The pointer is let go of over a gap that would
+   * have spliced — so "nothing was written" is a
+   * claim about Escape rather than about a drag that
+   * was simply never completed.
+   */
+  test('calls the whole thing off when Escape is pressed', async ({ page }) => {
+    const harness = await openCanvas(page);
+
+    await dragBlockOverPane(page, 'step');
+    await overGap(page, 'e2');
+
+    await expect(page.locator('[data-splice-gap][data-under]')).toHaveCount(1);
+
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+
+    expect(await harness.postedOfType('addNode')).toEqual([]);
+    await expect(page.locator('[data-ghost]')).toHaveCount(0);
+    await expect(page.locator('[data-splice-gap]')).toHaveCount(0);
+    await expect(page.locator('[data-palette-kind="step"]')).toHaveText('Step');
+  });
+
+  /**
+   * A block that has just arrived says nothing about
+   * itself yet, and the column beside it is where
+   * that gets said. The column is always drawn, so
+   * nothing opens — what happens is that a person is
+   * taken to it.
+   *
+   * Forced, rather than hoped for: the window is
+   * made short enough that the column really
+   * scrolls, and the spec says so before it scrolls
+   * it away.
+   */
+  test('takes a person to what to say about the block next', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1000, height: 240 });
+
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('send_confirmation') }));
+
+    const column = page.locator('.inspector');
+    const heading = page.locator('[data-inspector-heading]');
+
+    expect(
+      await column.evaluate(
+        (element) => element.scrollHeight > element.clientHeight,
+      ),
+    ).toBe(true);
+
+    await column.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    expect(await inViewOf(heading, column)).toBe(false);
+
+    await dragBlockOverPane(page, 'step');
+    await page.mouse.up();
+
+    expect(await inViewOf(heading, column)).toBe(true);
+  });
+
+  test('says how a drag starts and how to call it off', async ({ page }) => {
+    await openCanvas(page);
+
+    await expect(page.locator('[data-drag-hint]')).toHaveText(
+      'drag starts after 4 px of movement · esc cancels',
+    );
+  });
+});
+
+/**
  * Building the graph by hand: a block dragged in
  * from the rail, a block moved, and the graph laid
  * out again.
@@ -2210,6 +2460,83 @@ async function rubberBand(page: Page, ids: string[]): Promise<void> {
   // the drag afterwards then wrote.
   await expect(page.locator('.react-flow__node.selected')).toHaveCount(
     ids.length,
+  );
+}
+
+/**
+ * Presses a block chip and moves the pointer that
+ * far, still holding it.
+ *
+ * A real press, because the whole gesture is about
+ * how far the pointer has travelled since it went
+ * down. Answers where the press was, so a caller can
+ * carry on from there.
+ */
+async function holdBlock(
+  page: Page,
+  kind: NodeKind,
+  by: number,
+): Promise<{ x: number; y: number }> {
+  const chip = (await page
+    .locator(`[data-palette-kind="${kind}"]`)
+    .boundingBox())!;
+
+  const at = { x: chip.x + chip.width / 2, y: chip.y + chip.height / 2 };
+
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x + by, at.y);
+
+  return at;
+}
+
+/** The same, carried well past the threshold and out
+ *  over open canvas, with nothing let go of. */
+async function dragBlockOverPane(page: Page, kind: NodeKind): Promise<void> {
+  await holdBlock(page, kind, 8);
+
+  const pane = (await page.locator('.react-flow__pane').boundingBox())!;
+
+  await page.mouse.move(pane.x + pane.width - 30, pane.y + 30, { steps: 8 });
+}
+
+/**
+ * Moves the pointer into the gap one wire has
+ * opened.
+ *
+ * By where the gap actually is on screen rather than
+ * by working the graph's transform out again — the
+ * gap is in the page by the time this is called, and
+ * asking it is both shorter and harder to get wrong.
+ */
+async function overGap(page: Page, edge: string): Promise<void> {
+  const gap = (await page
+    .locator(`[data-splice-gap="${edge}"]`)
+    .boundingBox())!;
+
+  await page.mouse.move(gap.x + gap.width / 2, gap.y + gap.height / 2, {
+    steps: 8,
+  });
+}
+
+/**
+ * Whether the element is inside the part of its
+ * column a person can actually see.
+ *
+ * By the boxes rather than by whether it is in the
+ * page at all: a heading scrolled off the top of a
+ * column is still in the DOM, still `toBeVisible`,
+ * and still exactly what somebody cannot see.
+ */
+async function inViewOf(inner: Locator, outer: Locator): Promise<boolean> {
+  const box = (await inner.boundingBox())!;
+  const frame = (await outer.boundingBox())!;
+
+  return (
+    box.y + box.height > frame.y &&
+    box.y < frame.y + frame.height &&
+    box.x + box.width > frame.x &&
+    box.x < frame.x + frame.width
   );
 }
 

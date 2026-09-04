@@ -1,11 +1,11 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { useState, type DragEvent } from 'react';
 
-import { truncateTitle } from '../core/rules.js';
+import { truncateTitle, type NodeKind } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 
 import { LIB_FN, carries } from './dragging.js';
-import { TARGET_PORT, type CanvasNode } from './graph.js';
+import { TARGET_PORT, type CanvasNode, type NodeState } from './graph.js';
 import { NodeIcon, TONE } from './icons.js';
 
 /**
@@ -88,12 +88,12 @@ export function Node({ data }: NodeProps<CanvasNode>) {
     >
       <Handle type="target" position={Position.Top} id={TARGET_PORT} />
 
-      <NodeIcon kind={node.kind} tone={TONE[state]} />
-
-      <div className="node-text">
-        <p className="node-title">{truncateTitle(node.title)}</p>
-        <p className="node-line mono">{data.line}</p>
-      </div>
+      <BlockFace
+        kind={node.kind}
+        title={node.title}
+        line={data.line}
+        state={state}
+      />
 
       {ports.map((port, index) => (
         <Handle
@@ -105,6 +105,41 @@ export function Node({ data }: NodeProps<CanvasNode>) {
         />
       ))}
     </div>
+  );
+}
+
+/**
+ * What a block looks like: its glyph, its name and
+ * the code behind it.
+ *
+ * Apart from the block itself because a block being
+ * carried onto the canvas wears the same face and
+ * none of the rest — no ports to wire, nothing to
+ * drop on it, nothing to select. Two copies of this
+ * markup would drift apart the first time either
+ * was touched, and the one that drifted would be
+ * the one under the pointer.
+ */
+export function BlockFace({
+  kind,
+  title,
+  line,
+  state,
+}: {
+  kind: NodeKind;
+  title: string;
+  line: string;
+  state: NodeState;
+}) {
+  return (
+    <>
+      <NodeIcon kind={kind} tone={TONE[state]} />
+
+      <div className="node-text">
+        <p className="node-title">{truncateTitle(title)}</p>
+        <p className="node-line mono">{line}</p>
+      </div>
+    </>
   );
 }
 

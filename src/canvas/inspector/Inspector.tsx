@@ -55,6 +55,23 @@ export type InspectorProps = CanvasInspector & {
   misfits: Record<HandlerMisfit['kind'], string>;
 };
 
+/**
+ * Brings the top of this column into view.
+ *
+ * The column is always drawn, so nothing opens —
+ * what this does is take a person to it, after they
+ * have done something on the canvas that the column
+ * is about to ask the next question about.
+ *
+ * It lives beside the heading it looks for so that
+ * the mark and the search for it cannot drift apart.
+ */
+export function showInspectorHeading(): void {
+  document
+    .querySelector('[data-inspector-heading]')
+    ?.scrollIntoView({ block: 'nearest' });
+}
+
 export function Inspector({ strings, selected, lib, misfits }: InspectorProps) {
   if (selected === undefined) {
     return (
