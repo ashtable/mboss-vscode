@@ -1101,6 +1101,26 @@ describe('placing blocks by hand', () => {
 
     expect(WorkflowCanvasEditor.active()).toBeUndefined();
   });
+
+  /**
+   * A canvas open in some other tab is not the
+   * canvas the command means.
+   *
+   * The command runs from the palette with no
+   * argument, so what it is about is whatever is in
+   * front of the person who ran it — and a canvas
+   * nobody is looking at being laid out again,
+   * because it happened to be the first one open,
+   * is an edit to a file they did not ask about.
+   */
+  it('leaves a canvas nobody is looking at alone', async () => {
+    expect(WorkflowCanvasEditor.active()).toBeUndefined();
+
+    WorkflowCanvasEditor.active()?.arrange();
+    await settled();
+
+    expect(recorded.written).toEqual([]);
+  });
 });
 
 /**
