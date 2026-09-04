@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   WorkflowIRSchema,
+  starterNode,
   validateWorkflow,
   type LibManifest,
   type WorkflowIR,
@@ -13,15 +14,14 @@ import {
 import { checkCandidateEdge, wireBetween } from './wiring.js';
 
 /**
- * Drawing a wire that cannot carry what would flow
- * along it.
+ * Drawing a wire the document would be worse for.
  *
  * The rule is core's, and it stays core's. This
  * asks core about the edge the canvas is on the
  * point of creating and shows what came back
- * verbatim — a second copy of the type rule would
- * drift from the one an agent sees through the
- * MCP server, and the two would then disagree
+ * verbatim — a second copy of any of these rules
+ * would drift from the one an agent sees through
+ * the MCP server, and the two would then disagree
  * about the same document.
  */
 
@@ -166,6 +166,84 @@ describe('checkCandidateEdge', () => {
         to: { node: 'await_reply' },
       }),
     ).toBeUndefined();
+  });
+
+  it('rejects a wire that would close a loop nobody declared', () => {
+    const found = checkCandidateEdge(
+      ir,
+      {
+        from: { node: 'send_confirmation', port: 'out' },
+        to: { node: 'parse_request' },
+      },
+      manifest,
+    );
+
+    // The finding names neither node nor edge, which
+    // is the whole point: a check that kept only what
+    // was said about the new wire could never see it.
+    expect(found?.code).toBe('V04');
+    expect(found?.severity).toBe('error');
+    expect(found?.edgeId).toBeUndefined();
+  });
+
+  it('rejects a wire that would run something before the trigger', () => {
+    const found = checkCandidateEdge(
+      ir,
+      {
+        from: { node: 'find_slot', port: 'out' },
+        to: { node: 'booking_requested' },
+      },
+      manifest,
+    );
+
+    expect(found?.code).toBe('V01');
+    expect(found?.severity).toBe('error');
+  });
+
+  it('passes a wire between two blocks neither of which names a shape', () => {
+    const fresh: WorkflowIR = {
+      ...ir,
+      nodes: [
+        ...ir.nodes,
+        starterNode('step', 'first_draft', 'First draft'),
+        starterNode('step', 'second_draft', 'Second draft'),
+      ],
+    };
+
+    const candidate = {
+      from: { node: 'first_draft', port: 'out' },
+      to: { node: 'second_draft' },
+    };
+
+    // Both are exactly what the rail drops: no
+    // function behind them and so nothing said about
+    // what they take or produce.
+    expect(checkCandidateEdge(fresh, candidate, manifest)).toBeUndefined();
+  });
+
+  it('is not stopped by what the document only warns about', () => {
+    const fresh: WorkflowIR = {
+      ...ir,
+      nodes: [
+        ...ir.nodes,
+        starterNode('step', 'first_draft', 'First draft'),
+        starterNode('step', 'second_draft', 'Second draft'),
+      ],
+    };
+
+    const candidate = {
+      from: { node: 'first_draft', port: 'out' },
+      to: { node: 'second_draft' },
+    };
+
+    const wire = wireBetween(fresh, candidate);
+    const drawn = { ...fresh, edges: [...fresh.edges, wire] };
+
+    expect(validateWorkflow(drawn, { manifest })).toContainEqual(
+      expect.objectContaining({ severity: 'warning', nodeId: 'second_draft' }),
+    );
+
+    expect(checkCandidateEdge(fresh, candidate, manifest)).toBeUndefined();
   });
 
   it('answers about the candidate and not about problems the document already has', () => {

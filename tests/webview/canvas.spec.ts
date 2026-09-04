@@ -1052,8 +1052,8 @@ test.describe('drawing a wire', () => {
 
     await dragBetween(
       page,
-      sourceHandle(page, 'parse_request', 'out'),
-      targetHandle(page, 'slot_open'),
+      sourceHandle(page, 'find_slot', 'out'),
+      targetHandle(page, 'record_booking'),
     );
 
     const refusal = page.locator('[data-rejection]');
@@ -1061,7 +1061,7 @@ test.describe('drawing a wire', () => {
     await expect(refusal).toBeVisible();
     await expect(refusal).toContainText(canvasStrings.typedWiring);
     await expect(refusal).toContainText(
-      whatCoreSays('parse_request', 'out', 'slot_open'),
+      whatCoreSays('find_slot', 'out', 'record_booking'),
     );
 
     expect(await harness.postedOfType('connect')).toEqual([]);
@@ -1086,6 +1086,25 @@ test.describe('drawing a wire', () => {
         to: { node: 'book_appointment' },
       },
     ]);
+  });
+
+  test('refuses one that would loop the graph back on itself', async ({
+    page,
+  }) => {
+    const harness = await openCanvas(page);
+
+    await dragBetween(
+      page,
+      sourceHandle(page, 'send_confirmation', 'out'),
+      targetHandle(page, 'parse_request'),
+    );
+
+    const refusal = page.locator('[data-rejection]');
+
+    await expect(refusal).toBeVisible();
+    await expect(refusal).toContainText(whatCoreSaysAboutTheGraph());
+
+    expect(await harness.postedOfType('connect')).toEqual([]);
   });
 });
 
@@ -3027,8 +3046,15 @@ async function flowPosition(
   }, id);
 }
 
-/** What core says about the wire, computed here so
- *  the assertion cannot drift from the rule. */
+/**
+ * What core says about the wire, computed here so
+ * the assertion cannot drift from the rule.
+ *
+ * The type rule, specifically: the pair the spec
+ * drags is one whose types disagree and whose loops
+ * and reachability are otherwise untouched, so this
+ * is the finding a person sees.
+ */
 function whatCoreSays(from: string, port: string, to: string): string {
   const producer = ir.nodes.find((node) => node.id === from);
 
@@ -3044,4 +3070,33 @@ function whatCoreSays(from: string, port: string, to: string): string {
     { ...ir, edges: [...ir.edges, wire] },
     { manifest },
   ).find((found) => found.code === 'V06' && found.edgeId === 'e99')!.message;
+}
+
+/**
+ * What core says about a graph that loops back on
+ * itself without saying so.
+ *
+ * Named after nothing, because that is the shape of
+ * the finding: no node and no edge is at fault, the
+ * document as a whole is. It is the reason a check
+ * that reads only what was said about the new wire
+ * cannot see a cycle at all.
+ */
+function whatCoreSaysAboutTheGraph(): string {
+  const looped = {
+    ...ir,
+    edges: [
+      ...ir.edges,
+      {
+        id: 'e99',
+        from: { node: 'send_confirmation', port: 'out' },
+        to: { node: 'parse_request' },
+        back: false,
+      },
+    ],
+  };
+
+  return validateWorkflow(looped, { manifest }).find(
+    (found) => found.code === 'V04',
+  )!.message;
 }
