@@ -161,6 +161,18 @@ test.describe('the transcript', () => {
   });
 });
 
+/**
+ * The two provenance colours, as the browser
+ * resolves them over this harness' light theme.
+ *
+ * Written out rather than read back off the same
+ * custom property the rule uses: a rail that read
+ * its colour from the wrong token would agree with
+ * itself and still be the wrong colour.
+ */
+const PERSON = 'rgb(83, 103, 255)';
+const AGENT = 'rgb(149, 103, 255)';
+
 test.describe('a tool call', () => {
   const call: SessionUpdate = {
     sessionUpdate: 'tool_call',
@@ -184,21 +196,31 @@ test.describe('a tool call', () => {
     await expect(card.locator('.tool-mark')).not.toBeEmpty();
   });
 
-  /** Every entry the fold produces is the agent's;
-   *  a row the extension notes for itself carries
-   *  `person` and none of the protocol's four
-   *  status words, because its rail and verb — an
-   *  "applied" row's own — already say what
-   *  happened. */
+  /**
+   * Every entry the fold produces is the agent's;
+   * a row the extension notes for itself carries
+   * `person` and none of the protocol's four status
+   * words, because its rail and verb — an "applied"
+   * row's own — already say what happened.
+   *
+   * The colours are checked as the browser resolves
+   * them, not as class names. Two rows in one column
+   * are told apart by the edge of the card and
+   * nothing else, so a rail that is present but
+   * unpainted — a rule renamed, a token dropped —
+   * loses the distinction this whole product turns
+   * on while every attribute still reads correctly.
+   */
   test('rails a row by who did it', async ({ page }) => {
     const harness = await openPanel(page);
 
     await showing(harness, [call]);
 
-    await expect(page.locator('[data-tool-call="call-1"]')).toHaveAttribute(
-      'data-by',
-      'agent',
-    );
+    const asked = page.locator('[data-tool-call="call-1"]');
+
+    await expect(asked).toHaveAttribute('data-by', 'agent');
+    await expect(asked).toHaveCSS('border-left-width', '3px');
+    await expect(asked).toHaveCSS('border-left-color', AGENT);
 
     await harness.show(
       sidebarInit({
@@ -221,6 +243,33 @@ test.describe('a tool call', () => {
 
     await expect(applied).toHaveAttribute('data-by', 'person');
     await expect(applied.locator('.tool-status')).toHaveCount(0);
+    await expect(applied).toHaveCSS('border-left-width', '3px');
+    await expect(applied).toHaveCSS('border-left-color', PERSON);
+  });
+
+  /**
+   * How a call went is a word in the row. Colouring
+   * the edge with it too would leave the column with
+   * two things to mean, and a person scanning it for
+   * who did what would be reading the wrong signal
+   * on the rows that went wrong.
+   */
+  test('keeps the rail about who, not about how it went', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [
+      call,
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call-1',
+        status: 'failed',
+      },
+    ]);
+
+    const card = page.locator('[data-tool-call="call-1"]');
+
+    await expect(card).toHaveAttribute('data-status', 'failed');
+    await expect(card).toHaveCSS('border-left-color', AGENT);
   });
 
   /**
@@ -409,6 +458,33 @@ test.describe('a diagnostic', () => {
     await expect(found.locator('.diagnostic-row')).toContainText(
       'Open at requested time? names no handler.',
     );
+  });
+
+  /** A regeneration reports everything it found at
+   *  once, and each finding is about a different
+   *  block. Folded into one line, the second one is
+   *  the one nobody reads. */
+  test('draws a line for each thing it found', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          {
+            ...entry,
+            rows: [
+              ...entry.rows,
+              { code: 'V08', message: 'Confirm by email names no handler.' },
+            ],
+          },
+        ],
+      }),
+    );
+
+    await expect(page.locator('.diagnostic-row')).toHaveText([
+      /Open at requested time\? names no handler\./,
+      /Confirm by email names no handler\./,
+    ]);
   });
 
   test('hands the whole thing back on one press', async ({ page }) => {

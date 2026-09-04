@@ -264,6 +264,44 @@ describe('an approval whose regeneration reports errors', () => {
     );
   });
 
+  /**
+   * One row per finding, not one row saying how
+   * many there were.
+   *
+   * A row is what a person reads to decide whether
+   * to press Fix, and two errors in one sentence
+   * hide the second behind the first. The turn the
+   * press sends carries all of them for the same
+   * reason: the agent is being asked to fix what
+   * was found, not the first of it.
+   */
+  it('gives every finding a row of its own', async () => {
+    const { project, id } = await projectWithProposal();
+    const handler = found(documentIn(project));
+    const stub = found(documentIn(project), {
+      code: 'V08',
+      message: 'Confirm by email names no handler.',
+    });
+    const driven = await drive(project, {
+      regenerate: async () => [handler, stub],
+    });
+
+    await driven.store.approve(id);
+
+    const diagnostic = driven.noted.find((entry) => entry.at === 'diagnostic');
+
+    expect(diagnostic?.at === 'diagnostic' && diagnostic.rows).toEqual([
+      { code: handler.code, message: handler.message },
+      { code: stub.code, message: stub.message },
+    ]);
+
+    const prompt =
+      diagnostic?.at === 'diagnostic' ? diagnostic.fix?.prompt : '';
+
+    expect(prompt).toContain(handler.message);
+    expect(prompt).toContain(stub.message);
+  });
+
   /** A warning is what is left to do, not what
    *  went wrong, and the approval has already told
    *  the agent to get on with it. */
