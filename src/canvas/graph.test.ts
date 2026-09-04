@@ -303,6 +303,32 @@ describe('the state a run puts a block in', () => {
   });
 
   /**
+   * A block can own several rows — one per round of
+   * a loop, one per item of a fan-out, the two
+   * halves of a wait — and only one of them can be
+   * drawn. The worst is the one worth finding
+   * across a graph; the latest would hide a round
+   * that broke behind a round that did not.
+   */
+  it('draws a block the run went round twice in the worst it did', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run(
+          [
+            ['find_slot', 'failed'],
+            ['find_slot', 'done'],
+          ],
+          'failed',
+        ),
+      }),
+    );
+
+    expect(statesOf(nodes)['find_slot']).toBe('failed');
+  });
+
+  /**
    * A branch deciding on predicates is decided in
    * the generated code and writes no row at all, so
    * a frontier that stopped at one would say the run

@@ -43,6 +43,14 @@ export type NodeState = 'dormant' | 'selected' | 'proposed' | RunState;
  * Written as the watcher's own three plus one so
  * that a state the ledger gains cannot be missed
  * here.
+ *
+ * The parked one is `waiting` and stays `waiting`.
+ * It means the run stopped on somebody who has not
+ * acted yet, which is the only thing a person
+ * reading the canvas can do anything about. Whether
+ * a run was picked back up after a crash is a
+ * separate fact, and it belongs to the run rather
+ * than to any one block.
  */
 export type RunState = StepState | 'running';
 
