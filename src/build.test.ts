@@ -385,11 +385,18 @@ describe('a control plane stamped by another repository', () => {
 
 describe('the entry list', () => {
   /**
-   * The Node Inspector and the Runs view are each
-   * their own webview, added later. Adding one is
-   * a name in this list and a file beside the
-   * others — not a change to how the build works.
+   * One entry per surface a frame is pointed at.
+   * The Inspector is not one of them: it is the
+   * canvas' own right-hand column, drawn from the
+   * same message as the graph beside it.
    */
+  it('names the surfaces this extension puts in a frame', () => {
+    expect([...WEBVIEW_ENTRIES]).toEqual(['canvas', 'sidebar', 'runs', 'see']);
+  });
+
+  /** Adding one is a name in that list and a file
+   *  beside the others — not a change to how the
+   *  build works. */
   it('drives every webview from one place', () => {
     for (const name of WEBVIEW_ENTRIES) {
       expect(fileExists(resolve(REPO_ROOT, 'src', name, 'index.tsx'))).toBe(

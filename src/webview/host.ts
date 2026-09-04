@@ -24,13 +24,22 @@ import type { HostMessage } from './protocol.js';
  * holds, and the check belongs next to the write
  * it guards.
  */
-const Ready = z.object({ type: z.literal('ready') });
-
 /**
  * Views are torn down and re-resolved whenever
  * they are hidden and shown again, so this arrives
  * many times over one session and the host answers
  * every one of them.
+ */
+const Ready = z.object({ type: z.literal('ready') });
+
+/**
+ * Which block the canvas is showing in its
+ * Inspector column.
+ *
+ * The selection is the canvas', and this mirrors it
+ * to the host — which is what lets the same block
+ * still be showing after the panel has been hidden
+ * and mounted again.
  */
 const Select = z.object({
   type: z.literal('select'),
@@ -257,12 +266,12 @@ export type WebviewMessage = z.infer<typeof WebviewMessageSchema>;
  * Putting a webview on screen and keeping it fed.
  *
  * Every surface this extension shows — the canvas,
- * the agent transcript, the node inspector, the
- * run list — is the same three steps: point the
- * frame at a built bundle, wait for it to say it
- * has mounted, send it what to draw. Doing that
- * once here is what keeps the providers down to
- * the part that differs.
+ * the agent transcript, the run list, one run — is
+ * the same three steps: point the frame at a built
+ * bundle, wait for it to say it has mounted, send
+ * it what to draw. Doing that once here is what
+ * keeps the providers down to the part that
+ * differs.
  */
 
 export type Mounted = {

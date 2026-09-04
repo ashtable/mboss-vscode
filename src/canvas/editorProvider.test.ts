@@ -11,10 +11,9 @@ import { makeProject, writeWorkflow } from '../test-support/project.js';
 import { fileExists } from '../test-support/repo.js';
 import { propose, specOf } from '../test-support/proposals.js';
 import type { VsCodeApi } from '../vscodeApi.js';
-import type { CanvasInit, InspectorInit } from '../webview/protocol.js';
+import type { CanvasInit, CanvasInspector } from '../webview/protocol.js';
 
 import { WorkflowCanvasEditor, type CanvasTrust } from './editor.js';
-import { Selection } from './selection.js';
 
 /**
  * The editor a workflow opens in, driven the way
@@ -50,31 +49,23 @@ type Recorded = {
   api: VsCodeApi;
   written: Written[];
   told: string[];
-  context: Record<string, unknown>;
   change: (document: { uri: { toString(): string } }) => void;
 };
 
 function recorder(): Recorded {
   const written: Written[] = [];
   const told: string[] = [];
-  const context: Record<string, unknown> = {};
   const watchers: ((document: never) => void)[] = [];
 
   return {
     written,
     told,
-    context,
     change: (document) => {
       for (const watcher of watchers) watcher(document as never);
     },
     api: {
       info: (message) => told.push(message),
       run: () => Promise.resolve(),
-      setContext: (key, value) => {
-        context[key] = value;
-
-        return Promise.resolve();
-      },
       replaceDocument: (document, next) => {
         written.push({ path: document.uri.path, text: next });
 
@@ -138,7 +129,6 @@ function trust(trusted: boolean): FakeTrust {
 }
 
 let recorded: Recorded;
-let selection: Selection;
 let panel: FakeWebview;
 
 async function open(
@@ -147,13 +137,11 @@ async function open(
   trusted: CanvasTrust = trust(true),
 ): Promise<void> {
   recorded = recorder();
-  selection = new Selection(recorded.api);
   panel = fakeWebview();
 
   const editor = new WorkflowCanvasEditor(
     extensionUri,
     recorded.api,
-    selection,
     preview,
     trusted,
   );
@@ -308,38 +296,62 @@ describe('a change from anywhere else', () => {
   });
 });
 
+/**
+ * Selection is a fact about one open canvas rather
+ * than about the window: the panel says which block
+ * a person clicked, and the host holds it so that
+ * the Inspector column can be drawn from the same
+ * message as the graph.
+ */
 describe('selecting a node', () => {
-  it('reveals the Inspector and offers it the node', async () => {
-    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
+  it('hands the Inspector column the node and its fields', async () => {
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'reply_decision' });
     await settled();
 
-    expect(recorded.context['mboss.nodeSelected']).toBe(true);
-    expect(selection.current()?.node.id).toBe('find_slot');
+    const shown = lastCanvasInit().inspector;
+
+    expect(shown.selected?.node.id).toBe('reply_decision');
+    expect(shown.selected?.form.kind).toBe('branch');
+    expect(shown.selected?.revision).toBe(ir.revision);
+    expect(labelled(shown)).toBe(true);
   });
 
-  it('returns the container to the agent when nothing is selected', async () => {
+  it('shows nothing at all once the canvas lets go of it', async () => {
     panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
     await settled();
     panel.send({ type: 'select', view: 'canvas', nodeId: null });
     await settled();
 
-    expect(recorded.context['mboss.nodeSelected']).toBe(false);
-    expect(selection.current()).toBeUndefined();
+    expect(lastCanvasInit().inspector.selected).toBeUndefined();
   });
 
   it('says nothing about a node the document does not have', async () => {
     panel.send({ type: 'select', view: 'canvas', nodeId: 'no_such_node' });
     await settled();
 
-    expect(selection.current()).toBeUndefined();
+    expect(lastCanvasInit().inspector.selected).toBeUndefined();
   });
 
   /**
-   * Two canvases can be open at once and only one
-   * of them owns the selection. Closing the other
-   * must not take the Inspector down with it.
+   * A hidden panel is torn down and mounted again
+   * when it is shown, and the frame that comes back
+   * remembers nothing of what was on screen. The
+   * host's copy is what puts the person back where
+   * they were.
    */
-  it('survives another canvas being closed', async () => {
+  it('is given back to a panel that has mounted again', async () => {
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
+    await settled();
+
+    panel.send({ type: 'ready', view: 'canvas' });
+    await settled();
+
+    expect(lastCanvasInit().inspector.selected?.node.id).toBe('find_slot');
+  });
+
+  /** Two canvases can be open at once, and each one
+   *  is showing its own block. */
+  it('belongs to the canvas it was made on', async () => {
     panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
     await settled();
 
@@ -347,32 +359,34 @@ describe('selecting a node', () => {
     await new WorkflowCanvasEditor(
       extensionUri,
       recorded.api,
-      selection,
       previewsIn([]),
       trust(true),
     ).resolveCustomTextEditor(
       fakeDocument(text, '/project/.mboss/workflows/other.workflow.json'),
       other.panel,
     );
-    other.close();
+    other.send({ type: 'ready', view: 'canvas' });
+    other.send({ type: 'select', view: 'canvas', nodeId: 'book_appointment' });
     await settled();
 
-    expect(selection.current()?.node.id).toBe('find_slot');
-    expect(recorded.context['mboss.nodeSelected']).toBe(true);
+    panel.send({ type: 'ready', view: 'canvas' });
+    await settled();
+
+    expect(lastCanvasInit().inspector.selected?.node.id).toBe('find_slot');
   });
 });
 
-describe('an edit from the Inspector', () => {
+describe('an edit from the Inspector column', () => {
   it('replaces the node it names and leaves the rest alone', async () => {
-    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
-    await settled();
-
-    const renamed = {
-      ...ir.nodes.find((node) => node.id === 'find_slot'),
-      title: 'Find an open slot',
-    };
-
-    selection.edit({ baseRevision: ir.revision, node: renamed });
+    panel.send({
+      type: 'edit',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      node: {
+        ...ir.nodes.find((node) => node.id === 'find_slot'),
+        title: 'Find an open slot',
+      },
+    });
     await settled();
 
     const written = WorkflowIRSchema.parse(
@@ -387,10 +401,9 @@ describe('an edit from the Inspector', () => {
   });
 
   it('refuses a node the schema would not accept', async () => {
-    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
-    await settled();
-
-    selection.edit({
+    panel.send({
+      type: 'edit',
+      view: 'canvas',
       baseRevision: ir.revision,
       node: { id: 'find_slot', kind: 'step', title: 'x', config: null },
     });
@@ -398,23 +411,6 @@ describe('an edit from the Inspector', () => {
 
     expect(recorded.written).toHaveLength(0);
     expect(recorded.told).toHaveLength(1);
-  });
-});
-
-describe('what the Inspector is told', () => {
-  it('is the selected node, and the labels for its fields', async () => {
-    panel.send({ type: 'select', view: 'canvas', nodeId: 'reply_decision' });
-    await settled();
-
-    const shown = selection.inspectorInit();
-
-    expect(shown.view).toBe('inspector');
-    expect(shown.selected?.form.kind).toBe('branch');
-    expect(labelled(shown)).toBe(true);
-  });
-
-  it('is nothing at all when nothing is selected', () => {
-    expect(selection.inspectorInit().selected).toBeUndefined();
   });
 });
 
@@ -453,7 +449,7 @@ describe('a proposal about the document on screen', () => {
     await settled();
 
     expect(recorded.written).toEqual([]);
-    expect(selection.current()).toBeUndefined();
+    expect(lastCanvasInit().inspector.selected).toBeUndefined();
   });
 });
 
@@ -535,7 +531,7 @@ describe('opening a workflow in a trusted window', () => {
 
 /** Every field the Inspector is about to draw has
  *  a word to draw beside it. */
-function labelled(shown: InspectorInit): boolean {
+function labelled(shown: CanvasInspector): boolean {
   const fields = shown.selected?.form.fields ?? [];
 
   return fields.every((field) => {

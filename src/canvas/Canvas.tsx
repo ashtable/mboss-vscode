@@ -17,12 +17,14 @@ import { Node } from './Node.js';
 import { Palette } from './Palette.js';
 import { Wire, WireMarkers } from './Wire.js';
 import { toReactFlow, type CanvasEdge } from './graph.js';
+import { Inspector } from './inspector/Inspector.js';
 import { checkCandidateEdge } from './wiring.js';
 
 import '@xyflow/react/dist/style.css';
 
 /**
- * The workflow canvas.
+ * The workflow canvas: what can go on it, what is
+ * on it, and what the selected block does.
  *
  * Everything drawn here came from the host: the
  * parsed document, the boxes core laid it out
@@ -81,6 +83,8 @@ export function Canvas(init: CanvasInit) {
             <p className="mono text-muted">{init.document.detail}</p>
           </section>
         )}
+
+        <Inspector {...init.inspector} />
       </div>
     </main>
   );
@@ -134,13 +138,17 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
   const preview = init.preview;
   const editable = preview === undefined;
 
+  // Said once, by the column that is showing it:
+  // the halo and the fields are the same fact.
+  const selected = init.inspector.selected?.node.id;
+
   const { nodes, edges } = useMemo(
     () =>
       toReactFlow(ir, init.boxes, {
         labels: init.paletteLabels,
         unassigned: init.strings.unassigned,
         proposed: preview?.proposed,
-        selected: init.selected,
+        selected,
       }),
     [
       ir,
@@ -148,7 +156,7 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
       init.paletteLabels,
       init.strings.unassigned,
       preview?.proposed,
-      init.selected,
+      selected,
     ],
   );
 

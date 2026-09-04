@@ -51,7 +51,6 @@ export const HOST_BUNDLE = 'extension.cjs';
  */
 export const WEBVIEW_ENTRIES: readonly WebviewName[] = [
   'canvas',
-  'inspector',
   'sidebar',
   'runs',
   'see',

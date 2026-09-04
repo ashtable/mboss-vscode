@@ -10,6 +10,7 @@ import {
 } from '../../src/core/rules.js';
 import type {
   CanvasInit,
+  CanvasInspector,
   CanvasPreview,
   CanvasStrings,
   SidebarInit,
@@ -90,6 +91,27 @@ const WARNING =
 /** Two blocks arriving, out of the ten drawn. */
 const PROPOSED = ['twilio_chat', 'await_reply'];
 
+/**
+ * The Inspector column, showing nothing.
+ *
+ * A proposal is not the document, so the host lets
+ * go of the selection while one is outstanding —
+ * there is nothing on screen an edit could be made
+ * to. The column is still drawn; it is the canvas.
+ */
+const inspector: CanvasInspector = {
+  strings: {
+    heading: 'Node inspector',
+    nothingSelected: 'Pick a block.',
+    kinds: Object.fromEntries(
+      NODE_PALETTE.map((entry) => [entry.kind, entry.label]),
+    ) as CanvasInit['paletteLabels'],
+    fields: {},
+    options: {},
+  },
+  selected: undefined,
+};
+
 function preview(over: Partial<CanvasPreview> = {}): CanvasPreview {
   return {
     headline: HEADLINE,
@@ -114,7 +136,7 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     boxes,
     diagnostics: [],
     manifest: undefined,
-    selected: undefined,
+    inspector,
     preview: preview(),
     ...over,
   };

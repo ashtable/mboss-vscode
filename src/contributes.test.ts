@@ -209,39 +209,23 @@ describe('views', () => {
   });
 
   /**
-   * A webview cannot host a webview view, so
-   * "selecting a node swaps the canvas's right
-   * panel" is built as two views that take each
-   * other's place. Both need a clause and the two
-   * have to be opposites: give them both the same
-   * one and the container is empty half the time,
-   * leave one off and they stack.
+   * The container holds the two panels that are
+   * about the whole window, and nothing in it
+   * appears and disappears. Setting a block's
+   * config is done in the canvas' own right-hand
+   * column, so there is no view here that another
+   * has to be hidden for — and a `when` clause on
+   * either of these would hide a conversation or a
+   * run history for a reason that has nothing to do
+   * with them.
    */
-  it('swaps the agent and the Inspector on one fact', () => {
+  it('shows every view it declares, all the time', () => {
     expect(views.map((view) => view.id)).toEqual([
       'mboss.agentSidebar',
-      'mboss.nodeInspector',
       'mboss.runs',
     ]);
 
-    expect(views.map((view) => view.when)).toEqual([
-      '!mboss.nodeSelected',
-      'mboss.nodeSelected',
-      undefined,
-    ]);
-  });
-
-  /**
-   * The run list is a third panel beside whichever
-   * of the two is showing, not a fourth thing in
-   * the swap: a run history is worth reading while
-   * a block is selected, and a `when` clause here
-   * would hide it for that reason alone.
-   */
-  it('leaves the run list showing whatever else is', () => {
-    expect(
-      views.find((view) => view.id === 'mboss.runs')?.when,
-    ).toBeUndefined();
+    expect(views.map((view) => view.when)).toEqual([undefined, undefined]);
   });
 });
 

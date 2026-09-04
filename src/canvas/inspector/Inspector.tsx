@@ -1,24 +1,24 @@
 import { useRef, useState } from 'react';
 
-import {
-  configToForm,
-  formToConfig,
-  type InspectorField,
-} from '../canvas/inspector/forms.js';
-import type { WorkflowNode } from '../core/rules.js';
-import { postToHost } from '../webview/client.js';
-import type { InspectorInit, InspectorStrings } from '../webview/protocol.js';
+import type { WorkflowNode } from '../../core/rules.js';
+import { postToHost } from '../../webview/client.js';
+import type {
+  CanvasInspector,
+  InspectorStrings,
+} from '../../webview/protocol.js';
+
+import { configToForm, formToConfig, type InspectorField } from './forms.js';
 
 /**
- * The Node Inspector: the one place a block's
- * config is set.
+ * The Inspector: the one place a block's config is
+ * set, and the canvas' third column.
  *
  * The node being edited is held here rather than
  * only in the document, and that is deliberate. A
  * field can be half-set — an address chosen but
  * not typed, a mode picked whose topic is still
  * blank — and the document has no way to hold a
- * half-set block. So the panel keeps what a person
+ * half-set block. So the column keeps what a person
  * is in the middle of doing, sends it to the host
  * at each commit, and the host writes the ones
  * that are whole.
@@ -30,7 +30,7 @@ import type { InspectorInit, InspectorStrings } from '../webview/protocol.js';
  * — the revision that granularity produces is on
  * screen, in the graph's own caption.
  */
-export function Inspector({ strings, selected }: InspectorInit) {
+export function Inspector({ strings, selected }: CanvasInspector) {
   if (selected === undefined) {
     return (
       <div className="inspector">

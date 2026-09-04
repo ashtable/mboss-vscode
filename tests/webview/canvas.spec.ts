@@ -16,25 +16,26 @@ import {
 } from '../../src/core/rules.js';
 import type {
   CanvasInit,
+  CanvasInspector,
   CanvasStrings,
-  InspectorInit,
   InspectorStrings,
 } from '../../src/webview/protocol.js';
 
 import { mount, type ThemeKind } from './harness.js';
 
 /**
- * The canvas and the Node Inspector, driven.
+ * The canvas, driven — palette, graph and the
+ * Inspector column, which are one bundle and one
+ * message.
  *
- * These two are one feature and two bundles: a
- * webview cannot host a webview view, so selecting
- * a block reveals the Inspector beside the agent
- * rather than inside the canvas. What the canvas
- * owes the Inspector is a selection message, and
- * what the Inspector owes the document is an edit,
- * so both halves are checked here.
+ * Selecting a block is a round trip: the canvas
+ * says which one, and the host sends the canvas
+ * back with that block in its column. The specs
+ * below play the host's half, because the whole
+ * point of the column is that both halves land in
+ * the same frame.
  *
- * The words the views draw are the ones sent in
+ * The words the view draws are the ones sent in
  * below, not the ones the extension resolves. That
  * the host resolves the right ones — and that a
  * webview contains none of its own — is checked
@@ -92,7 +93,7 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     boxes,
     diagnostics: validateWorkflow(ir, { manifest }),
     manifest,
-    selected: undefined,
+    inspector: { strings: inspectorStrings, selected: undefined },
     preview: undefined,
     ...over,
   };
@@ -169,12 +170,12 @@ const inspectorStrings: InspectorStrings = {
   options: {},
 };
 
-function inspectorInit(nodeId: string): InspectorInit {
+/** What the host sends back once it has been told
+ *  which block was clicked. */
+function showing(nodeId: string): CanvasInspector {
   const node = ir.nodes.find((one) => one.id === nodeId)!;
 
   return {
-    type: 'init',
-    view: 'inspector',
     strings: inspectorStrings,
     selected: { node, form: configToForm(node), revision: ir.revision },
   };
@@ -604,7 +605,7 @@ test.describe('selecting a block', () => {
 
   test('draws the selected one as selected', async ({ page }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ selected: 'find_slot' }));
+    await harness.show(canvasInit({ inspector: showing('find_slot') }));
 
     await expect(nodeBody(page, 'find_slot')).toHaveAttribute(
       'data-state',
@@ -617,19 +618,38 @@ test.describe('selecting a block', () => {
   });
 });
 
-test.describe('the Node Inspector', () => {
-  test('names the kind it is showing', async ({ page }) => {
-    const harness = await mount(page, 'inspector');
-    await harness.show(inspectorInit('reply_decision'));
+/**
+ * The one place a block's config is set, and it is
+ * a column of this canvas rather than a panel
+ * somewhere else: clicking a block and reading what
+ * it does happen in the same frame, without a view
+ * being disposed in between.
+ */
+test.describe('the Inspector column', () => {
+  test('shows the block that was clicked, beside it', async ({ page }) => {
+    const harness = await openCanvas(page);
+
+    await page.locator('.react-flow__node[data-id="reply_decision"]').click();
+
+    expect(await harness.postedOfType('select')).toEqual([
+      { type: 'select', nodeId: 'reply_decision' },
+    ]);
+
+    // The host's half: the canvas comes back with
+    // that block in its column.
+    await harness.show(canvasInit({ inspector: showing('reply_decision') }));
 
     await expect(page.locator('[data-inspector-heading]')).toHaveText(
       'Node inspector · Branch',
     );
+    await expect(page.locator('[data-field="title"] input')).toHaveValue(
+      'Reply?',
+    );
   });
 
   test('offers a field per thing the kind carries', async ({ page }) => {
-    const harness = await mount(page, 'inspector');
-    await harness.show(inspectorInit('reply_decision'));
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('reply_decision') }));
 
     await expect(page.locator('[data-field="elsePort"] input')).toHaveValue(
       'stop',
@@ -638,8 +658,8 @@ test.describe('the Node Inspector', () => {
   });
 
   test('sends an edit once the field is finished with', async ({ page }) => {
-    const harness = await mount(page, 'inspector');
-    await harness.show(inspectorInit('find_slot'));
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('find_slot') }));
 
     const title = page.locator('[data-field="title"] input');
 
@@ -659,8 +679,8 @@ test.describe('the Node Inspector', () => {
   test('puts back what the document says when the edit is abandoned', async ({
     page,
   }) => {
-    const harness = await mount(page, 'inspector');
-    await harness.show(inspectorInit('find_slot'));
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('find_slot') }));
 
     const title = page.locator('[data-field="title"] input');
 
@@ -671,16 +691,21 @@ test.describe('the Node Inspector', () => {
     expect(await harness.postedOfType('edit')).toEqual([]);
   });
 
-  test('says so when nothing is selected', async ({ page }) => {
-    const harness = await mount(page, 'inspector');
-    await harness.show({
-      type: 'init',
-      view: 'inspector',
-      strings: inspectorStrings,
-      selected: undefined,
-    });
+  test('says so plainly when the canvas itself is clicked', async ({
+    page,
+  }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('find_slot') }));
 
-    await expect(page.locator('.state')).toHaveText(
+    await page.locator('.react-flow__pane').click({ position: { x: 8, y: 8 } });
+
+    expect(await harness.postedOfType('select')).toEqual([
+      { type: 'select', nodeId: null },
+    ]);
+
+    await harness.show(canvasInit());
+
+    await expect(page.locator('.inspector .state')).toHaveText(
       inspectorStrings.nothingSelected,
     );
     await expect(page.locator('[data-field]')).toHaveCount(0);

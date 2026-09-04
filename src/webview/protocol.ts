@@ -53,8 +53,7 @@ import type { WorkflowTrigger } from '../runs/workflows.js';
  */
 
 /** Sent whenever the host has state to show. */
-export type HostMessage =
-  CanvasInit | InspectorInit | SidebarInit | RunsInit | SeeInit;
+export type HostMessage = CanvasInit | SidebarInit | RunsInit | SeeInit;
 
 export type CanvasInit = {
   type: 'init';
@@ -83,9 +82,9 @@ export type CanvasInit = {
    */
   manifest: LibManifest | undefined;
 
-  /** Which node the Inspector is showing, so the
-   *  canvas can draw it as selected. */
-  selected: string | undefined;
+  /** The canvas' third column, and the one block it
+   *  is showing. */
+  inspector: CanvasInspector;
 
   /**
    * An agent's proposal, drawn over the graph.
@@ -153,10 +152,17 @@ export type CanvasStrings = {
 export type CanvasDocument =
   { ok: true; ir: WorkflowIR } | { ok: false; detail: string };
 
-export type InspectorInit = {
-  type: 'init';
-  view: 'inspector';
+/**
+ * The Inspector, as a column of the canvas.
+ *
+ * Which block is selected is said once, here, and
+ * the graph reads the halo off it — rather than an
+ * id travelling beside a node the same message
+ * already carries.
+ */
+export type CanvasInspector = {
   strings: InspectorStrings;
+
   selected: SelectedNode | undefined;
 };
 
@@ -194,8 +200,8 @@ export type InspectorStrings = {
  * which VS Code disposes the moment it is hidden,
  * so a panel that held its own transcript would
  * lose the conversation the first time somebody
- * selected a node on the canvas. Everything below
- * is held by the extension.
+ * collapsed it. Everything below is held by the
+ * extension.
  */
 export type SidebarInit = {
   type: 'init';

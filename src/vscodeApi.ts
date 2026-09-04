@@ -35,11 +35,6 @@ export type VsCodeApi = {
    *  editor's own. */
   run(command: string, ...args: unknown[]): Promise<void>;
 
-  /** Publishes a fact `when` clauses can read, so
-   *  a contributed view can appear and disappear
-   *  with the state it belongs to. */
-  setContext(key: string, value: unknown): Promise<void>;
-
   /**
    * Replaces a document's whole text.
    *
@@ -62,9 +57,6 @@ export function vsCodeApi(): VsCodeApi {
     info: (message) => void window.showInformationMessage(message),
     run: async (command, ...args) => {
       await commands.executeCommand(command, ...args);
-    },
-    setContext: async (key, value) => {
-      await commands.executeCommand('setContext', key, value);
     },
     replaceDocument: async (document, text) => {
       const edit = new WorkspaceEdit();

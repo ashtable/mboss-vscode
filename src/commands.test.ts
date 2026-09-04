@@ -44,7 +44,6 @@ function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
     ran,
     info: (message) => void shown.push(message),
     run: async (command) => void ran.push(command),
-    setContext: async () => {},
     replaceDocument: async () => true,
     onDocumentChanged: () => ({ dispose: () => {} }),
   };

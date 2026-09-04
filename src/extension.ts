@@ -4,13 +4,11 @@ import { agentPanel } from './acp/agent.js';
 import { chooseAgent } from './acp/choose.js';
 import { agentPickerHost, panelHost } from './acp/host.js';
 import { WorkflowCanvasEditor } from './canvas/editor.js';
-import { Selection } from './canvas/selection.js';
 import { commandHandlers } from './commands.js';
 import { projectHost, runWorkflowHost } from './commands/host.js';
 import { newProject, offerVendorRefresh } from './commands/newProject.js';
 import { runWorkflowCommand } from './commands/runWorkflow.js';
 import { isProject } from './core/index.js';
-import { NodeInspectorView } from './inspector/view.js';
 import { previewStore } from './preview/store.js';
 import { openDatabase, openFork } from './runs/db.js';
 import { projectEnv } from './runs/env.js';
@@ -41,11 +39,6 @@ import { watchProjects } from './watchers/index.js';
  */
 export function activate(context: ExtensionContext): void {
   const api = vsCodeApi();
-  // Which node the Inspector shows. Held by the
-  // extension rather than by either view, because
-  // the view that draws it is disposed and rebuilt
-  // every time the selection changes.
-  const selection = new Selection(api);
 
   const statusBar = createStatusBar(editorStatusItem);
   const editor = watchHost();
@@ -59,10 +52,9 @@ export function activate(context: ExtensionContext): void {
 
   // The agent, held here rather than by the view
   // that draws it. A view in the activity bar is
-  // disposed the moment it is hidden — which in
-  // this extension is every time somebody selects
-  // a block — so a session held by the view would
-  // be a new agent process on every selection.
+  // disposed the moment it is hidden, so a session
+  // held by the view would be a new agent process
+  // every time somebody collapsed the panel.
   const panel = agentPanel(panelHost(context.workspaceState));
   const pickAgent = chooseAgent(agentPickerHost(), () => panel.reset());
 
@@ -154,14 +146,7 @@ export function activate(context: ExtensionContext): void {
   );
 
   context.subscriptions.push(
-    WorkflowCanvasEditor.register(
-      context.extensionUri,
-      api,
-      selection,
-      preview,
-      editor,
-    ),
-    NodeInspectorView.register(context.extensionUri, selection),
+    WorkflowCanvasEditor.register(context.extensionUri, api, preview, editor),
     AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview),
     RunsListView.register(context.extensionUri, runs, see),
     see.register(),

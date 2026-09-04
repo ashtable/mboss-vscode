@@ -13,7 +13,6 @@
   "commands.refreshRuns.title": "Read Runs Again",
   "viewsContainers.mboss.title": "mBoss",
   "views.agentSidebar.name": "Agent",
-  "views.nodeInspector.name": "Node Inspector",
   "views.runs.name": "Runs",
   "customEditors.workflowCanvas.displayName": "mBoss Canvas",
   "configuration.title": "mBoss",

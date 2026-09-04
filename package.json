@@ -135,14 +135,7 @@
         {
           "type": "webview",
           "id": "mboss.agentSidebar",
-          "name": "%views.agentSidebar.name%",
-          "when": "!mboss.nodeSelected"
-        },
-        {
-          "type": "webview",
-          "id": "mboss.nodeInspector",
-          "name": "%views.nodeInspector.name%",
-          "when": "mboss.nodeSelected"
+          "name": "%views.agentSidebar.name%"
         },
         {
           "type": "webview",

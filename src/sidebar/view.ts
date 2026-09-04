@@ -17,15 +17,13 @@ import type { SidebarInit } from '../webview/protocol.js';
  * The agent panel in the mBoss container.
  *
  * `resolveWebviewView` runs again every time the
- * view is hidden and shown, not once per session —
- * and in this extension it is hidden every time
- * somebody selects a block, because the Node
- * Inspector takes its place. So nothing here may
- * start anything. It points a frame at a bundle
- * and pushes the state the extension is already
- * holding; the agent starts on the first thing
- * somebody types, and keeps running while the view
- * comes and goes.
+ * view is hidden and shown — a person collapsing
+ * it, or switching to another container — not once
+ * per session. So nothing here may start anything.
+ * It points a frame at a bundle and pushes the
+ * state the extension is already holding; the agent
+ * starts on the first thing somebody types, and
+ * keeps running while the view comes and goes.
  */
 export class AgentSidebarView implements WebviewViewProvider {
   static readonly viewType = 'mboss.agentSidebar';
@@ -79,8 +77,8 @@ export class AgentSidebarView implements WebviewViewProvider {
     //
     // Unsubscribed on the way out, because this
     // method runs again every time the view is
-    // shown: a listener left behind would repaint
-    // a disposed frame once per selection, for as
+    // shown: a listener left behind would repaint a
+    // disposed frame once per hide-and-show, for as
     // long as the window is open.
     const repaint = (): void => {
       if (view.visible) void view.webview.postMessage(draw());

@@ -17,11 +17,12 @@ import {
   projectOf,
   readWorkflow,
 } from '../core/index.js';
-import type {
-  LibManifest,
-  NodeBox,
-  WorkflowIR,
-  WorkflowNode,
+import {
+  NodeSchema,
+  type LibManifest,
+  type NodeBox,
+  type WorkflowIR,
+  type WorkflowNode,
 } from '../core/rules.js';
 import { messages } from '../messages.js';
 import type { PreviewModel } from '../preview/model.js';
@@ -29,9 +30,13 @@ import type { PreviewStore } from '../preview/store.js';
 import { canvasPreview } from '../preview/view.js';
 import type { VsCodeApi } from '../vscodeApi.js';
 import { mountWebview, type WebviewMessage } from '../webview/host.js';
-import type { CanvasDocument, CanvasInit } from '../webview/protocol.js';
+import type {
+  CanvasDocument,
+  CanvasInit,
+  CanvasInspector,
+} from '../webview/protocol.js';
 
-import type { Selection } from './selection.js';
+import { configToForm } from './inspector/forms.js';
 import { wireBetween } from './wiring.js';
 
 /**
@@ -80,7 +85,6 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
   constructor(
     private readonly extensionUri: Uri,
     private readonly api: VsCodeApi,
-    private readonly selection: Selection,
     private readonly preview: PreviewStore,
     private readonly trust: CanvasTrust,
   ) {}
@@ -88,13 +92,12 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
   static register(
     extensionUri: Uri,
     api: VsCodeApi,
-    selection: Selection,
     preview: PreviewStore,
     trust: CanvasTrust,
   ): Disposable {
     return window.registerCustomEditorProvider(
       WorkflowCanvasEditor.viewType,
-      new WorkflowCanvasEditor(extensionUri, api, selection, preview, trust),
+      new WorkflowCanvasEditor(extensionUri, api, preview, trust),
       { supportsMultipleEditorsPerDocument: false },
     );
   }
@@ -106,29 +109,28 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     const session = new CanvasSession(
       document,
       this.api,
-      this.selection,
       this.preview,
       this.trust,
     );
     await session.reread();
+
+    const post = (): void => void panel.webview.postMessage(session.init());
 
     const mounted = mountWebview(panel.webview, {
       extensionUri: this.extensionUri,
       view: 'canvas',
       title: basename(document.uri.path),
       init: () => session.init(),
-      onMessage: (message) => session.heard(message),
+      onMessage: (message) => {
+        if (session.heard(message)) post();
+      },
     });
-
-    const post = (): void => void panel.webview.postMessage(session.init());
 
     const changed = this.api.onDocumentChanged((changedDocument) => {
       if (changedDocument.uri.toString() !== document.uri.toString()) return;
 
       void session.reread().then(post);
     });
-
-    const selected = this.selection.onChange(post);
 
     // A proposal can appear or be answered while
     // this panel is open, and it changes what the
@@ -153,10 +155,8 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     panel.onDidDispose(() => {
       mounted.dispose();
       changed.dispose();
-      selected.dispose();
       proposed.dispose();
       trusted.dispose();
-      session.forget();
     });
   }
 }
@@ -181,10 +181,21 @@ class CanvasSession {
    *  when there is one. */
   private live: PreviewModel | undefined;
 
+  /**
+   * The block the Inspector column is showing.
+   *
+   * A fact about this one open canvas rather than
+   * about the window: two canvases are two
+   * selections, and closing one says nothing about
+   * the other. Held here rather than in the panel
+   * because a hidden panel is torn down and mounted
+   * again with no memory of what was on screen.
+   */
+  private selected: string | undefined;
+
   constructor(
     private readonly document: TextDocument,
     private readonly api: VsCodeApi,
-    private readonly selection: Selection,
     private readonly preview: PreviewStore,
     private readonly trust: CanvasTrust,
   ) {}
@@ -251,7 +262,7 @@ class CanvasSession {
         (this.read.ok ? checkWorkflow(this.read.ir, this.manifest) : []),
 
       manifest: this.manifest,
-      selected: this.selection.current()?.node.id,
+      inspector: this.inspector(),
       preview: this.live === undefined ? undefined : canvasPreview(this.live),
     };
   }
@@ -260,23 +271,28 @@ class CanvasSession {
    * A panel is a frame running scripts, so an edit
    * arriving while a proposal is drawn is refused
    * here rather than only being unreachable there.
+   *
+   * Answers whether the panel has to be drawn
+   * again. Everything that writes the document is
+   * drawn again anyway, when the change comes back
+   * through `onDocumentChanged`; a selection is not
+   * in the document, so it is the one thing that has
+   * to say so.
    */
-  heard(message: WebviewMessage): void {
-    if (this.live !== undefined) return;
+  heard(message: WebviewMessage): boolean {
+    if (this.live !== undefined) return false;
 
-    if (message.type === 'select') this.select(message.nodeId);
+    if (message.type === 'select') {
+      this.select(message.nodeId);
+
+      return true;
+    }
+
     if (message.type === 'connect') this.connect(message);
+    if (message.type === 'edit') this.edit(message);
     if (message.type === 'text') this.replaceText(message.text);
-  }
 
-  /** Lets go of a selection this document owns
-   *  when its panel closes. */
-  forget(): void {
-    this.selection.release(this.key);
-  }
-
-  private get key(): string {
-    return this.document.uri.toString();
+    return false;
   }
 
   /**
@@ -303,44 +319,45 @@ class CanvasSession {
       : this.preview.forWorkflow(project, this.name);
   }
 
+  /** Everything the Inspector column draws. */
+  private inspector(): CanvasInspector {
+    const node = this.nodeAt(this.selected);
+
+    return {
+      strings: messages.inspectorStrings(),
+      selected:
+        node === undefined || !this.read.ok
+          ? undefined
+          : {
+              node,
+              form: configToForm(node),
+              revision: this.read.ir.revision,
+            },
+    };
+  }
+
   private select(nodeId: string | null): void {
-    const node =
-      nodeId === null || !this.read.ok
-        ? undefined
-        : this.read.ir.nodes.find((one) => one.id === nodeId);
+    this.selected = this.nodeAt(nodeId ?? undefined)?.id;
+  }
 
-    if (node === undefined || !this.read.ok) {
-      this.selection.release(this.key);
+  /** The node by that id, if the document on screen
+   *  has one. */
+  private nodeAt(nodeId: string | undefined): WorkflowNode | undefined {
+    if (nodeId === undefined || !this.read.ok) return undefined;
 
-      return;
-    }
-
-    this.selection.show({
-      document: this.key,
-      node,
-      revision: this.read.ir.revision,
-      commit: (edit) => this.replaceNode(edit),
-    });
+    return this.read.ir.nodes.find((one) => one.id === nodeId);
   }
 
   /**
-   * Keeps the Inspector on the same node after the
+   * Keeps the column on the same node after the
    * document changes, and lets it go when the node
    * is gone — or when a proposal has taken the
    * document's place, since there is then nothing
    * on screen that an edit could be made to.
    */
   private reselect(): void {
-    const showing = this.selection.current();
-    if (showing?.document !== this.key) return;
-
-    if (this.live !== undefined) {
-      this.selection.release(this.key);
-
-      return;
-    }
-
-    this.select(showing.node.id);
+    this.selected =
+      this.live === undefined ? this.nodeAt(this.selected)?.id : undefined;
   }
 
   /**
@@ -367,13 +384,33 @@ class CanvasSession {
     }));
   }
 
-  private replaceNode(edit: {
-    baseRevision: number;
-    node: WorkflowNode;
-  }): void {
+  /**
+   * An edit from the Inspector column.
+   *
+   * The node is parsed rather than trusted — it
+   * arrives from a frame running scripts — and a
+   * node the catalog would not accept is refused
+   * out loud rather than written and discovered on
+   * the next open: the column shows fields for
+   * shapes that are not yet complete, an address
+   * not typed or a topic not named, and the
+   * document keeps what it had until one of them
+   * is.
+   */
+  private edit(edit: { baseRevision: number; node: unknown }): void {
+    const parsed = NodeSchema.safeParse(edit.node);
+
+    if (!parsed.success) {
+      this.api.info(messages.inspectorEditRefused());
+
+      return;
+    }
+
+    const node = parsed.data;
+
     this.write(edit.baseRevision, (ir) => ({
       ...ir,
-      nodes: ir.nodes.map((one) => (one.id === edit.node.id ? edit.node : one)),
+      nodes: ir.nodes.map((one) => (one.id === node.id ? node : one)),
     }));
   }
 
