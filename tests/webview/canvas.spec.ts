@@ -15,6 +15,7 @@ import {
   nodeSize,
   starterNode,
   validateWorkflow,
+  withDecisionCases,
   type LibManifest,
   type NodeKind,
   type WorkflowIR,
@@ -176,24 +177,34 @@ const inspectorStrings: InspectorStrings = {
   heading: 'Node inspector',
   nothingSelected: 'Pick a block.',
   kinds: paletteLabels,
-  fields: Object.fromEntries(
-    [
-      'title',
-      'in',
-      'out',
-      'handler',
-      'logic',
-      'database',
-      'cases',
-      'elsePort',
-      'port',
-      'predicatePath',
-      'predicateOp',
-      'predicateValue',
-      'maxIterations',
-      'onExhausted',
-    ].map((id) => [id, id]),
-  ),
+  fields: {
+    ...Object.fromEntries(
+      [
+        'title',
+        'in',
+        'out',
+        'handler',
+        'logic',
+        'database',
+        'cases',
+        'elsePort',
+        'port',
+        'predicatePath',
+        'predicateOp',
+        'predicateValue',
+        'maxIterations',
+        'onExhausted',
+      ].map((id) => [id, id]),
+    ),
+
+    // One field carries its real word rather than
+    // its id. A block runs a function and a branch
+    // runs its logic, and the column picks between
+    // them by field id — so an expectation of
+    // `handler` would read the same whichever one
+    // it drew.
+    handler: 'function',
+  },
   options: {},
   lib: '/lib · matched by signature',
   hidden: '{0} incompatible functions hidden · show',
@@ -1383,6 +1394,161 @@ test.describe('the function picker', () => {
     );
     await expect(page.locator('[data-field="cases"]')).toHaveCount(0);
   });
+
+  /**
+   * A decision can have a way out nobody has wired
+   * yet, and the run stops there. Saying so is the
+   * whole value of reading the outcomes back: a row
+   * that quietly named nothing would look the same
+   * as one leading somewhere.
+   */
+  test('says a way out nothing is wired to ends the run', async ({ page }) => {
+    const branch = ir.nodes.find((one) => one.id === 'slot_open')!;
+    if (branch.kind !== 'branch') throw new Error('slot_open is not a branch');
+
+    // Seeded the way the host seeds them, so the
+    // ports the outcomes are read through are the
+    // ones a person would really have: the two the
+    // branch is already wired by, and a third the
+    // decision brought with it.
+    const decided = withDecisionCases(branch, ['pay', 'refuse', 'hold']);
+    const harness = await mount(page, 'canvas');
+
+    await harness.show(
+      canvasInit({
+        inspector: showing('slot_open', {
+          ...decided,
+          handler: { export: 'routeClaim' },
+        }),
+      }),
+    );
+
+    await expect(page.locator('[data-outcome="pay"]')).toContainText(
+      'Book appointment',
+    );
+    await expect(page.locator('[data-outcome="refuse"]')).toContainText(
+      'Twilio chat — you decide',
+    );
+    await expect(page.locator('[data-outcome="hold"]')).toHaveText(
+      new RegExp(`${inspectorStrings.end}$`),
+    );
+  });
+
+  /**
+   * A block runs a function; a branch runs its
+   * logic. Asserted on both sides, because a column
+   * that drew one word for every kind would pass a
+   * test that only ever looked at one of them.
+   */
+  test('calls it a function on a block and logic on a branch', async ({
+    page,
+  }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+
+    await expect(page.locator('[data-field="handler"] .field-name')).toHaveText(
+      'function',
+    );
+    await expect(page.locator('[data-field="logic"]')).toHaveCount(0);
+
+    await harness.show(
+      canvasInit({
+        inspector: showing('slot_open', { handler: { export: 'tryAgain' } }),
+      }),
+    );
+
+    await expect(page.locator('[data-field="logic"] .field-name')).toHaveText(
+      'logic',
+    );
+    await expect(page.locator('[data-field="handler"]')).toHaveCount(0);
+  });
+
+  /**
+   * The value is the way in: there is no native
+   * select here, so the caret is what says the name
+   * can be changed at all.
+   */
+  test('wears a caret on the name, and asks for one when there is none', async ({
+    page,
+  }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+
+    await expect(page.locator('[data-picker-value]')).toHaveText('findSlot ▾');
+
+    await harness.show(canvasInit({ inspector: showing('slot_open') }));
+
+    await expect(page.locator('[data-picker-value]')).toHaveText(
+      inspectorStrings.dropHere,
+    );
+  });
+
+  /**
+   * The row a block already runs is marked, and the
+   * mark is a tick and a ring rather than a colour
+   * alone — the column is read at a glance and a
+   * tinted row is easy to miss against a tinted
+   * panel.
+   */
+  test('marks the row the block already runs', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(
+      canvasInit({
+        inspector: showing('slot_open', { handler: { export: 'tryAgain' } }),
+      }),
+    );
+
+    const chosen = page.locator('[data-picker-fn="tryAgain"]');
+
+    await expect(chosen).toHaveAttribute('data-state', 'assigned');
+    await expect(chosen).toHaveCSS(
+      'box-shadow',
+      'color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 1px inset',
+    );
+    expect(
+      await chosen.evaluate((row) => getComputedStyle(row, '::after').content),
+    ).toBe('"✓"');
+  });
+
+  /**
+   * A row that cannot sit behind the block says so
+   * in words and is otherwise drawn like any other.
+   * Dimming it would say the same thing a second
+   * time, in the one language a person cannot read
+   * — and the note is already there.
+   */
+  test('leaves an incompatible row undimmed, and lets it say why', async ({
+    page,
+  }) => {
+    await openPicker(page);
+    await page.locator('[data-picker-hidden]').click();
+
+    const misfit = page.locator('[data-picker-fn="parseRequest"]');
+    const fits = page.locator('[data-picker-fn="tryAgain"]');
+
+    await expect(misfit.locator('.lib-note')).toHaveText(
+      'returns BookingReq, decides nothing',
+    );
+    await expect(misfit).toHaveCSS('opacity', '1');
+    await expect(misfit).toHaveCSS(
+      'background-color',
+      await fits.evaluate((row) => getComputedStyle(row).backgroundColor),
+    );
+  });
+
+  test('offers the way back once the rest are shown', async ({ page }) => {
+    await openPicker(page);
+
+    const toggle = page.locator('[data-picker-hidden]');
+
+    await toggle.click();
+    await expect(toggle).toHaveText(inspectorStrings.hide);
+
+    await toggle.click();
+    await expect(toggle).toHaveText(
+      `${manifest.functions.length - fitting('slot_open').length} incompatible functions hidden · show`,
+    );
+  });
 });
 
 /**
@@ -1393,6 +1559,22 @@ test.describe('the function picker', () => {
  * something a person can already see will land.
  */
 test.describe('dragging a function onto a block', () => {
+  /**
+   * A drag, picked up and left in the air.
+   *
+   * `dragAndDrop` is one movement with no middle to
+   * look at, and what a row looks like while it is
+   * being carried is exactly the middle. So the
+   * start of the gesture is dispatched on its own,
+   * carrying the same transfer object the browser
+   * would hand it.
+   */
+  async function lift(page: Page, row: Locator): Promise<void> {
+    const transfer = await page.evaluateHandle(() => new DataTransfer());
+
+    await row.dispatchEvent('dragstart', { dataTransfer: transfer });
+  }
+
   test('marks the row the selected block already runs', async ({ page }) => {
     const harness = await mount(page, 'canvas');
     await harness.show(canvasInit({ inspector: showing('find_slot') }));
@@ -1404,6 +1586,35 @@ test.describe('dragging a function onto a block', () => {
     await expect(
       page.locator('[data-lib-fn="parseRequest"] .lib-note'),
     ).toHaveText('takes WebhookEvent, needs BookingReq');
+  });
+
+  /**
+   * A row on its way somewhere says so twice: the
+   * row itself goes translucent and dashed, and the
+   * toolbar says what the pointer is holding. The
+   * dashes are the same ones the block under the
+   * pointer will draw, so the two ends of the
+   * gesture read as one thing.
+   */
+  test('shows the row it is carrying, and what it is', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ inspector: showing('slot_open') }));
+
+    const row = page.locator('[data-lib-fn="tryAgain"]');
+    await lift(page, row);
+
+    await expect(row).toHaveAttribute('data-state', 'dragging');
+    await expect(row).toHaveCSS('opacity', '0.85');
+    // A hair under two device pixels, which the
+    // engine reports as one — the same rounding the
+    // proposed block's dashes go through.
+    await expect(row).toHaveCSS('border-top-width', '1px');
+    await expect(row).toHaveCSS('border-top-style', 'dashed');
+    await expect(row).toHaveCSS('border-top-color', 'rgb(83, 103, 255)');
+
+    await expect(page.locator('[data-dragging]')).toHaveText(
+      'dragging tryAgain…',
+    );
   });
 
   test('tells the host to put it behind the block it landed on', async ({
