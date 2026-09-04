@@ -781,6 +781,22 @@ export const messages = {
     'not-a-decision': l10n.t('returns {0}, decides nothing'),
   }),
 
+  /**
+   * Everything the third column says, kept apart
+   * from the canvas' own words even though both
+   * ride in the same message.
+   *
+   * They are not one group because they are not
+   * one thing on the wire: the canvas' strings are
+   * its chrome and stand whatever is selected,
+   * while these travel beside the block the column
+   * is showing, so the column arrives whole. One
+   * string is borrowed rather than written twice —
+   * the picker and the palette have to say the
+   * same sentence about a project whose code has
+   * not been read, and two copies of it would
+   * drift.
+   */
   inspectorStrings: (): InspectorStrings => ({
     heading: l10n.t('Node inspector'),
     nothingSelected: l10n.t('Pick a block to set what it does.'),

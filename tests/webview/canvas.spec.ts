@@ -1093,6 +1093,28 @@ test.describe('selecting a block', () => {
  * being disposed in between.
  */
 test.describe('the Inspector column', () => {
+  /**
+   * The column is the right-hand third of one grid,
+   * and the blocks and the wires are the middle of
+   * it. Nothing else in the suite would notice the
+   * grid collapsing to a single track: every other
+   * assertion here finds the column by class and
+   * passes just as well when it is stacked under
+   * the graph at full width, which is not a canvas
+   * anybody can work in.
+   */
+  test('stands beside the graph, not under it', async ({ page }) => {
+    await openCanvas(page);
+
+    // The two outer tracks are fixed; the middle
+    // one is whatever is left of the frame, which
+    // at this suite's viewport is 792px.
+    await expect(page.locator('.workspace')).toHaveCSS(
+      'grid-template-columns',
+      '204px 792px 284px',
+    );
+  });
+
   test('shows the block that was clicked, beside it', async ({ page }) => {
     const harness = await openCanvas(page);
 
