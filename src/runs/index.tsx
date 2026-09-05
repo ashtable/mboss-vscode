@@ -1,7 +1,7 @@
-import { useState, StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
+import { useState } from 'react';
 
-import { announceReady, onHostMessage, postToHost } from '../webview/client.js';
+import { postToHost } from '../webview/client.js';
+import { mountView } from '../webview/mount.js';
 import type {
   RunRow,
   RunsInit,
@@ -522,14 +522,4 @@ function blockedBy(state: RunsInit, strings: RunsStrings): string {
   return state.detail ?? strings.empty;
 }
 
-const root = createRoot(window.document.getElementById('root') as HTMLElement);
-
-onHostMessage('runs', (message) => {
-  root.render(
-    <StrictMode>
-      <Runs {...message} />
-    </StrictMode>,
-  );
-});
-
-announceReady();
+mountView('runs', Runs);

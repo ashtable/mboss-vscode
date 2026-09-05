@@ -80,8 +80,9 @@ typed against `WebviewName` in `src/webview/entry.ts`.
 - `.tsx` means webview-side React, nothing else. `.ts` is host or isomorphic.
   No host `.ts` imports a `.tsx`.
 - A webview may value-import only browser-safe modules: `src/core/rules.ts`,
-  `src/webview/{client,fill,protocol}.ts`, `src/runs/queries.ts` (+ `rows.ts`)
-  and the pure `src/canvas/**/*.ts` modules. It must never value-import
+  `src/webview/{client,fill,protocol}.ts`, `src/webview/mount.tsx`,
+  `src/runs/queries.ts` (+ `rows.ts`) and the pure `src/canvas/**/*.ts`
+  modules. It must never value-import
   `vscode`, `@mboss/core`, `src/messages.ts`, `src/webview/host.ts`, a `node:`
   builtin or `process.env`. Enforcement is the browser esbuild call failing to
   resolve, plus `src/build.test.ts` scanning the output.
@@ -168,17 +169,24 @@ behaviour modules take the editor as an argument:
 
 - `mountWebview` in `src/webview/host.ts` is the one mount path:
   `localResourceRoots` is `dist/` only (never the workspace), the page comes
-  from `html.ts` with a nonce'd script CSP, every inbound message is parsed with
-  the zod `WebviewMessageSchema` (failures are dropped silently), every `ready`
-  is answered with `mounted.init()`, and the rest goes to `onMessage`.
+  from `html.ts` with a nonce'd script CSP, every inbound message is parsed
+  with that view's zod schema (`messageSchemaFor`, one union per view,
+  failures dropped silently), every `ready` is answered with `init()`, and the
+  rest goes to `heard`, typed to that view's kinds. The mount takes a `Frame`
+  (a `WebviewView` or a `WebviewPanel`) and the `Source`s the provider follows
+  — each given the repaint and answering with its subscription — repaints
+  only while the frame is visible, lets every source go when the frame is
+  disposed, and returns a `Mount` (`repaint`, `dispose`). The browser half is
+  `mountView` in `src/webview/mount.tsx`.
 - Host → webview is trusted and is always one whole `init` (the `HostMessage`
   union in `protocol.ts`), re-sent on every change. Views render from the last
   message and **hold nothing**: an activity-bar view is disposed the moment it
   is hidden, so all state lives in stores constructed once in `extension.ts`
-  (`agentPanel`, `previewStore`, `runsStore`, `SeePanel`).
-- Every entry has the same four-line bootstrap (`createRoot`,
-  `onHostMessage('<name>', …)`, `announceReady()`, `import './<name>.css'`), and
-  every per-view stylesheet starts with `@import '../webview/tokens.css'`.
+  (`agentPanel`, `previewStore`, `runsStore`, `SeePanel`). Stores publish
+  through `src/emitter.ts` (`fire`, `on` returning a `Disposable`, `dispose`).
+- Every entry is `mountView('<name>', <Component>)` plus
+  `import './<name>.css'`, and every per-view stylesheet starts with
+  `@import '../webview/tokens.css'`.
 - Every canvas editing message carries `baseRevision`; the host refuses a stale
   one. The JSON tab's `text` message is the one exception (written verbatim).
 
@@ -346,8 +354,9 @@ value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
   separate `_mboss.<x>#sideBar` twin that carries an `icon`, is hidden from the
   palette with `when: 'false'`, and has a `view/title` entry whose `when`
   starts with `view == mboss.`.
-- **Add a webview**: name in `WebviewName` and `WEBVIEW_ENTRIES`;
-  `src/<name>/index.tsx` + `<name>.css`; `<Name>Init` + `<Name>Strings` in the
+- **Add a webview**: name in `WebviewName` and `WEBVIEW_ENTRIES`; its message
+  union in `SCHEMAS` in `webview/host.ts`; `src/<name>/index.tsx` calling
+  `mountView` + `<name>.css`; `<Name>Init` + `<Name>Strings` in the
   `HostMessage` union; a `messages.<name>Strings()` builder; a host caller of
   `mountWebview`; `build.test.ts` / `vsix.test.ts` expect one js+css per entry.
 - **Add a string**: `messages.ts` entry + identical key=value line in

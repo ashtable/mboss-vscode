@@ -2,6 +2,8 @@ import { join, sep } from 'node:path';
 
 import type { Disposable } from 'vscode';
 
+import { emitter } from '../emitter.js';
+
 import { isProject } from '../core/index.js';
 import type { Problem } from '../problem.js';
 import type { StatusBar } from '../statusBar.js';
@@ -185,40 +187,8 @@ export function watchProjects(
       debouncer.dispose();
       for (const subscription of subscriptions) subscription.dispose();
       problems.dispose();
-    },
-  };
-}
-
-/**
- * A list of listeners and the way off it.
- *
- * The editor's own `EventEmitter` would do, but it
- * would put `vscode` in this file — and everything
- * else here reaches the editor through the host it
- * was handed, which is what lets these be driven
- * by a spec at all.
- */
-function emitter<T>(): {
-  fire(value: T): void;
-  on(listener: (value: T) => void): Disposable;
-} {
-  const listeners: ((value: T) => void)[] = [];
-
-  return {
-    fire: (value) => {
-      for (const listener of listeners) listener(value);
-    },
-
-    on: (listener) => {
-      listeners.push(listener);
-
-      return {
-        dispose: () => {
-          const at = listeners.indexOf(listener);
-
-          if (at >= 0) listeners.splice(at, 1);
-        },
-      };
+      proposals.dispose();
+      generated.dispose();
     },
   };
 }

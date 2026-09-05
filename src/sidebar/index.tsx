@@ -1,5 +1,4 @@
 import {
-  StrictMode,
   useEffect,
   useRef,
   useState,
@@ -7,7 +6,6 @@ import {
   type KeyboardEvent,
   type RefObject,
 } from 'react';
-import { createRoot } from 'react-dom/client';
 
 import type {
   DiagnosticEntry,
@@ -19,7 +17,8 @@ import type {
   TranscriptEntry,
 } from '../acp/transcript.js';
 import type { PermissionOptionKind, ToolKind } from '../acp/connection.js';
-import { announceReady, onHostMessage, postToHost } from '../webview/client.js';
+import { postToHost } from '../webview/client.js';
+import { mountView } from '../webview/mount.js';
 import type {
   SidebarInit,
   SidebarPreview,
@@ -711,14 +710,4 @@ function isAlways(kind: PermissionOptionKind): boolean {
   return kind === 'allow_always' || kind === 'reject_always';
 }
 
-const root = createRoot(document.getElementById('root') as HTMLElement);
-
-onHostMessage('sidebar', (message) => {
-  root.render(
-    <StrictMode>
-      <Panel {...message} />
-    </StrictMode>,
-  );
-});
-
-announceReady();
+mountView('sidebar', Panel);

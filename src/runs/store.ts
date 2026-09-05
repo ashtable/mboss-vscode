@@ -2,6 +2,8 @@ import { basename } from 'node:path';
 
 import type { Disposable } from 'vscode';
 
+import { emitter } from '../emitter.js';
+
 import type { DiagnosticEntry } from '../acp/transcript.js';
 import { messages } from '../messages.js';
 
@@ -106,7 +108,7 @@ export type RunsDeps = {
 /** Which command the stack is in the middle of. */
 export type StackAction = 'up' | 'down' | 'rebuild';
 
-export type RunsStore = {
+export type RunsStore = Disposable & {
   /** What the list draws. */
   list(): RunsView;
 
@@ -185,7 +187,7 @@ const STACK_UP_KEY = 'mboss.stackUp';
 const SETTLED: readonly LiveRun['outcome'][] = ['done', 'failed'];
 
 export function runsStore(deps: RunsDeps): RunsStore {
-  const listeners = new Set<() => void>();
+  const changes = emitter();
 
   let filter: RunFilter = 'all';
   let state: RunsView['state'] = 'no-project';
@@ -208,9 +210,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
    *  not poll twice. */
   const watching = new Map<string, RunWatcher>();
 
-  const changed = (): void => {
-    for (const listener of listeners) listener();
-  };
+  const changed = changes.fire;
 
   const project = (): string | undefined => deps.host.projects()[0];
 
@@ -770,10 +770,14 @@ export function runsStore(deps: RunsDeps): RunsStore {
       );
     },
 
-    onChanged: (listener) => {
-      listeners.add(listener);
+    onChanged: changes.on,
 
-      return { dispose: () => void listeners.delete(listener) };
+    dispose: () => {
+      // A watch outliving the window that armed it
+      // would poll a database nobody is looking at.
+      for (const watcher of watching.values()) watcher.stop();
+      watching.clear();
+      changes.dispose();
     },
   };
 }

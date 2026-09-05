@@ -1,3 +1,6 @@
+import type { Disposable } from 'vscode';
+
+import { emitter } from '../emitter.js';
 import {
   AgentStartError,
   openAgentSession,
@@ -114,7 +117,7 @@ export type AgentPanel = {
    * per selection, for as long as the window is
    * open.
    */
-  onChanged(listener: () => void): () => void;
+  onChanged(listener: () => void): Disposable;
 
   /** Repaints from state that changed outside this
    *  module — trust granted, a setting written. */
@@ -166,7 +169,7 @@ export type AgentPanel = {
 
 export function agentPanel(host: PanelHost): AgentPanel {
   const memory = permissionMemory(host.state);
-  const listeners = new Set<() => void>();
+  const changes = emitter();
 
   let session: SessionState = IDLE;
   let live: AgentSession | undefined;
@@ -189,9 +192,7 @@ export function agentPanel(host: PanelHost): AgentPanel {
    */
   let queued: string[] = [];
 
-  const changed = (): void => {
-    for (const listener of listeners) listener();
-  };
+  const changed = changes.fire;
 
   const pendingFile = (id: string): FileEditEntry | undefined => {
     const found = transcript.find(
@@ -328,11 +329,7 @@ export function agentPanel(host: PanelHost): AgentPanel {
       };
     },
 
-    onChanged: (listener) => {
-      listeners.add(listener);
-
-      return () => listeners.delete(listener);
-    },
+    onChanged: changes.on,
 
     refresh: changed,
 
@@ -411,7 +408,7 @@ export function agentPanel(host: PanelHost): AgentPanel {
     },
 
     dispose: () => {
-      listeners.clear();
+      changes.dispose();
       live?.close();
       live = undefined;
     },

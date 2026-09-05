@@ -354,7 +354,7 @@ describe('the view that watches', () => {
     driven.panel.refresh();
     expect(painted).toBe(1);
 
-    stop();
+    stop.dispose();
     driven.panel.refresh();
     expect(painted).toBe(1);
   });

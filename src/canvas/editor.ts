@@ -30,7 +30,7 @@ import type { PreviewStore } from '../preview/store.js';
 import { canvasPreview } from '../preview/view.js';
 import type { LiveRun } from '../runs/watch.js';
 import type { PickChoice, VsCodeApi } from '../vscodeApi.js';
-import { mountWebview, type WebviewMessage } from '../webview/host.js';
+import { mountWebview, type Heard } from '../webview/host.js';
 import type {
   CanvasDocument,
   CanvasInit,
@@ -214,76 +214,82 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
 
     WorkflowCanvasEditor.open.set(panel, session);
 
-    const post = (): void => void panel.webview.postMessage(session.init());
-
-    const mounted = mountWebview(panel.webview, {
+    const mounted = mountWebview(panel, {
       extensionUri: this.extensionUri,
       view: 'canvas',
       title: basename(document.uri.path),
       init: () => session.init(),
-      onMessage: (message) => {
-        if (session.heard(message)) post();
+      heard: (message) => {
+        if (session.heard(message)) mounted.repaint();
       },
+      follows: [
+        // A change to the file from anywhere — a hand
+        // edit in the JSON view, an agent writing
+        // through the control plane — is read again
+        // and drawn.
+        (repaint) =>
+          this.api.onDocumentChanged((changedDocument) => {
+            if (changedDocument.uri.toString() !== document.uri.toString()) {
+              return;
+            }
+
+            void session.reread().then(repaint);
+          }),
+
+        // A proposal can appear or be answered while
+        // this panel is open, and it changes what the
+        // panel is drawing — not only what it says.
+        (repaint) =>
+          this.preview.onChanged(() => {
+            void session.reread().then(repaint);
+          }),
+
+        // A run moves while the document sits still, so
+        // this is a repaint rather than a re-read: the
+        // layout key is untouched and the tones are
+        // patched over blocks that stay where they are.
+        // The store speaks up for everything it holds —
+        // a stack coming up, a filter changing — and
+        // most runs are runs of some other workflow, so
+        // the session says whether this canvas is
+        // drawing anything different.
+        (repaint) =>
+          this.runs.onChanged(() => {
+            if (session.followRun()) repaint();
+          }),
+
+        // A manifest is a type-check of the project's
+        // code-behind, far too slow to open a file
+        // behind, so the canvas draws without one and
+        // gains the `/lib` palette and typed wiring the
+        // moment the scan lands — which in a restricted
+        // window is when the person trusts the folder,
+        // and not before.
+        (repaint) =>
+          this.trust.onTrustGranted(() => {
+            void session.scan().then(repaint);
+          }),
+
+        // A function written into `lib/` while this tab
+        // is open is one the palette, the picker and the
+        // wiring rules should know about, and closing the
+        // tab is no way to say so. Asked again whenever
+        // the project has been generated, which is when
+        // its code-behind was last read; the scan itself
+        // is a hash of the files when nothing changed.
+        (repaint) =>
+          this.code.onGenerated((project) => {
+            if (session.inProject(project)) {
+              void session.scan().then(repaint);
+            }
+          }),
+      ],
     });
 
-    const changed = this.api.onDocumentChanged((changedDocument) => {
-      if (changedDocument.uri.toString() !== document.uri.toString()) return;
-
-      void session.reread().then(post);
-    });
-
-    // A proposal can appear or be answered while
-    // this panel is open, and it changes what the
-    // panel is drawing — not only what it says.
-    const proposed = this.preview.onChanged(() => {
-      void session.reread().then(post);
-    });
-
-    // A run moves while the document sits still, so
-    // this is a repaint rather than a re-read: the
-    // layout key is untouched and the tones are
-    // patched over blocks that stay where they are.
-    // The store speaks up for everything it holds —
-    // a stack coming up, a filter changing — and
-    // most runs are runs of some other workflow, so
-    // the session says whether this canvas is
-    // drawing anything different.
-    const followed = this.runs.onChanged(() => {
-      if (session.followRun()) post();
-    });
-
-    // A manifest is a type-check of the project's
-    // code-behind, which is far too slow to open a
-    // file behind. The canvas draws without one and
-    // gains the `/lib` palette and typed wiring the
-    // moment the scan lands — which in a restricted
-    // window is when the person trusts the folder,
-    // and not before.
-    void session.scan().then(post);
-
-    const trusted = this.trust.onTrustGranted(() => {
-      void session.scan().then(post);
-    });
-
-    // A function written into `lib/` while this tab
-    // is open is one the palette, the picker and the
-    // wiring rules should know about, and closing the
-    // tab is no way to say so. Asked again whenever
-    // the project has been generated, which is when
-    // its code-behind was last read; the scan itself
-    // is a hash of the files when nothing changed.
-    const rescanned = this.code.onGenerated((project) => {
-      if (session.inProject(project)) void session.scan().then(post);
-    });
+    void session.scan().then(mounted.repaint);
 
     panel.onDidDispose(() => {
       WorkflowCanvasEditor.open.delete(panel);
-      mounted.dispose();
-      changed.dispose();
-      proposed.dispose();
-      followed.dispose();
-      trusted.dispose();
-      rescanned.dispose();
     });
   }
 }
@@ -462,7 +468,7 @@ export class CanvasSession {
    * in the document, so it is the one thing that has
    * to say so.
    */
-  heard(message: WebviewMessage): boolean {
+  heard(message: Heard<'canvas'>): boolean {
     if (this.live !== undefined) return false;
 
     switch (message.type) {
@@ -490,8 +496,6 @@ export class CanvasSession {
 
         return false;
     }
-
-    return false;
   }
 
   /**

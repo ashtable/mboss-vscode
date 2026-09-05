@@ -1,7 +1,5 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-
-import { announceReady, onHostMessage, postToHost } from '../webview/client.js';
+import { postToHost } from '../webview/client.js';
+import { mountView } from '../webview/mount.js';
 import type {
   SeeBar,
   SeeChip,
@@ -302,14 +300,4 @@ function wide(fraction: number): string {
   return `${Math.max(fraction * 100, 0.4)}%`;
 }
 
-const root = createRoot(window.document.getElementById('root') as HTMLElement);
-
-onHostMessage('see', (message) => {
-  root.render(
-    <StrictMode>
-      <See {...message} />
-    </StrictMode>,
-  );
-});
-
-announceReady();
+mountView('see', See);

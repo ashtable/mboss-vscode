@@ -2,6 +2,8 @@ import { sep } from 'node:path';
 
 import type { Disposable } from 'vscode';
 
+import { emitter } from '../emitter.js';
+
 import type { DiagnosticEntry, ToolEntry } from '../acp/transcript.js';
 import { controlDir, type DiffSummary } from '../core/index.js';
 import { messages } from '../messages.js';
@@ -97,13 +99,11 @@ type Applied = {
 
 export function previewStore(host: PreviewHost): PreviewStore {
   const live = new Map<string, PreviewModel[]>();
-  const listeners = new Set<() => void>();
+  const changes = emitter();
 
   let applied: Applied | undefined;
 
-  const changed = (): void => {
-    for (const listener of listeners) listener();
-  };
+  const changed = changes.fire;
 
   const reload = async (project: string): Promise<void> => {
     const models = await livePreviews(project);
@@ -168,11 +168,7 @@ export function previewStore(host: PreviewHost): PreviewStore {
       return applied === undefined ? undefined : { at: 'applied', ...applied };
     },
 
-    onChanged: (listener) => {
-      listeners.add(listener);
-
-      return { dispose: () => void listeners.delete(listener) };
-    },
+    onChanged: changes.on,
 
     approve: async (id) => {
       const found = held(id);
@@ -282,7 +278,7 @@ export function previewStore(host: PreviewHost): PreviewStore {
     },
 
     dispose: () => {
-      listeners.clear();
+      changes.dispose();
       live.clear();
     },
   };

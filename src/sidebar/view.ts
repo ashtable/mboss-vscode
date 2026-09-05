@@ -50,12 +50,22 @@ export class AgentSidebarView implements WebviewViewProvider {
   resolveWebviewView(view: WebviewView): void {
     const draw = (): SidebarInit => sidebarInit(this.panel, this.preview);
 
-    const mounted = mountWebview(view.webview, {
+    mountWebview(view, {
       extensionUri: this.extensionUri,
       view: 'sidebar',
       title: messages.sidebarHeading(),
       init: draw,
-      onMessage: (message) => {
+      // Every chunk, every tool card, every answer:
+      // the view is a picture of state it does not
+      // own, so it is repainted rather than patched.
+      // A proposal arrives as a file event, not as
+      // something the agent said, so it moves the
+      // panel without the session moving at all.
+      follows: [
+        (repaint) => this.panel.onChanged(repaint),
+        (repaint) => this.preview.onChanged(repaint),
+      ],
+      heard: (message) => {
         if (message.type === 'prompt') void this.panel.send(message.text);
         if (message.type === 'cancel') void this.panel.cancel();
         if (message.type === 'chooseAgent') void this.chooseAgent();
@@ -69,32 +79,6 @@ export class AgentSidebarView implements WebviewViewProvider {
         if (message.type === 'keepFile') this.panel.keep(message.id);
         if (message.type === 'undoFile') void this.panel.undo(message.id);
       },
-    });
-
-    // Every chunk, every tool card, every answer.
-    // The view is a picture of state it does not
-    // own, so it is repainted rather than patched.
-    //
-    // Unsubscribed on the way out, because this
-    // method runs again every time the view is
-    // shown: a listener left behind would repaint a
-    // disposed frame once per hide-and-show, for as
-    // long as the window is open.
-    const repaint = (): void => {
-      if (view.visible) void view.webview.postMessage(draw());
-    };
-
-    const stop = this.panel.onChanged(repaint);
-
-    // A proposal arrives as a file event, not as
-    // something the agent said, so it moves the
-    // panel without the session moving at all.
-    const proposed = this.preview.onChanged(repaint);
-
-    view.onDidDispose(() => {
-      stop();
-      proposed.dispose();
-      mounted.dispose();
     });
   }
 }

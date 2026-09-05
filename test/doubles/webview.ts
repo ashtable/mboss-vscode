@@ -26,6 +26,12 @@ export type FakeWebview = {
    *  about. */
   focus(): void;
 
+  /** Hides and shows the panel, as a tab going to
+   *  the background and coming back would. A hidden
+   *  frame is not painted. */
+  hide(): void;
+  show(): void;
+
   /** The panel, typed loosely on purpose: a
    *  provider takes VS Code's own type, and
    *  narrowing this to it here would mean building
@@ -63,6 +69,7 @@ export function fakeWebview(): FakeWebview {
     // panels can be open at once, and only one of
     // them is the tab in front of somebody.
     active: false,
+    visible: true,
     onDidDispose: (listener: () => void) => {
       closers.push(listener);
 
@@ -80,6 +87,12 @@ export function fakeWebview(): FakeWebview {
     },
     focus: () => {
       panel.active = true;
+    },
+    hide: () => {
+      panel.visible = false;
+    },
+    show: () => {
+      panel.visible = true;
     },
     panel: panel as never,
   };
