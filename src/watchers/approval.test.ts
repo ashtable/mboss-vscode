@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import { fakeHost } from '../../test/doubles/watchHost.js';
 import { WorkflowIRSchema } from '../core/rules.js';
 import { previewStore } from '../preview/store.js';
@@ -56,20 +57,24 @@ describe('an approval, as the watchers see it', () => {
 
     const host = fakeHost({ folders: [project] });
     const status = reporter();
-    const watchers = watchProjects(host, status, { debounceMs: 5 });
-
-    const store = previewStore({
-      folders: () => [project],
-      isTrusted: () => true,
-      regenerate: async () => {
-        const run = await watchers.generateNow();
-
-        return run.ran ? run.problems : [];
-      },
-      notify: async () => {},
-      note: () => {},
-      say: () => {},
+    const watchers = watchProjects(host, fakeTrust(), status, {
+      debounceMs: 5,
     });
+
+    const store = previewStore(
+      {
+        folders: () => [project],
+        regenerate: async () => {
+          const run = await watchers.generateNow();
+
+          return run.ran ? run.problems : [];
+        },
+        notify: async () => {},
+        note: () => {},
+        say: () => {},
+      },
+      fakeTrust(),
+    );
     await store.reloadAll();
 
     await store.approve(proposal.id);
@@ -97,20 +102,24 @@ describe('an approval, as the watchers see it', () => {
 
     const host = fakeHost({ folders: [project] });
     const status = reporter();
-    const watchers = watchProjects(host, status, { debounceMs: 5 });
-
-    const store = previewStore({
-      folders: () => [project],
-      isTrusted: () => true,
-      regenerate: async () => {
-        const run = await watchers.generateNow();
-
-        return run.ran ? run.problems : [];
-      },
-      notify: async () => {},
-      note: () => {},
-      say: () => {},
+    const watchers = watchProjects(host, fakeTrust(), status, {
+      debounceMs: 5,
     });
+
+    const store = previewStore(
+      {
+        folders: () => [project],
+        regenerate: async () => {
+          const run = await watchers.generateNow();
+
+          return run.ran ? run.problems : [];
+        },
+        notify: async () => {},
+        note: () => {},
+        say: () => {},
+      },
+      fakeTrust(),
+    );
     await store.reloadAll();
     await store.approve(proposal.id);
     host.fire(WORKFLOW_GLOB, document);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { DiagnosticEntry } from '../acp/transcript.js';
+import { fakeTrust } from '../../test/doubles/trust.js';
 import {
   LEDGER_URL,
   database,
@@ -25,6 +26,7 @@ import { testRunZone, type TestRun, type TestRunDeps } from './testRun.js';
 function zone(over: Partial<TestRunDeps> = {}): TestRun {
   return testRunZone({
     host: host({ projects: () => [project()] }),
+    trust: fakeTrust(),
     open: async () => database(),
     runner: async () => ({
       ok: false,
@@ -231,7 +233,8 @@ describe('starting a run', () => {
   it('starts nothing in a window nobody has trusted', async () => {
     const ingress = runner(() => ({ ok: true, workflowId: 'wf_1' }));
     const shown = zone({
-      host: host({ projects: () => [project()], isTrusted: () => false }),
+      host: host({ projects: () => [project()] }),
+      trust: fakeTrust(false),
       runner: ingress.start,
     });
 

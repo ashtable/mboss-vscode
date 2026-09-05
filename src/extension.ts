@@ -21,6 +21,7 @@ import { runsStore } from './runs/store.js';
 import { watchRun } from './runs/watch.js';
 import { AgentSidebarView } from './sidebar/view.js';
 import { createStatusBar, editorStatusItem } from './statusBar.js';
+import { workspaceTrust } from './trust.js';
 import { shippedVendor } from './vendor/index.js';
 import { vsCodeApi } from './vscodeApi.js';
 import { watchHost } from './watchers/host.js';
@@ -39,10 +40,11 @@ import { watchProjects } from './watchers/index.js';
  */
 export function activate(context: ExtensionContext): void {
   const api = vsCodeApi();
+  const trust = workspaceTrust();
 
   const statusBar = createStatusBar(editorStatusItem);
   const editor = watchHost();
-  const watchers = watchProjects(editor, statusBar);
+  const watchers = watchProjects(editor, trust, statusBar);
 
   // What this build of the extension ships to put
   // inside a project: the MCP server a coding agent
@@ -55,25 +57,27 @@ export function activate(context: ExtensionContext): void {
   // disposed the moment it is hidden, so a session
   // held by the view would be a new agent process
   // every time somebody collapsed the panel.
-  const panel = agentPanel(panelHost(context.workspaceState));
-  const pickAgent = chooseAgent(agentPickerHost(), () => panel.reset());
+  const panel = agentPanel(panelHost(context.workspaceState), trust);
+  const pickAgent = chooseAgent(agentPickerHost(), () => panel.reset(), trust);
 
   // What an agent has asked for and nobody has
   // answered yet. The canvas draws it and the panel
   // is where it is answered, so it is held here
   // rather than by either of them.
-  const preview = previewStore({
-    folders: () => editor.folders(),
-    isTrusted: () => editor.isTrusted(),
-    regenerate: async () => {
-      const run = await watchers.generateNow();
+  const preview = previewStore(
+    {
+      folders: () => editor.folders(),
+      regenerate: async () => {
+        const run = await watchers.generateNow();
 
-      return run.ran ? run.problems : [];
+        return run.ran ? run.problems : [];
+      },
+      notify: (text) => panel.send(text),
+      note: (entry) => panel.note(entry),
+      say: (message) => api.info(message),
     },
-    notify: (text) => panel.send(text),
-    note: (entry) => panel.note(entry),
-    say: (message) => api.info(message),
-  });
+    trust,
+  );
 
   void preview.reloadAll();
 
@@ -83,7 +87,6 @@ export function activate(context: ExtensionContext): void {
 
       if (project !== undefined) void preview.reload(project);
     }),
-    editor.onTrustGranted(() => void preview.reloadAll()),
   );
 
   // What a build prints while it runs, which is
@@ -100,6 +103,7 @@ export function activate(context: ExtensionContext): void {
   // be disposed while the others are on screen.
   const runs = runsStore({
     host: runsHost(panel),
+    trust,
     open: openDatabase,
     openFork,
     stack,
@@ -120,12 +124,12 @@ export function activate(context: ExtensionContext): void {
   const handlers = commandHandlers(
     api,
     () => watchers.generateNow(),
-    newProject(projects, vendor),
+    newProject(projects, vendor, trust),
     pickAgent,
     () => runs.refresh(),
     () => runs.stackUp(),
     () => runs.stackDown(),
-    runWorkflowCommand(runWorkflowHost(), runs),
+    runWorkflowCommand(runWorkflowHost(), runs, trust),
     async () => WorkflowCanvasEditor.active()?.arrange(),
   );
   for (const [id, handle] of Object.entries(handlers)) {
@@ -140,13 +144,14 @@ export function activate(context: ExtensionContext): void {
     projects,
     vendor,
     projects.folders().filter(isProject),
+    trust,
   );
 
-  // Trust, a folder and a chosen agent are all
-  // things a person changes without reloading, and
-  // all three decide what the panel shows.
+  // A folder and a chosen agent are things a person
+  // changes without reloading, and both decide what
+  // the panel shows. Trust is the third, and the
+  // panel follows that itself.
   context.subscriptions.push(
-    workspace.onDidGrantWorkspaceTrust(() => panel.refresh()),
     workspace.onDidChangeConfiguration(() => panel.refresh()),
     workspace.onDidChangeWorkspaceFolders(() => panel.refresh()),
   );
@@ -157,7 +162,7 @@ export function activate(context: ExtensionContext): void {
       api,
       preview,
       runs,
-      editor,
+      trust,
       watchers,
       (entry) => panel.note(entry),
     ),

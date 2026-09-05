@@ -7,6 +7,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { openDatabase, openFork } from '../../src/runs/db.js';
+import { fakeTrust } from '../doubles/trust.js';
 import { sessionLog } from '../../src/runs/sessionLog.js';
 import { runsStore, type RunsStore } from '../../src/runs/store.js';
 
@@ -172,12 +173,12 @@ describe('a run history, read from a real dbos schema', () => {
     store = runsStore({
       host: {
         projects: () => [dir],
-        isTrusted: () => true,
         say: (message) => said.push(message),
         setContext: () => undefined,
         note: () => undefined,
         notify: async () => undefined,
       },
+      trust: fakeTrust(),
       open: openDatabase,
       openFork,
       // This suite reads a real ledger and forks a

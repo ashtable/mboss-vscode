@@ -9,6 +9,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { fakeTrust, type FakeTrust } from '../../test/doubles/trust.js';
 import { fakeHost, type FakeHost } from '../../test/doubles/watchHost.js';
 import {
   WorkflowIRSchema,
@@ -474,13 +475,13 @@ describe('a folder nobody has trusted', () => {
   });
 
   it('starts the moment it is trusted', async () => {
-    const { project, host, status } = await watching({
+    const { project, trust, status } = await watching({
       lib: 'lib',
       trusted: false,
     });
     writeWorkflow(project, 'groom_booking');
 
-    host.trust();
+    trust.grant();
 
     await until(() => status.finished.length === 1);
     expect(generatedFiles(project)).toContain(
@@ -495,9 +496,9 @@ describe('a folder nobody has trusted', () => {
       codegenNeedsTrust: () => void (asked += 1),
     };
     const project = await makeProject();
-    const host = fakeHost({ folders: [project], trusted: false });
+    const host = fakeHost({ folders: [project] });
 
-    watchProjects(host, status, { debounceMs: 5 }).dispose();
+    watchProjects(host, fakeTrust(false), status, { debounceMs: 5 }).dispose();
 
     expect(asked).toBe(1);
   });
@@ -542,7 +543,9 @@ describe('generating on demand', () => {
   it('says it cannot when no folder here is a project', async () => {
     const status = reporter();
     const host = fakeHost({ folders: ['/nowhere/at/all'] });
-    const watchers = watchProjects(host, status, { debounceMs: 5 });
+    const watchers = watchProjects(host, fakeTrust(), status, {
+      debounceMs: 5,
+    });
 
     expect(await watchers.generateNow()).toEqual({
       ran: false,
@@ -564,17 +567,19 @@ async function watching(opts?: {
 }): Promise<{
   project: string;
   host: FakeHost;
+  trust: FakeTrust;
   status: Reported;
   watchers: Watchers;
 }> {
   const project = await makeProject(
     opts?.lib === undefined ? undefined : { lib: opts.lib },
   );
-  const host = fakeHost({ folders: [project], trusted: opts?.trusted ?? true });
+  const host = fakeHost({ folders: [project] });
+  const trust = fakeTrust(opts?.trusted ?? true);
   const status = reporter();
-  const watchers = watchProjects(host, status, { debounceMs: 5 });
+  const watchers = watchProjects(host, trust, status, { debounceMs: 5 });
 
-  return { project, host, status, watchers };
+  return { project, host, trust, status, watchers };
 }
 
 /**

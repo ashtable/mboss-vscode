@@ -1,6 +1,7 @@
 import type { Disposable } from 'vscode';
 
 import { emitter } from '../emitter.js';
+import type { Trust } from '../trust.js';
 import type { RunsInit } from '../webview/protocol.js';
 
 import type { StackController, StackStatus } from './stack.js';
@@ -23,8 +24,6 @@ import type { StackController, StackStatus } from './stack.js';
 /** The slice of the editor the zone needs. */
 export type StackZoneHost = {
   projects(): string[];
-  isTrusted(): boolean;
-
   /** Publishes a fact `when` clauses can read, so
    *  the view's Start and Stop swap with what is
    *  running. */
@@ -33,6 +32,7 @@ export type StackZoneHost = {
 
 export type StackZoneDeps = {
   host: StackZoneHost;
+  trust: Trust;
   stack: StackController;
 };
 
@@ -82,7 +82,7 @@ export function stackZone(deps: StackZoneDeps): StackZone {
   const read = async (): Promise<void> => {
     const dir = project();
 
-    if (dir === undefined || !deps.host.isTrusted()) {
+    if (dir === undefined || !deps.trust.isTrusted()) {
       stack = NO_STACK;
       deps.host.setContext(STACK_UP_KEY, false);
 
@@ -114,7 +114,7 @@ export function stackZone(deps: StackZoneDeps): StackZone {
     run: (dir: string) => Promise<void>,
   ): Promise<void> => {
     const dir = project();
-    if (dir === undefined || !deps.host.isTrusted()) return;
+    if (dir === undefined || !deps.trust.isTrusted()) return;
 
     busy = action;
     changed();

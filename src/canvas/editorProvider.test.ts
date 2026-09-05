@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import { fakeWebview, type FakeWebview } from '../../test/doubles/webview.js';
 import type { ToolEntry } from '../acp/transcript.js';
 import {
@@ -17,6 +18,7 @@ import { makeProject, writeWorkflow } from '../test-support/project.js';
 import { fileExists } from '../test-support/repo.js';
 import { propose, specOf } from '../test-support/proposals.js';
 import type { LiveRun } from '../runs/watch.js';
+import type { Trust } from '../trust.js';
 import type { PickChoice, VsCodeApi } from '../vscodeApi.js';
 import type { CanvasInit } from '../webview/protocol.js';
 
@@ -24,7 +26,6 @@ import {
   WorkflowCanvasEditor,
   type CanvasCode,
   type CanvasRuns,
-  type CanvasTrust,
 } from './editor.js';
 import { GRID } from './grid.js';
 
@@ -175,36 +176,16 @@ const extensionUri = { path: '/ext' } as never;
  *  these specs are about the document, and pass
  *  none. */
 function previewsIn(folders: string[]): PreviewStore {
-  return previewStore({
-    folders: () => folders,
-    isTrusted: () => true,
-    regenerate: async () => [],
-    notify: async () => {},
-    note: () => {},
-    say: (message) => recorded.told.push(message),
-  });
-}
-
-/** Workspace trust, as the canvas reads it, with a
- *  way to say yes mid-session. */
-type FakeTrust = CanvasTrust & { grant(): void };
-
-function trust(trusted: boolean): FakeTrust {
-  const listeners: (() => void)[] = [];
-  let now = trusted;
-
-  return {
-    isTrusted: () => now,
-    onTrustGranted: (listener) => {
-      listeners.push(listener);
-
-      return { dispose: () => {} };
+  return previewStore(
+    {
+      folders: () => folders,
+      regenerate: async () => [],
+      notify: async () => {},
+      note: () => {},
+      say: (message) => recorded.told.push(message),
     },
-    grant: () => {
-      now = true;
-      for (const listener of listeners) listener();
-    },
-  };
+    fakeTrust(),
+  );
 }
 
 /** The runs store, as the canvas reads one, with a
@@ -269,7 +250,7 @@ let coded: FakeCode;
 async function open(
   document = fakeDocument(),
   preview = previewsIn([]),
-  trusted: CanvasTrust = trust(true),
+  trusted: Trust = fakeTrust(true),
   runs: CanvasRuns = runsSaying(),
 ): Promise<void> {
   recorded = recorder();
@@ -698,7 +679,7 @@ describe('selecting a node', () => {
       recorded.api,
       previewsIn([]),
       runsSaying(),
-      trust(true),
+      fakeTrust(true),
       codeSaying(),
       () => {},
     ).resolveCustomTextEditor(
@@ -931,7 +912,7 @@ describe('opening a workflow in a restricted window', () => {
     await open(
       fakeDocument(readFileSync(path, 'utf8'), path),
       previewsIn([]),
-      trust(false),
+      fakeTrust(false),
     );
     for (let tries = 0; tries < 20; tries += 1) await settled();
 
@@ -942,7 +923,7 @@ describe('opening a workflow in a restricted window', () => {
 
   it('reads the code behind once the person says so', async () => {
     const { project, path } = await scannable();
-    const trusted = trust(false);
+    const trusted = fakeTrust(false);
 
     await open(
       fakeDocument(readFileSync(path, 'utf8'), path),
@@ -1215,7 +1196,7 @@ describe('the layout the panel is drawing', () => {
 describe('a run of the workflow on screen', () => {
   it('is patched in, leaving the layout where it was', async () => {
     const runs = runsSaying();
-    await open(fakeDocument(), previewsIn([]), trust(true), runs);
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
 
     const before = lastCanvasInit().layoutKey;
 
@@ -1230,14 +1211,14 @@ describe('a run of the workflow on screen', () => {
     const runs = runsSaying();
     runs.heard(runOf('groom_booking'));
 
-    await open(fakeDocument(), previewsIn([]), trust(true), runs);
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
 
     expect(lastCanvasInit().run?.workflowId).toBe('wf_1');
   });
 
   it('says nothing about a run of some other workflow', async () => {
     const runs = runsSaying();
-    await open(fakeDocument(), previewsIn([]), trust(true), runs);
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
 
     const posted = panel.posted.length;
 
@@ -1250,7 +1231,7 @@ describe('a run of the workflow on screen', () => {
 
   it('lets go of a run the store has let go of', async () => {
     const runs = runsSaying();
-    await open(fakeDocument(), previewsIn([]), trust(true), runs);
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
 
     runs.heard(runOf('groom_booking'));
     await settled();

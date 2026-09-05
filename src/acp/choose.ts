@@ -1,4 +1,5 @@
 import { messages } from '../messages.js';
+import type { Trust } from '../trust.js';
 
 import type { AgentPickerHost } from './host.js';
 import { AGENT_IDS, AGENT_SETTINGS, asAgentId } from './registry.js';
@@ -24,9 +25,10 @@ import { AGENT_IDS, AGENT_SETTINGS, asAgentId } from './registry.js';
 export function chooseAgent(
   host: AgentPickerHost,
   onChosen: () => void,
+  trust: Trust,
 ): () => Promise<void> {
   return async () => {
-    if (!host.isTrusted()) {
+    if (!trust.isTrusted()) {
       host.info(messages.chooseAgentNeedsTrust());
 
       return;

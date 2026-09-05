@@ -15,6 +15,7 @@ import {
   offerVendorRefresh,
   type ProjectHost,
 } from './newProject.js';
+import { fakeTrust } from '../../test/doubles/trust.js';
 import { buildExtension } from '../build.js';
 import { makeProject } from '../test-support/project.js';
 import { CORE_ROOT } from '../test-support/repo.js';
@@ -47,7 +48,6 @@ function recorder(
   answers: {
     folder?: string;
     name?: string;
-    trusted?: boolean;
     folders?: string[];
     accept?: boolean;
   } = {},
@@ -70,7 +70,6 @@ function recorder(
     asked,
     opened,
     progress,
-    isTrusted: () => answers.trusted ?? true,
     folders: () => answers.folders ?? [],
     pickFolder: async () => answers.folder,
     askName: async (prompt) => {
@@ -159,6 +158,7 @@ describe('creating a project', () => {
     await newProject(
       recorder({ folder: parent, name: 'demo' }),
       fakeVendor(),
+      fakeTrust(),
     )();
 
     return join(parent, 'demo');
@@ -168,7 +168,7 @@ describe('creating a project', () => {
     const parent = scratchDir('mboss-new-');
     const host = recorder({ folder: parent, name: 'demo' });
 
-    await newProject(host, fakeVendor())();
+    await newProject(host, fakeVendor(), fakeTrust())();
 
     expect(listing(join(parent, 'demo')).sort()).toEqual(expectedListing());
     expect(host.errors).toEqual([]);
@@ -201,7 +201,7 @@ describe('creating a project', () => {
   it('reports how long the work takes while it does it', async () => {
     const host = recorder({ folder: scratchDir('mboss-new-'), name: 'demo' });
 
-    await newProject(host, fakeVendor())();
+    await newProject(host, fakeVendor(), fakeTrust())();
 
     expect(host.progress).toHaveLength(1);
     expect(host.progress[0]?.length).toBeGreaterThan(0);
@@ -220,7 +220,7 @@ describe('creating a project', () => {
       folders: ['/somewhere/else'],
     });
 
-    await newProject(host, fakeVendor())();
+    await newProject(host, fakeVendor(), fakeTrust())();
 
     expect(host.opened).toEqual([
       { dir: join(parent, 'demo'), newWindow: true },
@@ -231,7 +231,7 @@ describe('creating a project', () => {
     const parent = scratchDir('mboss-new-');
     const host = recorder({ folder: parent, name: 'demo' });
 
-    await newProject(host, fakeVendor())();
+    await newProject(host, fakeVendor(), fakeTrust())();
 
     expect(host.opened).toEqual([
       { dir: join(parent, 'demo'), newWindow: false },
@@ -243,7 +243,7 @@ describe('a project that is not created', () => {
   it('leaves nothing behind when the folder pick is abandoned', async () => {
     const host = recorder({ name: 'demo' });
 
-    await newProject(host, fakeVendor())();
+    await newProject(host, fakeVendor(), fakeTrust())();
 
     expect(host.opened).toEqual([]);
     expect(host.errors).toEqual([]);
@@ -254,7 +254,7 @@ describe('a project that is not created', () => {
     const parent = scratchDir('mboss-new-');
     const host = recorder({ folder: parent });
 
-    await newProject(host, fakeVendor())();
+    await newProject(host, fakeVendor(), fakeTrust())();
 
     expect(readdirSync(parent)).toEqual([]);
     expect(host.opened).toEqual([]);
@@ -269,9 +269,9 @@ describe('a project that is not created', () => {
    */
   it('says why it will not run in a folder nobody trusts', async () => {
     const parent = scratchDir('mboss-new-');
-    const host = recorder({ folder: parent, name: 'demo', trusted: false });
+    const host = recorder({ folder: parent, name: 'demo' });
 
-    await newProject(host, fakeVendor())();
+    await newProject(host, fakeVendor(), fakeTrust(false))();
 
     expect(readdirSync(parent)).toEqual([]);
     expect(host.shown).toHaveLength(1);
@@ -291,7 +291,9 @@ describe('a project that is not created', () => {
     writeFileSync(join(parent, 'demo', 'package.json'), '{}\n', 'utf8');
 
     const host = recorder({ folder: parent, name: 'demo' });
-    await expect(newProject(host, fakeVendor())()).resolves.toBeUndefined();
+    await expect(
+      newProject(host, fakeVendor(), fakeTrust())(),
+    ).resolves.toBeUndefined();
 
     expect(host.errors).toHaveLength(1);
     expect(host.errors[0]).toContain('package.json');
@@ -309,7 +311,7 @@ describe('a project that is not created', () => {
     const parent = scratchDir('mboss-new-');
     const host = recorder({ folder: parent, name: 'My Project' });
 
-    await newProject(host, fakeVendor())();
+    await newProject(host, fakeVendor(), fakeTrust())();
 
     expect(readdirSync(parent)).toEqual([]);
   });
@@ -339,7 +341,7 @@ describe('offering to refresh what a project vendored', () => {
     await refreshVendor(project, fakeVendor());
     const host = recorder();
 
-    await offerVendorRefresh(host, fakeVendor(), [project]);
+    await offerVendorRefresh(host, fakeVendor(), [project], fakeTrust());
 
     expect(host.asked).toEqual([]);
   });
@@ -348,7 +350,7 @@ describe('offering to refresh what a project vendored', () => {
     const project = await behind();
     const host = recorder();
 
-    await offerVendorRefresh(host, fakeVendor(), [project]);
+    await offerVendorRefresh(host, fakeVendor(), [project], fakeTrust());
 
     expect(host.asked).toHaveLength(1);
     expect(vendorState(project, fakeVendor())).toBe('current');
@@ -358,7 +360,7 @@ describe('offering to refresh what a project vendored', () => {
     const project = await behind();
     const host = recorder({ accept: false });
 
-    await offerVendorRefresh(host, fakeVendor(), [project]);
+    await offerVendorRefresh(host, fakeVendor(), [project], fakeTrust());
 
     expect(vendorState(project, fakeVendor())).toBe('outdated');
   });
@@ -373,16 +375,21 @@ describe('offering to refresh what a project vendored', () => {
     const project = await makeProject();
     const host = recorder();
 
-    await offerVendorRefresh(host, fakeVendor(), [project]);
+    await offerVendorRefresh(host, fakeVendor(), [project], fakeTrust());
 
     expect(host.asked).toHaveLength(1);
     expect(vendorState(project, fakeVendor())).toBe('current');
   });
 
   it('asks nothing in a window nobody trusts', async () => {
-    const host = recorder({ trusted: false });
+    const host = recorder();
 
-    await offerVendorRefresh(host, fakeVendor(), [await behind()]);
+    await offerVendorRefresh(
+      host,
+      fakeVendor(),
+      [await behind()],
+      fakeTrust(false),
+    );
 
     expect(host.asked).toEqual([]);
   });
@@ -399,7 +406,7 @@ describe('offering to refresh what a project vendored', () => {
     const broken = shippedVendor(scratchDir('mboss-empty-'));
 
     await expect(
-      offerVendorRefresh(host, broken, [await makeProject()]),
+      offerVendorRefresh(host, broken, [await makeProject()], fakeTrust()),
     ).resolves.toBeUndefined();
 
     expect(host.errors).toHaveLength(1);
@@ -410,7 +417,7 @@ describe('offering to refresh what a project vendored', () => {
     const host = recorder();
     const projects = [await behind(), await behind()];
 
-    await offerVendorRefresh(host, fakeVendor(), projects);
+    await offerVendorRefresh(host, fakeVendor(), projects, fakeTrust());
 
     expect(host.asked).toHaveLength(1);
     for (const project of projects) {

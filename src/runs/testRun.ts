@@ -2,6 +2,7 @@ import type { Disposable } from 'vscode';
 
 import type { DiagnosticEntry } from '../acp/transcript.js';
 import { emitter } from '../emitter.js';
+import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
 import type { RunsInit } from '../webview/protocol.js';
 
@@ -42,8 +43,6 @@ import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 /** The slice of the editor the zone needs. */
 export type TestRunHost = {
   projects(): string[];
-  isTrusted(): boolean;
-
   /** Puts what the extension did in the agent's
    *  transcript, beside what the agent did. */
   note(entry: DiagnosticEntry): void;
@@ -54,6 +53,7 @@ export type TestRunHost = {
 
 export type TestRunDeps = {
   host: TestRunHost;
+  trust: Trust;
   open: OpenDatabase;
   runner: RunStarter;
   watch: RunWatch;
@@ -241,7 +241,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     payload: unknown,
   ): Promise<void> => {
     const dir = project();
-    if (dir === undefined || !deps.host.isTrusted()) return;
+    if (dir === undefined || !deps.trust.isTrusted()) return;
 
     problem = undefined;
     workflow = flow.name;

@@ -29,6 +29,7 @@ import type { PreviewModel } from '../preview/model.js';
 import type { PreviewStore } from '../preview/store.js';
 import { canvasPreview } from '../preview/view.js';
 import type { LiveRun } from '../runs/watch.js';
+import type { Trust } from '../trust.js';
 import type { PickChoice, VsCodeApi } from '../vscodeApi.js';
 import { mountWebview, type Heard } from '../webview/host.js';
 import type {
@@ -76,26 +77,6 @@ import {
  * pushed straight back in, because without that an
  * editor shows whatever was true when it opened.
  */
-/**
- * Workspace trust, as the canvas reads it.
- *
- * Drawing a workflow is parsing a document, which
- * is why one opens in a restricted window at all.
- * Reading the code behind it is a different thing:
- * the scan type-checks every file in the project's
- * `lib/` and writes what it found into
- * `.mboss/manifest.json`. That is work done on, and
- * a file written into, a folder somebody has said
- * they do not trust — for a palette and typed
- * wiring they can wait for.
- */
-export type CanvasTrust = {
-  isTrusted(): boolean;
-
-  /** Fires when they say so, mid-session. */
-  onTrustGranted(listener: () => void): Disposable;
-};
-
 /**
  * Adding a row to the agent's transcript.
  *
@@ -165,7 +146,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     private readonly api: VsCodeApi,
     private readonly preview: PreviewStore,
     private readonly runs: CanvasRuns,
-    private readonly trust: CanvasTrust,
+    private readonly trust: Trust,
     private readonly code: CanvasCode,
     private readonly note: NoteEntry,
   ) {}
@@ -175,7 +156,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     api: VsCodeApi,
     preview: PreviewStore,
     runs: CanvasRuns,
-    trust: CanvasTrust,
+    trust: Trust,
     code: CanvasCode,
     note: NoteEntry,
   ): Disposable {
@@ -272,7 +253,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         // window is when the person trusts the folder,
         // and not before.
         (repaint) =>
-          this.trust.onTrustGranted(() => {
+          this.trust.onGranted(() => {
             void session.scan().then(repaint);
           }),
 
@@ -341,7 +322,7 @@ export class CanvasSession {
     private readonly api: VsCodeApi,
     private readonly preview: PreviewStore,
     private readonly runs: CanvasRuns,
-    private readonly trust: CanvasTrust,
+    private readonly trust: Trust,
     private readonly note: NoteEntry,
   ) {}
 

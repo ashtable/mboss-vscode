@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import {
   database,
   echoing,
@@ -32,6 +33,7 @@ import { runsStore, type RunsDeps } from './store.js';
 function deps(over: Partial<RunsDeps> = {}): RunsDeps {
   return {
     host: host({ projects: () => [project()] }),
+    trust: fakeTrust(),
     open: async () => database(),
     openFork: async () => fork(),
     stack: stack().controller,
@@ -154,7 +156,8 @@ describe('one door for three zones', () => {
     const watch = watcher();
     const store = runsStore(
       deps({
-        host: host({ projects: () => [project()], isTrusted: () => false }),
+        host: host({ projects: () => [project()] }),
+        trust: fakeTrust(false),
         runner: echoing().start,
         watch: watch.watch,
       }),

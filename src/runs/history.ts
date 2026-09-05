@@ -1,6 +1,7 @@
 import type { Disposable } from 'vscode';
 
 import { emitter } from '../emitter.js';
+import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
 import type { RunsInit } from '../webview/protocol.js';
 
@@ -57,12 +58,12 @@ import { rowOf, type SeeView } from './view.js';
 /** The slice of the editor the history needs. */
 export type HistoryHost = {
   projects(): string[];
-  isTrusted(): boolean;
   say(message: string): void;
 };
 
 export type HistoryDeps = {
   host: HistoryHost;
+  trust: Trust;
   open: OpenDatabase;
   openFork: OpenFork;
 };
@@ -131,7 +132,7 @@ export function runHistory(deps: HistoryDeps): History {
       return undefined;
     }
 
-    if (!deps.host.isTrusted()) {
+    if (!deps.trust.isTrusted()) {
       state = 'untrusted';
 
       return undefined;
@@ -156,7 +157,7 @@ export function runHistory(deps: HistoryDeps): History {
 
   const ledger = (): string | undefined => {
     const dir = project();
-    if (dir === undefined || !deps.host.isTrusted()) return undefined;
+    if (dir === undefined || !deps.trust.isTrusted()) return undefined;
 
     const found = systemDatabaseUrl(dir);
 
@@ -276,7 +277,7 @@ export function runHistory(deps: HistoryDeps): History {
 
     replay: async (functionId) => {
       const showing = selected;
-      if (showing === undefined || !deps.host.isTrusted()) return;
+      if (showing === undefined || !deps.trust.isTrusted()) return;
 
       const url = connection();
       if (url === undefined) return void changed();

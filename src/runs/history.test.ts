@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import { database, fork, host, project } from '../test-support/runs.js';
 
 import type { Database, OpenDatabase } from './db.js';
@@ -18,6 +19,7 @@ import { runHistory, type History, type HistoryDeps } from './history.js';
 function history(over: Partial<HistoryDeps> = {}): History {
   return runHistory({
     host: host(),
+    trust: fakeTrust(),
     open: async () => database(),
     openFork: async () => fork(),
     ...over,
@@ -57,7 +59,8 @@ describe('before there is anything to read', () => {
   it('opens nothing in a window nobody has trusted', async () => {
     const open = vi.fn();
     const read = history({
-      host: host({ projects: () => [project()], isTrusted: () => false }),
+      host: host({ projects: () => [project()] }),
+      trust: fakeTrust(false),
       open: open as unknown as OpenDatabase,
     });
 
@@ -82,7 +85,8 @@ describe('before there is anything to read', () => {
     expect(history().ledger()).toBeUndefined();
     expect(
       history({
-        host: host({ projects: () => [project()], isTrusted: () => false }),
+        host: host({ projects: () => [project()] }),
+        trust: fakeTrust(false),
       }).ledger(),
     ).toBeUndefined();
     expect(
@@ -260,7 +264,8 @@ describe('replaying a step', () => {
   it('does nothing in a window nobody has trusted', async () => {
     const client = fork();
     const read = history({
-      host: host({ projects: () => [project()], isTrusted: () => false }),
+      host: host({ projects: () => [project()] }),
+      trust: fakeTrust(false),
       openFork: async () => client,
     });
 

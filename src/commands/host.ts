@@ -17,8 +17,6 @@ import type { RunWorkflowHost } from './runWorkflow.js';
  */
 export function projectHost(): ProjectHost {
   return {
-    isTrusted: () => workspace.isTrusted,
-
     folders: () =>
       (workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
 
@@ -80,8 +78,6 @@ export function projectHost(): ProjectHost {
  *  for it. */
 export function runWorkflowHost(): RunWorkflowHost {
   return {
-    isTrusted: () => workspace.isTrusted,
-
     pick: async (title, choices) => {
       const picked = await window.showQuickPick(
         choices.map((choice) => ({

@@ -29,8 +29,6 @@ export function runsHost(panel: AgentPanel): RunsHost {
         .map((folder) => folder.uri.fsPath)
         .filter(isProject),
 
-    isTrusted: () => workspace.isTrusted,
-
     say: (message) => void window.showInformationMessage(message),
 
     setContext: (key, value) =>

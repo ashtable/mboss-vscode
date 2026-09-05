@@ -15,17 +15,15 @@ import { AGENT_SETTINGS, agentCommand, asAgentId } from './registry.js';
  * writes has to implement the whole of whatever it
  * takes.
  *
- * Everything here is read fresh on every call.
- * Trust can be granted, a folder can be opened and
- * an agent can be swapped without reloading the
- * window, and a panel drawn from a snapshot taken
- * at activation would go on describing the window
- * that was.
+ * Everything here is read fresh on every call. A
+ * folder can be opened and an agent can be swapped
+ * without reloading the window, and a panel drawn
+ * from a snapshot taken at activation would go on
+ * describing the window that was. Trust, the third
+ * such thing, is `Trust` and not here.
  */
 export function panelHost(state: Memento): PanelHost {
   return {
-    isTrusted: () => workspace.isTrusted,
-
     // The first folder. A session is opened in one
     // directory, and a window with several is a
     // question this version does not ask.
@@ -69,8 +67,6 @@ export type AgentChoice = {
  * two dialogs once and writes a setting.
  */
 export type AgentPickerHost = {
-  isTrusted(): boolean;
-
   /** The chosen entry's id, or nothing if the
    *  picker was dismissed. */
   pick(title: string, choices: AgentChoice[]): Promise<string | undefined>;
@@ -92,8 +88,6 @@ export type AgentPickerHost = {
 
 export function agentPickerHost(): AgentPickerHost {
   return {
-    isTrusted: () => workspace.isTrusted,
-
     pick: async (title, choices) => {
       const picked = await window.showQuickPick(
         choices.map((choice) => ({

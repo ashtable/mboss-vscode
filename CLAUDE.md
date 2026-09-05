@@ -103,12 +103,17 @@ behaviour modules take the editor as an argument:
   `commands/newProject.ts`, `PanelHost` in `acp/agent.ts`, `RunsHost` in
   `runs/store.ts`, `WatchHost` in `watchers/host.ts`, `PreviewHost` in
   `preview/store.ts`, …) and a factory in the directory's `host.ts` closes over
-  `workspace`/`window`, reading trust, folders and settings fresh on every call.
+  `workspace`/`window`, reading folders and settings fresh on every call.
+- Workspace trust is on no host. `src/trust.ts` (`Trust`: `isTrusted()`,
+  `onGranted()`) is one collaborator handed to every store beside its host;
+  `workspaceTrust()` is the one adapter that asks `workspace.isTrusted`, and
+  `test/doubles/trust.ts` (`fakeTrust(trusted)`, with `grant()`) is its one
+  double. `src/trust.test.ts` pins that the adapter asks on every call.
 - `src/vscodeApi.ts` (`VsCodeApi`: info / run / pick / replaceDocument /
   onDocumentChanged) is the general-purpose seam used by `commands.ts` and the
   canvas editor.
 - Only editor plumbing value-imports `vscode`: `extension.ts`, `messages.ts`,
-  the three `words.ts`, `vscodeApi.ts`, `statusBar.ts`, the providers
+  `trust.ts`, the three `words.ts`, `vscodeApi.ts`, `statusBar.ts`, the providers
   (`sidebar/view.ts`, `runs/panels.ts`, `canvas/editor.ts`),
   `webview/host.ts`, every `host.ts`, and `acp/fs.ts`. `import type { Disposable } from 'vscode'` is fine anywhere.
 - `src/webview/host.ts` is a different kind of `host.ts`: the host side of the
@@ -202,16 +207,19 @@ behaviour modules take the editor as an argument:
 ### Activation
 
 `src/extension.ts` decides nothing: it constructs each long-lived object once,
-hands it its collaborators (structural slices — the canvas takes `WatchHost`,
-`Watchers` and `RunsStore` as `CanvasTrust`/`CanvasCode`/`CanvasRuns`), builds
+hands it its collaborators (structural slices — the canvas takes `Watchers`
+and `RunsStore` as `CanvasCode`/`CanvasRuns`, and `Trust` as itself), builds
 the command table with `commandHandlers()` in `src/commands.ts` (a pure record;
 `commands.test.ts` asserts its keys equal `contributes.commands`), registers
 providers and holds the disposables. `activationEvents` is `[]`.
 
 Workspace **trust** is checked per call at every seam that executes or writes
 into a folder (codegen, manifest scan, agent start, run history, docker, vendor
-refresh, approve/undo) — never cached at activation. Trust granted mid-session
-is an event every store subscribes to.
+refresh, approve/undo) — never cached at activation. Every check asks the one
+`Trust` it was handed. Trust granted mid-session is an event each store
+subscribes to itself (`trust.onGranted`: the preview store reloads, the agent
+panel redraws, the watchers generate, a canvas rescans); `extension.ts` wires
+none of that.
 
 ### Subsystems
 

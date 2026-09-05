@@ -4,6 +4,7 @@ import type { Disposable } from 'vscode';
 
 import type { DiagnosticEntry } from '../acp/transcript.js';
 import { emitter } from '../emitter.js';
+import type { Trust } from '../trust.js';
 import type { RunsInit } from '../webview/protocol.js';
 
 import type { OpenDatabase, OpenFork } from './db.js';
@@ -51,10 +52,6 @@ export type RunsHost = {
   /** Every mBoss project open in this window. */
   projects(): string[];
 
-  /** Whether the person has said this folder's
-   *  contents may be executed and connected to. */
-  isTrusted(): boolean;
-
   /** Tells the person something they can act on. */
   say(message: string): void;
 
@@ -73,6 +70,7 @@ export type RunsHost = {
 
 export type RunsDeps = {
   host: RunsHost;
+  trust: Trust;
   open: OpenDatabase;
   openFork: OpenFork;
   stack: StackController;
@@ -147,12 +145,18 @@ export type RunsStore = Disposable & {
 export function runsStore(deps: RunsDeps): RunsStore {
   const history = runHistory({
     host: deps.host,
+    trust: deps.trust,
     open: deps.open,
     openFork: deps.openFork,
   });
-  const stack = stackZone({ host: deps.host, stack: deps.stack });
+  const stack = stackZone({
+    host: deps.host,
+    trust: deps.trust,
+    stack: deps.stack,
+  });
   const testRun = testRunZone({
     host: deps.host,
+    trust: deps.trust,
     open: deps.open,
     runner: deps.runner,
     watch: deps.watch,

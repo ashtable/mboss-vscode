@@ -140,7 +140,6 @@ export function database(): Database & {
 export function host(over: Partial<RunsHost> = {}): RunsHost {
   return {
     projects: () => [],
-    isTrusted: () => true,
     say: () => undefined,
     setContext: () => undefined,
     note: () => undefined,

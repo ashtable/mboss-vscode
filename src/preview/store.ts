@@ -12,6 +12,7 @@ import {
 import { controlDir, type DiffSummary } from '../core/index.js';
 import { messages } from '../messages.js';
 import type { Problem } from '../problem.js';
+import type { Trust } from '../trust.js';
 
 import { approveProposal } from './approve.js';
 import { livePreviews } from './live.js';
@@ -36,10 +37,6 @@ import { canUndo, undoLast } from './undo.js';
 export type PreviewHost = {
   /** Every folder open in this window. */
   folders(): string[];
-
-  /** Whether the person has said this folder's
-   *  contents may be executed and written to. */
-  isTrusted(): boolean;
 
   /** Regenerates every project, publishes what
    *  that found, and hands it back. */
@@ -101,7 +98,7 @@ type Applied = {
   undoable: boolean;
 };
 
-export function previewStore(host: PreviewHost): PreviewStore {
+export function previewStore(host: PreviewHost, trust: Trust): PreviewStore {
   const live = new Map<string, PreviewModel[]>();
   const changes = emitter();
 
@@ -146,12 +143,19 @@ export function previewStore(host: PreviewHost): PreviewStore {
     return undefined;
   };
 
+  const reloadAll = async (): Promise<void> => {
+    for (const folder of host.folders()) await reload(folder);
+  };
+
+  // A proposal in a folder nobody had trusted is
+  // drawn but not answered; the moment they trust
+  // it, it can be.
+  const granted = trust.onGranted(() => void reloadAll());
+
   return {
     reload,
 
-    reloadAll: async () => {
-      for (const folder of host.folders()) await reload(folder);
-    },
+    reloadAll,
 
     projectOf: (path) =>
       host.folders().find((one) => path.startsWith(controlDir(one) + sep)),
@@ -164,7 +168,7 @@ export function previewStore(host: PreviewHost): PreviewStore {
       // folder and run the compiler over it, which
       // is the decision workspace trust exists to
       // make. The preview itself keeps drawing.
-      if (!host.isTrusted()) return undefined;
+      if (!trust.isTrusted()) return undefined;
 
       const model = newest();
       if (model !== undefined) return { at: 'proposal', model };
@@ -176,7 +180,7 @@ export function previewStore(host: PreviewHost): PreviewStore {
 
     approve: async (id) => {
       const found = held(id);
-      if (found === undefined || !host.isTrusted()) return;
+      if (found === undefined || !trust.isTrusted()) return;
 
       const { project, model } = found;
 
@@ -255,7 +259,7 @@ export function previewStore(host: PreviewHost): PreviewStore {
 
     undo: async () => {
       const last = applied;
-      if (last === undefined || !host.isTrusted()) return;
+      if (last === undefined || !trust.isTrusted()) return;
 
       const outcome = await undoLast(
         {
@@ -282,6 +286,7 @@ export function previewStore(host: PreviewHost): PreviewStore {
     },
 
     dispose: () => {
+      granted.dispose();
       changes.dispose();
       live.clear();
     },

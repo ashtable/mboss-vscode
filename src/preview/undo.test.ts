@@ -1,6 +1,7 @@
 import { applySpec, mbossDirOf } from '@mboss/core';
 import { describe, expect, it } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import { currentWorkflow } from '../core/index.js';
 import { WorkflowIRSchema } from '../core/rules.js';
 import {
@@ -60,7 +61,6 @@ function trustingHost(
   return {
     said,
     folders: () => folders,
-    isTrusted: () => true,
     regenerate: async () => {
       said.push('regenerated');
 
@@ -149,7 +149,7 @@ describe('the card after an approval', () => {
     });
 
     const host = trustingHost([project]);
-    const store = previewStore(host);
+    const store = previewStore(host, fakeTrust());
     await store.reloadAll();
 
     await store.approve(proposal.id);
@@ -193,10 +193,7 @@ describe('an untrusted window', () => {
       baseRevision: groom.revision,
     });
 
-    const store = previewStore({
-      ...trustingHost([project]),
-      isTrusted: () => false,
-    });
+    const store = previewStore(trustingHost([project]), fakeTrust(false));
     await store.reloadAll();
 
     expect(store.card()).toBeUndefined();

@@ -2,6 +2,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import type { TranscriptEntry } from '../acp/transcript.js';
 import { WorkflowIRSchema } from '../core/rules.js';
 import { messages } from '../messages.js';
@@ -77,15 +78,17 @@ async function drive(
 ): Promise<Driven> {
   const said: string[] = [];
   const noted: TranscriptEntry[] = [];
-  const store = previewStore({
-    folders: () => [project],
-    isTrusted: () => true,
-    regenerate: async () => [],
-    notify: async () => {},
-    note: (entry) => noted.push(entry),
-    say: (message) => said.push(message),
-    ...over,
-  });
+  const store = previewStore(
+    {
+      folders: () => [project],
+      regenerate: async () => [],
+      notify: async () => {},
+      note: (entry) => noted.push(entry),
+      say: (message) => said.push(message),
+      ...over,
+    },
+    fakeTrust(),
+  );
 
   await store.reloadAll();
 

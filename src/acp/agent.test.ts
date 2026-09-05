@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import { PEER_SCRIPT } from '../test-support/peer.js';
 
 import { agentPanel, type AgentPanel, type PanelHost } from './agent.js';
@@ -48,7 +49,7 @@ type Driven = {
   spawns(): number;
 };
 
-function drive(over: Partial<PanelHost> = {}): Driven {
+function drive(over: Partial<PanelHost> = {}, trust = fakeTrust()): Driven {
   const project = mkdtempSync(join(tmpdir(), 'mboss-panel-'));
   const stored: Record<string, unknown> = {};
   const seen: string[] = [];
@@ -56,35 +57,37 @@ function drive(over: Partial<PanelHost> = {}): Driven {
 
   scratch.push(project);
 
-  const panel = agentPanel({
-    isTrusted: () => true,
-    project: () => project,
+  const panel = agentPanel(
+    {
+      project: () => project,
 
-    // An ordinary script at an ordinary path with
-    // ordinary arguments, through the open slot and
-    // nothing else — which is also the only way
-    // anything outside this repository will ever
-    // point this extension at an agent.
-    chosen: () => ({
-      id: 'custom',
-      launch: {
-        command: process.execPath,
-        args: [PEER_SCRIPT, '--spawns', spawns],
+      // An ordinary script at an ordinary path with
+      // ordinary arguments, through the open slot and
+      // nothing else — which is also the only way
+      // anything outside this repository will ever
+      // point this extension at an agent.
+      chosen: () => ({
+        id: 'custom',
+        launch: {
+          command: process.execPath,
+          args: [PEER_SCRIPT, '--spawns', spawns],
+        },
+      }),
+      files: {
+        read: async () => '',
+        write: async () => {},
+        remove: async () => {},
       },
-    }),
-    files: {
-      read: async () => '',
-      write: async () => {},
-      remove: async () => {},
-    },
-    state: {
-      get: <T>(key: string) => stored[key] as T | undefined,
-      update: async (key, value) => {
-        stored[key] = value;
+      state: {
+        get: <T>(key: string) => stored[key] as T | undefined,
+        update: async (key, value) => {
+          stored[key] = value;
+        },
       },
+      ...over,
     },
-    ...over,
-  });
+    trust,
+  );
 
   open.push(panel);
   panel.onChanged(() => {
@@ -248,7 +251,7 @@ describe('a second turn', () => {
 
 describe('before there is anything to talk to', () => {
   it('starts nothing in a window that is not trusted', async () => {
-    const driven = drive({ isTrusted: () => false });
+    const driven = drive({}, fakeTrust(false));
 
     await driven.panel.send('wire it');
 

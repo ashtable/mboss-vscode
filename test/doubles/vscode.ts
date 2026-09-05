@@ -71,7 +71,35 @@ export const editorFs = {
   },
 };
 
+/**
+ * Workspace trust, as the one adapter that asks
+ * the window reads it. Settable so that the
+ * adapter's spec can change the answer under it.
+ */
+export const workspaceTrustDouble = {
+  trusted: true,
+  granted: new Set<() => void>(),
+  grant(): void {
+    workspaceTrustDouble.trusted = true;
+    for (const listener of workspaceTrustDouble.granted) listener();
+  },
+  reset(): void {
+    workspaceTrustDouble.trusted = true;
+    workspaceTrustDouble.granted.clear();
+  },
+};
+
 const workspaceApi = {
+  get isTrusted(): boolean {
+    return workspaceTrustDouble.trusted;
+  },
+  onDidGrantWorkspaceTrust(listener: () => void): { dispose(): void } {
+    workspaceTrustDouble.granted.add(listener);
+
+    return {
+      dispose: () => void workspaceTrustDouble.granted.delete(listener),
+    };
+  },
   fs: {
     readFile: async (uri: { fsPath: string }): Promise<Uint8Array> => {
       const text = editorFs.files.get(uri.fsPath);

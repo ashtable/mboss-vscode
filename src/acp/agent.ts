@@ -1,6 +1,7 @@
 import type { Disposable } from 'vscode';
 
 import { emitter } from '../emitter.js';
+import type { Trust } from '../trust.js';
 import {
   AgentStartError,
   openAgentSession,
@@ -85,8 +86,6 @@ export type PanelState = {
  * implement things it has no opinion about.
  */
 export type PanelHost = {
-  isTrusted(): boolean;
-
   /** Where a session would run. The first folder
    *  in the window. */
   project(): string | undefined;
@@ -168,7 +167,7 @@ export type AgentPanel = {
   dispose(): void;
 };
 
-export function agentPanel(host: PanelHost): AgentPanel {
+export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
   const memory = permissionMemory(host.state);
   const changes = emitter();
 
@@ -194,6 +193,10 @@ export function agentPanel(host: PanelHost): AgentPanel {
   let queued: string[] = [];
 
   const changed = changes.fire;
+
+  // Trust arriving changes what the panel shows,
+  // without the session moving at all.
+  const granted = trust.onGranted(changed);
 
   const pendingFile = (id: string): FileEditEntry | undefined => {
     const found = transcript.find(
@@ -278,7 +281,7 @@ export function agentPanel(host: PanelHost): AgentPanel {
     const project = host.project();
     const chosen = host.chosen();
 
-    if (!host.isTrusted() || project === undefined) return;
+    if (!trust.isTrusted() || project === undefined) return;
     if (chosen?.launch === undefined) return;
 
     // Whether this can go now is the session's
@@ -326,7 +329,7 @@ export function agentPanel(host: PanelHost): AgentPanel {
       const chosen = host.chosen();
 
       return {
-        status: statusOf(host, chosen, session),
+        status: statusOf(trust, host, chosen, session),
         agent: chosen?.id,
         transcript,
         prompt:
@@ -414,6 +417,7 @@ export function agentPanel(host: PanelHost): AgentPanel {
     },
 
     dispose: () => {
+      granted.dispose();
       changes.dispose();
       live?.close();
       live = undefined;
@@ -430,11 +434,12 @@ export function agentPanel(host: PanelHost): AgentPanel {
  * opened in one; then an agent.
  */
 function statusOf(
+  trust: Trust,
   host: PanelHost,
   chosen: { launch: AgentCommand | undefined } | undefined,
   session: SessionState,
 ): PanelStatus {
-  if (!host.isTrusted()) return 'untrusted';
+  if (!trust.isTrusted()) return 'untrusted';
   if (host.project() === undefined) return 'no-project';
   if (chosen?.launch === undefined) return 'no-agent';
 

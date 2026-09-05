@@ -1,5 +1,6 @@
 import { messages } from '../messages.js';
 import type { RunsStore } from '../runs/store.js';
+import type { Trust } from '../trust.js';
 
 /**
  * `mBoss: Run Workflow…`.
@@ -19,10 +20,6 @@ import type { RunsStore } from '../runs/store.js';
  * panel's dropdown does.
  */
 export type RunWorkflowHost = {
-  /** Whether the person has said this window's
-   *  folders may be executed and connected to. */
-  isTrusted(): boolean;
-
   /** The chosen entry's id, or nothing if the
    *  picker was dismissed. */
   pick(
@@ -44,9 +41,10 @@ export type RunWorkflowHost = {
 export function runWorkflowCommand(
   host: RunWorkflowHost,
   runs: RunsStore,
+  trust: Trust,
 ): () => Promise<void> {
   return async () => {
-    if (!host.isTrusted()) {
+    if (!trust.isTrusted()) {
       host.info(messages.runsNeedTrust());
       return;
     }

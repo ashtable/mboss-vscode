@@ -7,6 +7,7 @@ import { emitter } from '../emitter.js';
 import { isProject, workflowFiles } from '../core/index.js';
 import type { Problem } from '../problem.js';
 import type { StatusBar } from '../statusBar.js';
+import type { Trust } from '../trust.js';
 
 import { generate, type CodegenResult } from './codegen.js';
 import { Debouncer } from './debounce.js';
@@ -73,6 +74,7 @@ export type Watchers = Disposable & {
 
 export function watchProjects(
   host: WatchHost,
+  trust: Trust,
   status: StatusBar,
   opts?: { debounceMs?: number },
 ): Watchers {
@@ -134,7 +136,7 @@ export function watchProjects(
    * A reason that is not a path runs regardless.
    */
   const schedule = (project: string, because?: string): void => {
-    if (!host.isTrusted() || !isProject(project)) return;
+    if (!trust.isTrusted() || !isProject(project)) return;
 
     const reasons = due.get(project) ?? new Set<string | undefined>();
     reasons.add(because);
@@ -187,11 +189,11 @@ export function watchProjects(
     }),
   );
 
-  if (!host.isTrusted()) {
+  if (!trust.isTrusted()) {
     status.codegenNeedsTrust();
 
     subscriptions.push(
-      host.onTrustGranted(() => {
+      trust.onGranted(() => {
         for (const folder of host.folders()) schedule(folder);
       }),
     );
@@ -199,7 +201,7 @@ export function watchProjects(
 
   return {
     generateNow: async (): Promise<CodegenRun> => {
-      if (!host.isTrusted()) return { ran: false, reason: 'untrusted' };
+      if (!trust.isTrusted()) return { ran: false, reason: 'untrusted' };
 
       const projects = host.folders().filter(isProject);
       if (projects.length === 0) return { ran: false, reason: 'noProject' };

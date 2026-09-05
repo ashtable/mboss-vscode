@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import {
   RUNNING,
   STOPPED,
@@ -19,6 +20,7 @@ import { stackZone, type StackZone, type StackZoneDeps } from './stackZone.js';
 function zone(over: Partial<StackZoneDeps> = {}): StackZone {
   return stackZone({
     host: host({ projects: () => [project()] }),
+    trust: fakeTrust(),
     stack: stack().controller,
     ...over,
   });
@@ -96,7 +98,8 @@ describe('the local stack', () => {
   it('runs no command in a window nobody has trusted', async () => {
     const compose = stack();
     const shown = zone({
-      host: host({ projects: () => [project()], isTrusted: () => false }),
+      host: host({ projects: () => [project()] }),
+      trust: fakeTrust(false),
       stack: compose.controller,
     });
 

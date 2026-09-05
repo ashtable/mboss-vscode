@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import { sessionLog } from '../runs/sessionLog.js';
 import { runsStore, type RunsDeps, type RunsHost } from '../runs/store.js';
 
@@ -52,7 +53,6 @@ function project(): string {
 function runsHost(dir: string): RunsHost {
   return {
     projects: () => [dir],
-    isTrusted: () => true,
     say: () => undefined,
     setContext: () => undefined,
     note: () => undefined,
@@ -77,6 +77,7 @@ function deps(dir: string): RunsDeps {
 
   return {
     host: runsHost(dir),
+    trust: fakeTrust(),
     open: refused('opened a database'),
     openFork: refused('opened a fork client'),
     stack: {
@@ -102,7 +103,6 @@ function host(): RunWorkflowHost & { offered: string[][] } {
 
   return {
     offered,
-    isTrusted: () => true,
     pick: async (_title, choices) => {
       offered.push(choices.map((choice) => choice.id));
 
@@ -119,7 +119,7 @@ describe('running a workflow from the palette', () => {
     const store = runsStore(deps(dir));
     const editor = host();
 
-    await runWorkflowCommand(editor, store)();
+    await runWorkflowCommand(editor, store, fakeTrust())();
 
     expect(editor.offered).toEqual([['groom_booking']]);
   });
