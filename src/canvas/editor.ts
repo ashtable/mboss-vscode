@@ -9,7 +9,7 @@ import {
   type WebviewPanel,
 } from 'vscode';
 
-import type { ToolEntry } from '../acp/transcript.js';
+import { personEdit, type ToolEntry } from '../acp/transcript.js';
 import {
   boxesFor,
   checkWorkflow,
@@ -777,20 +777,17 @@ export class CanvasSession {
     const made = outcome.assigned;
     if (made === undefined) return;
 
-    this.note({
-      at: 'tool',
-      id: `assign:${made.nodeId}:${baseRevision}`,
-      by: 'person',
-      kind: 'edit',
-      verb: messages.canvasAssignVerb(),
-      target: messages.canvasAssignTarget(
-        made.export,
-        paletteLabels()[made.kind],
-        made.title,
-      ),
-      status: 'applied',
-      body: [],
-    });
+    this.note(
+      personEdit({
+        id: `assign:${made.nodeId}:${baseRevision}`,
+        verb: messages.canvasAssignVerb(),
+        target: messages.canvasAssignTarget(
+          made.export,
+          paletteLabels()[made.kind],
+          made.title,
+        ),
+      }),
+    );
   }
 }
 

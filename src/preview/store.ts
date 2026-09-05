@@ -4,7 +4,11 @@ import type { Disposable } from 'vscode';
 
 import { emitter } from '../emitter.js';
 
-import type { DiagnosticEntry, ToolEntry } from '../acp/transcript.js';
+import {
+  personEdit,
+  type DiagnosticEntry,
+  type ToolEntry,
+} from '../acp/transcript.js';
 import { controlDir, type DiffSummary } from '../core/index.js';
 import { messages } from '../messages.js';
 import type { Problem } from '../problem.js';
@@ -294,16 +298,11 @@ export function previewStore(host: PreviewHost): PreviewStore {
  * own proposal.
  */
 function appliedRow(id: string, workflow: string): ToolEntry {
-  return {
-    at: 'tool',
+  return personEdit({
     id: `apply:${id}`,
-    by: 'person',
-    kind: 'edit',
     verb: messages.previewApplyVerb(),
     target: workflow,
-    status: 'applied',
-    body: [],
-  };
+  });
 }
 
 /**

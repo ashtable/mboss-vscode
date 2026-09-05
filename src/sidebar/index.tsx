@@ -7,9 +7,9 @@ import {
   type RefObject,
 } from 'react';
 
+import type { DiffLine } from '../acp/diff.js';
 import type {
   DiagnosticEntry,
-  DiffLine,
   FileEditEntry,
   PermissionPrompt,
   PlanEntry,

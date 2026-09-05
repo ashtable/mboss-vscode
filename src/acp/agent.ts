@@ -25,7 +25,7 @@ import {
   type SessionEvent,
   type SessionState,
 } from './session.js';
-import { foldUpdate, type PermissionPrompt } from './transcript.js';
+import { foldUpdate, said, type PermissionPrompt } from './transcript.js';
 import type {
   DiagnosticEntry,
   FileEditEntry,
@@ -306,15 +306,7 @@ export function agentPanel(host: PanelHost): AgentPanel {
       return;
     }
 
-    transcript = [
-      ...transcript,
-      {
-        at: 'message',
-        id: `message-${transcript.filter((e) => e.at === 'message').length}`,
-        from: 'user',
-        text,
-      },
-    ];
+    transcript = said(transcript, text);
     move({ is: 'prompted' });
     changed();
 
