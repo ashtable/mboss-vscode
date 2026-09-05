@@ -4,3 +4,8 @@ dist
 mboss-core
 mboss-mcp-server
 mboss-skills
+
+# Vendored skill content, kept byte-identical to its
+# source so re-syncing it never shows a reformatting
+# diff.
+.claude/skills
