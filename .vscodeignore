@@ -13,6 +13,7 @@
 # the one moment it was asked to make a project.
 # Exclude by directory, not by extension.
 
+.agents/**
 .claude/**
 .github/**
 .vscode/**

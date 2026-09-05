@@ -7,5 +7,8 @@ mboss-skills
 
 # Vendored agent and skill content, kept
 # byte-identical to its source so re-syncing it never
-# shows a reformatting diff.
+# shows a reformatting diff. Two spellings of the
+# same directory, because the superproject keeps
+# this material under the agent-neutral one.
+.agents
 .claude
