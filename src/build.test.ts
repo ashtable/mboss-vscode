@@ -383,6 +383,55 @@ describe('a control plane stamped by another repository', () => {
   });
 });
 
+/**
+ * A build is what this build makes, and nothing a
+ * previous one left.
+ *
+ * The bundler overwrites the files it was asked
+ * for and leaves everything else alone, and
+ * packaging zips the directory rather than a list
+ * of names — so a webview since renamed, or dropped
+ * altogether, goes on shipping out of a working
+ * copy that has built both. Nothing type-checks it,
+ * nothing imports it, and it is in the artifact.
+ */
+describe('building over an older build', () => {
+  let outdir: string;
+
+  beforeAll(async () => {
+    outdir = join(scratchDir(), 'dist');
+
+    mkdirSync(join(outdir, 'webview'), { recursive: true });
+    writeFileSync(join(outdir, 'webview', 'gone.js'), '// a webview that was');
+    writeFileSync(join(outdir, 'stray.cjs'), '// a bundle that was');
+
+    await buildExtension(outdir);
+  });
+
+  afterAll(() => {
+    while (scratch.length > 0) {
+      rmSync(scratch.pop() as string, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves nothing of it behind', () => {
+    expect(fileExists(join(outdir, 'webview', 'gone.js'))).toBe(false);
+    expect(fileExists(join(outdir, 'stray.cjs'))).toBe(false);
+  });
+
+  /** And still emits everything, since clearing
+   *  takes the copied assets with it too. */
+  it('puts back everything the package needs', () => {
+    expect(fileExists(join(outdir, HOST_BUNDLE))).toBe(true);
+    expect(fileExists(join(outdir, 'mcp', 'server.js'))).toBe(true);
+    expect(fileExists(join(outdir, 'skill', 'SKILL.md'))).toBe(true);
+
+    for (const name of WEBVIEW_ENTRIES) {
+      expect(fileExists(join(outdir, webviewFile(name, 'js')))).toBe(true);
+    }
+  });
+});
+
 describe('the entry list', () => {
   /**
    * One entry per surface a frame is pointed at.

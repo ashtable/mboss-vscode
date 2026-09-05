@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 import { build, type BuildOptions } from 'esbuild';
@@ -292,8 +292,21 @@ export function webviewOptions(outdir: string): BuildOptions {
   };
 }
 
-/** Builds the host, the webviews and the assets. */
+/**
+ * Builds the host, the webviews and the assets.
+ *
+ * Cleared first. The bundler overwrites the files
+ * it was asked for and leaves everything else
+ * alone, and packaging zips this directory rather
+ * than a list of names — so a webview since renamed
+ * or dropped would go on shipping out of any
+ * working copy that had built both, in an artifact
+ * nothing else in the repository mentions.
+ * Everything here is either built or copied in
+ * below, so there is nothing to keep.
+ */
 export async function buildExtension(outdir: string = DIST): Promise<void> {
+  rmSync(outdir, { recursive: true, force: true });
   mkdirSync(outdir, { recursive: true });
 
   await build(hostOptions(outdir));

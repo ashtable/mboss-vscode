@@ -77,3 +77,106 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## react
+
+Compiled into the webview bundles under `dist/webview/`.
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Licensed under the MIT licence, the text of which is reproduced under
+Lucide above.
+
+## react-dom
+
+Compiled into the webview bundles under `dist/webview/`.
+
+Copyright (c) Meta Platforms, Inc. and affiliates.
+
+Licensed under the MIT licence, the text of which is reproduced under
+Lucide above.
+
+## @xyflow/react
+
+The graph the canvas is drawn with, compiled into
+`dist/webview/canvas.js`.
+
+Copyright (c) 2019-2025 webkid GmbH
+
+Licensed under the MIT licence, the text of which is reproduced under
+Lucide above.
+
+## elkjs
+
+The layout engine, compiled into `dist/extension.cjs`. Included
+unmodified; the source is at https://github.com/kieler/elkjs.
+
+Copyright (c) 2017, 2021 Kiel University and others
+
+Dual-licensed under the Eclipse Public License 2.0
+(https://www.eclipse.org/legal/epl-2.0/) or, at your option, the GNU
+General Public License version 3 or later
+(https://www.gnu.org/licenses/gpl-3.0.html). It is included here under
+the EPL-2.0.
+
+## ts-morph
+
+The TypeScript compiler wrapper the library reads a project's handlers
+with, compiled into `dist/extension.cjs` along with the TypeScript
+compiler it re-exports.
+
+Copyright (c) 2017 David Sherret
+
+Licensed under the MIT licence, the text of which is reproduced under
+Lucide above. TypeScript itself is copyright (c) Microsoft Corporation
+and licensed under Apache-2.0, whose terms are at
+https://www.apache.org/licenses/LICENSE-2.0.
+
+## pg
+
+The PostgreSQL client the run views read a ledger with, compiled into
+`dist/extension.cjs`.
+
+Copyright (c) 2010 - 2021 Brian Carlson
+
+Licensed under the MIT licence, the text of which is reproduced under
+Lucide above.
+
+## @dbos-inc/dbos-sdk
+
+Compiled into `dist/extension.cjs`.
+
+Copyright (c) 2023 DBOS, Inc.
+
+Licensed under the MIT licence, the text of which is reproduced under
+Lucide above.
+
+## @agentclientprotocol/sdk
+
+The protocol the agent panel talks to a coding agent over, compiled into
+`dist/extension.cjs`.
+
+Copyright 2025 Zed Industries, Inc. and contributors
+
+Licensed under the Apache License, Version 2.0, whose terms are at
+https://www.apache.org/licenses/LICENSE-2.0.
+
+## zod
+
+Compiled into `dist/extension.cjs` and into the webview bundles.
+
+Copyright (c) 2025 Colin McDonnell
+
+Licensed under the MIT licence, the text of which is reproduced under
+Lucide above.
+
+## @types/node
+
+Type declarations, shipped as files under `dist/node_modules/` because
+the library resolves them while it is still loading. From
+DefinitelyTyped.
+
+Copyright (c) Microsoft Corporation
+
+Licensed under the MIT licence, the text of which is reproduced under
+Lucide above.
