@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
+import { relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 import {
+  REPO_ROOT,
   l10nBundle,
   packageManifest,
   sourceFiles,
@@ -37,9 +39,11 @@ import {
  * scanner that only knew about single quotes would
  * quietly stop checking exactly those sentences.
  */
-function translatedStrings(): string[] {
-  const call = /\bl10n\.t\(\s*(?:'([^'\\]*)'|"([^"\\]*)")/g;
+/** A call with a literal in it, which is the only
+ *  kind this extension makes. */
+const call = /\bl10n\.t\(\s*(?:'([^'\\]*)'|"([^"\\]*)")/g;
 
+function translatedStrings(): string[] {
   return sourceFiles().flatMap((path) => {
     const source = readFileSync(path, 'utf8');
 
@@ -67,5 +71,26 @@ describe('the runtime strings', () => {
 
   it('carries no entry the extension stopped showing', () => {
     expect([...declared].filter((key) => !used.has(key))).toEqual([]);
+  });
+
+  /**
+   * Four tables and nothing else. A sentence
+   * resolved in a module of its own would still be
+   * found by the checks above, and would be one
+   * nobody knows where to look for.
+   */
+  it('is resolved only in the string tables', () => {
+    const callers = sourceFiles()
+      .filter((path) => !path.endsWith('.test.ts'))
+      .filter((path) => readFileSync(path, 'utf8').search(call) !== -1)
+      .map((path) => relative(REPO_ROOT, path))
+      .sort();
+
+    expect(callers).toEqual([
+      'src/canvas/words.ts',
+      'src/messages.ts',
+      'src/runs/words.ts',
+      'src/sidebar/words.ts',
+    ]);
   });
 });

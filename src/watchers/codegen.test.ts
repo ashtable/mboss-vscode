@@ -9,6 +9,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { fakeTrust, type FakeTrust } from '../../test/doubles/trust.js';
 import { fakeHost, type FakeHost } from '../../test/doubles/watchHost.js';
 import {
   WorkflowIRSchema,
@@ -346,6 +347,51 @@ describe('the watchers', () => {
     expect(status.finished).toHaveLength(1);
   });
 
+  /**
+   * A document a generation has already read is
+   * nothing to answer: the code reflects those bytes.
+   * That is what makes an approval, an undo and the
+   * canvas's own write cost one generation rather
+   * than two — the write, and then the event about
+   * it.
+   */
+  it('answer an event about a document they have generated from with nothing', async () => {
+    const { project, host, status, watchers } = await watching({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+
+    await watchers.generateNow();
+    host.fire(WORKFLOW_GLOB, path);
+    await quiet();
+
+    expect(status.finished).toHaveLength(1);
+  });
+
+  /** The editor's watcher can deliver the event
+   *  before the generation that reads the document
+   *  has accounted for it, so the question is asked
+   *  again when the debounced run fires. */
+  it('answer it with nothing even when the event arrives first', async () => {
+    const { project, host, status, watchers } = await watching({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+
+    host.fire(WORKFLOW_GLOB, path);
+    await watchers.generateNow();
+    await quiet();
+
+    expect(status.finished).toHaveLength(1);
+  });
+
+  it('still answer a document that changed since', async () => {
+    const { project, host, status, watchers } = await watching({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+
+    await watchers.generateNow();
+    writeFileSync(path, readWorkflowFixture('empty_draft'), 'utf8');
+    host.fire(WORKFLOW_GLOB, path);
+
+    await until(() => status.finished.length === 2);
+  });
+
   it('publish what they found where a person will see it', async () => {
     const { project, host } = await watching();
     const path = writeWorkflow(project, 'empty_draft');
@@ -367,6 +413,24 @@ describe('the watchers', () => {
     await until(() => status.finished.length === 1);
     expect(status.finished[0]?.ok).toBe(true);
     expect(status.finished[0]?.ms).toBeGreaterThanOrEqual(0);
+  });
+
+  /**
+   * Said out loud, because a generation is also the
+   * moment a project's code-behind was last read —
+   * and an open canvas draws its palette, its picker
+   * and its typed wiring from that.
+   */
+  it('say which project has been generated', async () => {
+    const { project, host, watchers } = await watching({ lib: 'lib' });
+    writeWorkflow(project, 'groom_booking');
+    const seen: string[] = [];
+    watchers.onGenerated((one) => void seen.push(one));
+
+    host.fire(LIB_GLOB, join(project, 'lib', 'findSlot.ts'));
+
+    await until(() => seen.length === 1);
+    expect(seen).toEqual([project]);
   });
 
   it('notice a proposal arriving', async () => {
@@ -411,13 +475,13 @@ describe('a folder nobody has trusted', () => {
   });
 
   it('starts the moment it is trusted', async () => {
-    const { project, host, status } = await watching({
+    const { project, trust, status } = await watching({
       lib: 'lib',
       trusted: false,
     });
     writeWorkflow(project, 'groom_booking');
 
-    host.trust();
+    trust.grant();
 
     await until(() => status.finished.length === 1);
     expect(generatedFiles(project)).toContain(
@@ -432,9 +496,9 @@ describe('a folder nobody has trusted', () => {
       codegenNeedsTrust: () => void (asked += 1),
     };
     const project = await makeProject();
-    const host = fakeHost({ folders: [project], trusted: false });
+    const host = fakeHost({ folders: [project] });
 
-    watchProjects(host, status, { debounceMs: 5 }).dispose();
+    watchProjects(host, fakeTrust(false), status, { debounceMs: 5 }).dispose();
 
     expect(asked).toBe(1);
   });
@@ -447,9 +511,23 @@ describe('generating on demand', () => {
 
     const run = await watchers.generateNow();
 
-    expect(run).toEqual({ ran: true, ok: true, ms: expect.any(Number) });
+    expect(run).toMatchObject({ ran: true, ok: true, ms: expect.any(Number) });
     expect(generatedFiles(project)).toContain(
       'src/workflows/groom_booking.workflow.ts',
+    );
+  });
+
+  /** Handed back as well as published, because the
+   *  caller that asked for this generation may be
+   *  the one that caused what it found. */
+  it('hands back what it found', async () => {
+    const { project, watchers } = await watching({ lib: 'lib-broken' });
+    writeWorkflow(project, 'empty_draft');
+
+    const run = await watchers.generateNow();
+
+    expect(run.ran && run.problems).toContainEqual(
+      expect.objectContaining({ file: join(project, 'lib', 'broken.ts') }),
     );
   });
 
@@ -465,7 +543,9 @@ describe('generating on demand', () => {
   it('says it cannot when no folder here is a project', async () => {
     const status = reporter();
     const host = fakeHost({ folders: ['/nowhere/at/all'] });
-    const watchers = watchProjects(host, status, { debounceMs: 5 });
+    const watchers = watchProjects(host, fakeTrust(), status, {
+      debounceMs: 5,
+    });
 
     expect(await watchers.generateNow()).toEqual({
       ran: false,
@@ -487,17 +567,19 @@ async function watching(opts?: {
 }): Promise<{
   project: string;
   host: FakeHost;
+  trust: FakeTrust;
   status: Reported;
   watchers: Watchers;
 }> {
   const project = await makeProject(
     opts?.lib === undefined ? undefined : { lib: opts.lib },
   );
-  const host = fakeHost({ folders: [project], trusted: opts?.trusted ?? true });
+  const host = fakeHost({ folders: [project] });
+  const trust = fakeTrust(opts?.trusted ?? true);
   const status = reporter();
-  const watchers = watchProjects(host, status, { debounceMs: 5 });
+  const watchers = watchProjects(host, trust, status, { debounceMs: 5 });
 
-  return { project, host, status, watchers };
+  return { project, host, trust, status, watchers };
 }
 
 /**

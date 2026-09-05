@@ -4,7 +4,13 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { describeDatabase, systemDatabaseUrl } from './env.js';
+import {
+  describeDatabase,
+  envValue,
+  eventsSecret,
+  projectEnv,
+  systemDatabaseUrl,
+} from './env.js';
 
 /**
  * Where the run history is, and where it is not.
@@ -32,6 +38,7 @@ function project(env?: string): string {
 afterEach(() => {
   delete process.env['DBOS_SYSTEM_DATABASE_URL'];
   delete process.env['DATABASE_URL'];
+  delete process.env['EVENTS_SECRET'];
   dirs.length = 0;
 });
 
@@ -124,6 +131,68 @@ describe('the database a project records its runs in', () => {
     expect(found.ok).toBe(true);
     if (!found.ok) return;
     expect(found.url).toBe('postgres://last/x');
+  });
+});
+
+describe('any other name the project wrote down', () => {
+  it('reads the value a name is given', () => {
+    const dir = project('EVENTS_SECRET="deadbeef"\n');
+
+    expect(envValue(dir, 'EVENTS_SECRET')).toBe('deadbeef');
+  });
+
+  it('has nothing to read where there is no file', () => {
+    expect(envValue(project(), 'EVENTS_SECRET')).toBeUndefined();
+  });
+
+  it('reads the whole name and not a prefix of it', () => {
+    const dir = project('EVENTS_SECRET_OLD=stale\n');
+
+    expect(envValue(dir, 'EVENTS_SECRET')).toBeUndefined();
+  });
+
+  /**
+   * The secret every run-starting route is guarded
+   * by, out of the project's own file for the same
+   * reason the connection string is: a shell that
+   * happens to be holding one is holding it for
+   * something else.
+   */
+  it('finds the secret the app ingress is guarded by', () => {
+    process.env['EVENTS_SECRET'] = 'from-the-shell';
+    const dir = project('EVENTS_SECRET=deadbeef\n');
+
+    expect(eventsSecret(dir)).toBe('deadbeef');
+  });
+
+  /**
+   * The route refuses to build a guard out of an
+   * empty secret, because an absent header would
+   * compare equal to it and open every way in. A
+   * name with nothing after it is therefore no
+   * secret rather than a short one.
+   */
+  it('counts a name with nothing after it as no secret', () => {
+    expect(eventsSecret(project('EVENTS_SECRET=\n'))).toBeUndefined();
+  });
+
+  /** The three questions a project's `.env` is
+   *  asked, answered by the file itself. */
+  it('answers all three from one project', () => {
+    const dir = project(
+      [
+        'DBOS_SYSTEM_DATABASE_URL=postgres://app:pw@localhost:5432/sys',
+        'EVENTS_SECRET=deadbeef',
+      ].join('\n'),
+    );
+
+    const url = projectEnv.systemDatabaseUrl(dir);
+
+    expect(url.ok).toBe(true);
+    expect(projectEnv.eventsSecret(dir)).toBe('deadbeef');
+    expect(projectEnv.describeDatabase(url.ok ? url.url : '')).toBe(
+      'localhost:5432/sys',
+    );
   });
 });
 

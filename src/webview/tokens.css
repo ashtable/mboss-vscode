@@ -1,217 +1,404 @@
 /**
- * The Industry design system, inside an editor.
+ * mBoss Signal, inside an editor.
  *
  * The web console implements this system against a
- * fixed paper ground. A webview cannot: it sits
- * inside whatever theme the user chose, and a
- * panel that ignores that is the one thing every
- * VS Code user notices immediately. So the system
- * is split in two.
+ * ground it chose. A webview cannot: it sits inside
+ * whatever theme the user picked, and a panel that
+ * ignores that is the one thing every VS Code user
+ * notices immediately. So the system is split in
+ * two, and the split is the whole reason this file
+ * exists.
  *
- * Chrome roles — ground, surface, text, accent,
- * divider, shadow, the body and mono faces — are
- * re-pointed onto the `--vscode-*` variables the
- * webview host injects, with the web console's own
- * values as the fallback for a harness page that
- * has no host. These follow the user's theme,
- * including high contrast.
+ * Chrome roles — the ground, the surfaces, the ink,
+ * the hairlines — are re-pointed onto the
+ * `--vscode-*` variables the webview host injects,
+ * with Signal's own values as the fallback for a
+ * harness page that has no host. These follow the
+ * user's theme, including high contrast.
  *
- * Voice roles — the spacing rhythm, the type
- * ratios, the condensed display face, the square
- * corners, the hairline borders, the registration
- * marks and the plotting grid — are
- * chrome-independent and are ported unchanged.
- * They are what makes a panel recognisably mBoss
- * in any theme.
+ * Voice roles — the six semantic colours, the
+ * radii, the type scale, the spacing rhythm, the
+ * elevations, the glows and the motion — are
+ * Signal's, with a dark set chosen by the body
+ * class the host sets. They are what makes a panel
+ * recognisably mBoss in any theme.
+ *
+ * Three rules hold the voice together, and every
+ * surface in this extension is judged against them:
+ * colour means state or provenance and never
+ * category; a glow means something is happening
+ * right now; mono means a machine wrote it.
  *
  * Add a rule here only when an element carries the
  * class. A rule for a class nothing uses outlives
  * the reason it was written.
  */
 
+/**
+ * The two faces, vendored.
+ *
+ * A webview may only load a font the extension
+ * itself ships: `font-src` is the extension's own
+ * origin and nothing else, so a font host is not a
+ * policy away, it is out of reach. Both are the
+ * latin subset of the variable face, which is what
+ * a panel of English UI needs and a tenth of what
+ * the full family costs.
+ *
+ * The `url()`s are relative on purpose. They
+ * resolve against this stylesheet's own webview
+ * URI, which is the origin the policy already
+ * admits — an absolute path would resolve against
+ * the frame's, which is nothing.
+ */
+@font-face {
+  font-family: 'Albert Sans';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('fonts/albert-sans-latin.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Spline Sans Mono';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('fonts/spline-sans-mono-latin.woff2') format('woff2');
+}
+
+/**
+ * The sources: what everything else is mixed from.
+ *
+ * Chrome follows the editor; voice is Signal's. A
+ * theme re-points these, and only these — see the
+ * body rule under them for why the mixes cannot
+ * live here.
+ */
 :root {
   /* — chrome: follows the editor — */
 
-  --color-bg: var(--vscode-editor-background, #f2f2f3);
-  --color-surface: var(--vscode-editorWidget-background, #e9e9ea);
-  --color-text: var(--vscode-foreground, #1d1f20);
-  --color-accent: var(--vscode-textLink-foreground, #5980a6);
-  --color-accent-2: var(--vscode-textLink-activeForeground, #728fab);
-  --color-divider: color-mix(in srgb, var(--color-text) 16%, transparent);
+  --canvas: var(--vscode-editor-background, #f5f7fb);
+  --surface: var(--vscode-editorWidget-background, #ffffff);
+  --ink: var(--vscode-foreground, #171a23);
 
-  /* Elevation reads as ink pooling under the sheet
-     rather than as a glow, and the theme is the
-     only thing that knows which way that pools. */
-  --shadow-sm: 0 1px 2px var(--vscode-widget-shadow, rgb(43 43 45 / 14%));
-  --shadow-md: 0 3px 10px var(--vscode-widget-shadow, rgb(43 43 45 / 16%));
+  /* — voice: state and provenance, never category — */
 
-  /* The tonal steps the web console hand-tunes as
-     hex ramps. Mixed against the live ground
-     instead, because there is no fixed ground here
-     and a hand-tuned light ramp is unreadable on a
-     dark one. The step relationships survive. */
-  --tint-accent: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg));
-  --tint-text: color-mix(in srgb, var(--color-text) 8%, var(--color-bg));
+  /* Six colours and no seventh. `--brand` is the
+     person and the product, `--agent` is the coding
+     agent, and the four after them are what
+     happened. Nothing here names a block kind: ten
+     kinds in ten colours is a legend to memorise,
+     and the thing a person actually needs to find
+     across a graph is the block that is running. */
+  --brand: #5367ff;
+  --agent: #9567ff;
+  --ok: #17b890;
+  --warn: #e9a23b;
+  --fail: #ee5d68;
+  --info: #3ca7e8;
+  --on-brand: #ffffff;
 
-  /* — voice: fixed — */
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  /* The provenance rail: who did this. */
+  --rail-w: 3px;
+  /* The block, at the width core laid the graph out
+     with. Named here so a stylesheet can reason
+     about the column without measuring one. */
+  --node-w: 230px;
 
-  /* Barlow Condensed is the system's display face.
-     Nothing is vendored: a webview may only load a
-     font the extension ships, and shipping one is a
-     later, deliberate addition. Until then the
-     stack names the intent and reaches for whatever
-     condensed face the platform already has. */
-  --font-heading:
-    'Barlow Condensed', 'Oswald', 'Roboto Condensed', 'Avenir Next Condensed',
-    'Arial Narrow', 'DejaVu Sans Condensed', var(--vscode-font-family),
-    system-ui, sans-serif;
-  --font-heading-weight: 600;
-  --font-body: var(--vscode-font-family, system-ui, sans-serif);
-  /* Type names, node ids, SQL and diffs read as
-     code, so they are set in the face the user
-     already reads code in. */
-  --font-mono: var(--vscode-editor-font-family, ui-monospace, Menlo, monospace);
+  --elev-1: 0 1px 2px rgb(23 26 35 / 5%);
+  --elev-2: 0 1px 3px rgb(23 26 35 / 6%), 0 4px 12px rgb(23 26 35 / 7%);
 
-  /* The web console's scale opens at 42px, which is
-     a marketing page's scale. A panel is 300px
-     wide. The ratios are the system's; the base is
-     the editor's, so the panel matches the density
-     the user set. */
+  /* Off the surface altogether, for the one thing
+     that is: a block a hand has picked up. The
+     near shadow moves a little way out and the far
+     one a long way, because that is what height
+     looks like — a single darker shadow reads as a
+     heavier block rather than a raised one. */
+  --elev-3: 0 2px 6px rgb(23 26 35 / 8%), 0 12px 32px rgb(23 26 35 / 12%);
+
+  /* One transform in the whole system. Anything
+     that answers a pointer answers with this and
+     nothing else — a second kind of movement is how
+     a panel starts feeling like a web page. */
+  --lift: -1px;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --dur-fast: 120ms;
+  --dur-med: 200ms;
+  --dur-slow: 1600ms;
+
+  /* Albert Sans for everything a person wrote,
+     Spline Sans Mono for everything a machine did:
+     an id, a type, a signature, a diff. The
+     fallbacks are honest — the editor's own faces,
+     then the platform's — because a face that did
+     not load has to leave the panel readable.
+     The inner fallbacks are not decoration: a
+     `var()` with nothing behind it takes the whole
+     stack down with it, and a panel set in Times
+     is what that looks like. */
+  --font-body: 'Albert Sans', var(--vscode-font-family, system-ui), sans-serif;
+  --font-mono:
+    'Spline Sans Mono', var(--vscode-editor-font-family, ui-monospace), Menlo,
+    monospace;
+
+  /* Signal's scale is 10–20px. Anchored on the
+     editor's own size rather than fixed, so a
+     person who set their editor dense gets a dense
+     panel. */
   --font-size: var(--vscode-font-size, 13px);
-  --text-eyebrow: calc(var(--font-size) * 0.8);
-  --text-caption: calc(var(--font-size) * 0.85);
-  --text-title: calc(var(--font-size) * 1.3);
-  --text-display: calc(var(--font-size) * 1.9);
+  --text-xs: calc(var(--font-size) * 0.77);
+  --text-sm: calc(var(--font-size) * 0.85);
+  --text-md: var(--font-size);
+  --text-lg: calc(var(--font-size) * 1.23);
+  --text-xl: calc(var(--font-size) * 1.54);
 
-  --space-1: 3.4px;
-  --space-2: 6.8px;
-  --space-3: 10.2px;
-  --space-4: 13.6px;
-  --space-6: 20.4px;
-  --space-8: 27.2px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+}
+
+/**
+ * Everything mixed from a source, and the page.
+ *
+ * These are on the body rather than on `:root`
+ * because a custom property is substituted where it
+ * is computed, and the classes a theme is chosen by
+ * are on the body. Computed on `:root` — one
+ * element up from where `--surface` and `--ink` are
+ * re-pointed — every one of these would mix against
+ * the light source values and then inherit down
+ * already wrong: white cards and white row
+ * highlights on a dark panel.
+ *
+ * Mixed against the live surface rather than
+ * hand-tuned as hex, because there is no fixed
+ * ground here and a ramp tuned for a light one is
+ * unreadable on a dark one. The step relationships
+ * survive; the ground does not have to.
+ */
+body {
+  --surface-2: color-mix(in srgb, var(--ink) 6%, var(--surface));
+  --ink-muted: color-mix(in srgb, var(--ink) 62%, transparent);
+  --ink-faint: color-mix(in srgb, var(--ink) 38%, transparent);
+  --hairline: color-mix(in srgb, var(--ink) 14%, transparent);
+  --hairline-strong: color-mix(in srgb, var(--ink) 22%, transparent);
+
+  --brand-tint: color-mix(in srgb, var(--brand) 10%, var(--surface));
+  --agent-tint: color-mix(in srgb, var(--agent) 10%, var(--surface));
+  --info-tint: color-mix(in srgb, var(--info) 12%, var(--surface));
+  --ok-tint: color-mix(in srgb, var(--ok) 12%, var(--surface));
+  --warn-tint: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  --fail-tint: color-mix(in srgb, var(--fail) 12%, var(--surface));
+  --diff-add-bg: color-mix(in srgb, var(--ok) 14%, var(--surface));
+  --diff-del-bg: color-mix(in srgb, var(--fail) 14%, var(--surface));
+  --surface-ghost: color-mix(in srgb, var(--surface) 72%, transparent);
+  --edge-done: color-mix(in srgb, var(--ok) 50%, transparent);
+  --brand-ring: color-mix(in srgb, var(--brand) 30%, transparent);
+  --grid-dot: color-mix(in srgb, var(--ink) 10%, transparent);
+
+  /* Selection is a ring, not a fill: the thing
+     selected still has to read as what it is. */
+  --halo: 0 0 0 1.5px var(--brand), 0 0 0 5px var(--brand-ring);
+
+  /* Live state, and only live state. A glow on
+     something that finished an hour ago is
+     decoration; a glow on the step running right
+     now is the one thing worth finding across a
+     graph. */
+  --glow-ok:
+    0 0 0 1.5px var(--ok),
+    0 0 12px color-mix(in srgb, var(--ok) 30%, transparent);
+  --glow-warn:
+    0 0 0 1.5px var(--warn),
+    0 0 12px color-mix(in srgb, var(--warn) 30%, transparent);
+  --glow-fail:
+    0 0 0 1.5px var(--fail),
+    0 0 12px color-mix(in srgb, var(--fail) 28%, transparent);
+
+  margin: 0;
+  padding: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  line-height: 1.55;
+}
+
+/* The same six colours, lifted for a dark ground,
+   and elevation that pools as shadow rather than as
+   a wash.
+   The two chrome roles are repeated for their
+   fallbacks, not their values: a theme that
+   publishes no widget background would otherwise
+   take the light default, and every tint mixed over
+   it — a card, a selected row, a rail — becomes a
+   white patch on a dark panel. `--canvas` is
+   deliberately not among them: a view docked in the
+   activity bar re-points it at the side bar's own
+   ground, and a rule keyed on a theme class would
+   outrank that. */
+body.vscode-dark {
+  --surface: var(--vscode-editorWidget-background, #1b1e26);
+  --ink: var(--vscode-foreground, #e7e9f0);
+
+  --brand: #7183ff;
+  --agent: #ad82ff;
+  --ok: #28d6a4;
+  --warn: #f0b34c;
+  --fail: #ff6d78;
+  --info: #55bbf3;
+  --on-brand: #0c0f15;
+  --elev-1: 0 1px 2px rgb(0 0 0 / 30%);
+  --elev-2: 0 1px 3px rgb(0 0 0 / 35%), 0 4px 12px rgb(0 0 0 / 40%);
+  --elev-3: 0 2px 6px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 50%);
 }
 
 /* High-contrast themes draw structure with borders
    rather than with fills, and publish the one
-   colour they draw them in. A 16% mix of the
-   foreground is not that colour. */
+   colour they draw them in. A mix of the foreground
+   is not that colour. */
 body.vscode-high-contrast,
 body.vscode-high-contrast-light {
-  --color-divider: var(--vscode-contrastBorder, var(--color-text));
-}
-
-body {
-  margin: 0;
-  padding: 0;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-body);
-  font-size: var(--font-size);
-  line-height: 1.55;
+  --hairline: var(--vscode-contrastBorder, var(--ink));
+  --hairline-strong: var(--vscode-contrastBorder, var(--ink));
 }
 
 :focus {
   outline: none;
 }
 :focus-visible {
-  outline: 2px solid var(--vscode-focusBorder, var(--color-accent));
+  outline: 2px solid var(--vscode-focusBorder, var(--brand));
   outline-offset: 2px;
+  border-radius: var(--r-sm);
 }
 
-/* — the blueprint frame — */
+/* — the shapes — */
 
-/* Registration marks sit outside the box, so a
-   blueprint needs 6px of clear space around it and
-   an ancestor that does not clip. */
-.blueprint {
-  position: relative;
-  border: 1px solid var(--color-divider);
-  border-radius: 0;
-  background: transparent;
+/* The box the system draws a piece of content in:
+   a surface, a hairline, one radius. Everything
+   that is not the canvas itself has this shape. */
+.card {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
   padding: var(--space-4);
 }
-.blueprint > .corner {
-  position: absolute;
-  width: 11px;
-  height: 11px;
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
-}
-.blueprint > .corner::before,
-.blueprint > .corner::after {
-  content: '';
-  position: absolute;
-  background: currentColor;
-}
-.blueprint > .corner::before {
-  left: 5px;
-  top: 0;
-  width: 1px;
-  height: 100%;
-}
-.blueprint > .corner::after {
-  top: 5px;
-  left: 0;
-  width: 100%;
-  height: 1px;
-}
-.blueprint > .corner.tl {
-  top: -6px;
-  left: -6px;
-}
-.blueprint > .corner.tr {
-  top: -6px;
-  right: -6px;
-}
-.blueprint > .corner.bl {
-  bottom: -6px;
-  left: -6px;
-}
-.blueprint > .corner.br {
-  bottom: -6px;
-  right: -6px;
-}
 
-/* The plotting grid a workflow is drawn on. It is
-   the product's most recognisable surface, so the
-   marketing art and the editor share one
-   definition of it. */
+/* The ground a workflow is drawn on. It is the
+   product's most recognisable surface, so the
+   marketing art and the editor share one definition
+   of it. */
 .canvas-grid {
-  background-color: var(--color-bg);
-  background-image: radial-gradient(
-    color-mix(in srgb, var(--color-text) 10%, transparent) 1px,
-    transparent 1px
-  );
+  background-color: var(--canvas);
+  background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
   background-size: 18px 18px;
 }
 
 /* — text — */
 
-/* The small-caps label the system sets section
-   headers and eyebrows in. Colour is set per use,
-   since the same label reads as accent on a public
-   page and as neutral in a panel. */
+/* The small label the system sets section headers
+   in. Colour is set per use, since the same label
+   reads as brand over a card and as muted in a
+   column of them. */
 .eyebrow {
   margin: 0;
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
-  letter-spacing: 0.09em;
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .title {
   margin: 0;
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-title);
-  line-height: 1.12;
-  letter-spacing: -0.015em;
+  font-weight: 600;
+  font-size: var(--text-lg);
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 
+/* Machine evidence: ids, types, signatures, SQL,
+   diffs. Nothing a person wrote is set in this. */
 .mono {
   font-family: var(--font-mono);
 }
 
 .text-muted {
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  color: var(--ink-muted);
+}
+
+/* — motion — */
+
+/* A wire carrying a run right now. The dashes march
+   from source to target, which is the direction the
+   value is going. Two whole dashes of the 6/5
+   pattern the canvas draws them in, so the march
+   has no seam where the animation repeats. */
+@keyframes sig-edge-flow {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+
+/* A word that is still true but not yet final —
+   a RUNNING status, a pending answer. */
+@keyframes sig-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* A block with a run inside it. One keyframe for
+   all three tones: the rule that lights a block
+   sets `--glow-tone`, and the `--glow-*` token
+   beside it is what the block wears once nothing is
+   moving any more. */
+@keyframes sig-breathe {
+  from {
+    box-shadow:
+      0 0 0 1.5px var(--glow-tone),
+      0 0 10px color-mix(in srgb, var(--glow-tone) 24%, transparent);
+  }
+  to {
+    box-shadow:
+      0 0 0 1.5px var(--glow-tone),
+      0 0 22px color-mix(in srgb, var(--glow-tone) 48%, transparent);
+  }
+}
+
+/* Waiting on something that has not answered. */
+@keyframes sig-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* Somebody who asked for less movement asked for
+   less movement, not for a different panel: every
+   duration collapses, and everything still ends
+   where it was going to end. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms;
+    --dur-med: 0.01ms;
+    --dur-slow: 0.01ms;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

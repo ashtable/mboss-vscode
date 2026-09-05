@@ -26,6 +26,11 @@ export type AgentFiles = {
   read(path: string): Promise<string>;
 
   write(path: string, content: string): Promise<void>;
+
+  /** Takes a file out of the project — an undo, on
+   *  a file that did not exist before the edit it is
+   *  undoing. */
+  remove(path: string): Promise<void>;
 };
 
 export function editorFiles(): AgentFiles {
@@ -51,6 +56,10 @@ export function editorFiles(): AgentFiles {
         new TextEncoder().encode(content),
       );
     },
+
+    remove: async (path) => {
+      await workspace.fs.delete(Uri.file(path));
+    },
   };
 }
 
@@ -64,7 +73,7 @@ export function editorFiles(): AgentFiles {
  * no trailing newline.
  */
 export async function readTextFile(
-  files: AgentFiles,
+  files: Pick<AgentFiles, 'read'>,
   request: { path: string; line?: number | null; limit?: number | null },
 ): Promise<string> {
   const text = await files.read(request.path);

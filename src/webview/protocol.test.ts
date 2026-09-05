@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { WebviewMessageSchema } from './host.js';
+import { messageSchemaFor } from './host.js';
 import { isHostMessageFor } from './protocol.js';
 
 /**
@@ -44,14 +44,14 @@ describe('messages arriving at a webview', () => {
  */
 describe('messages arriving at the host', () => {
   it('accepts a view saying it has mounted', () => {
-    expect(WebviewMessageSchema.safeParse({ type: 'ready' }).success).toBe(
+    expect(messageSchemaFor('see').safeParse({ type: 'ready' }).success).toBe(
       true,
     );
   });
 
   it('rejects anything else', () => {
     for (const other of [{}, { type: 'go' }, null, 'ready']) {
-      expect(WebviewMessageSchema.safeParse(other).success).toBe(false);
+      expect(messageSchemaFor('see').safeParse(other).success).toBe(false);
     }
   });
 });

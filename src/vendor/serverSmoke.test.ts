@@ -1,4 +1,10 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import {
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { join } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/client';
@@ -6,7 +12,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { shippedVendor } from './assets.js';
-import { createProject } from '../core/index.js';
+import { createProject, scanCodeBehind } from '../core/index.js';
+import { NodeSchema, handlerFit } from '../core/rules.js';
 import { REPO_ROOT } from '../test-support/repo.js';
 import {
   cleanRoots,
@@ -124,6 +131,131 @@ describe('the vendored MCP server', () => {
     expect(created.structuredContent).toMatchObject({
       name: 'smoke',
       path: join(project, '.mboss', 'workflows', 'smoke.workflow.json'),
+    });
+  });
+
+  /**
+   * One handler, put to both surfaces that judge it.
+   *
+   * A transaction may not open a connection, and
+   * neither surface decides that for itself: the
+   * picker greys the row and the server refuses the
+   * spec from the same account, in core, of what a
+   * function reaches. But the picker reads the core
+   * this repository nests and the server reads the
+   * one bundled inside the file it ships, and those
+   * are two pins, bumped by hand, on two different
+   * days. Nothing else here compares them — the
+   * spec beside this one reads the branch names out
+   * of `.gitmodules`, and a branch name is the same
+   * string however far behind the checkout is.
+   *
+   * When they part, both tools go on answering
+   * confidently and differently about one file, and
+   * an agent writes down the assignment the person
+   * at the canvas is then unable to make by hand.
+   * So the assertion is agreement, and the handler
+   * is one whose refusal moved recently: the socket
+   * is built on the line that dials it, a spelling
+   * core only started walking into at the commit
+   * both sides now carry.
+   */
+  const RESERVE_PORT = [
+    "import { Socket } from 'node:net';",
+    '',
+    'export async function reservePort(port: number): Promise<void> {',
+    '  new Socket().connect(port);',
+    '}',
+    '',
+  ].join('\n');
+
+  const PAY_CLAIM = {
+    id: 'pay_claim',
+    title: 'Pay the claim',
+    kind: 'transaction',
+    handler: { export: 'reservePort' },
+    config: {},
+  };
+
+  const CHARGING_TRANSACTION = {
+    title: 'A sample',
+    nodes: [
+      {
+        id: 'start',
+        title: 'Start',
+        kind: 'trigger',
+        config: { mode: 'manual' },
+      },
+      PAY_CLAIM,
+    ],
+    edges: [{ id: 'e1', from: { node: 'start' }, to: { node: 'pay_claim' } }],
+  };
+
+  /**
+   * The scan is cached in the project it scanned,
+   * under a hash of the code and nothing else — so
+   * whichever surface reads `lib/` first is
+   * answering for both until that code changes
+   * again. That is the right cache to keep, but it
+   * means the two can only be heard separately, in
+   * a project the other one has not been near.
+   * Hence a directory of its own here: nothing but
+   * a `lib/`, which is all a scan reads.
+   */
+  function libOnly(): string {
+    const dir = scratchDir('mboss-fit-');
+
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    writeFileSync(join(dir, 'lib', 'reservePort.ts'), RESERVE_PORT, 'utf8');
+
+    return dir;
+  }
+
+  it('refuses the handler the canvas greys', async () => {
+    const scan = scanCodeBehind(libOnly());
+    const found = scan.ok
+      ? scan.manifest.functions.find((fn) => fn.export === 'reservePort')
+      : undefined;
+    if (found === undefined) throw new Error('the scan offered no handler');
+
+    // What the picker draws: greyed, with the facts
+    // its note is written from.
+    expect(handlerFit(NodeSchema.parse(PAY_CLAIM), found)).toMatchObject({
+      fits: false,
+      reason: { kind: 'external-call', callee: 'new Socket().connect' },
+    });
+
+    // And the shipped server, in the project it
+    // ships into, which nothing above has scanned.
+    //
+    // Node's own declarations have to be reachable
+    // from the bundle, and a vendored bundle looks
+    // for them in the project rather than beside
+    // itself, because it has nothing beside itself.
+    // Not finding them is not a failure — the scan
+    // carries on and simply records no calls — so a
+    // project that has never installed anything
+    // reports every handler clean whatever core is
+    // inside the file. The one a person has is
+    // installed, and this is that project.
+    mkdirSync(join(project, 'lib'), { recursive: true });
+    mkdirSync(join(project, 'node_modules'), { recursive: true });
+    symlinkSync(
+      join(REPO_ROOT, 'node_modules', '@types'),
+      join(project, 'node_modules', '@types'),
+    );
+    writeFileSync(join(project, 'lib', 'reservePort.ts'), RESERVE_PORT, 'utf8');
+
+    const checked = await (
+      await connect()
+    ).callTool({
+      name: 'workflow_validate',
+      arguments: { spec: CHARGING_TRANSACTION },
+    });
+
+    expect(checked.structuredContent).toMatchObject({
+      valid: false,
+      errors: [expect.objectContaining({ code: 'V16', nodeId: 'pay_claim' })],
     });
   });
 });

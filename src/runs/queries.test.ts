@@ -5,6 +5,7 @@ import {
   MAX_RUNS,
   RUN_FILTERS,
   countsQuery,
+  latestRunQuery,
   runQuery,
   runsQuery,
   stepsQuery,
@@ -22,11 +23,16 @@ import { FIRST_DISPATCH } from './rows.js';
  * a `SELECT` is ever composed.
  */
 
+/** Epoch milliseconds, which is what
+ *  `created_at` holds. */
+const SOME_MOMENT = 1_767_268_800_000;
+
 const ALL_QUERIES = [
   ...RUN_FILTERS.map((filter) => runsQuery(filter, MAX_RUNS)),
   countsQuery(),
   runQuery('wf_c9d2f3'),
   stepsQuery('wf_c9d2f3'),
+  latestRunQuery('counter', SOME_MOMENT),
 ];
 
 describe('every statement', () => {
@@ -58,7 +64,11 @@ describe('every statement', () => {
   it('sends every value as a parameter', () => {
     const hostile = "wf'; DROP TABLE dbos.workflow_status; --";
 
-    for (const query of [runQuery(hostile), stepsQuery(hostile)]) {
+    for (const query of [
+      runQuery(hostile),
+      stepsQuery(hostile),
+      latestRunQuery(hostile, SOME_MOMENT),
+    ]) {
       expect(query.text).not.toContain(hostile);
       expect(query.values).toContain(hostile);
     }
@@ -150,6 +160,22 @@ describe('the run list', () => {
     ]) {
       expect(runsQuery('all', MAX_RUNS).text).toContain(column);
     }
+  });
+});
+
+describe('the run an app started without saying so', () => {
+  /**
+   * Newest first and bounded by the moment the
+   * request went, so a run of the same workflow
+   * from last week is never mistaken for the one
+   * that was just asked for.
+   */
+  it('takes the newest run of one workflow since a moment', () => {
+    const query = latestRunQuery('counter', SOME_MOMENT);
+
+    expect(query.text).toContain('WHERE name = $1 AND created_at >= $2');
+    expect(query.text).toContain('ORDER BY created_at DESC LIMIT 1');
+    expect(query.values).toEqual(['counter', SOME_MOMENT]);
   });
 });
 

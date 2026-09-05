@@ -11,7 +11,7 @@ import {
   type WorkflowNode,
 } from '../../core/rules.js';
 
-import { messages } from '../../messages.js';
+import { inspectorWords } from '../words.js';
 
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
 
@@ -87,6 +87,19 @@ const SAMPLES: readonly WorkflowNode[] = [
     kind: 'codeStep',
     title: 'Escape hatch',
     config: {},
+  }),
+  NodeSchema.parse({
+    id: 'route_claim',
+    kind: 'branch',
+    title: 'Which desk?',
+    handler: { export: 'routeClaim' },
+    config: {
+      cases: [
+        { port: 'pay', when: { path: '', op: 'eq', value: 'pay' } },
+        { port: 'refuse', when: { path: '', op: 'eq', value: 'refuse' } },
+      ],
+      elsePort: 'hold',
+    },
   }),
   NodeSchema.parse({
     id: 'author_loop',
@@ -195,6 +208,8 @@ function set(
         return { ...field, value: typeof value === 'number' ? value : null };
       case 'flag':
         return { ...field, value: Boolean(value) };
+      case 'picker':
+        return { ...field, value: value === null ? undefined : String(value) };
       case 'rows':
         return field;
     }
@@ -447,6 +462,105 @@ describe('a branch', () => {
   });
 });
 
+/**
+ * The function a block runs is chosen from what the
+ * project's code-behind offers, so the field is a
+ * picker rather than a box to type a name into —
+ * and a branch's is called its logic, because the
+ * function is the decision rather than a step the
+ * branch takes.
+ */
+describe('the function a block runs', () => {
+  it('is picked rather than typed', () => {
+    expect(find(sample('parse_request'), 'handler')).toEqual({
+      id: 'handler',
+      control: 'picker',
+      value: 'parseRequest',
+    });
+  });
+
+  it('says nothing where a block has none yet', () => {
+    expect(find(sample('escape'), 'handler')).toEqual({
+      id: 'handler',
+      control: 'picker',
+      value: undefined,
+    });
+  });
+
+  it('goes onto the node when one is picked', () => {
+    const node = sample('escape');
+
+    const edited = formToConfig(node, [
+      { id: 'handler', control: 'picker', value: 'retryOnce' },
+    ]);
+
+    expect(edited.handler).toEqual({ export: 'retryOnce' });
+    expect(find(edited, 'handler')).toEqual({
+      id: 'handler',
+      control: 'picker',
+      value: 'retryOnce',
+    });
+    expect(() => NodeSchema.parse(edited)).not.toThrow();
+  });
+
+  it('comes off the node when it is cleared', () => {
+    const node = sample('parse_request');
+
+    const edited = formToConfig(node, [
+      { id: 'handler', control: 'picker', value: undefined },
+    ]);
+
+    expect(edited).not.toHaveProperty('handler');
+    expect(() => NodeSchema.parse(edited)).not.toThrow();
+  });
+
+  it('is a branch’s logic rather than its handler', () => {
+    const node = sample('route_claim');
+
+    expect(find(node, 'logic')).toEqual({
+      id: 'logic',
+      control: 'picker',
+      value: 'routeClaim',
+    });
+    expect(find(node, 'handler')).toBeUndefined();
+  });
+
+  it('leaves a branch the predicate editor only while it runs none', () => {
+    const predicates = sample('reply_decision');
+    const decided = sample('route_claim');
+
+    expect(find(predicates, 'cases')).toBeDefined();
+    expect(find(predicates, 'elsePort')).toBeDefined();
+    expect(find(decided, 'cases')).toBeUndefined();
+    expect(find(decided, 'elsePort')).toBeUndefined();
+  });
+
+  /**
+   * Two branches showing the two states prove the
+   * states exist. This proves one branch moves
+   * between them, which is the thing a person does:
+   * they try a function, decide the predicates said
+   * it better, and take the function back off.
+   */
+  it('gives one branch its predicate editor back and takes it away again', () => {
+    const decided = sample('route_claim');
+
+    const cleared = formToConfig(decided, [
+      { id: 'logic', control: 'picker', value: undefined },
+    ]);
+
+    expect(find(cleared, 'cases')).toBeDefined();
+    expect(find(cleared, 'elsePort')).toBeDefined();
+
+    const again = formToConfig(cleared, [
+      { id: 'logic', control: 'picker', value: 'routeClaim' },
+    ]);
+
+    expect(find(again, 'cases')).toBeUndefined();
+    expect(find(again, 'elsePort')).toBeUndefined();
+  });
+});
+
 describe('a node’s own fields', () => {
   it('carry the title and the types it declares', () => {
     const node = sample('parse_request');
@@ -491,7 +605,7 @@ describe('a node’s own fields', () => {
  * and every option of every menu.
  */
 describe('every field a person sees', () => {
-  const strings = messages.inspectorStrings();
+  const strings = inspectorWords();
 
   const everyField = (fields: InspectorField[]): InspectorField[] =>
     fields.flatMap((field) =>

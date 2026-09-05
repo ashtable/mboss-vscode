@@ -31,6 +31,10 @@ export function commandHandlers(
   newProject: () => Promise<void>,
   chooseAgent: () => Promise<void>,
   refreshRuns: () => Promise<void>,
+  startStack: () => Promise<void>,
+  stopStack: () => Promise<void>,
+  runWorkflow: () => Promise<void>,
+  arrangeWorkflow: () => Promise<void>,
 ): Record<string, () => Promise<void>> {
   return {
     'mboss.newProject': newProject,
@@ -48,14 +52,25 @@ export function commandHandlers(
       await api.run('mboss.agentSidebar.focus');
     },
     'mboss.chooseCodingAgent': chooseAgent,
+    'mboss.startStack': startStack,
+    'mboss.stopStack': stopStack,
+    'mboss.runWorkflow': runWorkflow,
 
-    // The one command that is not in the palette.
-    // It is the refresh icon on the run list's own
-    // title bar, which is where the platform puts a
-    // refresh — and it means nothing anywhere else,
-    // so it is named and hidden the way a view's
-    // own command is.
+    // Enabled only over an open canvas, which the
+    // manifest says and this does not have to check:
+    // the one it would act on is the tab in front of
+    // the person who ran it.
+    'mboss.arrangeWorkflow': arrangeWorkflow,
+
+    // The three commands that are not in the
+    // palette. Each sits on the run list's own
+    // title bar in place of the other — refresh
+    // always, and Start swapping for Stop with the
+    // stack — which is where the platform puts
+    // that, and means nothing anywhere else.
     '_mboss.refreshRuns#sideBar': refreshRuns,
+    '_mboss.startStack#sideBar': startStack,
+    '_mboss.stopStack#sideBar': stopStack,
   };
 }
 

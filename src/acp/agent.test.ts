@@ -4,10 +4,12 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import { PEER_SCRIPT } from '../test-support/peer.js';
 
 import { agentPanel, type AgentPanel, type PanelHost } from './agent.js';
 import { REMEMBERED_KEY } from './permissions.js';
+import type { FileEditEntry } from './transcript.js';
 
 /**
  * The panel, driving a real agent.
@@ -47,7 +49,7 @@ type Driven = {
   spawns(): number;
 };
 
-function drive(over: Partial<PanelHost> = {}): Driven {
+function drive(over: Partial<PanelHost> = {}, trust = fakeTrust()): Driven {
   const project = mkdtempSync(join(tmpdir(), 'mboss-panel-'));
   const stored: Record<string, unknown> = {};
   const seen: string[] = [];
@@ -55,34 +57,37 @@ function drive(over: Partial<PanelHost> = {}): Driven {
 
   scratch.push(project);
 
-  const panel = agentPanel({
-    isTrusted: () => true,
-    project: () => project,
+  const panel = agentPanel(
+    {
+      project: () => project,
 
-    // An ordinary script at an ordinary path with
-    // ordinary arguments, through the open slot and
-    // nothing else — which is also the only way
-    // anything outside this repository will ever
-    // point this extension at an agent.
-    chosen: () => ({
-      id: 'custom',
-      launch: {
-        command: process.execPath,
-        args: [PEER_SCRIPT, '--spawns', spawns],
+      // An ordinary script at an ordinary path with
+      // ordinary arguments, through the open slot and
+      // nothing else — which is also the only way
+      // anything outside this repository will ever
+      // point this extension at an agent.
+      chosen: () => ({
+        id: 'custom',
+        launch: {
+          command: process.execPath,
+          args: [PEER_SCRIPT, '--spawns', spawns],
+        },
+      }),
+      files: {
+        read: async () => '',
+        write: async () => {},
+        remove: async () => {},
       },
-    }),
-    files: {
-      read: async () => '',
-      write: async () => {},
-    },
-    state: {
-      get: <T>(key: string) => stored[key] as T | undefined,
-      update: async (key, value) => {
-        stored[key] = value;
+      state: {
+        get: <T>(key: string) => stored[key] as T | undefined,
+        update: async (key, value) => {
+          stored[key] = value;
+        },
       },
+      ...over,
     },
-    ...over,
-  });
+    trust,
+  );
 
   open.push(panel);
   panel.onChanged(() => {
@@ -154,19 +159,46 @@ describe('one turn', () => {
       'agent: Wiring the booking flow.',
       'thought: The confirm step needs a handler.',
       'tool',
+      'file',
     ]);
 
     const tool = transcript.find((entry) => entry.at === 'tool');
 
-    expect(tool?.at === 'tool' && tool.status).toBe('completed');
-    expect(tool?.at === 'tool' && tool.files).toEqual([
-      {
-        path: '/project/lib/twilioChat.ts',
-        added: 1,
-        removed: 0,
-        isNew: true,
-      },
-    ]);
+    expect(tool?.status).toBe('completed');
+
+    const file = transcript.find((entry) => entry.at === 'file');
+
+    expect(file?.path).toBe('/project/lib/twilioChat.ts');
+    expect(file?.added).toBe(1);
+    expect(file?.isNew).toBe(true);
+  });
+
+  /**
+   * Applying a proposal, regenerating and failing,
+   * running a workflow — the extension does things
+   * a person needs to see in the same column as
+   * what the agent did, told apart by who did them
+   * rather than by which panel they landed in.
+   */
+  it('takes an entry the extension wrote itself', () => {
+    const driven = drive();
+
+    driven.panel.note({
+      at: 'tool',
+      id: 'apply-1',
+      by: 'person',
+      kind: 'edit',
+      verb: 'Apply proposal',
+      target: 'booking',
+      status: 'applied',
+      body: [],
+    });
+
+    expect(
+      driven.panel
+        .state()
+        .transcript.map((entry) => entry.at === 'tool' && entry.by),
+    ).toEqual(['person']);
   });
 });
 
@@ -219,7 +251,7 @@ describe('a second turn', () => {
 
 describe('before there is anything to talk to', () => {
   it('starts nothing in a window that is not trusted', async () => {
-    const driven = drive({ isTrusted: () => false });
+    const driven = drive({}, fakeTrust(false));
 
     await driven.panel.send('wire it');
 
@@ -325,7 +357,7 @@ describe('the view that watches', () => {
     driven.panel.refresh();
     expect(painted).toBe(1);
 
-    stop();
+    stop.dispose();
     driven.panel.refresh();
     expect(painted).toBe(1);
   });
@@ -398,5 +430,162 @@ describe('a second prompt mid-turn', () => {
     await driven.panel.send('wire it');
 
     expect(driven.spawns()).toBe(1);
+  });
+
+  /**
+   * Starting the agent takes a moment, and a prompt
+   * can arrive in it: the approval prompt after a
+   * proposal is applied, or "ask the agent why" from
+   * the run list, neither of which waits for the
+   * sidebar. The panel is spawning, nothing is live
+   * yet, and the second prompt must wait for the
+   * process the first is starting rather than start
+   * one of its own.
+   */
+  it('waits for the process the first one is starting', async () => {
+    const driven = drive();
+
+    answerWith(driven, 'yes', 'allow_once');
+
+    const first = driven.panel.send('wire it');
+    expect(driven.panel.state().status).toBe('spawning');
+    const second = driven.panel.send('while you are at it');
+
+    await Promise.all([first, second]);
+
+    expect(driven.spawns()).toBe(1);
+    expect(said(driven)).toEqual(['wire it', 'while you are at it']);
+  });
+
+  /**
+   * A start that fails takes what was waiting for it
+   * with it. There is nothing to send the waiting
+   * prompt to, the person is shown why, and a prompt
+   * held over to some later conversation would go
+   * out there unasked.
+   */
+  it('drops what was waiting when the start fails', async () => {
+    const missing = mkdtempSync(join(tmpdir(), 'mboss-no-agent-'));
+    scratch.push(missing);
+
+    let launch = {
+      command: join(missing, 'no-such-agent'),
+      args: [] as string[],
+    };
+    const driven = drive({ chosen: () => ({ id: 'custom', launch }) });
+
+    answerWith(driven, 'yes', 'allow_once');
+
+    const first = driven.panel.send('wire it');
+    const second = driven.panel.send('while you are at it');
+    await Promise.all([first, second]);
+
+    expect(driven.panel.state().status).toBe('failed');
+
+    launch = { command: process.execPath, args: [PEER_SCRIPT] };
+    await driven.panel.send('later');
+
+    expect(said(driven)).toEqual(['later']);
+  });
+});
+
+/**
+ * What a person decides about one file the agent
+ * touched.
+ *
+ * The turn every spec here drives is the same one:
+ * the scripted peer always writes one new file,
+ * `/project/lib/twilioChat.ts`. What differs is what
+ * the fake editor says is on disk when the decision
+ * is made — which is the one fact "still equals what
+ * the agent left" is checked against.
+ */
+describe('keeping and undoing a file edit', () => {
+  const PATH = '/project/lib/twilioChat.ts';
+  const NEW_TEXT = 'export async function twilioChat() {}\n';
+
+  function fileEntry(driven: Driven): FileEditEntry | undefined {
+    return driven.panel
+      .state()
+      .transcript.find((entry): entry is FileEditEntry => entry.at === 'file');
+  }
+
+  /** Drives the one turn every spec here starts
+   *  from, and hands back the entry it produced. */
+  async function withFileEdit(
+    files: PanelHost['files'],
+  ): Promise<{ driven: Driven; id: string }> {
+    const driven = drive({ files });
+
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send('wire the booking flow');
+
+    return { driven, id: (fileEntry(driven) as FileEditEntry).id };
+  }
+
+  it('marks a pending edit kept, without touching the file', async () => {
+    const touched: string[] = [];
+    const { driven, id } = await withFileEdit({
+      read: async () => NEW_TEXT,
+      write: async (path) => void touched.push(path),
+      remove: async (path) => void touched.push(path),
+    });
+
+    driven.panel.keep(id);
+
+    expect(fileEntry(driven)?.decision).toBe('kept');
+    expect(touched).toEqual([]);
+  });
+
+  it('removes a new file matching what was left', async () => {
+    const removed: string[] = [];
+    const { driven, id } = await withFileEdit({
+      read: async () => NEW_TEXT,
+      write: async () => {
+        throw new Error('a new file is removed, not written over');
+      },
+      remove: async (path) => void removed.push(path),
+    });
+
+    await driven.panel.undo(id);
+
+    expect(removed).toEqual([PATH]);
+    expect(fileEntry(driven)?.decision).toBe('undone');
+  });
+
+  /**
+   * Something else wrote the file between the diff
+   * arriving and the click. Undoing anyway would be
+   * a second, silent edit over whatever that was, so
+   * it is refused and the file is left alone.
+   */
+  it('refuses to undo a file that changed since', async () => {
+    let touched = 0;
+    const { driven, id } = await withFileEdit({
+      read: async () => 'edited by hand since\n',
+      write: async () => void (touched += 1),
+      remove: async () => void (touched += 1),
+    });
+
+    await driven.panel.undo(id);
+
+    expect(fileEntry(driven)?.decision).toBe('changed-since');
+    expect(touched).toBe(0);
+  });
+
+  it('does nothing for an id that names no pending file', async () => {
+    const { driven, id } = await withFileEdit({
+      read: async () => NEW_TEXT,
+      write: async () => {},
+      remove: async () => {},
+    });
+
+    driven.panel.keep(id);
+    // Already decided: a second Keep is not a second
+    // decision.
+    driven.panel.keep(id);
+    await driven.panel.undo('made-up-id');
+
+    expect(fileEntry(driven)?.decision).toBe('kept');
   });
 });

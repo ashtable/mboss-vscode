@@ -1,30 +1,26 @@
 import { l10n } from 'vscode';
 
 import type { AgentId } from './acp/registry.js';
-import type { Failure } from './acp/session.js';
-import type { NodeKind } from './core/rules.js';
-import type {
-  CanvasStrings,
-  InspectorStrings,
-  RunsStrings,
-  SeeStrings,
-  SidebarStrings,
-} from './webview/protocol.js';
 
 /**
- * Every string a person reads, in one table.
+ * Every sentence the host says, in one table.
  *
  * `package.json`'s own strings go through
  * `%key%` and `package.nls.json` instead; the two
  * mechanisms share nothing and neither falls back
- * to the other. Anything a running extension shows
- * belongs here.
+ * to the other. Anything a running extension says
+ * from the host — a dialog, a notification, the
+ * status bar, a row a view is handed — belongs
+ * here.
  *
- * That includes what the webviews render. A
- * webview has no `vscode.l10n`, so its strings are
- * resolved here and travel in the view's init
- * message rather than being written into a browser
- * bundle.
+ * The words a webview draws are not here. A
+ * webview has no `vscode.l10n`, so they are
+ * resolved on the host too, but beside the view
+ * they belong to — `canvas/words.ts`,
+ * `sidebar/words.ts`, `runs/words.ts` — and sent
+ * whole in its init message. Those and this are
+ * the only files that call `l10n.t`, and a spec
+ * holds the list.
  *
  * Each entry is a function because `l10n.t`
  * answers with the active locale's bundle, which
@@ -117,6 +113,112 @@ export const messages = {
     ),
   runsUnreachable: (detail: string) =>
     l10n.t('That database would not answer: {0}', detail),
+
+  /**
+   * The two ways there is no local stack at all,
+   * kept apart the same way: one is answered by
+   * installing docker, the other by scaffolding a
+   * project. Both are states of somebody's machine
+   * rather than faults, so both are sentences in
+   * the panel and neither is thrown.
+   */
+  stackNoDocker: () =>
+    l10n.t('Docker is not on the PATH, so there is no local stack to start.'),
+  stackNoComposeFile: (path: string) =>
+    l10n.t(
+      '{0} is not there, so there is no local stack to start. A scaffolded project writes one.',
+      path,
+    ),
+
+  /**
+   * When the app's container was made, which is
+   * when the app last changed: starting the stack
+   * always builds, and compose recreates the
+   * container whenever the image did. How long it
+   * has been *up* is a different question and not
+   * the one being asked.
+   */
+  stackBuiltAgo: (elapsed: string) => l10n.t('built {0} ago', elapsed),
+
+  /**
+   * The three ways a run does not start that the
+   * app itself never gets to say, each phrased as
+   * the thing to do about it. A person pressed
+   * Run, so what comes back has to be a sentence
+   * on the panel rather than a thrown error.
+   *
+   * The last is not a refusal: the event was
+   * taken and a run is going, and nothing on
+   * screen can follow it. Saying it was refused
+   * would deny a run that is underway.
+   */
+  runNoApp: () =>
+    l10n.t(
+      'The app is not up, so there is nothing to run on. Start the local stack.',
+    ),
+  runNoEventsSecret: () =>
+    l10n.t(
+      "This project's .env names no EVENTS_SECRET, so the app will not accept a run.",
+    ),
+  runUntracked: (workflow: string) =>
+    l10n.t(
+      'The event was accepted, but no run of {0} could be found to follow.',
+      workflow,
+    ),
+
+  /**
+   * What a person types in the input box has to be
+   * a payload before anything is sent, so this is
+   * said in place of a start rather than after one.
+   */
+  runNotJson: () => l10n.t('That input is not JSON, so nothing was sent.'),
+
+  /**
+   * The app answering about a workflow it has
+   * never heard of. Phrased as the thing to do
+   * about it, because there is exactly one thing:
+   * the container runs the image built at
+   * `compose up`, and this workflow is not in it.
+   */
+  runRebuildToRun: () =>
+    l10n.t('The running app was built before this workflow. Rebuild the app.'),
+
+  /**
+   * Said beside the box somebody types an event
+   * into, because it changes what pressing the
+   * button twice means: the route mints the run's
+   * id from this path, so the same value is the
+   * same run.
+   */
+  runKeyPathHint: (path: string) =>
+    l10n.t('{0} is the idempotency key · a new value is a new run', path),
+
+  /**
+   * What the extension asks the agent when
+   * somebody wants to know why a run failed.
+   *
+   * It names the three things nothing else in the
+   * conversation has: which workflow, which step,
+   * and what the ledger recorded. The agent has
+   * the project; it does not have the run.
+   */
+  runAskAgent: (workflow: string, step: string, error: string) =>
+    l10n.t(
+      'The workflow {0} failed at step {1} with: {2}. Look at that block and its handler and tell me what went wrong.',
+      workflow,
+      step,
+      error,
+    ),
+
+  /** The same question about a run no step failed
+   *  in — the ingress refused it, or the workflow
+   *  itself threw. */
+  runAskAgentNoStep: (workflow: string, error: string) =>
+    l10n.t(
+      'The workflow {0} failed with: {1}. Look at it and tell me what went wrong.',
+      workflow,
+      error,
+    ),
 
   /**
    * The line naming what is being read. The host
@@ -228,60 +330,18 @@ export const messages = {
     l10n.t('That replay did not start: {0}', detail),
 
   /**
-   * The database is named in the footer, so the
-   * table needs to know which one — there is no
-   * fixed answer, and a project with no connection
-   * string has none at all.
+   * `mBoss: Run Workflow…`'s two questions: which
+   * one, then what to send it. The picker offers
+   * only what can be started this way — a scheduled
+   * workflow is listed in the panel's own dropdown,
+   * where there is a row to put the reason beside,
+   * and left out here instead.
    */
-  runsStrings: (database: string | undefined): RunsStrings => ({
-    heading: l10n.t('Runs'),
-
-    // Written out rather than abbreviated the way
-    // the design draws them. The panel is narrow
-    // and the drawn control says `RECOV.`, but an
-    // abbreviation is a thing only English can make
-    // — a translator handed `RECOV.` has no way to
-    // know what was cut.
-    filters: {
-      all: l10n.t('All'),
-      failed: l10n.t('Failed'),
-      recovered: l10n.t('Recovered'),
-    },
-
-    recoveredTag: messages.runsRecoveredTag(),
-
-    untrusted: messages.runsNeedTrust(),
-    noProject: messages.runsNoProject(),
-    empty: messages.runsEmpty(),
-    source: database === undefined ? undefined : messages.runsSource(database),
-    scope: messages.runsScope(),
-  }),
-
-  seeStrings: (): SeeStrings => ({
-    heading: l10n.t('Run'),
-    nothingSelected: l10n.t('Pick a run to see what it did.'),
-    steps: l10n.t('Steps'),
-    timeline: l10n.t('Run timeline'),
-    hatched: l10n.t('hatched = process down'),
-    restored: l10n.t('restored'),
-    raw: l10n.t('dbos.operation_outputs'),
-    status: l10n.t('dbos.workflow_status'),
-    ledger: l10n.t(
-      'The recovery ledger — your workflow is just rows in Postgres.',
-    ),
-    columns: {
-      stepId: l10n.t('step'),
-      fn: l10n.t('function'),
-      output: l10n.t('output'),
-      committedAt: l10n.t('committed'),
-    },
-
-    // The design fixes this one, glyph and all: it
-    // is the only thing this view lets anybody do,
-    // and the mark is what says it is a repeat
-    // rather than a new run.
-    replay: l10n.t('⟲ Replay from this step'),
-  }),
+  runWorkflowPickTitle: () => l10n.t('Which workflow should run?'),
+  runWorkflowInputTitle: () => l10n.t('What input should it run with?'),
+  runWorkflowInputPrompt: () => l10n.t('JSON, or leave empty for none.'),
+  runWorkflowNone: () =>
+    l10n.t('This project has no workflow that can be started by hand.'),
 
   /**
    * Starting an agent runs a program named by this
@@ -344,8 +404,64 @@ export const messages = {
 
   canvasEditStale: () =>
     l10n.t('This graph changed while you were editing it. Try that again.'),
+
+  /**
+   * Over the list of ways out of a block, once a
+   * wire has been let go of on something.
+   *
+   * A block has one dot to leave by however many
+   * ways out it has, because a ten-pixel dot that
+   * only appears on hover is not something anybody
+   * can aim at three of. So the question is asked
+   * where the eyes already are, after the drop.
+   */
+  canvasChoosePort: () => l10n.t('Which way out does this wire leave by?'),
+
+  /** The way out a branch takes when none of its
+   *  cases decided. */
+  canvasFallThrough: () => l10n.t('anything else'),
   inspectorEditRefused: () =>
     l10n.t('That would leave the block half-set, so nothing was saved.'),
+
+  /**
+   * A function that cannot sit where somebody put
+   * it.
+   *
+   * Said out loud rather than swallowed: a chip
+   * dropped on a block that quietly does nothing is
+   * a bug report nobody can write. The reason is
+   * core's own, carried in rather than restated
+   * here, so the notification and the greyed row in
+   * the picker say the same thing.
+   */
+  handlerMisfit: (fn: string, title: string, reason: string) =>
+    l10n.t('{0} cannot sit behind {1}: {2}.', fn, title, reason),
+
+  /**
+   * The transcript's row for a function assigned
+   * from the canvas.
+   *
+   * A verb, in the shape the agent's own rows have
+   * — what tells this one apart is the rail saying
+   * a person did it, not different wording.
+   */
+  canvasAssignVerb: () => l10n.t('Assign lib fn'),
+
+  /**
+   * What that row was done to: the function, the
+   * kind of block that took it, and the block's
+   * own title.
+   *
+   * The kind is there because a title is whatever
+   * somebody typed and two of them can read alike
+   * — the kind is what says the function landed on
+   * the block that was meant. Its word comes from
+   * the palette's table rather than a second one
+   * here, so a block is called the same thing
+   * wherever it is named.
+   */
+  canvasAssignTarget: (fn: string, kind: string, title: string) =>
+    l10n.t('{0} → {1} "{2}"', fn, kind, title),
 
   /**
    * The line over a graph nobody has agreed to yet.
@@ -428,7 +544,41 @@ export const messages = {
 
   undoRefused: (detail: string) => l10n.t('That was not undone: {0}', detail),
 
-  sidebarHeading: () => l10n.t('Agent'),
+  /**
+   * The transcript's row for an approval.
+   *
+   * A verb and, beside it, the workflow it was
+   * done to — the shape the agent's own rows have.
+   */
+  previewApplyVerb: () => l10n.t('Apply proposal'),
+
+  /**
+   * The turn the Fix action on a codegen
+   * diagnostic sends.
+   *
+   * Each finding's own sentence, word for word.
+   * They already name the block they are about, in
+   * the wording the agent sees driving the control
+   * plane, and a second wording composed here would
+   * be a second thing to keep true.
+   */
+  previewCodegenFix: (workflow: string, findings: string) =>
+    l10n.t(
+      'Applying the proposal for {0} left these errors: {1} Fix the blocks and handlers they name.',
+      workflow,
+      findings,
+    ),
+
+  /**
+   * The one thing to do about a diagnostic
+   * something can be done about.
+   *
+   * Read by whoever notes the diagnostic rather
+   * than by the panel: only the writer knows what
+   * pressing it will ask for, so it carries the
+   * word with the prompt.
+   */
+  diagnosticFix: () => l10n.t('Fix'),
 
   /**
    * What each agent is called.
@@ -452,251 +602,4 @@ export const messages = {
     gemini: l10n.t('gemini --acp'),
     custom: l10n.t('Any program that speaks the Agent Client Protocol'),
   }),
-
-  sidebarStrings: (): SidebarStrings => ({
-    heading: messages.sidebarHeading(),
-    chooseAgent: l10n.t('choose'),
-    notTrusted: l10n.t('Trust this folder to run a coding agent in it.'),
-    noProject: l10n.t('Open a folder to run a coding agent in it.'),
-    noAgent: l10n.t('No coding agent chosen yet.'),
-    connecting: l10n.t('Starting the agent…'),
-    ready: l10n.t('Ready.'),
-    thinking: l10n.t('Working…'),
-    send: l10n.t('Send'),
-    stop: l10n.t('Stop'),
-    placeholder: l10n.t('Edit the graph, scaffold a lib fn, or ask why…'),
-    plan: l10n.t('Plan'),
-    newFile: l10n.t('new'),
-    permission: l10n.t('Permission needed'),
-    always: l10n.t('always'),
-
-    // The two words the design fixed for the one
-    // decision this product is about. They are not
-    // a paraphrase of "apply" and "cancel": the
-    // first says an edit is being agreed to as well
-    // as written, and the second says the
-    // conversation carries on.
-    approve: l10n.t('Approve & apply'),
-    refine: l10n.t('Refine'),
-    undo: l10n.t('Undo'),
-
-    toolStatus: {
-      pending: l10n.t('queued'),
-      in_progress: l10n.t('running'),
-      completed: l10n.t('done'),
-      failed: l10n.t('failed'),
-    },
-  }),
-
-  /**
-   * Why there is no session.
-   *
-   * The version case gets both numbers because
-   * that is the only actionable thing about it:
-   * with four independently released agent
-   * binaries in the picker, an agent speaking a
-   * protocol this build does not is a thing that
-   * happens, and "it did not work" leaves nobody
-   * anywhere.
-   */
-  agentFailure: (failure: Failure): { headline: string; detail: string } => {
-    if (failure.because === 'version') {
-      return {
-        headline: l10n.t('That agent speaks a different protocol.'),
-        detail: l10n.t(
-          'It answered version {0}; this extension speaks version {1}. Pick another agent, or update that one.',
-          failure.offered,
-          failure.requested,
-        ),
-      };
-    }
-
-    return {
-      headline:
-        failure.because === 'spawn'
-          ? l10n.t('That agent would not start.')
-          : l10n.t('That agent would not open a session.'),
-      detail: failure.detail,
-    };
-  },
-
-  /**
-   * What a kind is called.
-   *
-   * The catalog decides which kinds there are,
-   * their order and their grouping; it does not
-   * decide the word on screen, because its labels
-   * are literals inside a library and a webview
-   * may show no string the host did not localize.
-   * A test holds this table to the catalog's own
-   * spelling in both directions, so the two cannot
-   * drift while still looking translated.
-   */
-  paletteLabels: (): Record<NodeKind, string> => ({
-    trigger: l10n.t('Trigger'),
-    step: l10n.t('Step'),
-    transaction: l10n.t('Transaction'),
-    apiCall: l10n.t('API call'),
-    codeStep: l10n.t('Code step'),
-    branch: l10n.t('Branch'),
-    loop: l10n.t('Loop'),
-    durableWait: l10n.t('Wait'),
-    approval: l10n.t('Approval'),
-    emailSend: l10n.t('Email'),
-  }),
-
-  canvasStrings: (): CanvasStrings => ({
-    caption: l10n.t(
-      'Workflow IR — source of truth for orchestration · layout is deterministic, never hand-drawn',
-    ),
-    unreadable: l10n.t('This file is not a workflow document.'),
-    canvas: l10n.t('Canvas'),
-    json: l10n.t('JSON'),
-    graph: l10n.t('graph'),
-    blocks: l10n.t('Blocks'),
-    lib: l10n.t('/lib · from manifest'),
-    noLib: l10n.t('No code-behind has been scanned yet.'),
-    typedWiring: l10n.t('Typed wiring'),
-    groups: {
-      start: l10n.t('Start'),
-      work: l10n.t('Work'),
-      control: l10n.t('Control'),
-      people: l10n.t('People'),
-    },
-  }),
-
-  inspectorStrings: (): InspectorStrings => ({
-    heading: l10n.t('Node inspector'),
-    nothingSelected: l10n.t('Pick a block to set what it does.'),
-    kinds: messages.paletteLabels(),
-    fields: inspectorFields(),
-    options: inspectorOptions(),
-  }),
 };
-
-/**
- * What each Inspector field is called.
- *
- * The forms emit ids and no words at all, so this
- * is where a field gets one. A field whose id is
- * missing here draws with no label, which is why
- * the editor's own spec asserts every field of
- * every kind has an entry.
- */
-function inspectorFields(): Record<string, string> {
-  return {
-    title: l10n.t('title'),
-    in: l10n.t('takes'),
-    out: l10n.t('produces'),
-    handler: l10n.t('runs'),
-    service: l10n.t('service'),
-
-    mode: l10n.t('run'),
-    topic: l10n.t('topic'),
-    idempotencyKeyPath: l10n.t('idempotency key path'),
-    requesterEmailPath: l10n.t('requester email path'),
-    repeat: l10n.t('repeat'),
-    on: l10n.t('on'),
-    at: l10n.t('at'),
-    cron: l10n.t('cron'),
-    timezone: l10n.t('timezone'),
-    start: l10n.t('starts'),
-    ends: l10n.t('ends'),
-
-    cases: l10n.t('cases'),
-    elsePort: l10n.t('otherwise'),
-    port: l10n.t('port'),
-    predicatePath: l10n.t('test'),
-    predicateOp: l10n.t('is'),
-    predicateValue: l10n.t('value'),
-    maxIterations: l10n.t('max loops'),
-    onExhausted: l10n.t('when exhausted'),
-
-    minRounds: l10n.t('min rounds'),
-    maxRounds: l10n.t('max rounds'),
-    models: l10n.t('models'),
-    modelRole: l10n.t('role'),
-    modelId: l10n.t('model'),
-
-    waitKind: l10n.t('waits for'),
-    waitEmail: l10n.t('the email'),
-    correlationPath: l10n.t('event path'),
-    correlateWith: l10n.t('input path'),
-    seconds: l10n.t('seconds'),
-    timeoutDays: l10n.t('timeout, in days'),
-    onTimeout: l10n.t('on timeout'),
-    maxResends: l10n.t('max resends'),
-    afterMax: l10n.t('after max'),
-
-    to: l10n.t('send to'),
-    toAddress: l10n.t('address'),
-    subject: l10n.t('subject'),
-    message: l10n.t('message'),
-    bodyMarkdown: l10n.t('body'),
-    attachType: l10n.t('attach'),
-    artifactPath: l10n.t('artifact'),
-    formFields: l10n.t('form fields'),
-    fieldId: l10n.t('id'),
-    fieldLabel: l10n.t('label'),
-    fieldType: l10n.t('type'),
-    fieldRequired: l10n.t('required'),
-    fieldMultiple: l10n.t('multiple'),
-  };
-}
-
-/**
- * What each choice reads as, keyed by the field it
- * belongs to and the value it stores.
- *
- * The values are the document's, and several of
- * them are only nearly English: `nonempty` is a
- * schema's word, not a person's.
- */
-function inspectorOptions(): Record<string, string> {
-  return {
-    'mode.manual': l10n.t('by hand'),
-    'mode.event': l10n.t('an event'),
-    'mode.schedule': l10n.t('a schedule'),
-
-    'repeat.hourly': l10n.t('hourly'),
-    'repeat.daily': l10n.t('daily'),
-    'repeat.weekly': l10n.t('weekly'),
-    'repeat.monthly': l10n.t('monthly'),
-    'repeat.custom': l10n.t('something else'),
-
-    'predicateOp.eq': l10n.t('equals'),
-    'predicateOp.neq': l10n.t('does not equal'),
-    'predicateOp.gt': l10n.t('is more than'),
-    'predicateOp.gte': l10n.t('is at least'),
-    'predicateOp.lt': l10n.t('is less than'),
-    'predicateOp.lte': l10n.t('is at most'),
-    'predicateOp.exists': l10n.t('is there at all'),
-    'predicateOp.nonempty': l10n.t('is not empty'),
-
-    'onExhausted.abort': l10n.t('stop the run'),
-    'onExhausted.continue': l10n.t('carry on'),
-
-    'waitKind.form': l10n.t('a form reply'),
-    'waitKind.event': l10n.t('an event'),
-    'waitKind.timer': l10n.t('a timer'),
-
-    'onTimeout.resend': l10n.t('send it again'),
-    'onTimeout.abort': l10n.t('stop the run'),
-
-    'afterMax.unset': l10n.t('not set'),
-    'afterMax.abort': l10n.t('stop the run'),
-    'afterMax.continue': l10n.t('carry on'),
-
-    'to.requestingUser': l10n.t('the person who asked'),
-    'to.address': l10n.t('an address'),
-
-    'attachType.none': l10n.t('nothing'),
-    'attachType.form': l10n.t('a form'),
-    'attachType.artifactLink': l10n.t('a link to a file'),
-
-    'fieldType.text': l10n.t('one line'),
-    'fieldType.textarea': l10n.t('several lines'),
-    'fieldType.fileUpload': l10n.t('a file'),
-    'fieldType.yesNo': l10n.t('yes or no'),
-  };
-}

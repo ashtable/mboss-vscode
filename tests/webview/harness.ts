@@ -30,18 +30,24 @@ export type ThemeKind = 'light' | 'dark' | 'high-contrast';
 const THEMES: Record<ThemeKind, Record<string, string>> = {
   light: {
     '--vscode-editor-background': '#ffffff',
+    '--vscode-editorWidget-background': '#f8f8f8',
+    '--vscode-sideBar-background': '#f8f8f8',
     '--vscode-foreground': '#3b3b3b',
     '--vscode-textLink-foreground': '#005fb8',
     '--vscode-font-size': '13px',
   },
   dark: {
     '--vscode-editor-background': '#1f1f1f',
+    '--vscode-editorWidget-background': '#202020',
+    '--vscode-sideBar-background': '#181818',
     '--vscode-foreground': '#cccccc',
     '--vscode-textLink-foreground': '#4daafc',
     '--vscode-font-size': '13px',
   },
   'high-contrast': {
     '--vscode-editor-background': '#000000',
+    '--vscode-editorWidget-background': '#0c141f',
+    '--vscode-sideBar-background': '#000000',
     '--vscode-foreground': '#ffffff',
     '--vscode-textLink-foreground': '#3794ff',
     '--vscode-contrastBorder': '#6fc3df',
@@ -121,6 +127,18 @@ function answer(route: Route, view: string, theme: ThemeKind): void {
   }
 
   const asset = join(DIST, path.replace(/^\//, ''));
+
+  // A face read as text is a face that fails to
+  // parse, which looks exactly like one that never
+  // shipped — so the bytes go through as bytes.
+  if (path.endsWith('.woff2')) {
+    void route.fulfill({
+      contentType: 'font/woff2',
+      body: readFileSync(asset),
+    });
+
+    return;
+  }
 
   void route.fulfill({
     contentType: path.endsWith('.css') ? 'text/css' : 'application/javascript',

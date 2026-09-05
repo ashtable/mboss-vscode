@@ -3,28 +3,67 @@ import {
   BackgroundVariant,
   ReactFlow,
   ReactFlowProvider,
+  ViewportPortal,
+  useEdgesState,
+  useNodesState,
+  useReactFlow,
   type Connection,
   type EdgeTypes,
   type NodeTypes,
+  type OnConnectEnd,
+  type OnConnectStart,
+  type OnNodeDrag,
 } from '@xyflow/react';
-import { useMemo, useState } from 'react';
+import {
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react';
 
-import type { Diagnostic, WorkflowIR } from '../core/rules.js';
+import {
+  nodeSize,
+  starterNode,
+  type Diagnostic,
+  type NodeKind,
+  type Position,
+  type WorkflowIR,
+} from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
+import { filled } from '../webview/fill.js';
 import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
 
-import { Registered } from '../webview/Registered.js';
-
-import { Block } from './Block.js';
+import { EditingProvider } from './Editing.js';
+import { Node } from './Node.js';
 import { Palette } from './Palette.js';
-import { Wire } from './Wire.js';
-import { toReactFlow, type CanvasEdge } from './graph.js';
+import { Wire, WireMarkers } from './Wire.js';
+import { ConnectingProvider, type Connecting } from './connect/Connecting.js';
+import { PendingWire } from './connect/PendingWire.js';
+import { QuickAdd } from './connect/QuickAdd.js';
+import { ShapeNote } from './connect/ShapeNote.js';
+import { kindsReachedFrom, landingsFrom } from './connect/candidates.js';
+import { GhostNode } from './drag/GhostNode.js';
+import { OldSlot, Readout, SnapGuides, type Lift } from './drag/Lift.js';
+import { SpliceGaps } from './drag/SpliceGaps.js';
+import { gapUnder, spliceGaps, type SpliceGap } from './drag/gaps.js';
+import { pastThreshold } from './drag/gesture.js';
+import {
+  lineOf,
+  toReactFlow,
+  wantsHandler,
+  type CanvasEdge,
+  type CanvasNode,
+} from './graph.js';
+import { GRID, guides, movedByGrid } from './grid.js';
+import { Inspector, showInspectorHeading } from './inspector/Inspector.js';
 import { checkCandidateEdge } from './wiring.js';
 
 import '@xyflow/react/dist/style.css';
 
 /**
- * The workflow canvas.
+ * The workflow canvas: what can go on it, what is
+ * on it, and what the selected block does.
  *
  * Everything drawn here came from the host: the
  * parsed document, the boxes core laid it out
@@ -32,72 +71,421 @@ import '@xyflow/react/dist/style.css';
  * screen. This file decides only how those look
  * and what a person's gestures mean.
  *
- * Positions are the layout's and are not
- * persisted — the document has no coordinate
- * fields at all — so blocks do not drag. Moving
- * one would be a change a person could see and the
- * file could not hold.
+ * Nothing here writes the picture it is drawing.
+ * Dropping a block in, moving one, deleting one,
+ * laying the graph out again — each is a message,
+ * and what comes back is the document. That is what
+ * puts a drag on VS Code's undo stack beside every
+ * other edit to the file.
  */
 
 /** Defined once. React Flow remounts every node
  *  when this object changes identity. */
 const nodeTypes: NodeTypes = {
-  trigger: Block,
-  step: Block,
-  transaction: Block,
-  apiCall: Block,
-  branch: Block,
-  loop: Block,
-  durableWait: Block,
-  approval: Block,
-  emailSend: Block,
-  codeStep: Block,
+  trigger: Node,
+  step: Node,
+  transaction: Node,
+  apiCall: Node,
+  branch: Node,
+  loop: Node,
+  durableWait: Node,
+  approval: Node,
+  emailSend: Node,
+  codeStep: Node,
 };
 
 const edgeTypes: EdgeTypes = { wire: Wire };
 
+/** Both spellings of the same key, because which one
+ *  a keyboard has is not the person's choice. */
+const DELETE_KEYS = ['Backspace', 'Delete'];
+
+/** The four that move a block a square at a time. */
+const NUDGE_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+
 export function Canvas(init: CanvasInit) {
   const [showing, setShowing] = useState<'canvas' | 'json'>('canvas');
 
+  // Which function is on its way to a block. Held
+  // here rather than in the palette because the
+  // toolbar says so too, and a drag that is
+  // happening is one fact.
+  const [dragging, setDragging] = useState<string | undefined>();
+
   return (
     <main className="canvas">
-      <Toolbar init={init} showing={showing} onShow={setShowing} />
+      <Toolbar
+        init={init}
+        showing={showing}
+        onShow={setShowing}
+        dragging={dragging}
+      />
 
+      {/* The whole workspace sits inside the graph
+          library's provider rather than only the
+          graph. A block dragged off the rail is drawn
+          in the graph's own coordinates from the
+          moment it leaves, so the rail and the pane
+          are two halves of one gesture and both need
+          to know where the graph is. */}
+      <ReactFlowProvider>
+        <Workspace
+          init={init}
+          showing={showing}
+          dragging={dragging}
+          onDragging={setDragging}
+        />
+      </ReactFlowProvider>
+    </main>
+  );
+}
+
+/**
+ * A block on its way from the rail onto the graph.
+ *
+ * A press is not yet a drag: `moved` is what says
+ * the pointer has travelled far enough to mean it,
+ * and until it has, nothing is drawn and nothing
+ * will be written.
+ */
+type Carried = {
+  kind: NodeKind;
+
+  /** Where the pointer is, in the page's own
+   *  coordinates. */
+  at: { x: number; y: number };
+
+  moved: boolean;
+};
+
+/**
+ * The three columns, and the gesture that runs
+ * across two of them.
+ *
+ * Dragging a block out of the rail is a press the
+ * canvas watches rather than a drag the browser
+ * runs. Everything about it is where the pointer is
+ * — how far it has gone, which wire it is over,
+ * whether Escape came first — and a native drag
+ * hands all three to the browser and gives back only
+ * a drop.
+ */
+function Workspace({
+  init,
+  showing,
+  dragging,
+  onDragging,
+}: {
+  init: CanvasInit;
+  showing: 'canvas' | 'json';
+  dragging: string | undefined;
+  onDragging: (fn: string | undefined) => void;
+}) {
+  const [carried, setCarried] = useState<Carried | undefined>();
+  const { screenToFlowPosition } = useReactFlow();
+
+  /**
+   * Where the pointer is on the graph, off the grid.
+   *
+   * The graph snaps what a person drags across it,
+   * and asked plainly this would come back snapped
+   * too. But the grid is about where a block lands;
+   * a ghost that moved in twenty-pixel steps would
+   * stop being the thing under the pointer, which is
+   * the one job it has.
+   */
+  const pointerOn = (at: { x: number; y: number }): Position =>
+    screenToFlowPosition(at, { snapToGrid: false });
+
+  const document = init.document;
+
+  // A block can only be placed on a graph that is
+  // showing and that may be edited: there is nowhere
+  // to aim on a JSON view, and nothing to edit on a
+  // proposal.
+  const editing = init.editing;
+  const placing = document.ok && showing === 'canvas' && editing !== undefined;
+
+  // The one block the column is showing, and the
+  // rail marks the function of: found once, here.
+  const selected = document.ok
+    ? document.ir.nodes.find((node) => node.id === init.inspector.selected)
+    : undefined;
+
+  const gaps = useMemo(
+    () => (document.ok ? spliceGaps(document.ir, init.boxes) : []),
+    [document, init.boxes],
+  );
+
+  /**
+   * Everything after the press.
+   *
+   * The graph as it stands is taken here, at the
+   * moment the press happens, and the whole gesture
+   * is answered against it — including its revision.
+   * That is the graph the person aimed at, and if the
+   * file has moved on by the time they let go, the
+   * host refuses the edit and says so, which is what
+   * it does for every other edit made against a graph
+   * that moved.
+   */
+  const carry = (kind: NodeKind, press: PointerEvent<HTMLElement>): void => {
+    if (!placing || !document.ok || editing === undefined) return;
+
+    const from = { x: press.clientX, y: press.clientY };
+    let moved = false;
+
+    setCarried({ kind, at: from, moved });
+
+    const stop = (): void => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('keydown', off);
+      setCarried(undefined);
+    };
+
+    const move = (dragged: globalThis.PointerEvent): void => {
+      const at = { x: dragged.clientX, y: dragged.clientY };
+
+      moved = moved || pastThreshold(from, at);
+      setCarried({ kind, at, moved });
+    };
+
+    const release = (let_go: globalThis.PointerEvent): void => {
+      const at = { x: let_go.clientX, y: let_go.clientY };
+
+      stop();
+
+      if (!moved && !pastThreshold(from, at)) return;
+
+      const landing = landingFor(kind, pointerOn(at), gaps);
+
+      postToHost({
+        type: 'addNode',
+        baseRevision: editing.revision,
+        kind,
+        position: rounded(landing.lands),
+        ...(landing.gap === undefined
+          ? {}
+          : { spliceEdge: landing.gap.edgeId }),
+      });
+
+      // A block that has just arrived says nothing
+      // about itself yet, and the column beside the
+      // canvas is where that gets said.
+      showInspectorHeading();
+    };
+
+    const off = (key: globalThis.KeyboardEvent): void => {
+      if (key.key === 'Escape') stop();
+    };
+
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', release);
+    window.addEventListener('keydown', off);
+  };
+
+  const flying =
+    carried?.moved === true
+      ? inFlight(init, carried, pointerOn(carried.at), gaps)
+      : undefined;
+
+  return (
+    <EditingProvider value={editing}>
       <div className="workspace">
         <Palette
           strings={init.strings}
           labels={init.paletteLabels}
           lib={init.manifest?.functions}
+          selected={selected}
+          dragging={dragging}
+          onDragging={onDragging}
+          carrying={flying?.ghost.kind}
+          onCarry={carry}
         />
 
-        {init.document.ok ? (
+        {document.ok ? (
           showing === 'canvas' ? (
-            <ReactFlowProvider>
-              <Graph init={init} ir={init.document.ir} />
-            </ReactFlowProvider>
+            <Graph init={init} ir={document.ir} carrying={flying} />
           ) : (
-            <Json ir={init.document.ir} readOnly={init.preview !== undefined} />
+            <Json ir={document.ir} readOnly={editing === undefined} />
           )
         ) : (
           <section className="unreadable">
             <p className="title">{init.strings.unreadable}</p>
-            <p className="mono text-muted">{init.document.detail}</p>
+            <p className="mono text-muted">{document.detail}</p>
           </section>
         )}
+
+        <Inspector
+          strings={init.inspector.strings}
+          selected={
+            document.ok && selected !== undefined
+              ? { ir: document.ir, node: selected }
+              : undefined
+          }
+          lib={init.manifest?.functions}
+          misfits={init.strings.misfits}
+        />
       </div>
-    </main>
+    </EditingProvider>
   );
+}
+
+/**
+ * A wire let go of over open canvas, and what could
+ * go there.
+ *
+ * Two positions, because they answer two questions:
+ * where the block would land is the graph's own
+ * coordinates, and where to draw the list is the
+ * page's — a list that panned away or grew with the
+ * zoom while it was being read would be a thing on
+ * the workflow rather than a question about the
+ * gesture.
+ */
+type QuickAddOffer = {
+  from: string;
+  lands: Position;
+  at: { x: number; y: number };
+  kinds: NodeKind[];
+};
+
+/** Where a pointer was, whichever kind of event
+ *  reported it. A drag is made of these, so there is
+ *  always one. */
+function pointerAt(event: MouseEvent | TouchEvent): {
+  x: number;
+  y: number;
+} {
+  const at = 'changedTouches' in event ? event.changedTouches[0]! : event;
+
+  return { x: at.clientX, y: at.clientY };
+}
+
+/**
+ * Where a block put at the end of a wire goes.
+ *
+ * The wire arrives at the top of it, half way
+ * across, because that is where every block takes a
+ * wire — so the block hangs below the point the
+ * person let go of rather than being centred on it.
+ */
+function landsAt(kind: NodeKind, end: Position): Position {
+  return { x: end.x - nodeSize(kind).width / 2, y: end.y };
+}
+
+/** What the graph draws while a block is in flight
+ *  over it. */
+type Carrying = {
+  gaps: readonly SpliceGap[];
+
+  /** The wire the drop would split, if the pointer
+   *  is over one. */
+  under: string | undefined;
+
+  ghost: {
+    kind: NodeKind;
+    title: string;
+    line: string;
+    wanting: boolean;
+    at: Position;
+  };
+};
+
+/**
+ * What the pointer is holding, and where letting go
+ * would put it.
+ *
+ * They are not the same place, and saying so is the
+ * point. What is held hangs up and to the left of
+ * the pointer, with the arrow on its own corner
+ * marking where the pointer actually is — a block is
+ * 230 pixels wide, and one drawn centred on the
+ * pointer covers the gap it is about to go into.
+ *
+ * Where it lands is the gap's own slot whenever
+ * there is a gap under the pointer. The gap is drawn
+ * where the block will be and says as much, so that
+ * is the promise to keep; over open canvas there is
+ * no promise but the shape being carried, and the
+ * block lands exactly there.
+ */
+function landingFor(
+  kind: NodeKind,
+  at: Position,
+  gaps: readonly SpliceGap[],
+): { held: Position; lands: Position; gap: SpliceGap | undefined } {
+  const gap = gapUnder(gaps, at);
+  const { width, height } = nodeSize(kind);
+  const held = { x: at.x - width, y: at.y - height };
+
+  return {
+    gap,
+    held,
+    lands:
+      gap === undefined
+        ? held
+        : { x: gap.at.x - width / 2, y: gap.at.y - height / 2 },
+  };
+}
+
+/**
+ * The block being carried, as the graph has to draw
+ * it.
+ *
+ * It wears the name and the line the block will wear
+ * once it lands, worked out from the block it is
+ * about to become — so what a person is holding
+ * looks like what they are about to have.
+ */
+function inFlight(
+  init: CanvasInit,
+  carried: Carried,
+  at: Position,
+  gaps: readonly SpliceGap[],
+): Carrying {
+  const landing = landingFor(carried.kind, at, gaps);
+  const block = starterNode(
+    carried.kind,
+    'carried',
+    init.paletteLabels[carried.kind],
+  );
+
+  return {
+    gaps,
+    under: landing.gap?.edgeId,
+    ghost: {
+      kind: carried.kind,
+      title: block.title,
+      line: lineOf(block, {
+        labels: init.paletteLabels,
+        unassigned: init.strings.unassigned,
+      }),
+      wanting: wantsHandler(block),
+      at: landing.held,
+    },
+  };
 }
 
 function Toolbar({
   init,
   showing,
   onShow,
+  dragging,
 }: {
   init: CanvasInit;
   showing: 'canvas' | 'json';
   onShow: (view: 'canvas' | 'json') => void;
+  dragging: string | undefined;
 }) {
+  // Laying the graph out again is an edit to the
+  // document, so it is offered only where there is a
+  // document to edit: not over a file that will not
+  // parse, and not over a proposal nobody has
+  // approved.
+  const arrangeable = init.editing?.revision;
+
   return (
     <header className="toolbar">
       <div className="segments" role="group">
@@ -117,6 +505,25 @@ function Toolbar({
 
       <p className="caption text-muted">{init.strings.caption}</p>
 
+      {arrangeable === undefined ? null : (
+        <button
+          type="button"
+          className="action"
+          data-arrange
+          onClick={() =>
+            postToHost({ type: 'arrange', baseRevision: arrangeable })
+          }
+        >
+          {init.strings.arrange}
+        </button>
+      )}
+
+      {dragging === undefined ? null : (
+        <p className="carrying mono text-muted" data-dragging>
+          {filled(init.strings.libFnDragging, dragging)}
+        </p>
+      )}
+
       {init.preview === undefined ? null : (
         <p className="preview-line eyebrow" data-preview-headline>
           {init.preview.headline}
@@ -126,30 +533,84 @@ function Toolbar({
   );
 }
 
-function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
+function Graph({
+  init,
+  ir,
+  carrying,
+}: {
+  init: CanvasInit;
+  ir: WorkflowIR;
+
+  /** The block in flight over the graph, while
+   *  somebody is carrying one. */
+  carrying: Carrying | undefined;
+}) {
   const [refused, setRefused] = useState<Diagnostic | undefined>();
 
   // While a proposal is showing, the graph is not
   // the document: it is somebody else's draft of
   // one. An edit made on it would write proposed
   // content to a file nobody approved it for, so
-  // there is nothing here to edit with.
+  // the host says nothing may be edited, and there
+  // is nothing here to edit with.
   const preview = init.preview;
-  const editable = preview === undefined;
+  const editing = init.editing;
+  const editable = editing !== undefined;
 
-  const { nodes, edges } = useMemo(
-    () => toReactFlow(ir, init.boxes, preview?.proposed),
-    [ir, init.boxes, preview?.proposed],
-  );
+  // Said once, by the column that is showing it:
+  // the halo and the fields are the same fact.
+  const selected = init.inspector.selected;
 
   const drawn = useMemo(
     () =>
-      nodes.map((node) => ({
-        ...node,
-        selected: node.id === init.selected,
-      })),
-    [nodes, init.selected],
+      toReactFlow(ir, init.boxes, {
+        labels: init.paletteLabels,
+        unassigned: init.strings.unassigned,
+        proposed: preview?.proposed,
+        selected,
+        run: init.run,
+      }),
+    [
+      ir,
+      init.boxes,
+      init.paletteLabels,
+      init.strings.unassigned,
+      preview?.proposed,
+      selected,
+      init.run,
+    ],
   );
+
+  /**
+   * The graph library owns the nodes on screen while
+   * a person is dragging one, so the canvas holds its
+   * own copy rather than deriving one from every
+   * message: a message arriving mid-drag would put
+   * the block back where the document still says it
+   * is.
+   *
+   * What the host sends is therefore taken two ways.
+   * A new picture — the key changed — replaces them.
+   * The same picture with something else true about
+   * it, a block selected or a manifest that finished
+   * scanning, is patched over the top and leaves
+   * every block where it is.
+   */
+  const [nodes, setNodes, onNodesChange] = useNodesState(drawn.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(drawn.edges);
+  const [shown, setShown] = useState({ key: init.layoutKey, drawn });
+
+  if (shown.drawn !== drawn) {
+    setShown({ key: init.layoutKey, drawn });
+    setEdges(drawn.edges);
+    setNodes(
+      shown.key === init.layoutKey
+        ? (held) => whereTheyAre(held, drawn.nodes)
+        : drawn.nodes,
+    );
+  }
+
+  const { getNodes, screenToFlowPosition } = useReactFlow<CanvasNode>();
 
   /**
    * Asked as a person drags onto a handle, before
@@ -163,10 +624,7 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
     const found = checkCandidateEdge(
       ir,
       {
-        from: {
-          node: connection.source,
-          port: connection.sourceHandle ?? 'out',
-        },
+        from: { node: connection.source },
         to: { node: connection.target },
       },
       init.manifest,
@@ -177,65 +635,444 @@ function Graph({ init, ir }: { init: CanvasInit; ir: WorkflowIR }) {
     return found === undefined;
   };
 
+  /**
+   * The wire somebody has in the air, and where it
+   * could land.
+   *
+   * Worked out once, here, rather than as the pointer
+   * arrives at each block: the block the wire leaves
+   * is fixed and the document cannot change while a
+   * pointer is down, so the answer is the same for
+   * the whole gesture — and a person looking for
+   * somewhere to put a wire needs every block to have
+   * answered before they start looking.
+   */
+  const [connecting, setConnecting] = useState<Connecting | undefined>();
+
+  /** The kinds a wire let go of on nothing could
+   *  reach, and where it was let go of. */
+  const [quickAdd, setQuickAdd] = useState<QuickAddOffer | undefined>();
+
+  const startConnecting: OnConnectStart = (_event, { nodeId }) => {
+    const from = ir.nodes.find((node) => node.id === nodeId);
+
+    if (from === undefined) return;
+
+    setQuickAdd(undefined);
+    setConnecting({
+      from,
+      fits: landingsFrom(ir, from.id, init.manifest),
+    });
+  };
+
+  /**
+   * Where a wire ended up.
+   *
+   * On a block, the library has already said so
+   * through `onConnect` and there is nothing left to
+   * do. On open canvas it is not a mistake to undo —
+   * it is somebody saying "and then something here"
+   * without a name for the something yet — so the
+   * rail is offered again, cut down to the kinds that
+   * could take the wire.
+   */
+  const stopConnecting: OnConnectEnd = (event, state) => {
+    const from = connecting?.from;
+
+    setConnecting(undefined);
+
+    if (from === undefined || !editable) return;
+
+    // On a block, including the one it came from,
+    // there is nothing to offer: either the library
+    // has already said so through `onConnect`, or the
+    // wire went nowhere.
+    if (state.toNode !== null || state.to === null) return;
+
+    setQuickAdd({
+      from: from.id,
+      lands: state.to,
+      at: pointerAt(event),
+      kinds: kindsReachedFrom(ir, from.id, init.paletteLabels, init.manifest),
+    });
+  };
+
+  /**
+   * What the key pressed over a selection means.
+   *
+   * Nothing is deleted here: the library is told no
+   * and the document is told what somebody pressed,
+   * so what leaves the canvas is what the file no
+   * longer holds.
+   *
+   * One message for the whole selection, the way a
+   * drag of three blocks is one move. The library
+   * hands over the wires attached to a block that is
+   * going as well as the block, and a message apiece
+   * would all carry this revision — each applied to
+   * the document as it stands now, so only the last
+   * of them would land.
+   */
+  const sayDeleted = async ({
+    nodes: going,
+    edges: cut,
+  }: {
+    nodes: CanvasNode[];
+    edges: CanvasEdge[];
+  }): Promise<boolean> => {
+    if (editing === undefined) return false;
+
+    postToHost({
+      type: 'delete',
+      baseRevision: editing.revision,
+      nodeIds: going.map((node) => node.id),
+      edgeIds: cut.map((edge) => edge.id),
+    });
+
+    return false;
+  };
+
+  /**
+   * Where every block is now.
+   *
+   * Every one, not the one that moved: a person's
+   * first move pins the whole graph, and dragging a
+   * selection of three is one edit rather than three.
+   */
+  const sayMoved = (): void => {
+    if (editing === undefined) return;
+
+    postToHost({
+      type: 'move',
+      baseRevision: editing.revision,
+      positions: Object.fromEntries(
+        getNodes().map((node) => [node.id, rounded(node.position)]),
+      ),
+    });
+  };
+
+  // What is drawn around a block while a hand has
+  // it: the slot it left, the lines it has come
+  // level with, and where it is.
+  const [lift, setLift] = useState<Lift | undefined>();
+
+  /**
+   * Where the block was and where the pointer was,
+   * both at the moment it was picked up.
+   *
+   * Kept so the readout can answer the one question
+   * a grid provokes: is the block not under my
+   * pointer because I put it there, or because the
+   * grid did?
+   */
+  const grabbed = useRef<{ at: Position; pointer: Position }>(undefined);
+
+  /**
+   * Where the pointer is on the graph, off the grid.
+   *
+   * A drag arrives on either kind of event, and a
+   * finger reports itself in a list; there is always
+   * one, because these are the events a drag is made
+   * of. Un-snapped on purpose — the graph rounds
+   * what it moves, and whether it rounded is the
+   * thing being measured.
+   */
+  const pointerOn = (event: MouseEvent | TouchEvent): Position => {
+    const at = 'touches' in event ? event.touches[0]! : event;
+
+    return screenToFlowPosition(
+      { x: at.clientX, y: at.clientY },
+      { snapToGrid: false },
+    );
+  };
+
+  /**
+   * What to draw around the block, given where it
+   * has got to.
+   *
+   * The lines are worked out against every block
+   * that is standing still — the others in a
+   * multiple selection travel with this one, so a
+   * line through them would be drawn at the start of
+   * the drag and never move again.
+   */
+  const around = (
+    node: CanvasNode,
+    moving: CanvasNode[],
+    from: Position,
+    snapped: boolean,
+  ): Lift => {
+    const held = new Set(moving.map((one) => one.id));
+    const centre = (one: CanvasNode): number =>
+      one.position.x + (one.width ?? 0) / 2;
+
+    return {
+      from,
+      at: node.position,
+      snapped,
+      guides: guides(
+        centre(node),
+        getNodes()
+          .filter((one) => !held.has(one.id))
+          .map(centre),
+      ),
+    };
+  };
+
+  const pickUp: OnNodeDrag<CanvasNode> = (event, node, moving) => {
+    grabbed.current = { at: node.position, pointer: pointerOn(event) };
+
+    setLift(around(node, moving, node.position, false));
+  };
+
+  const carry: OnNodeDrag<CanvasNode> = (event, node, moving) => {
+    const held = grabbed.current;
+
+    if (held === undefined) return;
+
+    const pointer = pointerOn(event);
+    const wanted = {
+      x: held.at.x + (pointer.x - held.pointer.x),
+      y: held.at.y + (pointer.y - held.pointer.y),
+    };
+
+    setLift(around(node, moving, held.at, movedByGrid(wanted, node.position)));
+  };
+
+  const putDown = (): void => {
+    grabbed.current = undefined;
+    setLift(undefined);
+    sayMoved();
+  };
+
+  /**
+   * The graph as somebody found it when they started
+   * pressing an arrow key.
+   *
+   * A held key repeats, and the block moves on every
+   * repeat. One message per repeat would be a dozen
+   * messages all carrying the base revision the
+   * first of them spent, so the message goes when
+   * the key comes back up: a long press is one edit.
+   *
+   * Kept as a string because the only question ever
+   * asked of it is whether anything moved at all. An
+   * arrow key pressed with nothing under it must not
+   * write a document.
+   */
+  const nudging = useRef<string | undefined>(undefined);
+
+  const everywhere = (): string =>
+    getNodes()
+      .map((node) => `${node.id}:${node.position.x},${node.position.y}`)
+      .join(' ');
+
+  /**
+   * Caught on the way down rather than on the way
+   * back up, because the block's own handler is what
+   * moves it and that runs first. By the time a key
+   * press had bubbled this far, the graph as it was
+   * would already be the graph as it is.
+   */
+  const startNudge = (key: KeyboardEvent<HTMLDivElement>): void => {
+    if (!NUDGE_KEYS.includes(key.key)) return;
+    if (nudging.current !== undefined) return;
+
+    nudging.current = everywhere();
+  };
+
+  const endNudge = (key: KeyboardEvent<HTMLDivElement>): void => {
+    if (!NUDGE_KEYS.includes(key.key)) return;
+
+    const was = nudging.current;
+    nudging.current = undefined;
+
+    if (was !== undefined && was !== everywhere()) sayMoved();
+  };
+
   return (
     <section className="graph">
       {preview === undefined ? null : <Banner preview={preview} />}
 
-      <div className="graph-flow">
-        <ReactFlow
-          nodes={drawn}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          nodesDraggable={false}
-          nodesConnectable={editable}
-          elementsSelectable={editable}
-          fitView
-          proOptions={{ hideAttribution: true }}
-          isValidConnection={allow}
-          onConnect={(connection) => {
-            setRefused(undefined);
-            postToHost({
-              type: 'connect',
-              baseRevision: ir.revision,
-              from: {
-                node: connection.source,
-                port: connection.sourceHandle ?? 'out',
-              },
-              to: { node: connection.target },
-            });
-          }}
-          onNodeClick={
-            editable
-              ? (_event, node) =>
-                  postToHost({ type: 'select', nodeId: node.id })
-              : undefined
-          }
-          onPaneClick={
-            editable
-              ? () => {
-                  setRefused(undefined);
-                  postToHost({ type: 'select', nodeId: null });
-                }
-              : undefined
-          }
-        >
-          <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
-        </ReactFlow>
-      </div>
+      {/* Every block on the graph says whether a wire
+          in the air could land on it, so the wire is
+          told to all of them at once rather than
+          written into each one's data and taken out
+          again twice a gesture. */}
+      <ConnectingProvider value={connecting}>
+        <div className="graph-flow">
+          <WireMarkers />
+
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            nodesDraggable={editable}
+            nodesConnectable={editable}
+            elementsSelectable={editable}
+            fitView
+            proOptions={{ hideAttribution: true }}
+            isValidConnection={allow}
+            onConnectStart={startConnecting}
+            onConnectEnd={stopConnecting}
+            connectionLineComponent={PendingWire}
+            deleteKeyCode={editable ? DELETE_KEYS : null}
+            onBeforeDelete={sayDeleted}
+            onNodeDragStart={pickUp}
+            onNodeDrag={carry}
+            onNodeDragStop={putDown}
+            onKeyDownCapture={startNudge}
+            onKeyUp={endNudge}
+            snapToGrid
+            snapGrid={[GRID, GRID]}
+            onConnect={(connection) => {
+              setRefused(undefined);
+              if (editing === undefined) return;
+
+              // No port. A block has one dot to leave
+              // by however many ways out it has, so
+              // naming one here would be this panel
+              // deciding something nobody was asked —
+              // and `out` is not a port a branch has.
+              postToHost({
+                type: 'connect',
+                baseRevision: editing.revision,
+                from: { node: connection.source },
+                to: { node: connection.target },
+              });
+            }}
+            onNodeClick={
+              editable
+                ? (_event, node) =>
+                    postToHost({ type: 'select', nodeId: node.id })
+                : undefined
+            }
+            onPaneClick={
+              editable
+                ? () => {
+                    setRefused(undefined);
+                    setQuickAdd(undefined);
+                    postToHost({ type: 'select', nodeId: null });
+                  }
+                : undefined
+            }
+          >
+            <Background variant={BackgroundVariant.Dots} gap={GRID} size={1} />
+
+            {/* Drawn over the pane rather than on the
+              graph, because a centreline is about a
+              whole column and the graph itself has
+              no top or bottom to reach. */}
+            {lift === undefined ? null : <SnapGuides at={lift.guides} />}
+
+            {/* Drawn inside the graph's own transform,
+              because a gap belongs to a wire and the
+              block being carried is about to belong
+              to the graph: both pan and zoom with
+              everything else. */}
+            {carrying === undefined ? null : (
+              <ViewportPortal>
+                <SpliceGaps
+                  gaps={carrying.gaps}
+                  under={carrying.under}
+                  strings={init.strings}
+                />
+
+                <GhostNode {...carrying.ghost} />
+              </ViewportPortal>
+            )}
+
+            {/* Both of these belong to a block that is
+              on the graph, so they travel with it. */}
+            {lift === undefined ? null : (
+              <ViewportPortal>
+                <OldSlot at={lift.from} />
+                <Readout lift={lift} strings={init.strings} />
+              </ViewportPortal>
+            )}
+
+            {/* Under the block the pointer is over, so
+              it belongs to the graph and moves with
+              it. */}
+            <ViewportPortal>
+              <ShapeNote
+                ir={ir}
+                boxes={init.boxes}
+                wording={init.strings.releaseToConnect}
+              />
+            </ViewportPortal>
+          </ReactFlow>
+
+          {quickAdd === undefined ? null : (
+            <QuickAdd
+              kinds={quickAdd.kinds}
+              labels={init.paletteLabels}
+              at={quickAdd.at}
+              heading={init.strings.quickAdd}
+              onClose={() => setQuickAdd(undefined)}
+              onPick={(kind) => {
+                setQuickAdd(undefined);
+                if (editing === undefined) return;
+
+                postToHost({
+                  type: 'addNode',
+                  baseRevision: editing.revision,
+                  kind,
+                  position: rounded(landsAt(kind, quickAdd.lands)),
+                  connectFrom: { node: quickAdd.from },
+                });
+
+                // The block that has just arrived says
+                // nothing about itself yet, and the
+                // column beside the canvas is where
+                // that gets said.
+                showInspectorHeading();
+              }}
+            />
+          )}
+        </div>
+      </ConnectingProvider>
 
       <p className="graph-caption mono text-muted" data-caption="graph">
         {ir.name} · {init.strings.graph} v{ir.revision}
       </p>
 
       {refused === undefined ? null : (
-        <Registered className="rejection" data-rejection>
+        <div className="card rejection" data-rejection>
           <p className="eyebrow">{init.strings.typedWiring}</p>
           <p className="mono">{refused.message}</p>
-        </Registered>
+        </div>
       )}
     </section>
   );
+}
+
+/**
+ * The blocks as the host has just drawn them, each
+ * left where the canvas currently has it.
+ *
+ * The layout is the same one — that is what a
+ * matching key means — so the only block that can be
+ * somewhere else is one under a pointer right now,
+ * which is exactly the block that must not move.
+ */
+function whereTheyAre(held: CanvasNode[], drawn: CanvasNode[]): CanvasNode[] {
+  const at = new Map(held.map((node) => [node.id, node.position]));
+
+  return drawn.map((node) => ({
+    ...node,
+    position: at.get(node.id) ?? node.position,
+  }));
+}
+
+/** A position the document can hold: coordinates are
+ *  whole pixels, and nothing draws a fraction of
+ *  one. */
+function rounded(at: { x: number; y: number }): { x: number; y: number } {
+  return { x: Math.round(at.x), y: Math.round(at.y) };
 }
 
 /**

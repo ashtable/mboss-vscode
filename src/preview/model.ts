@@ -3,6 +3,8 @@ import { isDeepStrictEqual } from 'node:util';
 import type { DiffSummary, Proposal } from '../core/index.js';
 import {
   WorkflowIRSchema,
+  carryPositions,
+  withoutPositions,
   type Diagnostic,
   type WorkflowIR,
 } from '../core/rules.js';
@@ -64,6 +66,14 @@ export type PreviewModel = {
  * applied. A proposal for a workflow that has no
  * file yet starts at the first revision, because
  * that is the lowest number a document may carry.
+ *
+ * The spec's blocks take the positions the
+ * document has wherever the spec names none, which
+ * is the same thing applying it would do. So the
+ * preview is drawn in the layout the approved
+ * document will be in, rather than in one the
+ * layout engine invented for the length of the
+ * preview and then threw away.
  */
 export function previewOf(
   proposal: Proposal,
@@ -74,7 +84,7 @@ export function previewOf(
     version: 1,
     revision: current?.revision ?? 1,
     name: proposal.workflow,
-    ...proposal.spec,
+    ...carryPositions(current, proposal.spec),
   };
 
   return {
@@ -103,16 +113,23 @@ export function previewOf(
  * that gets generated — so a retitled or rewired
  * block is one change rather than a removal and an
  * arrival.
+ *
+ * Coordinates come off both sides first, for the
+ * same reason the library takes them off its own
+ * diff: where a block sits is a fact about a
+ * canvas, and a proposal that moved one has not
+ * proposed anything about the workflow.
  */
 function changedNodes(
   current: WorkflowIR | undefined,
   candidate: WorkflowIR,
 ): string[] {
-  const before = new Map(
-    (current?.nodes ?? []).map((node) => [node.id, node] as const),
-  );
+  const { nodes: had } = withoutPositions({ nodes: current?.nodes ?? [] });
+  const { nodes: asks } = withoutPositions(candidate);
 
-  return candidate.nodes
+  const before = new Map(had.map((node) => [node.id, node] as const));
+
+  return asks
     .filter((node) => {
       const was = before.get(node.id);
 

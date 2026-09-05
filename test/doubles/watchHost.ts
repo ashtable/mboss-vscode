@@ -6,10 +6,9 @@ import type { ProblemSink, WatchHost } from '../../src/watchers/host.js';
  *
  * Everything the real one does is something only a
  * running VS Code can do — mint a file watcher,
- * own the PROBLEMS panel, know whether a person
- * has trusted this folder — so a spec that wants
- * to say "a workflow file changed" has to say it
- * to one of these.
+ * own the PROBLEMS panel — so a spec that wants to
+ * say "a workflow file changed" has to say it to
+ * one of these.
  *
  * It records rather than pretends: what was
  * watched, what was published, whether it was ever
@@ -29,10 +28,6 @@ export type FakeHost = WatchHost & {
   /** Delivers a save from the editor. */
   save(path: string): void;
 
-  /** Grants workspace trust, as a person clicking
-   *  Trust does. */
-  trust(): void;
-
   /** Every set of problems published, newest last. */
   published: Problem[][];
 
@@ -41,12 +36,7 @@ export type FakeHost = WatchHost & {
   disposed: boolean;
 };
 
-export function fakeHost(opts: {
-  folders: string[];
-  trusted?: boolean;
-}): FakeHost {
-  let trusted = opts.trusted ?? true;
-  const granted: (() => void)[] = [];
+export function fakeHost(opts: { folders: string[] }): FakeHost {
   const saves: ((path: string) => void)[] = [];
   const watchers = new Map<string, ((path: string) => void)[]>();
   const host: FakeHost = {
@@ -55,13 +45,6 @@ export function fakeHost(opts: {
     disposed: false,
 
     folders: () => opts.folders,
-    isTrusted: () => trusted,
-
-    onTrustGranted: (listener) => {
-      granted.push(listener);
-
-      return { dispose: () => {} };
-    },
 
     watch: (folder, glob, listener) => {
       host.watching.push({ folder, glob });
@@ -87,11 +70,6 @@ export function fakeHost(opts: {
 
     save: (path) => {
       for (const listener of saves) listener(path);
-    },
-
-    trust: () => {
-      trusted = true;
-      for (const listener of granted) listener();
     },
   };
 

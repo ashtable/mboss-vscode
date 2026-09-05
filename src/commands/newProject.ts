@@ -8,6 +8,7 @@ import {
   vendorState,
   type Vendor,
 } from '../vendor/index.js';
+import type { Trust } from '../trust.js';
 
 /**
  * Creating a project, and keeping the one already
@@ -33,10 +34,6 @@ import {
 
 /** The editor, as making a project reaches for it. */
 export type ProjectHost = {
-  /** Whether the person has said this window's
-   *  folders may be written to and executed. */
-  isTrusted(): boolean;
-
   /** Every folder open in this window. */
   folders(): string[];
 
@@ -87,9 +84,10 @@ export type ProjectHost = {
 export function newProject(
   host: ProjectHost,
   vendor: Vendor,
+  trust: Trust,
 ): () => Promise<void> {
   return async () => {
-    if (!host.isTrusted()) {
+    if (!trust.isTrusted()) {
       host.info(messages.newProjectNeedsTrust());
       return;
     }
@@ -152,8 +150,9 @@ export async function offerVendorRefresh(
   host: ProjectHost,
   vendor: Vendor,
   projects: readonly string[],
+  trust: Trust,
 ): Promise<void> {
-  if (!host.isTrusted()) return;
+  if (!trust.isTrusted()) return;
 
   try {
     // Both of the states that are not current, and

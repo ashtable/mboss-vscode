@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -132,6 +132,43 @@ describe('the built extension', () => {
     for (const name of WEBVIEW_ENTRIES) {
       expect(fileExists(join(outdir, webviewFile(name, 'css')))).toBe(true);
     }
+  });
+
+  /**
+   * A webview may only load a font the extension
+   * itself ships, and a `url()` resolves against
+   * the stylesheet's own webview URI. So the
+   * question is not whether the build copied a
+   * face — it is whether what the built CSS asks
+   * for is where it asks for it.
+   *
+   * Nothing else can tell. A face that did not
+   * ship is not an error anywhere: it is a panel
+   * set in the platform's fallback, in an install
+   * nobody here ever loads.
+   */
+  it('ships every face its stylesheets ask for', () => {
+    const asked: string[] = [];
+
+    for (const name of WEBVIEW_ENTRIES) {
+      const sheet = join(outdir, webviewFile(name, 'css'));
+      const css = readFileSync(sheet, 'utf8');
+
+      for (const match of css.matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
+        const url = match[1] as string;
+
+        // A scheme is somebody else's origin, which
+        // the content security policy refuses long
+        // before this would.
+        expect(url).not.toContain(':');
+
+        asked.push(url);
+        expect(fileExists(resolve(dirname(sheet), url))).toBe(true);
+      }
+    }
+
+    expect(asked).toContain('fonts/albert-sans-latin.woff2');
+    expect(asked).toContain('fonts/spline-sans-mono-latin.woff2');
   });
 
   /**
@@ -346,13 +383,69 @@ describe('a control plane stamped by another repository', () => {
   });
 });
 
+/**
+ * A build is what this build makes, and nothing a
+ * previous one left.
+ *
+ * The bundler overwrites the files it was asked
+ * for and leaves everything else alone, and
+ * packaging zips the directory rather than a list
+ * of names — so a webview since renamed, or dropped
+ * altogether, goes on shipping out of a working
+ * copy that has built both. Nothing type-checks it,
+ * nothing imports it, and it is in the artifact.
+ */
+describe('building over an older build', () => {
+  let outdir: string;
+
+  beforeAll(async () => {
+    outdir = join(scratchDir(), 'dist');
+
+    mkdirSync(join(outdir, 'webview'), { recursive: true });
+    writeFileSync(join(outdir, 'webview', 'gone.js'), '// a webview that was');
+    writeFileSync(join(outdir, 'stray.cjs'), '// a bundle that was');
+
+    await buildExtension(outdir);
+  });
+
+  afterAll(() => {
+    while (scratch.length > 0) {
+      rmSync(scratch.pop() as string, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves nothing of it behind', () => {
+    expect(fileExists(join(outdir, 'webview', 'gone.js'))).toBe(false);
+    expect(fileExists(join(outdir, 'stray.cjs'))).toBe(false);
+  });
+
+  /** And still emits everything, since clearing
+   *  takes the copied assets with it too. */
+  it('puts back everything the package needs', () => {
+    expect(fileExists(join(outdir, HOST_BUNDLE))).toBe(true);
+    expect(fileExists(join(outdir, 'mcp', 'server.js'))).toBe(true);
+    expect(fileExists(join(outdir, 'skill', 'SKILL.md'))).toBe(true);
+
+    for (const name of WEBVIEW_ENTRIES) {
+      expect(fileExists(join(outdir, webviewFile(name, 'js')))).toBe(true);
+    }
+  });
+});
+
 describe('the entry list', () => {
   /**
-   * The Node Inspector and the Runs view are each
-   * their own webview, added later. Adding one is
-   * a name in this list and a file beside the
-   * others — not a change to how the build works.
+   * One entry per surface a frame is pointed at.
+   * The Inspector is not one of them: it is the
+   * canvas' own right-hand column, drawn from the
+   * same message as the graph beside it.
    */
+  it('names the surfaces this extension puts in a frame', () => {
+    expect([...WEBVIEW_ENTRIES]).toEqual(['canvas', 'sidebar', 'runs', 'see']);
+  });
+
+  /** Adding one is a name in that list and a file
+   *  beside the others — not a change to how the
+   *  build works. */
   it('drives every webview from one place', () => {
     for (const name of WEBVIEW_ENTRIES) {
       expect(fileExists(resolve(REPO_ROOT, 'src', name, 'index.tsx'))).toBe(

@@ -1,7 +1,5 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-
-import { announceReady, onHostMessage, postToHost } from '../webview/client.js';
+import { postToHost } from '../webview/client.js';
+import { mountView } from '../webview/mount.js';
 import type {
   SeeBar,
   SeeChip,
@@ -50,11 +48,7 @@ function Run({ run, strings }: { run: SeeRun; strings: SeeStrings }) {
         </header>
 
         {run.recovered === undefined ? null : (
-          <section className="blueprint recovered" data-recovered-banner>
-            <span className="corner tl" />
-            <span className="corner tr" />
-            <span className="corner bl" />
-            <span className="corner br" />
+          <section className="card recovered" data-recovered-banner>
             <p className="eyebrow">{run.recovered.heading}</p>
             <p className="recovered-body">{run.recovered.body}</p>
           </section>
@@ -113,11 +107,7 @@ function Run({ run, strings }: { run: SeeRun; strings: SeeStrings }) {
       </main>
 
       <aside className="rail">
-        <section className="blueprint">
-          <span className="corner tl" />
-          <span className="corner tr" />
-          <span className="corner bl" />
-          <span className="corner br" />
+        <section className="card">
           <p className="eyebrow mono">{strings.status}</p>
           <dl className="ledger">
             {run.rail.map((row) => (
@@ -310,14 +300,4 @@ function wide(fraction: number): string {
   return `${Math.max(fraction * 100, 0.4)}%`;
 }
 
-const root = createRoot(window.document.getElementById('root') as HTMLElement);
-
-onHostMessage('see', (message) => {
-  root.render(
-    <StrictMode>
-      <See {...message} />
-    </StrictMode>,
-  );
-});
-
-announceReady();
+mountView('see', See);

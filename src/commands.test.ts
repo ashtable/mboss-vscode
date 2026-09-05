@@ -26,6 +26,19 @@ const noRefresh = (): Promise<void> => {
   throw new Error('this command should not have read anything');
 };
 
+/** The same, for the stack and test-run commands. */
+const noStack = (): Promise<void> => {
+  throw new Error('this command should not have touched the stack');
+};
+const noRunWorkflow = (): Promise<void> => {
+  throw new Error('this command should not have started a run');
+};
+
+/** The same, for laying a graph out again. */
+const noArrange = (): Promise<void> => {
+  throw new Error('this command should not have arranged anything');
+};
+
 /** An editor that only records what it was asked. */
 function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
   const shown: string[] = [];
@@ -36,7 +49,7 @@ function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
     ran,
     info: (message) => void shown.push(message),
     run: async (command) => void ran.push(command),
-    setContext: async () => {},
+    pick: async () => undefined,
     replaceDocument: async () => true,
     onDocumentChanged: () => ({ dispose: () => {} }),
   };
@@ -58,7 +71,17 @@ describe('the contributed commands', () => {
 
     expect(
       Object.keys(
-        commandHandlers(recorder(), never, noProject, noAgent, noRefresh),
+        commandHandlers(
+          recorder(),
+          never,
+          noProject,
+          noAgent,
+          noRefresh,
+          noStack,
+          noStack,
+          noRunWorkflow,
+          noArrange,
+        ),
       ).sort(),
     ).toEqual([...contributed].sort());
   });
@@ -76,21 +99,71 @@ describe('the contributed commands', () => {
       async () => void asked.push('new project'),
       async () => void asked.push('choose agent'),
       async () => void asked.push('read runs again'),
+      async () => void asked.push('start stack'),
+      async () => void asked.push('stop stack'),
+      async () => void asked.push('run workflow'),
+      async () => void asked.push('arrange workflow'),
     );
 
     await handlers['mboss.newProject']?.();
     await handlers['mboss.chooseCodingAgent']?.();
     await handlers['_mboss.refreshRuns#sideBar']?.();
+    await handlers['mboss.startStack']?.();
+    await handlers['mboss.stopStack']?.();
+    await handlers['mboss.runWorkflow']?.();
+    await handlers['mboss.arrangeWorkflow']?.();
 
-    expect(asked).toEqual(['new project', 'choose agent', 'read runs again']);
+    expect(asked).toEqual([
+      'new project',
+      'choose agent',
+      'read runs again',
+      'start stack',
+      'stop stack',
+      'run workflow',
+      'arrange workflow',
+    ]);
+  });
+
+  /**
+   * The run list's title bar swaps one command for
+   * the other as the stack comes up and down, so
+   * both have to reach the same handler the palette
+   * entry does.
+   */
+  it('gives the run list its title-bar commands too', async () => {
+    const asked: string[] = [];
+    const handlers = commandHandlers(
+      recorder(),
+      never,
+      noProject,
+      noAgent,
+      noRefresh,
+      async () => void asked.push('start'),
+      async () => void asked.push('stop'),
+      noRunWorkflow,
+      noArrange,
+    );
+
+    await handlers['_mboss.startStack#sideBar']?.();
+    await handlers['_mboss.stopStack#sideBar']?.();
+
+    expect(asked).toEqual(['start', 'stop']);
   });
 
   it('reveals the agent view rather than describing it', async () => {
     const api = recorder();
 
-    await commandHandlers(api, never, noProject, noAgent, noRefresh)[
-      'mboss.openAgentSidebar'
-    ]?.();
+    await commandHandlers(
+      api,
+      never,
+      noProject,
+      noAgent,
+      noRefresh,
+      noStack,
+      noStack,
+      noRunWorkflow,
+      noArrange,
+    )['mboss.openAgentSidebar']?.();
 
     expect(api.ran).toEqual(['mboss.agentSidebar.focus']);
     expect(api.shown).toEqual([]);
@@ -104,9 +177,17 @@ describe('the contributed commands', () => {
   it('reveals the run list rather than picking a run', async () => {
     const api = recorder();
 
-    await commandHandlers(api, never, noProject, noAgent, noRefresh)[
-      'mboss.openRuns'
-    ]?.();
+    await commandHandlers(
+      api,
+      never,
+      noProject,
+      noAgent,
+      noRefresh,
+      noStack,
+      noStack,
+      noRunWorkflow,
+      noArrange,
+    )['mboss.openRuns']?.();
 
     expect(api.ran).toEqual(['mboss.runs.focus']);
     expect(api.shown).toEqual([]);
@@ -122,21 +203,29 @@ describe('generating code', () => {
   const ran = async (run: CodegenRun): Promise<string[]> => {
     const api = recorder();
 
-    await commandHandlers(api, async () => run, noProject, noAgent, noRefresh)[
-      'mboss.generateCode'
-    ]?.();
+    await commandHandlers(
+      api,
+      async () => run,
+      noProject,
+      noAgent,
+      noRefresh,
+      noStack,
+      noStack,
+      noRunWorkflow,
+      noArrange,
+    )['mboss.generateCode']?.();
 
     return api.shown;
   };
 
   it('says how long it took', async () => {
-    expect(await ran({ ran: true, ok: true, ms: 42 })).toEqual([
+    expect(await ran({ ran: true, ok: true, ms: 42, problems: [] })).toEqual([
       expect.stringContaining('42'),
     ]);
   });
 
   it('says when a workflow produced nothing', async () => {
-    const [message] = await ran({ ran: true, ok: false, ms: 42 });
+    const [message] = await ran({ ran: true, ok: false, ms: 42, problems: [] });
 
     expect(message?.length).toBeGreaterThan(0);
   });

@@ -8,10 +8,10 @@
  * status rail down its left edge and one row per
  * file it touched, so the half of the
  * conversation that changes the project is the
- * half that reads as structure. Nothing is
- * rounded, nothing is a bubble, and the only
- * ornament is the rail — the panel is a plotted
- * sheet, like everything else in this product.
+ * half that reads as structure. Colour carries
+ * exactly two facts here and nothing else: the
+ * rail says who did this (`--agent` or `--brand`),
+ * and a status word says what happened to it.
  *
  * A view docked in the activity bar is narrow and
  * sits against the editor's side-bar ground rather
@@ -20,27 +20,18 @@
  */
 
 body {
-  --color-bg: var(--vscode-sideBar-background, var(--vscode-editor-background));
-
-  /* Added and removed lines are named by the theme
-     already, in the colours the file explorer uses
-     for exactly this. Inventing a second green is
-     how a panel stops matching the editor around
-     it. */
-  --color-added: var(
-    --vscode-gitDecoration-addedResourceForeground,
-    var(--color-accent)
-  );
-  --color-removed: var(
-    --vscode-gitDecoration-deletedResourceForeground,
-    var(--color-text)
-  );
-  --color-warn: var(--vscode-editorWarning-foreground, var(--color-accent));
+  --canvas: var(--vscode-sideBar-background, var(--vscode-editor-background));
 }
 
+/* The height of the view rather than at least it,
+   so the log scrolls inside the column and the
+   composer stays where a person left it. A panel
+   that grew with its log would carry the box they
+   type into further below the fold with every chunk
+   that arrived. */
 .agent {
   box-sizing: border-box;
-  min-height: 100vh;
+  height: 100vh;
   padding: var(--space-3);
   display: flex;
   flex-direction: column;
@@ -55,25 +46,27 @@ body {
   justify-content: space-between;
   gap: var(--space-2);
   padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .agent-head > .eyebrow {
-  color: var(--color-accent);
+  color: var(--brand);
 }
 
 .agent-name {
-  border: 1px solid var(--color-divider);
-  border-radius: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
   background: transparent;
-  color: var(--color-text);
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   padding: 2px var(--space-2);
   cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
 }
 
 .agent-name::after {
@@ -81,26 +74,27 @@ body {
 }
 
 .agent-name:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  border-color: var(--brand);
+  color: var(--brand);
 }
 
 .state {
   margin: 0;
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
 }
 
 /* — something went wrong — */
 
 .failure {
-  border: 1px solid var(--color-warn);
-  background: color-mix(in srgb, var(--color-warn) 10%, transparent);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-md);
+  background: var(--warn-tint);
   padding: var(--space-3);
 }
 
 .failure > .eyebrow {
-  color: var(--color-warn);
+  color: var(--warn);
   text-transform: none;
   letter-spacing: 0.02em;
   font-size: var(--font-size);
@@ -108,13 +102,19 @@ body {
 
 .failure-detail {
   margin: var(--space-1) 0 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 /* — the conversation — */
 
+/* The one part that scrolls. `min-height: 0` is
+   what lets it: a flex child's floor is its content
+   otherwise, and a column of them would push the
+   composer out of the panel rather than scroll. */
 .transcript {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -135,97 +135,144 @@ body {
 .said[data-from='user'] {
   margin-left: var(--space-6);
   padding: var(--space-2);
-  background: var(--tint-accent);
-  border-left: 2px solid var(--color-accent);
+  border-radius: var(--r-sm);
+  background: var(--brand-tint);
+  border-left: 2px solid var(--brand);
 }
 
 /* Thinking is a note in the margin, not speech. */
 .said[data-from='thought'] {
   padding-left: var(--space-3);
-  border-left: 1px solid var(--color-divider);
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  border-left: 1px solid var(--hairline);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
 }
 
 /* — a unit of work — */
 
-.tool {
-  border: 1px solid var(--color-divider);
-  border-left-width: 2px;
-  border-left-color: color-mix(in srgb, var(--color-text) 30%, transparent);
-  padding: var(--space-2);
+/* The shape both `.tool` and `.file` share: a card
+   with a rail down its left edge naming who did
+   this. Only provenance ever colours the rail —
+   what happened to the call or the file is a word,
+   never a second colour on the same edge. */
+.tool,
+.file {
+  border: 1px solid var(--hairline);
+  border-left-width: var(--rail-w);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
 }
 
-.tool[data-status='in_progress'] {
-  border-left-color: var(--color-accent);
-}
-.tool[data-status='completed'] {
-  border-left-color: var(--color-added);
-}
-.tool[data-status='failed'] {
-  border-left-color: var(--vscode-editorError-foreground, var(--color-warn));
+.tool[data-by='agent'],
+.file[data-by='agent'] {
+  border-left-color: var(--agent);
 }
 
-/* The rail is the only thing that moves, and only
-   while something is actually happening. */
-@media (prefers-reduced-motion: no-preference) {
-  .tool[data-status='in_progress'] {
-    animation: working 1.6s ease-in-out infinite;
-  }
+.tool[data-by='person'],
+.file[data-by='person'] {
+  border-left-color: var(--brand);
 }
 
-@keyframes working {
-  50% {
-    border-left-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
-  }
-}
-
-.tool > summary {
+.tool-row {
+  margin: 0;
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
   gap: var(--space-2);
-  cursor: pointer;
-  list-style: none;
-}
-
-.tool > summary::-webkit-details-marker {
-  display: none;
 }
 
 .tool-mark {
   flex: none;
   width: 1em;
   text-align: center;
-  color: var(--color-accent);
+  color: var(--ink-muted);
 }
 
-.tool-title {
-  flex: 1;
-  overflow-wrap: anywhere;
+.tool-verb {
+  font-weight: 600;
+}
+
+.tool-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-detail {
+  color: var(--ink-muted);
+  font-size: var(--text-sm);
 }
 
 .tool-status {
+  margin-left: auto;
   flex: none;
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  color: var(--ink-faint);
 }
 
-.file-row {
+.tool[data-status='in_progress'] .tool-status {
+  color: var(--ok);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .tool[data-status='in_progress'] .tool-status {
+    animation: sig-pulse var(--dur-slow) ease-in-out infinite;
+  }
+}
+
+.tool[data-status='completed'] .tool-status {
+  color: var(--ink-muted);
+}
+
+.tool[data-status='failed'] .tool-status {
+  color: var(--fail);
+}
+
+.tool-body-toggle {
+  display: block;
+  margin: var(--space-2) 0 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  padding: 0;
+  cursor: pointer;
+}
+
+.tool-body-toggle:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.tool-body {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-muted);
+}
+
+/* — a file, and its diff — */
+
+.file-head {
+  margin: 0;
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 /* The end of a path is the part worth reading, so
    a long one loses its head rather than its
    filename. */
-.file-row > .path {
+.file-head > .path {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -243,60 +290,241 @@ body {
 }
 
 .stat > .new {
-  font-family: var(--font-heading);
+  font-family: var(--font-body);
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  color: var(--ink-muted);
 }
 
 .stat > .added {
-  color: var(--color-added);
+  color: var(--ok);
 }
 
 .stat > .removed {
-  color: var(--color-removed);
+  color: var(--fail);
 }
 
-.tool-body {
+.diff {
   margin: var(--space-2) 0 0;
-  font-size: var(--text-caption);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.diff-line {
+  margin: 0;
+  display: grid;
+  grid-template-columns: 2.4em 2.4em 1em 1fr;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+
+.diff-line > .gutter {
+  text-align: right;
+  color: var(--ink-faint);
+}
+
+.diff-line > .sign {
+  text-align: center;
+}
+
+.diff-line[data-kind='add'] {
+  background: var(--diff-add-bg);
+}
+
+.diff-line[data-kind='add'] > .sign {
+  color: var(--ok);
+}
+
+.diff-line[data-kind='del'] {
+  background: var(--diff-del-bg);
+}
+
+.diff-line[data-kind='del'] > .sign {
+  color: var(--fail);
+}
+
+.diff-line[data-kind='skip'] {
+  display: block;
+  padding: 2px var(--space-2);
+  color: var(--ink-faint);
+}
+
+.file-actions {
+  margin: var(--space-2) 0 0;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.file-actions > button {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.file-actions > button:hover {
+  transform: translateY(var(--lift));
+  border-color: var(--brand);
+}
+
+.file-note {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-xs);
+  color: var(--warn);
+}
+
+/* Decided rows stay legible but step back, so a
+   growing conversation reads by what is still
+   waiting on somebody. */
+.file[data-decision='kept'],
+.file[data-decision='undone'] {
+  opacity: 0.7;
+}
+
+/* — the row that closes out a turn's edits — */
+
+.files-batch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  border: 1px dashed var(--hairline-strong);
+  border-radius: var(--r-sm);
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+.files-batch-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.files-batch-actions > button {
+  border: none;
+  background: transparent;
+  color: var(--brand);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  padding: 0;
+  cursor: pointer;
+}
+
+.files-batch-actions > button:hover {
+  text-decoration: underline;
+}
+
+/* — what went wrong — */
+
+.diagnostic {
+  border: 1px solid var(--hairline);
+  border-left-width: var(--rail-w);
+  border-left-color: var(--fail);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  padding: var(--space-2) var(--space-3);
+}
+
+.diagnostic-row {
+  display: flex;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+}
+
+.diagnostic-fix {
+  margin: var(--space-2) 0 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.diagnostic-fix:hover {
+  transform: translateY(var(--lift));
+  border-color: var(--brand);
 }
 
 /* — the plan — */
 
-.plan > .eyebrow {
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+.plan-toggle {
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--text-sm);
+  padding: 0;
+  cursor: pointer;
+}
+
+.plan-toggle::before {
+  content: '▸';
+  display: inline-block;
+  margin-right: var(--space-1);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.plan-toggle[data-open='true']::before {
+  transform: rotate(90deg);
+}
+
+.plan-toggle:hover {
+  color: var(--ink);
+}
+
+.plan-steps {
+  margin-top: var(--space-1);
 }
 
 .step {
   display: flex;
   gap: var(--space-2);
   margin: var(--space-1) 0 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 .step-mark {
   flex: none;
-  color: var(--color-accent);
+  color: var(--brand);
 }
 
 .step[data-status='completed'] {
-  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+  color: var(--ink-muted);
 }
 
 /* — the one question the panel asks — */
 
 .permission {
-  border: 1px solid var(--color-warn);
-  background: color-mix(in srgb, var(--color-warn) 8%, transparent);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-md);
+  background: var(--warn-tint);
   padding: var(--space-3);
 }
 
 .permission > .eyebrow {
-  color: var(--color-warn);
+  color: var(--warn);
 }
 
 .permission-title {
@@ -314,37 +542,47 @@ body {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  border: 1px solid var(--color-divider);
-  border-radius: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
   background: transparent;
-  color: var(--color-text);
+  color: var(--ink);
   font-family: var(--font-body);
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
   padding: var(--space-1) var(--space-2);
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 
-.permission-options > button[data-kind^='allow'] {
-  border-color: var(--color-accent);
-  background: var(--tint-accent);
+.permission-options > button:hover {
+  transform: translateY(var(--lift));
 }
 
-/* An answer that outlives the turn says so twice:
-   once in the agent's own wording, and once in a
-   mark that does not depend on that wording being
-   clear. */
-.permission-options > button[data-always='true'] {
-  border-bottom-width: 3px;
-  border-bottom-style: double;
+/* Weight follows what the answer costs: allowing
+   once is the solid, expected answer; allowing
+   always is the same colour with less ink, because
+   it is the bigger promise; rejecting asks for
+   nothing at all. */
+.permission-options > button[data-kind='allow_once'] {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--on-brand);
+}
+
+.permission-options > button[data-kind='allow_always'] {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.permission-options > button[data-kind^='reject'] {
+  border-color: transparent;
+  color: var(--ink-muted);
 }
 
 .always {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
 }
 
 /* — the composer — */
@@ -353,7 +591,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  border-top: 1px solid var(--color-divider);
+  border-top: 1px solid var(--hairline);
   padding-top: var(--space-3);
 }
 
@@ -361,37 +599,42 @@ body {
   box-sizing: border-box;
   width: 100%;
   resize: vertical;
-  border: 1px solid var(--color-divider);
-  border-radius: 0;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
   background: var(--vscode-input-background, transparent);
-  color: var(--vscode-input-foreground, var(--color-text));
+  color: var(--vscode-input-foreground, var(--ink));
   font-family: var(--font-body);
   font-size: var(--font-size);
   padding: var(--space-2);
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 
 .composer textarea:focus-visible {
-  border-color: var(--color-accent);
+  border-color: var(--brand);
 }
 
 .composer button {
   align-self: flex-end;
-  border: 1px solid var(--color-accent);
-  border-radius: 0;
-  background: var(--tint-accent);
-  color: var(--color-text);
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  border: 1px solid var(--brand);
+  border-radius: var(--r-sm);
+  background: var(--brand-tint);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
   padding: var(--space-1) var(--space-4);
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.composer button:hover {
+  transform: translateY(var(--lift));
 }
 
 .composer button[data-stop] {
-  border-color: var(--color-warn);
-  background: color-mix(in srgb, var(--color-warn) 12%, transparent);
+  border-color: var(--warn);
+  background: var(--warn-tint);
 }
 
 /* — a proposal, waiting for an answer — */
@@ -400,21 +643,22 @@ body {
    on the canvas get: everything about a proposal is
    drawn in pencil until somebody approves it. */
 .preview-card {
-  border: 1px dashed var(--color-accent);
-  background: var(--tint-accent);
+  border: 1px dashed var(--brand);
+  border-radius: var(--r-md);
+  background: var(--brand-tint);
   padding: var(--space-3);
   margin-bottom: var(--space-3);
 }
 
 .preview-card > .eyebrow {
-  color: var(--color-accent);
+  color: var(--brand);
   margin-bottom: var(--space-1);
 }
 
 .preview-summary,
 .preview-warning {
   margin: 0 0 var(--space-3);
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 .preview-actions {
@@ -423,17 +667,21 @@ body {
 }
 
 .preview-actions button {
-  border: 1px solid var(--color-accent);
-  border-radius: 0;
+  border: 1px solid var(--brand);
+  border-radius: var(--r-sm);
   background: transparent;
-  color: var(--color-text);
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
   padding: var(--space-1) var(--space-3);
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.preview-actions button:hover:not(:disabled) {
+  transform: translateY(var(--lift));
 }
 
 /* Approving is the decision the card exists for, so
@@ -441,12 +689,12 @@ body {
    way back to the conversation. */
 .preview-actions button.primary {
   flex: 1;
-  background: var(--color-accent);
-  color: var(--vscode-button-foreground, var(--color-bg));
+  background: var(--brand);
+  color: var(--on-brand);
 }
 
 .preview-actions button:disabled {
-  border-color: var(--color-divider);
-  color: color-mix(in srgb, var(--color-text) 45%, transparent);
+  border-color: var(--hairline);
+  color: var(--ink-faint);
   cursor: default;
 }

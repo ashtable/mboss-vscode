@@ -13,6 +13,7 @@ import {
   count,
   dropped,
   flag,
+  picker,
   prose,
   readAll,
   replace,
@@ -100,7 +101,7 @@ function bind(node: WorkflowNode): {
         ),
       ]);
     case 'branch':
-      return bound(node, branchFields());
+      return bound(node, branchFields(node));
     case 'loop':
       return bound(node, loopFields());
     case 'durableWait':
@@ -141,14 +142,22 @@ function base<N extends WorkflowNode>(): Lens<N>[] {
   ];
 }
 
-/** Which named export in the code-behind a node
- *  runs. Only the kinds that run code have one. */
-function handler<N extends WorkflowNode>(): Lens<N> {
-  return text(
-    'handler',
+/**
+ * Which named export in the code-behind a node
+ * runs. Only the kinds that run code have one.
+ *
+ * A branch's is called its logic, because the
+ * function is the decision rather than a step the
+ * branch takes — and because a person setting one
+ * is choosing what the branch asks, not what it
+ * does.
+ */
+function handler<N extends WorkflowNode>(id = 'handler'): Lens<N> {
+  return picker(
+    id,
     (node) => node.handler?.export,
     (node, value) =>
-      value === ''
+      value === undefined
         ? dropped(node, 'handler')
         : replace(node, { handler: { export: value } } as Partial<N>),
   );
@@ -288,9 +297,22 @@ const PREDICATE_OPS = [
 
 const EXHAUSTED = ['abort', 'continue'] as const;
 
-function branchFields(): Lens<Of<'branch'>>[] {
+/**
+ * A branch reads one of two ways, and never both.
+ *
+ * With a function behind it the function decides,
+ * and the cases are what it decided between — read
+ * beside the wires they stand for rather than
+ * typed. Without one, the predicates below are the
+ * decision, and they are the only thing to edit.
+ */
+function branchFields(node: Of<'branch'>): Lens<Of<'branch'>>[] {
+  const decision = [...base<Of<'branch'>>(), handler<Of<'branch'>>('logic')];
+
+  if (node.handler !== undefined) return decision;
+
   return [
-    ...base<Of<'branch'>>(),
+    ...decision,
     rows<Of<'branch'>, BranchCase>(
       'cases',
       (node) => node.config.cases,

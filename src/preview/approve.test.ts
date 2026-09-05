@@ -74,6 +74,11 @@ describe('approving a proposal', () => {
     const outcome = await approveProposal(
       {
         project,
+        // Said as it happens rather than on the way
+        // back, so a caller writing about the
+        // approval writes before the compile and
+        // the agent's turn, not after both.
+        applied: () => void trail.push('applied'),
         regenerate: async () => {
           // By now the document is the proposal's,
           // one revision on, and nothing has been
@@ -98,6 +103,7 @@ describe('approving a proposal', () => {
       revision: groom.revision + 1,
     });
     expect(trail).toEqual([
+      'applied',
       `document v${groom.revision + 1}`,
       `told the agent: ${APPROVAL_PROMPT}`,
     ]);
@@ -107,7 +113,12 @@ describe('approving a proposal', () => {
     const { project, id } = await projectWithProposal();
 
     await approveProposal(
-      { project, regenerate: async () => {}, notify: async () => {} },
+      {
+        project,
+        applied: () => {},
+        regenerate: async () => {},
+        notify: async () => {},
+      },
       id,
     );
 
@@ -135,6 +146,7 @@ describe('approving a proposal', () => {
     await approveProposal(
       {
         project,
+        applied: () => {},
         regenerate: async () => void (await compileWorkflows(project)),
         notify: async () => {},
       },
@@ -164,6 +176,7 @@ describe('approving a proposal the graph has moved past', () => {
     const outcome = await approveProposal(
       {
         project,
+        applied: () => void said.push('applied'),
         regenerate: async () => void said.push('regenerated'),
         notify: async (text) => void said.push(text),
       },
@@ -181,7 +194,12 @@ describe('approving something that is not there any more', () => {
     const { project } = await projectWithProposal();
 
     const outcome = await approveProposal(
-      { project, regenerate: async () => {}, notify: async () => {} },
+      {
+        project,
+        applied: () => {},
+        regenerate: async () => {},
+        notify: async () => {},
+      },
       'prop_1_00000000',
     );
 

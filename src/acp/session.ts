@@ -114,6 +114,35 @@ export function nextSession(
  * not a corner case — and the error is only useful
  * if it names both numbers, so both are kept.
  */
+/**
+ * What sending a prompt means, given where the
+ * session is.
+ *
+ * A turn at a time, and a start at a time. The
+ * agent decides when a turn is over, so a prompt
+ * that arrives while it is talking or asking waits;
+ * and one that arrives while it is still coming up
+ * waits too, for the process being started rather
+ * than one of its own. Answered here, beside the
+ * states, so that a state this table forgets is a
+ * compile error rather than a second agent process.
+ */
+export type Sending = 'spawn' | 'queue' | 'prompt';
+
+export function sendingWhile(state: SessionState): Sending {
+  switch (state.at) {
+    case 'idle':
+    case 'failed':
+      return 'spawn';
+    case 'spawning':
+    case 'streaming':
+    case 'awaitingPermission':
+      return 'queue';
+    case 'ready':
+      return 'prompt';
+  }
+}
+
 export function versionFailure(
   requested: number,
   offered: number,

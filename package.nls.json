@@ -7,10 +7,13 @@
   "commands.generateCode.title": "Generate Code",
   "commands.openAgentSidebar.title": "Open Agent Sidebar",
   "commands.chooseCodingAgent.title": "Choose Coding Agent…",
+  "commands.startStack.title": "Start Local Stack",
+  "commands.stopStack.title": "Stop Local Stack",
+  "commands.runWorkflow.title": "Run Workflow…",
+  "commands.arrangeWorkflow.title": "Arrange Workflow",
   "commands.refreshRuns.title": "Read Runs Again",
   "viewsContainers.mboss.title": "mBoss",
   "views.agentSidebar.name": "Agent",
-  "views.nodeInspector.name": "Node Inspector",
   "views.runs.name": "Runs",
   "customEditors.workflowCanvas.displayName": "mBoss Canvas",
   "configuration.title": "mBoss",
@@ -21,5 +24,5 @@
   "configuration.agent.id.custom": "Any program that speaks the Agent Client Protocol, named below",
   "configuration.agent.command.description": "The program to start for the custom agent. Ignored unless mboss.agent.id is custom.",
   "configuration.agent.args.description": "Arguments passed to the custom agent, one per entry, exactly as written.",
-  "capabilities.untrustedWorkspaces.description": "Viewing and editing a workflow works in a restricted window. Generating code, running a coding agent and reading a project's run history all execute or connect to workspace-supplied things, so they stay disabled until you trust the folder."
+  "capabilities.untrustedWorkspaces.description": "Viewing and editing a workflow works in a restricted window. Generating code, running a coding agent, reading a project's run history and starting its local stack all execute or connect to workspace-supplied things, so they stay disabled until you trust the folder."
 }

@@ -11,16 +11,12 @@
  *
  * The one place boldness is spent is the hatched
  * band. Everything else is flat rectangles on
- * hairline tracks with square corners — no shadows,
- * no rounding, no motion — so that the one diagonal
- * texture on the page is unmistakably the thing
- * that went wrong.
+ * hairline tracks — no shadows, no motion — so that
+ * the one diagonal texture on the page is
+ * unmistakably the thing that went wrong.
  */
 
 body {
-  --color-fail: var(--vscode-editorError-foreground, var(--color-text));
-  --color-warn: var(--vscode-editorWarning-foreground, var(--color-accent));
-
   /* The label column, named once: the band layer
      and the time axis both have to start exactly
      where the tracks do. */
@@ -29,7 +25,7 @@ body {
   /* The one texture on the page, defined once. */
   --hatch: repeating-linear-gradient(
     45deg,
-    color-mix(in srgb, var(--color-fail) 26%, transparent) 0 2px,
+    color-mix(in srgb, var(--fail) 26%, transparent) 0 2px,
     transparent 2px 6px
   );
 }
@@ -61,35 +57,35 @@ body {
 
 .state {
   margin: 0;
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+  font-size: var(--text-sm);
+  color: color-mix(in srgb, var(--ink) 70%, transparent);
 }
 
 /* — the head — */
 
 .crumb {
   margin: 0 0 var(--space-1);
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  font-size: var(--text-sm);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 .see-head > .title[data-severity='failed'],
 .see-head > .title[data-severity='exhausted'] {
-  color: var(--color-fail);
+  color: var(--fail);
 }
 
 .see-head > .title[data-severity='running'] {
-  color: var(--color-warn);
+  color: var(--warn);
 }
 
 /* — the banner — */
 
 .recovered {
-  background: var(--tint-accent);
+  background: var(--brand-tint);
 }
 
 .recovered > .eyebrow {
-  color: var(--color-accent);
+  color: var(--brand);
   margin-bottom: var(--space-2);
 }
 
@@ -117,7 +113,7 @@ body {
 .chips > li + li::before {
   content: '→';
   margin-right: var(--space-2);
-  color: color-mix(in srgb, var(--color-text) 40%, transparent);
+  color: color-mix(in srgb, var(--ink) 40%, transparent);
 }
 
 .chips > li {
@@ -129,44 +125,43 @@ body {
   display: inline-flex;
   align-items: baseline;
   gap: var(--space-1);
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--hairline);
   border-radius: 0;
   background: transparent;
-  color: var(--color-text);
+  color: var(--ink);
   font: inherit;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
   padding: 2px var(--space-2);
   cursor: pointer;
 }
 
 .chip[aria-current='true'] {
-  border-color: var(--color-text);
-  background: var(--tint-text);
+  border-color: var(--ink);
+  background: var(--surface-2);
 }
 
 .chip-mark {
-  color: var(--color-accent);
+  color: var(--brand);
 }
 
 .chip[data-failed='true'] .chip-mark {
-  color: var(--color-fail);
+  color: var(--fail);
 }
 
 .chip-restored {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-accent);
+  color: var(--brand);
 }
 
 /* — the chart — */
 
 .legend {
   margin: var(--space-1) 0 var(--space-3);
-  font-size: var(--text-caption);
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  font-size: var(--text-sm);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 .hatch-key {
@@ -174,7 +169,7 @@ body {
   width: 2.2em;
   height: 0.8em;
   vertical-align: -1px;
-  border: 1px solid var(--color-fail);
+  border: 1px solid var(--fail);
   background: var(--hatch);
 }
 
@@ -191,7 +186,7 @@ body {
 }
 
 .chart-label {
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -201,7 +196,7 @@ body {
   position: relative;
   display: block;
   height: 14px;
-  border-top: 1px solid var(--color-divider);
+  border-top: 1px solid var(--hairline);
 }
 
 /* The layer the band lives in: exactly the tracks,
@@ -225,14 +220,14 @@ body {
   position: absolute;
   inset-block: 0;
   background: var(--hatch);
-  border-left: 1px dashed var(--color-fail);
-  border-right: 1px dashed var(--color-accent);
+  border-left: 1px dashed var(--fail);
+  border-right: 1px dashed var(--brand);
 }
 
 .bar {
   position: absolute;
   inset-block: 3px;
-  background: var(--color-accent);
+  background: var(--brand);
 }
 
 /* A restored step is drawn hollow: its bar is where
@@ -240,15 +235,15 @@ body {
    again. */
 .bar[data-restored='true'] {
   background: transparent;
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--brand);
 }
 
 .bar[data-failed='true'] {
-  background: var(--color-fail);
+  background: var(--fail);
 }
 
 .bar[aria-current='true'] {
-  outline: 1px solid var(--color-text);
+  outline: 1px solid var(--ink);
   outline-offset: 1px;
 }
 
@@ -262,7 +257,7 @@ body {
   height: 1.4em;
   margin: var(--space-1) 0 0;
   margin-left: calc(var(--label-col) + var(--space-3));
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 .band-labels > span {
@@ -272,11 +267,11 @@ body {
 }
 
 .band-labels > .down {
-  color: var(--color-fail);
+  color: var(--fail);
 }
 
 .band-labels > .resumed {
-  color: var(--color-accent);
+  color: var(--brand);
 }
 
 .ticks {
@@ -289,15 +284,15 @@ body {
 .ticks > span {
   position: absolute;
   transform: translateX(-50%);
-  font-size: var(--text-eyebrow);
-  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+  font-size: var(--text-xs);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
   white-space: nowrap;
 }
 
 /* — the raw table — */
 
 .raw-block > .eyebrow {
-  color: var(--color-accent);
+  color: var(--brand);
   margin-bottom: var(--space-2);
 }
 
@@ -305,34 +300,33 @@ body {
   width: 100%;
   border-collapse: collapse;
   font-family: var(--font-mono);
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
   table-layout: fixed;
 }
 
 .raw th,
 .raw td {
-  border-top: 1px solid var(--color-divider);
+  border-top: 1px solid var(--hairline);
   padding: var(--space-1) var(--space-2);
   text-align: left;
   overflow-wrap: anywhere;
 }
 
 .raw th {
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  color: color-mix(in srgb, var(--ink) 60%, transparent);
 }
 
 .raw tr[aria-current='true'] {
-  background: var(--tint-accent);
+  background: var(--brand-tint);
 }
 
 .raw .output {
   width: 50%;
-  color: color-mix(in srgb, var(--color-text) 75%, transparent);
+  color: color-mix(in srgb, var(--ink) 75%, transparent);
 }
 
 /* — the rail — */
@@ -346,7 +340,7 @@ body {
 }
 
 .rail .eyebrow {
-  color: var(--color-accent);
+  color: var(--brand);
   margin-bottom: var(--space-3);
 }
 
@@ -359,12 +353,12 @@ body {
   grid-template-columns: 11rem minmax(0, 1fr);
   gap: var(--space-2);
   padding: var(--space-1) 0;
-  border-top: 1px solid var(--color-divider);
-  font-size: var(--text-caption);
+  border-top: 1px solid var(--hairline);
+  font-size: var(--text-sm);
 }
 
 .ledger dt {
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
   overflow-wrap: anywhere;
 }
 
@@ -375,25 +369,24 @@ body {
 
 .ledger-note {
   margin: var(--space-3) 0 0;
-  font-size: var(--text-eyebrow);
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  font-size: var(--text-xs);
+  color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
 .replay-note {
   margin: 0;
-  font-size: var(--text-caption);
-  border-left: 2px solid var(--color-accent);
+  font-size: var(--text-sm);
+  border-left: 2px solid var(--brand);
   padding-left: var(--space-2);
 }
 
 .primary {
-  border: 1px solid var(--color-accent);
+  border: 1px solid var(--brand);
   border-radius: 0;
-  background: var(--color-accent);
-  color: var(--vscode-button-foreground, var(--color-bg));
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  background: var(--brand);
+  color: var(--on-brand);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
   padding: var(--space-2) var(--space-3);

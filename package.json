@@ -55,16 +55,57 @@
         "category": "%commands.category%"
       },
       {
+        "command": "mboss.startStack",
+        "title": "%commands.startStack.title%",
+        "category": "%commands.category%"
+      },
+      {
+        "command": "mboss.stopStack",
+        "title": "%commands.stopStack.title%",
+        "category": "%commands.category%"
+      },
+      {
+        "command": "mboss.runWorkflow",
+        "title": "%commands.runWorkflow.title%",
+        "category": "%commands.category%"
+      },
+      {
+        "command": "mboss.arrangeWorkflow",
+        "title": "%commands.arrangeWorkflow.title%",
+        "category": "%commands.category%",
+        "enablement": "activeCustomEditorId == mboss.workflowCanvas"
+      },
+      {
         "command": "_mboss.refreshRuns#sideBar",
         "title": "%commands.refreshRuns.title%",
         "category": "%commands.category%",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "_mboss.startStack#sideBar",
+        "title": "%commands.startStack.title%",
+        "category": "%commands.category%",
+        "icon": "$(play)"
+      },
+      {
+        "command": "_mboss.stopStack#sideBar",
+        "title": "%commands.stopStack.title%",
+        "category": "%commands.category%",
+        "icon": "$(debug-stop)"
       }
     ],
     "menus": {
       "commandPalette": [
         {
           "command": "_mboss.refreshRuns#sideBar",
+          "when": "false"
+        },
+        {
+          "command": "_mboss.startStack#sideBar",
+          "when": "false"
+        },
+        {
+          "command": "_mboss.stopStack#sideBar",
           "when": "false"
         }
       ],
@@ -73,6 +114,16 @@
           "command": "_mboss.refreshRuns#sideBar",
           "when": "view == mboss.runs",
           "group": "navigation@1"
+        },
+        {
+          "command": "_mboss.startStack#sideBar",
+          "when": "view == mboss.runs && !mboss.stackUp",
+          "group": "navigation@2"
+        },
+        {
+          "command": "_mboss.stopStack#sideBar",
+          "when": "view == mboss.runs && mboss.stackUp",
+          "group": "navigation@2"
         }
       ]
     },
@@ -90,14 +141,7 @@
         {
           "type": "webview",
           "id": "mboss.agentSidebar",
-          "name": "%views.agentSidebar.name%",
-          "when": "!mboss.nodeSelected"
-        },
-        {
-          "type": "webview",
-          "id": "mboss.nodeInspector",
-          "name": "%views.nodeInspector.name%",
-          "when": "mboss.nodeSelected"
+          "name": "%views.agentSidebar.name%"
         },
         {
           "type": "webview",

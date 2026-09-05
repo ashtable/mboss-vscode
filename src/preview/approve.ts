@@ -46,6 +46,19 @@ export const APPROVAL_PROMPT =
 export type ApproveDeps = {
   project: string;
 
+  /**
+   * The proposal is the document, and nothing has
+   * been done about it yet.
+   *
+   * Here rather than in the answer, because the
+   * two steps after it take as long as a compile
+   * and an agent's whole turn — so anything the
+   * caller writes about the approval on the way
+   * back would be written after everything the
+   * approval set going.
+   */
+  applied: () => void;
+
   /** Regenerates the project's code and publishes
    *  what that found. */
   regenerate: () => Promise<void>;
@@ -70,6 +83,8 @@ export async function approveProposal(
   );
 
   if (written.at !== 'applied') return written;
+
+  deps.applied();
 
   await deps.regenerate();
   await deps.notify(APPROVAL_PROMPT);

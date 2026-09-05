@@ -1,6 +1,7 @@
 import { ProgressLocation, Uri, commands, window, workspace } from 'vscode';
 
 import type { ProjectHost } from './newProject.js';
+import type { RunWorkflowHost } from './runWorkflow.js';
 
 /**
  * The editor, as making a project reaches for it.
@@ -16,8 +17,6 @@ import type { ProjectHost } from './newProject.js';
  */
 export function projectHost(): ProjectHost {
   return {
-    isTrusted: () => workspace.isTrusted,
-
     folders: () =>
       (workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
 
@@ -72,5 +71,33 @@ export function projectHost(): ProjectHost {
         forceNewWindow: options.newWindow,
       });
     },
+  };
+}
+
+/** The editor, as running a workflow by hand reaches
+ *  for it. */
+export function runWorkflowHost(): RunWorkflowHost {
+  return {
+    pick: async (title, choices) => {
+      const picked = await window.showQuickPick(
+        choices.map((choice) => ({
+          label: choice.label,
+          detail: choice.detail,
+          id: choice.id,
+        })),
+        { title },
+      );
+
+      return picked?.id;
+    },
+
+    ask: async (prompt) =>
+      await window.showInputBox({
+        title: prompt.title,
+        prompt: prompt.prompt,
+        value: prompt.value,
+      }),
+
+    info: (message) => void window.showInformationMessage(message),
   };
 }

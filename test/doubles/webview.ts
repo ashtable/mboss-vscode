@@ -21,6 +21,17 @@ export type FakeWebview = {
    *  would. */
   close(): void;
 
+  /** Makes this the panel a person is looking at,
+   *  which is how a command finds the editor it is
+   *  about. */
+  focus(): void;
+
+  /** Hides and shows the panel, as a tab going to
+   *  the background and coming back would. A hidden
+   *  frame is not painted. */
+  hide(): void;
+  show(): void;
+
   /** The panel, typed loosely on purpose: a
    *  provider takes VS Code's own type, and
    *  narrowing this to it here would mean building
@@ -54,6 +65,11 @@ export function fakeWebview(): FakeWebview {
 
   const panel = {
     webview,
+    // Off until a test says otherwise: several
+    // panels can be open at once, and only one of
+    // them is the tab in front of somebody.
+    active: false,
+    visible: true,
     onDidDispose: (listener: () => void) => {
       closers.push(listener);
 
@@ -68,6 +84,15 @@ export function fakeWebview(): FakeWebview {
     },
     close: () => {
       for (const closer of closers) closer();
+    },
+    focus: () => {
+      panel.active = true;
+    },
+    hide: () => {
+      panel.visible = false;
+    },
+    show: () => {
+      panel.visible = true;
     },
     panel: panel as never,
   };

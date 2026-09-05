@@ -1,3 +1,7 @@
+import type { Disposable } from 'vscode';
+
+import { emitter } from '../emitter.js';
+import type { Trust } from '../trust.js';
 import {
   AgentStartError,
   openAgentSession,
@@ -17,12 +21,18 @@ import type { AgentCommand, AgentId } from './registry.js';
 import {
   IDLE,
   nextSession,
+  sendingWhile,
   type Failure,
   type SessionEvent,
   type SessionState,
 } from './session.js';
-import { foldUpdate, type PermissionPrompt } from './transcript.js';
-import type { TranscriptEntry } from './transcript.js';
+import { foldUpdate, said, type PermissionPrompt } from './transcript.js';
+import type {
+  DiagnosticEntry,
+  FileEditEntry,
+  ToolEntry,
+  TranscriptEntry,
+} from './transcript.js';
 
 /**
  * The agent, as the extension holds it.
@@ -76,8 +86,6 @@ export type PanelState = {
  * implement things it has no opinion about.
  */
 export type PanelHost = {
-  isTrusted(): boolean;
-
   /** Where a session would run. The first folder
    *  in the window. */
   project(): string | undefined;
@@ -109,11 +117,38 @@ export type AgentPanel = {
    * per selection, for as long as the window is
    * open.
    */
-  onChanged(listener: () => void): () => void;
+  onChanged(listener: () => void): Disposable;
 
   /** Repaints from state that changed outside this
    *  module — trust granted, a setting written. */
   refresh(): void;
+
+  /**
+   * Adds an entry the extension wrote itself.
+   *
+   * A proposal applied, a regeneration that failed,
+   * a workflow run — things a person needs to see
+   * in the same column as what the agent did,
+   * because that is the order they happened in.
+   * What tells them apart is the entry's own
+   * provenance.
+   */
+  note(entry: ToolEntry | DiagnosticEntry): void;
+
+  /** Marks one pending file edit kept. Does nothing
+   *  to a decision already made, or to an id that
+   *  names no file. */
+  keep(id: string): void;
+
+  /**
+   * Writes a pending file edit's `oldText` back — or,
+   * for a file that did not exist before it, removes
+   * the file — but only while the file's current
+   * content still equals `newText`. Otherwise the
+   * entry becomes `changed-since` and nothing is
+   * written.
+   */
+  undo(id: string): Promise<void>;
 
   /** Starts the agent if it is not running, then
    *  runs one turn. */
@@ -132,9 +167,9 @@ export type AgentPanel = {
   dispose(): void;
 };
 
-export function agentPanel(host: PanelHost): AgentPanel {
+export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
   const memory = permissionMemory(host.state);
-  const listeners = new Set<() => void>();
+  const changes = emitter();
 
   let session: SessionState = IDLE;
   let live: AgentSession | undefined;
@@ -157,8 +192,28 @@ export function agentPanel(host: PanelHost): AgentPanel {
    */
   let queued: string[] = [];
 
-  const changed = (): void => {
-    for (const listener of listeners) listener();
+  const changed = changes.fire;
+
+  // Trust arriving changes what the panel shows,
+  // without the session moving at all.
+  const granted = trust.onGranted(changed);
+
+  const pendingFile = (id: string): FileEditEntry | undefined => {
+    const found = transcript.find(
+      (entry): entry is FileEditEntry => entry.at === 'file' && entry.id === id,
+    );
+
+    return found?.decision === 'pending' ? found : undefined;
+  };
+
+  const decideFile = (
+    entry: FileEditEntry,
+    decision: FileEditEntry['decision'],
+  ): void => {
+    transcript = transcript.map((item) =>
+      item === entry ? { ...entry, decision } : item,
+    );
+    changed();
   };
 
   const move = (event: SessionEvent): void => {
@@ -226,30 +281,35 @@ export function agentPanel(host: PanelHost): AgentPanel {
     const project = host.project();
     const chosen = host.chosen();
 
-    if (!host.isTrusted() || project === undefined) return;
+    if (!trust.isTrusted() || project === undefined) return;
     if (chosen?.launch === undefined) return;
 
-    // A turn at a time. The agent is the one who
-    // decides when this one is over, so anything
-    // asked for during it waits here until it is.
-    if (session.at === 'streaming' || session.at === 'awaitingPermission') {
+    // Whether this can go now is the session's
+    // question, answered beside its states: a prompt
+    // that arrives mid-turn, or while the agent is
+    // still coming up, waits here for its turn.
+    const sending = sendingWhile(session);
+
+    if (sending === 'queue') {
       queued.push(text);
 
       return;
     }
 
-    if (live === undefined) await start(project, chosen.launch);
-    if (live === undefined) return;
+    if (sending === 'spawn') await start(project, chosen.launch);
 
-    transcript = [
-      ...transcript,
-      {
-        at: 'message',
-        id: `message-${transcript.filter((e) => e.at === 'message').length}`,
-        from: 'user',
-        text,
-      },
-    ];
+    // A start that failed has nothing to send this
+    // to, and nothing that was waiting for it either:
+    // the person has been shown why, and their next
+    // prompt starts afresh rather than behind a
+    // prompt from before.
+    if (live === undefined) {
+      queued = [];
+
+      return;
+    }
+
+    transcript = said(transcript, text);
     move({ is: 'prompted' });
     changed();
 
@@ -269,7 +329,7 @@ export function agentPanel(host: PanelHost): AgentPanel {
       const chosen = host.chosen();
 
       return {
-        status: statusOf(host, chosen, session),
+        status: statusOf(trust, host, chosen, session),
         agent: chosen?.id,
         transcript,
         prompt:
@@ -278,13 +338,50 @@ export function agentPanel(host: PanelHost): AgentPanel {
       };
     },
 
-    onChanged: (listener) => {
-      listeners.add(listener);
-
-      return () => listeners.delete(listener);
-    },
+    onChanged: changes.on,
 
     refresh: changed,
+
+    note: (entry) => {
+      transcript = [...transcript, entry];
+      changed();
+    },
+
+    keep: (id) => {
+      const entry = pendingFile(id);
+
+      if (entry !== undefined) decideFile(entry, 'kept');
+    },
+
+    undo: async (id) => {
+      const entry = pendingFile(id);
+
+      // Nothing was kept past the cap, so there is
+      // nothing to compare or to write back.
+      if (entry === undefined || entry.newText === undefined) return;
+
+      let current: string | undefined;
+
+      try {
+        current = await host.files.read(entry.path);
+      } catch {
+        current = undefined;
+      }
+
+      if (current !== entry.newText) {
+        decideFile(entry, 'changed-since');
+
+        return;
+      }
+
+      if (entry.isNew) {
+        await host.files.remove(entry.path);
+      } else {
+        await host.files.write(entry.path, entry.oldText ?? '');
+      }
+
+      decideFile(entry, 'undone');
+    },
 
     send,
 
@@ -320,7 +417,8 @@ export function agentPanel(host: PanelHost): AgentPanel {
     },
 
     dispose: () => {
-      listeners.clear();
+      granted.dispose();
+      changes.dispose();
       live?.close();
       live = undefined;
     },
@@ -336,11 +434,12 @@ export function agentPanel(host: PanelHost): AgentPanel {
  * opened in one; then an agent.
  */
 function statusOf(
+  trust: Trust,
   host: PanelHost,
   chosen: { launch: AgentCommand | undefined } | undefined,
   session: SessionState,
 ): PanelStatus {
-  if (!host.isTrusted()) return 'untrusted';
+  if (!trust.isTrusted()) return 'untrusted';
   if (host.project() === undefined) return 'no-project';
   if (chosen?.launch === undefined) return 'no-agent';
 

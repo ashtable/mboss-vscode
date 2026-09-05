@@ -2,8 +2,6 @@ import { messages } from '../messages.js';
 import type {
   RunRow,
   RunSeverity,
-  RunsInit,
-  RunsState,
   SeeBar,
   SeeChip,
   SeeInit,
@@ -11,31 +9,30 @@ import type {
   SeeRawRow,
   SeeRun,
   SeeTimeline,
+  SessionRow,
 } from '../webview/protocol.js';
 
-import type { RunFilter } from './queries.js';
-import {
-  hasRecovered,
-  recoveriesOf,
-  type Run,
-  type RunCounts,
-  type Step,
-} from './rows.js';
+import { seeWords } from './words.js';
+import { hasRecovered, recoveriesOf, type Run, type Step } from './rows.js';
+import type { SessionRun } from './sessionLog.js';
 import { runTimeline, type Timeline } from './timeline.js';
+import type { ProjectWorkflow } from './workflows.js';
 
 /**
- * A run history, in the words and shapes the two
- * views draw.
+ * A row of the run history, a row of this session,
+ * and one run in detail, in the words the views
+ * draw.
  *
- * Everything a person reads is resolved here,
- * because a webview has no localization bundle.
- * And every position is a fraction of the chart's
- * own window rather than a pixel, because the
- * panel is resizable and the host has no idea how
- * wide it is — so the arithmetic is done once, in
- * one place with a test around it, instead of in a
- * renderer that would need to be handed the window
- * to do it.
+ * What a person reads on a row is resolved here,
+ * because a webview has no localization bundle;
+ * the store that holds the rows renders the list
+ * from these. And every position on the chart is
+ * a fraction of its own window rather than a
+ * pixel, because the panel is resizable and the
+ * host has no idea how wide it is — so the
+ * arithmetic is done once, in one place with a
+ * test around it, instead of in a renderer that
+ * would need to be handed the window to do it.
  */
 
 /** Statuses that mean the run has not finished. */
@@ -51,25 +48,19 @@ const IN_FLIGHT = new Set(['PENDING', 'ENQUEUED', 'DELAYED']);
  */
 const OUTPUT_CELL = 120;
 
-export type RunsView = {
-  /** As a person reads it: the folder's own name. */
-  project: string | undefined;
+/**
+ * Why a run did not start.
+ *
+ * `rebuildToRun` travels apart from the sentence
+ * so the panel can offer the same Rebuild action
+ * the stack zone's `app` row does, rather than
+ * parsing the sentence to find out which problem
+ * this was.
+ */
+export type TestRunProblem = {
+  detail: string;
 
-  state: RunsState;
-
-  /** Why there is nothing to show. */
-  detail: string | undefined;
-
-  /** Host and database, never the credentials. */
-  database: string | undefined;
-
-  filter: RunFilter;
-
-  counts: RunCounts;
-
-  runs: Run[];
-
-  selected: string | undefined;
+  rebuildToRun: boolean;
 };
 
 export type SeeView = {
@@ -83,26 +74,46 @@ export type SeeView = {
   note: string | undefined;
 };
 
-export function runsInit(view: RunsView): RunsInit {
+/**
+ * One session run, in the words the panel draws.
+ *
+ * `keyed` comes from the document rather than from
+ * the run: whether sending this input again is the
+ * same run is a fact about the workflow's trigger,
+ * and it is what decides which of the two actions
+ * the row offers.
+ */
+export function sessionRowOf(
+  run: SessionRun,
+  workflows: readonly ProjectWorkflow[],
+): SessionRow {
+  const trigger = workflows.find((flow) => flow.name === run.workflow)?.trigger;
+
   return {
-    type: 'init',
-    view: 'runs',
-    strings: messages.runsStrings(view.database),
-    project: view.project,
-    state: view.state,
-    detail: view.detail,
-    filter: view.filter,
-    counts: view.counts,
-    rows: view.runs.map(rowOf),
-    selected: view.selected,
+    workflowId: run.workflowId,
+    workflow: run.workflow,
+    outcome: run.outcome,
+    when: sessionWhen(run),
+    stepCount: run.stepCount,
+    recovered: run.recovered,
+    error: run.failedStep?.error ?? run.error,
+    keyed: trigger?.mode === 'event' && trigger.keyPath !== undefined,
   };
+}
+
+function sessionWhen(run: SessionRun): string {
+  const at = clock(run.startedAt);
+
+  return run.durationMs === undefined
+    ? at
+    : `${at} · ${duration(run.durationMs)}`;
 }
 
 export function seeInit(view: SeeView | undefined): SeeInit {
   return {
     type: 'init',
     view: 'see',
-    strings: messages.seeStrings(),
+    strings: seeWords(),
     run: view === undefined ? undefined : seeRun(view),
   };
 }
@@ -134,7 +145,7 @@ function seeRun(view: SeeView): SeeRun {
   };
 }
 
-function rowOf(run: Run): RunRow {
+export function rowOf(run: Run): RunRow {
   return {
     workflowId: run.workflowId,
     name: run.name,

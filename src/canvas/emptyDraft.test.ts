@@ -3,7 +3,12 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { WorkflowIRSchema, validateWorkflow } from '../core/rules.js';
+import {
+  NODE_PALETTE,
+  WorkflowIRSchema,
+  validateWorkflow,
+  type NodeKind,
+} from '../core/rules.js';
 
 import { toReactFlow } from './graph.js';
 
@@ -34,9 +39,16 @@ const ir = WorkflowIRSchema.parse(
   ),
 );
 
+const drawing = {
+  labels: Object.fromEntries(
+    NODE_PALETTE.map((entry) => [entry.kind, entry.label]),
+  ) as Record<NodeKind, string>,
+  unassigned: 'unassigned',
+};
+
 describe('an empty draft', () => {
   it('draws as an empty graph rather than refusing to draw', () => {
-    expect(toReactFlow(ir, {})).toEqual({ nodes: [], edges: [] });
+    expect(toReactFlow(ir, {}, drawing)).toEqual({ nodes: [], edges: [] });
   });
 
   it('is reported on, and nothing reported is an error', () => {

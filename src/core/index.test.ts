@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { NODE_PALETTE, WorkflowIRSchema } from './rules.js';
 import { nextDocument, readWorkflow } from './index.js';
-import { messages } from '../messages.js';
+import { paletteLabels } from '../canvas/words.js';
 import { CORE_ROOT, sourceFiles } from '../test-support/repo.js';
 
 const GROOM_BOOKING = join(
@@ -114,14 +114,14 @@ describe('the next version of a document', () => {
  */
 describe('the palette labels', () => {
   it('cover exactly the kinds the catalog offers', () => {
-    expect(Object.keys(messages.paletteLabels()).sort()).toEqual(
+    expect(Object.keys(paletteLabels()).sort()).toEqual(
       NODE_PALETTE.map((entry) => entry.kind).sort(),
     );
   });
 
   it('still say what the catalog says they say', () => {
     for (const entry of NODE_PALETTE) {
-      expect(messages.paletteLabels()[entry.kind]).toBe(entry.label);
+      expect(paletteLabels()[entry.kind]).toBe(entry.label);
     }
   });
 });

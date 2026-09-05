@@ -8,11 +8,11 @@ import {
   type WebviewViewProvider,
 } from 'vscode';
 
-import { messages } from '../messages.js';
-import { mountWebview } from '../webview/host.js';
+import { mountWebview, type Mount } from '../webview/host.js';
 
 import type { RunsStore } from './store.js';
-import { runsInit, seeInit } from './view.js';
+import { seeInit } from './view.js';
+import { runsWords, seeWords } from './words.js';
 
 /**
  * The two surfaces a run history has.
@@ -48,27 +48,44 @@ export class RunsListView implements WebviewViewProvider {
   }
 
   resolveWebviewView(view: WebviewView): void {
-    const mounted = mountWebview(view.webview, {
+    mountWebview(view, {
       extensionUri: this.extensionUri,
       view: 'runs',
-      title: messages.runsStrings(undefined).heading,
-      init: () => runsInit(this.store.list()),
-      onMessage: (message) => {
+      title: runsWords().heading,
+      init: () => this.store.list(),
+      follows: [(repaint) => this.store.onChanged(repaint)],
+      heard: (message) => {
         if (message.type === 'runRefresh') void this.store.refresh();
 
         if (message.type === 'runFilter') {
           void this.store.setFilter(message.filter);
         }
 
-        if (message.type === 'runSelect') {
+        // Both open the flight recorder: one from
+        // the history list, one from a row of what
+        // this session started.
+        if (message.type === 'runSelect' || message.type === 'openRun') {
           void this.open(message.workflowId);
         }
-      },
-    });
 
-    const changed = this.store.onChanged(() => {
-      if (view.visible)
-        void view.webview.postMessage(runsInit(this.store.list()));
+        if (message.type === 'stackUp') void this.store.stackUp();
+        if (message.type === 'stackDown') void this.store.stackDown();
+        if (message.type === 'stackRebuild') void this.store.stackRebuild();
+
+        if (message.type === 'selectWorkflow') {
+          this.store.selectWorkflow(message.workflow);
+        }
+
+        if (message.type === 'runWorkflow') {
+          void this.store.runWorkflow(message.workflow, message.input);
+        }
+
+        if (message.type === 'rerun') void this.store.rerun(message.workflowId);
+
+        if (message.type === 'askAgent') {
+          void this.store.askAgent(message.workflowId);
+        }
+      },
     });
 
     // Read when it is shown rather than on a timer.
@@ -76,11 +93,6 @@ export class RunsListView implements WebviewViewProvider {
     // polling one all afternoon is a cost nobody
     // asked for.
     void this.store.refresh();
-
-    view.onDidDispose(() => {
-      mounted.dispose();
-      changed.dispose();
-    });
   }
 
   private async open(workflowId: string): Promise<void> {
@@ -100,40 +112,44 @@ export class RunsListView implements WebviewViewProvider {
 export class SeePanel {
   private panel: WebviewPanel | undefined;
 
-  private mounted: Disposable | undefined;
+  private mounted: Mount | undefined;
 
   constructor(
     private readonly extensionUri: Uri,
     private readonly store: RunsStore,
   ) {}
 
-  /** Redraws whenever the store moves, so the panel
-   *  holds nothing of its own. */
-  register(): Disposable {
-    return this.store.onChanged(() => this.repaint());
-  }
-
   show(): void {
     if (this.panel !== undefined) {
       this.panel.reveal(ViewColumn.Active, false);
-      this.repaint();
+      this.retitle();
+      this.mounted?.repaint();
 
       return;
     }
 
     const panel = window.createWebviewPanel(
       'mboss.see',
-      messages.seeStrings().heading,
+      seeWords().heading,
       ViewColumn.Active,
     );
     this.panel = panel;
 
-    this.mounted = mountWebview(panel.webview, {
+    this.mounted = mountWebview(panel, {
       extensionUri: this.extensionUri,
       view: 'see',
-      title: messages.seeStrings().heading,
+      title: seeWords().heading,
       init: () => seeInit(this.store.detail()),
-      onMessage: (message) => {
+      // Redrawn whenever the store moves, so the
+      // panel holds nothing of its own.
+      follows: [
+        (repaint) =>
+          this.store.onChanged(() => {
+            this.retitle();
+            repaint();
+          }),
+      ],
+      heard: (message) => {
         if (message.type === 'stepSelect') {
           this.store.selectStep(message.functionId);
         }
@@ -144,7 +160,6 @@ export class SeePanel {
     });
 
     panel.onDidDispose(() => {
-      this.mounted?.dispose();
       this.mounted = undefined;
       this.panel = undefined;
     });
@@ -154,16 +169,14 @@ export class SeePanel {
     this.panel?.dispose();
   }
 
-  private repaint(): void {
+  /** The tab says which run it is showing, which is
+   *  the one thing about a webview panel an
+   *  extension does own. */
+  private retitle(): void {
     const detail = this.store.detail();
 
-    // The tab says which run it is showing, which
-    // is the one thing about a webview panel an
-    // extension does own.
     if (this.panel !== undefined && detail !== undefined) {
       this.panel.title = detail.run.workflowId;
     }
-
-    void this.panel?.webview.postMessage(seeInit(detail));
   }
 }

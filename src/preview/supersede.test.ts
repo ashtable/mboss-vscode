@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { fakeTrust } from '../../test/doubles/trust.js';
 import { WorkflowIRSchema } from '../core/rules.js';
 import {
   makeProject,
@@ -119,7 +120,7 @@ describe('a proposal on each of two workflows', () => {
       baseRevision: approval.revision,
     });
 
-    const store = previewStore(quietHost([project]));
+    const store = previewStore(quietHost([project]), fakeTrust());
     await store.reloadAll();
 
     expect(store.forWorkflow(project, 'groom_booking')?.candidate.title).toBe(
@@ -158,7 +159,7 @@ describe('drawing a preview', () => {
 
     const before = proposalsOnDisk(project);
 
-    const store = previewStore(quietHost([project]));
+    const store = previewStore(quietHost([project]), fakeTrust());
     await store.reloadAll();
     store.card();
     await livePreviews(project);
@@ -171,7 +172,7 @@ describe('a project with nothing outstanding', () => {
   it('has nothing to offer and nothing to draw', async () => {
     const project = await projectWithWorkflow();
 
-    const store = previewStore(quietHost([project]));
+    const store = previewStore(quietHost([project]), fakeTrust());
     await store.reloadAll();
 
     expect(store.card()).toBeUndefined();
@@ -179,14 +180,14 @@ describe('a project with nothing outstanding', () => {
   });
 });
 
-/** A host that trusts the folder and does nothing
- *  else — these specs never approve. */
+/** A host that does nothing — these specs never
+ *  approve. */
 function quietHost(folders: string[]): PreviewHost {
   return {
     folders: () => folders,
-    isTrusted: () => true,
-    regenerate: async () => {},
+    regenerate: async () => [],
     notify: async () => {},
+    note: () => {},
     say: () => {},
   };
 }

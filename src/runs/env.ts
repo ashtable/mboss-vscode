@@ -2,20 +2,20 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * Finding a project's run history.
+ * What a project's `.env` says.
  *
- * The `dbos` schema this view reads belongs to
- * whichever database the project's own app writes
- * to, so the connection string comes out of the
- * project's `.env` — never out of the environment
- * the editor was started from, which belongs to
- * somebody's shell and to whatever else they were
- * doing in it.
+ * Two things are asked of it: where the run
+ * history is, and the secret the app's own
+ * run-starting routes are guarded by. Both come
+ * out of the project's file — never out of the
+ * environment the editor was started from, which
+ * belongs to somebody's shell and to whatever else
+ * they were doing in it.
  *
  * A hand-rolled parser rather than a dotenv
  * dependency, matching the vendored server that
  * reads the same file for the same reason: one
- * file, two names, and no need for a package to
+ * file, a few names, and no need for a package to
  * find a line in it.
  */
 
@@ -49,13 +49,31 @@ export type EnvName = 'DBOS_SYSTEM_DATABASE_URL' | 'DATABASE_URL';
  */
 const NAMES: readonly EnvName[] = ['DBOS_SYSTEM_DATABASE_URL', 'DATABASE_URL'];
 
-export function systemDatabaseUrl(projectDir: string): SystemDatabaseUrl {
-  const path = join(projectDir, '.env');
+/** The name the scaffold writes the ingress
+ *  secret under. */
+const EVENTS_SECRET = 'EVENTS_SECRET';
 
-  let contents: string;
-  try {
-    contents = readFileSync(path, 'utf8');
-  } catch {
+/**
+ * The questions a project's `.env` answers, as one
+ * object.
+ *
+ * Taken as an interface by whatever asks them, so
+ * that a caller can be driven without a file on
+ * disk.
+ */
+export type ProjectEnv = {
+  systemDatabaseUrl(projectDir: string): SystemDatabaseUrl;
+
+  eventsSecret(projectDir: string): string | undefined;
+
+  describeDatabase(url: string): string;
+};
+
+export function systemDatabaseUrl(projectDir: string): SystemDatabaseUrl {
+  const path = envPath(projectDir);
+  const contents = envFile(path);
+
+  if (contents === undefined) {
     return { ok: false, because: 'no-env-file', path };
   }
 
@@ -67,6 +85,38 @@ export function systemDatabaseUrl(projectDir: string): SystemDatabaseUrl {
 
   return { ok: false, because: 'no-url', path };
 }
+
+/** The value a project's `.env` gives one name, or
+ *  nothing where the file or the name is not
+ *  there. */
+export function envValue(projectDir: string, name: string): string | undefined {
+  const contents = envFile(envPath(projectDir));
+
+  return contents === undefined ? undefined : valueOf(contents, name);
+}
+
+/**
+ * The secret every run-starting route is guarded
+ * by.
+ *
+ * A name with nothing after it is no secret rather
+ * than a short one: the app refuses to build a
+ * guard out of an empty string, because an absent
+ * header compares equal to it.
+ */
+export function eventsSecret(projectDir: string): string | undefined {
+  const secret = envValue(projectDir, EVENTS_SECRET);
+
+  return secret === '' ? undefined : secret;
+}
+
+/** The project's own file, which is the only one
+ *  any of this reads. */
+export const projectEnv: ProjectEnv = {
+  systemDatabaseUrl,
+  eventsSecret,
+  describeDatabase,
+};
 
 /**
  * A connection string as it may be shown.
@@ -93,6 +143,20 @@ export function describeDatabase(url: string): string {
   return database === ''
     ? `${parsed.hostname}${port}`
     : `${parsed.hostname}${port}/${database}`;
+}
+
+function envPath(projectDir: string): string {
+  return join(projectDir, '.env');
+}
+
+/** The file, or nothing — a project that has none
+ *  is a state the panel draws a sentence for. */
+function envFile(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 /**

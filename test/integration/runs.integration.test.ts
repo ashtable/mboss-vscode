@@ -7,6 +7,8 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { openDatabase, openFork } from '../../src/runs/db.js';
+import { fakeTrust } from '../doubles/trust.js';
+import { sessionLog } from '../../src/runs/sessionLog.js';
 import { runsStore, type RunsStore } from '../../src/runs/store.js';
 
 /**
@@ -171,11 +173,36 @@ describe('a run history, read from a real dbos schema', () => {
     store = runsStore({
       host: {
         projects: () => [dir],
-        isTrusted: () => true,
         say: (message) => said.push(message),
+        setContext: () => undefined,
+        note: () => undefined,
+        notify: async () => undefined,
       },
+      trust: fakeTrust(),
       open: openDatabase,
       openFork,
+      // This suite reads a real ledger and forks a
+      // real run. Nothing here starts a container
+      // or an ingress, so the collaborators that
+      // would are answers rather than effects.
+      stack: {
+        up: async () => undefined,
+        rebuild: async () => undefined,
+        down: async () => undefined,
+        status: async () => ({
+          available: false,
+          services: [],
+          detail: undefined,
+        }),
+        appOrigin: async () => undefined,
+      },
+      runner: async () => ({
+        ok: false,
+        because: 'refused',
+        detail: 'no ingress in this suite',
+      }),
+      watch: () => ({ stop: () => undefined }),
+      sessionLog: sessionLog(),
     });
   });
 
@@ -190,7 +217,7 @@ describe('a run history, read from a real dbos schema', () => {
 
     const list = store.list();
     expect(list.state).toBe('ok');
-    expect(list.runs.map((run) => run.workflowId).sort()).toEqual([
+    expect(list.rows.map((row) => row.workflowId).sort()).toEqual([
       FAILED_RUN,
       OK_RUN,
       RECOVERED_RUN,
@@ -244,17 +271,17 @@ describe('a run history, read from a real dbos schema', () => {
    */
   it('filters on what the database itself calls failed', async () => {
     await store.setFilter('failed');
-    expect(store.list().runs.map((run) => run.workflowId)).toEqual([
+    expect(store.list().rows.map((row) => row.workflowId)).toEqual([
       FAILED_RUN,
     ]);
 
     await store.setFilter('recovered');
-    expect(store.list().runs.map((run) => run.workflowId)).toEqual([
+    expect(store.list().rows.map((row) => row.workflowId)).toEqual([
       RECOVERED_RUN,
     ]);
 
     await store.setFilter('all');
-    expect(store.list().runs).toHaveLength(3);
+    expect(store.list().rows).toHaveLength(3);
   });
 
   /**

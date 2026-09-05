@@ -25,11 +25,12 @@ import type { Problem } from '../problem.js';
  *
  * Everything here is something only a running
  * editor can do — mint a file watcher, own the
- * PROBLEMS panel, know whether a person has trusted
- * this folder. Which is why the watchers take it
+ * PROBLEMS panel. Which is why the watchers take it
  * rather than import it: none of that is available
  * to a test, and none of it is what the watchers
- * are for.
+ * are for. Whether the folder is trusted is not
+ * here either: that is `Trust`, handed to the
+ * watchers beside this.
  */
 
 /** Where problems go to be seen. */
@@ -44,13 +45,6 @@ export type ProblemSink = {
 export type WatchHost = {
   /** Every folder open in this window. */
   folders(): string[];
-
-  /** Whether the person has said this folder's
-   *  contents may be executed and written to. */
-  isTrusted(): boolean;
-
-  /** Fires when they say so, mid-session. */
-  onTrustGranted(listener: () => void): Disposable;
 
   /** Watches one glob under one folder, for
    *  anything appearing, changing or going. */
@@ -70,11 +64,6 @@ export function watchHost(): WatchHost {
   return {
     folders: () =>
       (workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
-
-    isTrusted: () => workspace.isTrusted,
-
-    onTrustGranted: (listener) =>
-      workspace.onDidGrantWorkspaceTrust(() => listener()),
 
     watch: (folder, glob, listener) => {
       const watcher = workspace.createFileSystemWatcher(

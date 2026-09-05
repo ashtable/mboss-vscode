@@ -1,20 +1,22 @@
 import type { PanelStatus } from '../acp/agent.js';
-import type { ToolCallStatus } from '../acp/connection.js';
 import type { PermissionPrompt, TranscriptEntry } from '../acp/transcript.js';
-import type {
-  InspectorField,
-  InspectorForm,
-} from '../canvas/inspector/forms.js';
+import type { InspectorField } from '../canvas/inspector/forms.js';
+import type { canvasWords, inspectorWords } from '../canvas/words.js';
 import type {
   Diagnostic,
   LibManifest,
   NodeBox,
   NodeKind,
   WorkflowIR,
-  WorkflowNode,
 } from '../core/rules.js';
 import type { RunFilter } from '../runs/queries.js';
 import type { RunCounts } from '../runs/rows.js';
+import type { ServiceHealth } from '../runs/stack.js';
+import type { StackAction } from '../runs/store.js';
+import type { LiveOutcome, LiveRun } from '../runs/watch.js';
+import type { runsWords, seeWords } from '../runs/words.js';
+import type { WorkflowTrigger } from '../runs/workflows.js';
+import type { sidebarWords } from '../sidebar/words.js';
 
 /**
  * What the host and a webview say to each other.
@@ -49,8 +51,7 @@ import type { RunCounts } from '../runs/rows.js';
  */
 
 /** Sent whenever the host has state to show. */
-export type HostMessage =
-  CanvasInit | InspectorInit | SidebarInit | RunsInit | SeeInit;
+export type HostMessage = CanvasInit | SidebarInit | RunsInit | SeeInit;
 
 export type CanvasInit = {
   type: 'init';
@@ -63,9 +64,36 @@ export type CanvasInit = {
 
   document: CanvasDocument;
 
+  /**
+   * Whether what is drawn may be edited, and against
+   * which revision.
+   *
+   * Present when the document parsed and no proposal
+   * is showing. Every gesture the panel sends carries
+   * this revision, and this is the one place a view
+   * reads it — and the one place it reads whether it
+   * may edit at all. Absent, the graph is looked at
+   * and not touched.
+   */
+  editing: CanvasEditing | undefined;
+
   /** Where each node goes, empty when the document
    *  could not be read. */
   boxes: Record<string, NodeBox>;
+
+  /**
+   * Which picture this is: the document and the
+   * layout it is drawn in, as one string.
+   *
+   * The canvas holds its own nodes once a person can
+   * drag one — a message arriving mid-drag would put
+   * the block back where the document still says it
+   * is — so it takes the host's nodes back only when
+   * this changes. A selection, a manifest that
+   * finished scanning and a run's progress leave it
+   * alone and are patched in.
+   */
+  layoutKey: string;
 
   /** What core makes of the document as it
    *  stands. */
@@ -79,9 +107,9 @@ export type CanvasInit = {
    */
   manifest: LibManifest | undefined;
 
-  /** Which node the Inspector is showing, so the
-   *  canvas can draw it as selected. */
-  selected: string | undefined;
+  /** The canvas' third column, and the one block it
+   *  is showing. */
+  inspector: CanvasInspector;
 
   /**
    * An agent's proposal, drawn over the graph.
@@ -93,6 +121,18 @@ export type CanvasInit = {
    * based on.
    */
   preview: CanvasPreview | undefined;
+
+  /**
+   * The run this canvas is drawing itself against.
+   *
+   * The one the window is following, and only when
+   * it is a run of this workflow — every other
+   * canvas is told nothing. It arrives without the
+   * document changing, so it leaves `layoutKey`
+   * alone and is patched over blocks that stay
+   * where they are.
+   */
+  run: LiveRun | undefined;
 };
 
 export type CanvasPreview = {
@@ -115,67 +155,42 @@ export type CanvasPreview = {
   more: string | undefined;
 };
 
-export type CanvasStrings = {
-  /** The caption under the graph's name. */
-  caption: string;
-
-  /** Shown when the document will not parse. */
-  unreadable: string;
-
-  /** The two halves of the view toggle. */
-  canvas: string;
-  json: string;
-
-  /** The `graph vN` caption's first word. */
-  graph: string;
-
-  /** Headings over the palette and its sections. */
-  blocks: string;
-  lib: string;
-  groups: Record<string, string>;
-
-  /** Shown in place of the code-behind list when
-   *  there is no manifest. */
-  noLib: string;
-
-  /** Titles the rejection callout. */
-  typedWiring: string;
-};
+/**
+ * The words a view draws, typed by the builder that
+ * resolves them beside the view. A type-only import,
+ * erased before any browser bundle exists, so the
+ * shape is spelled once and the host's `vscode`
+ * never reaches a page.
+ */
+export type CanvasStrings = ReturnType<typeof canvasWords>;
 
 export type CanvasDocument =
   { ok: true; ir: WorkflowIR } | { ok: false; detail: string };
 
-export type InspectorInit = {
-  type: 'init';
-  view: 'inspector';
+export type CanvasEditing = { revision: number };
+
+/**
+ * The Inspector, as a column of the canvas.
+ *
+ * Which block is selected is said once, here, and
+ * the graph reads the halo off it — rather than an
+ * id travelling beside a node the same message
+ * already carries.
+ */
+export type CanvasInspector = {
   strings: InspectorStrings;
-  selected: SelectedNode | undefined;
+
+  /** The block the column is showing, by id: always
+   *  a block of the document on screen, and never
+   *  while a proposal is showing. What the column
+   *  draws for it — its fields, where its outcomes
+   *  lead — is read off the document. */
+  selected: string | undefined;
 };
 
-export type SelectedNode = {
-  node: WorkflowNode;
-  form: InspectorForm;
+export type InspectorStrings = ReturnType<typeof inspectorWords>;
 
-  /** What the edit will be made against. */
-  revision: number;
-};
-
-export type InspectorStrings = {
-  /** The panel's own heading, before the kind. */
-  heading: string;
-
-  /** Shown when no node is selected. */
-  nothingSelected: string;
-
-  /** Per node kind, matching the palette. */
-  kinds: Record<NodeKind, string>;
-
-  /** Per field id. */
-  fields: Record<string, string>;
-
-  /** Per `<field id>.<option value>`. */
-  options: Record<string, string>;
-};
+export type Callout = { title: string; body: string };
 
 /**
  * The agent panel's whole picture.
@@ -186,8 +201,8 @@ export type InspectorStrings = {
  * which VS Code disposes the moment it is hidden,
  * so a panel that held its own transcript would
  * lose the conversation the first time somebody
- * selected a node on the canvas. Everything below
- * is held by the extension.
+ * collapsed it. Everything below is held by the
+ * extension.
  */
 export type SidebarInit = {
   type: 'init';
@@ -248,48 +263,7 @@ export type SidebarPreview =
       undoable: boolean;
     };
 
-export type SidebarStrings = {
-  /** The panel's own eyebrow. */
-  heading: string;
-
-  /** The button that opens the agent picker. */
-  chooseAgent: string;
-
-  /** Shown in place of the transcript. */
-  notTrusted: string;
-  noProject: string;
-  noAgent: string;
-
-  /** The line under the heading, per state. */
-  connecting: string;
-  ready: string;
-  thinking: string;
-
-  send: string;
-  stop: string;
-  placeholder: string;
-
-  /** Over the plan checklist. */
-  plan: string;
-
-  /** The badge on a file that did not exist. */
-  newFile: string;
-
-  /** Over a permission request. */
-  permission: string;
-
-  /** Marks an option that outlives this turn. */
-  always: string;
-
-  /** The two answers to a proposal, and the way
-   *  back from one that was answered. */
-  approve: string;
-  refine: string;
-  undo: string;
-
-  /** What a tool call is doing, per status. */
-  toolStatus: Record<ToolCallStatus, string>;
-};
+export type SidebarStrings = ReturnType<typeof sidebarWords>;
 
 /**
  * The run list, in the mBoss container.
@@ -308,6 +282,12 @@ export type RunsInit = {
    *  person reads it. */
   project: string | undefined;
 
+  /** Which database the list was read from, for the
+   *  footer — a fact about this init rather than a
+   *  word of the view, which is why it is not among
+   *  the strings. Absent when there is none. */
+  source: string | undefined;
+
   state: RunsState;
 
   /** Why there is nothing to show, when there is
@@ -322,6 +302,110 @@ export type RunsInit = {
 
   /** Which run the detail tab is showing. */
   selected: string | undefined;
+
+  /** The project's own containers. */
+  stack: StackZone;
+
+  /** Starting one run of a saved workflow. */
+  testRun: TestRunZone;
+
+  /** The run being followed, if one is. */
+  live: LiveRun | undefined;
+
+  /** What this window has set going, newest
+   *  first. */
+  session: SessionRow[];
+};
+
+/**
+ * The local stack, as the panel draws it.
+ *
+ * `available` is docker being on the path and the
+ * project having a compose file; `detail` says
+ * which of those is missing when one is. A stack
+ * that is simply down is available and has rows.
+ */
+export type StackZone = {
+  available: boolean;
+
+  services: ServiceHealth[];
+
+  /** Which command is going, while one is. */
+  busy: StackAction | undefined;
+
+  detail: string | undefined;
+};
+
+/** Starting one run by hand. */
+export type TestRunZone = {
+  workflows: RunnableWorkflow[];
+
+  selected: string | undefined;
+
+  /** The JSON text, held by the host so a repaint
+   *  does not empty the box. */
+  input: string;
+
+  /** That the same input is the same run, where
+   *  the trigger says so. */
+  hint: string | undefined;
+
+  /** Why the last start did not happen. */
+  problem: TestRunProblem | undefined;
+};
+
+/**
+ * Why a run did not start.
+ *
+ * `rebuildToRun` is carried apart from the
+ * sentence itself so the panel can offer the same
+ * Rebuild action the stack zone's `app` row does,
+ * without parsing the sentence to find out which
+ * problem this was.
+ */
+export type TestRunProblem = {
+  detail: string;
+
+  rebuildToRun: boolean;
+};
+
+export type RunnableWorkflow = {
+  name: string;
+
+  title: string;
+
+  /** A scheduled workflow is listed and cannot be
+   *  started: it runs on its schedule. */
+  mode: WorkflowTrigger['mode'];
+
+  /** The event an event workflow starts on, for a
+   *  picker to say beside its name. */
+  topic?: string;
+};
+
+/** One run this window started, in the words the
+ *  panel draws. */
+export type SessionRow = {
+  workflowId: string;
+
+  workflow: string;
+
+  outcome: LiveOutcome;
+
+  /** `14:02 · 8.2 s`, already formatted. */
+  when: string;
+
+  stepCount: number;
+
+  recovered: boolean;
+
+  /** What it failed with — a step's error, or the
+   *  ingress refusing to start it. */
+  error: string | undefined;
+
+  /** Whether sending the same input again is the
+   *  same run, by the route's own idempotency. */
+  keyed: boolean;
 };
 
 /**
@@ -374,29 +458,7 @@ export type RunRow = {
  */
 export type RunSeverity = 'ok' | 'running' | 'failed' | 'exhausted';
 
-export type RunsStrings = {
-  /** The panel's eyebrow, before the project. */
-  heading: string;
-
-  /** The three segments, in order. */
-  filters: Record<RunFilter, string>;
-
-  /** The mark on a row DBOS picked back up. */
-  recoveredTag: string;
-
-  /** Shown in place of the list. */
-  untrusted: string;
-  noProject: string;
-  empty: string;
-
-  /**
-   * The two lines under the list, which say what is
-   * being read and what is not. The first is absent
-   * when there is no database to name.
-   */
-  source: string | undefined;
-  scope: string;
-};
+export type RunsStrings = ReturnType<typeof runsWords>;
 
 /**
  * One run, in as much detail as the ledger holds.
@@ -519,37 +581,7 @@ export type SeeRawRow = {
   committedAt: string;
 };
 
-export type SeeStrings = {
-  /** The tab's own eyebrow. */
-  heading: string;
-
-  /** Shown before a run has been picked. */
-  nothingSelected: string;
-
-  /** Over the step strip and the chart. */
-  steps: string;
-  timeline: string;
-
-  /** The legend under the chart's title. */
-  hatched: string;
-
-  /** The word on a chip whose output came back
-   *  from Postgres. */
-  restored: string;
-
-  /** Over the two tables. */
-  raw: string;
-  status: string;
-
-  /** The line under the rail. */
-  ledger: string;
-
-  /** The four columns of the raw table. */
-  columns: { stepId: string; fn: string; output: string; committedAt: string };
-
-  /** The one action this view offers. */
-  replay: string;
-};
+export type SeeStrings = ReturnType<typeof seeWords>;
 
 export type { InspectorField };
 

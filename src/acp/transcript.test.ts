@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   foldUpdates,
-  lineDiffStat,
+  KEPT_TEXT_BYTES,
+  type FileEditEntry,
   type SessionUpdate,
+  type ToolEntry,
+  personEdit,
+  said,
   type TranscriptEntry,
 } from './transcript.js';
 
@@ -114,13 +118,44 @@ describe('what the agent did', () => {
       {
         at: 'tool',
         id: 'call-1',
-        title: 'Write lib/twilioChat.ts',
+        by: 'agent',
+        verb: 'Write',
+        target: 'lib/twilioChat.ts',
         kind: 'edit',
         status: 'completed',
-        files: [],
         body: [],
       },
     ]);
+  });
+
+  /**
+   * A row is a verb and the thing it acted on, and
+   * the thing it acted on is set in mono. Only a
+   * title shaped the way agents write one — a word
+   * and a path — is split that way; a title that is
+   * a sentence has no filename in it, and setting
+   * its second word in mono would claim it did.
+   */
+  it('splits a title into what was done and what it was done to', () => {
+    const named = (title: string): [string, string] => {
+      const entry = fold({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-1',
+        title,
+      })[0] as ToolEntry;
+
+      return [entry.verb, entry.target];
+    };
+
+    expect(named('Read lib/manifest.json')).toEqual([
+      'Read',
+      'lib/manifest.json',
+    ]);
+    expect(named('Searching for the confirm step')).toEqual([
+      'Searching for the confirm step',
+      '',
+    ]);
+    expect(named('Thinking')).toEqual(['Thinking', '']);
   });
 
   it('keeps two tool calls apart', () => {
@@ -157,114 +192,147 @@ describe('what the agent did', () => {
     ).toEqual(['late']);
   });
 
-  it('lists one row per file the call touched', () => {
+  /**
+   * What a call printed — a command's output, most
+   * often. It is the one thing a row would show
+   * less of than the card it replaces, so it is
+   * kept whole and folded away in the drawing.
+   */
+  it('keeps what the call had to say', () => {
     const entries = fold({
       sessionUpdate: 'tool_call',
       toolCallId: 'call-1',
-      title: 'Edit two files',
-      kind: 'edit',
+      title: 'Run tests',
+      kind: 'execute',
       content: [
-        {
-          type: 'diff',
-          path: '/project/lib/twilioChat.ts',
-          newText: 'a\nb\nc\n',
-        },
-        {
-          type: 'diff',
-          path: '/project/.mboss/workflows/groom.workflow.json',
-          oldText: 'one\ntwo\n',
-          newText: 'one\nthree\nfour\n',
-        },
-        { type: 'content', content: text('all good') },
+        { type: 'content', content: text('48 passed') },
+        { type: 'content', content: text('0 failed') },
       ],
     });
 
-    expect(entries[0]?.at === 'tool' && entries[0].files).toEqual([
-      {
-        path: '/project/lib/twilioChat.ts',
-        added: 3,
-        removed: 0,
-        isNew: true,
-      },
-      {
-        path: '/project/.mboss/workflows/groom.workflow.json',
-        added: 2,
-        removed: 1,
-        isNew: false,
-      },
+    expect(entries[0]?.at === 'tool' && entries[0].body).toEqual([
+      '48 passed',
+      '0 failed',
     ]);
-
-    expect(entries[0]?.at === 'tool' && entries[0].body).toEqual(['all good']);
   });
 });
 
-describe('counting a diff', () => {
+describe('what happened to a file', () => {
+  const edits: SessionUpdate = {
+    sessionUpdate: 'tool_call',
+    toolCallId: 'call-1',
+    title: 'Edit two files',
+    kind: 'edit',
+    content: [
+      {
+        type: 'diff',
+        path: '/project/lib/twilioChat.ts',
+        newText: 'a\nb\nc\n',
+      },
+      {
+        type: 'diff',
+        path: '/project/.mboss/workflows/groom.workflow.json',
+        oldText: 'one\ntwo\n',
+        newText: 'one\nthree\nfour\n',
+      },
+      { type: 'content', content: text('all good') },
+    ],
+  };
+
   /**
-   * A badge is arithmetic on the two texts the
-   * protocol sends — `oldText` and `newText`, not
-   * a unified-diff string — so getting the shape
-   * wrong is what gets the number wrong.
+   * One entry per file rather than a row inside the
+   * call's card: a file is the thing a person keeps
+   * or undoes, so it is the thing that gets to be
+   * an entry with a decision on it.
    */
-  it('counts every line of a file that did not exist', () => {
-    expect(lineDiffStat(null, 'a\nb\nc\n')).toEqual({
-      added: 3,
-      removed: 0,
-      isNew: true,
-    });
+  it('is an entry of its own, named for the call and the path', () => {
+    const files = fold(edits).filter((entry) => entry.at === 'file');
 
-    expect(lineDiffStat(undefined, '')).toEqual({
-      added: 0,
-      removed: 0,
-      isNew: true,
-    });
-  });
+    expect(files.map((file) => [file.id, file.added, file.removed])).toEqual([
+      ['call-1:/project/lib/twilioChat.ts', 3, 0],
+      ['call-1:/project/.mboss/workflows/groom.workflow.json', 2, 1],
+    ]);
 
-  it('counts nothing when nothing changed', () => {
-    expect(lineDiffStat('a\nb\n', 'a\nb\n')).toEqual({
-      added: 0,
-      removed: 0,
-      isNew: false,
-    });
-  });
-
-  it('counts an insertion and a deletion separately', () => {
-    expect(lineDiffStat('a\nb\nc\n', 'a\nb\nc\nd\n')).toMatchObject({
-      added: 1,
-      removed: 0,
-    });
-
-    expect(lineDiffStat('a\nb\nc\n', 'a\nc\n')).toMatchObject({
-      added: 0,
-      removed: 1,
-    });
-  });
-
-  it('counts a replaced line as one of each', () => {
-    expect(lineDiffStat('a\nb\nc\n', 'a\nB\nc\n')).toMatchObject({
-      added: 1,
-      removed: 1,
-    });
+    expect(files[0]?.isNew).toBe(true);
+    expect(files[1]?.isNew).toBe(false);
+    expect(files.map((file) => file.decision)).toEqual(['pending', 'pending']);
+    expect(files.map((file) => file.by)).toEqual(['agent', 'agent']);
   });
 
   /**
-   * Two edits far apart in a long file are two
-   * small hunks, not one enormous one. Trimming
-   * the matching ends and calling it a day would
-   * report the whole middle as rewritten.
+   * The protocol sends the file before and the file
+   * after, and an undo has to write the before
+   * back — so both are kept here, where the
+   * transcript lives, rather than re-read from a
+   * disk the agent has since moved on.
    */
-  it('does not report untouched lines between two edits', () => {
-    const before = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].join('\n');
-    const after = ['a', 'B', 'c', 'd', 'e', 'F', 'g'].join('\n');
+  it('keeps both texts, and the lines between them', () => {
+    const file = fold(edits).find((entry) => entry.at === 'file');
 
-    expect(lineDiffStat(before, after)).toMatchObject({
-      added: 2,
-      removed: 2,
-    });
+    expect(file?.oldText).toBeUndefined();
+    expect(file?.newText).toBe('a\nb\nc\n');
+    expect(file?.lines.map((line) => line.kind)).toEqual(['add', 'add', 'add']);
   });
 
-  it('handles a file emptied and a file filled', () => {
-    expect(lineDiffStat('a\nb\n', '')).toMatchObject({ added: 0, removed: 2 });
-    expect(lineDiffStat('', 'a\nb\n')).toMatchObject({ added: 2, removed: 0 });
+  /**
+   * A file big enough to be worth a megabyte of the
+   * window's memory is one nobody is going to read
+   * line by line either. Past the cap the entry
+   * says how much moved and offers nothing to
+   * write back.
+   */
+  it('holds counts only for a file too big to keep', () => {
+    const lines = KEPT_TEXT_BYTES / 2 + 1;
+    const huge = 'x\n'.repeat(lines);
+
+    const file = fold({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'call-1',
+      title: 'Write dist/bundle.js',
+      content: [
+        { type: 'diff', path: '/project/dist/bundle.js', newText: huge },
+      ],
+    }).find((entry) => entry.at === 'file');
+
+    expect(file?.added).toBe(lines);
+    expect(file?.oldText).toBeUndefined();
+    expect(file?.newText).toBeUndefined();
+    expect(file?.lines).toEqual([]);
+  });
+
+  /**
+   * A second attempt at the same edit replaces the
+   * first, and asks again: a Keep that survived a
+   * re-send would be agreeing to text nobody has
+   * seen.
+   */
+  it('replaces a re-sent edit and asks about it again', () => {
+    const first = fold(edits).map((entry) =>
+      entry.at === 'file' && entry.path === '/project/lib/twilioChat.ts'
+        ? ({ ...entry, decision: 'kept' } as FileEditEntry)
+        : entry,
+    );
+
+    const again = foldUpdates(first, [
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call-1',
+        content: [
+          {
+            type: 'diff',
+            path: '/project/lib/twilioChat.ts',
+            newText: 'a\nb\nc\nd\n',
+          },
+        ],
+      },
+    ]);
+
+    const files = again.filter((entry) => entry.at === 'file');
+
+    expect(files).toHaveLength(2);
+    expect(files[0]?.newText).toBe('a\nb\nc\nd\n');
+    expect(files[0]?.added).toBe(4);
+    expect(files[0]?.decision).toBe('pending');
   });
 });
 
@@ -333,5 +401,34 @@ describe('everything else on the channel', () => {
         },
       ),
     ).toEqual([]);
+  });
+});
+
+describe('what the extension writes itself', () => {
+  it('numbers what the person said among the messages so far', () => {
+    const one = said([], 'wire it');
+    const two = said(one, 'and then');
+
+    expect(two.map((entry) => entry.id)).toEqual(['message-0', 'message-1']);
+    expect(two[1]).toMatchObject({
+      at: 'message',
+      from: 'user',
+      text: 'and then',
+    });
+  });
+
+  it('writes what a person did as an applied edit of theirs', () => {
+    expect(
+      personEdit({ id: 'apply:p1', verb: 'Applied', target: 'groom' }),
+    ).toEqual({
+      at: 'tool',
+      id: 'apply:p1',
+      by: 'person',
+      kind: 'edit',
+      verb: 'Applied',
+      target: 'groom',
+      status: 'applied',
+      body: [],
+    });
   });
 });

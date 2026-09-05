@@ -36,6 +36,18 @@ describe('the webview page', () => {
     expect(webviewPage(page)).toMatch(/style-src[^;]*'unsafe-inline'/);
   });
 
+  /**
+   * The faces are vendored and asked for by a
+   * relative `url()`, which resolves against the
+   * stylesheet's own webview URI — this origin.
+   * The policy needs nothing added for that, and
+   * this is the line that says so; widening it to
+   * a font host is what would need arguing.
+   */
+  it('admits the faces it ships, and no other origin', () => {
+    expect(webviewPage(page)).toContain('font-src https://host;');
+  });
+
   it('escapes a title rather than pasting it in', () => {
     const html = webviewPage({ ...page, title: '<script>alert(1)</script>' });
 

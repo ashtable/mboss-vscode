@@ -1,12 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { buildExtension } from './build.js';
+import { DIST, WEBVIEW_ENTRIES, buildExtension, hostOptions } from './build.js';
 import { REPO_ROOT } from './test-support/repo.js';
+import { webviewFile } from './webview/entry.js';
 
 /**
  * What actually ends up inside the `.vsix`.
@@ -77,8 +78,82 @@ describe('the packaged extension', () => {
     expect(has('dist/webview/')).toBe(true);
   });
 
+  /**
+   * Exactly the surfaces the host can point a frame
+   * at.
+   *
+   * The archive is the directory the build wrote,
+   * zipped — not a list of names — so a bundle for a
+   * webview that has since been renamed or folded
+   * into another would ship out of any working copy
+   * that had built both, with nothing in the
+   * repository mentioning it.
+   */
+  it('ships one pair of bundles per webview and no others', () => {
+    const inside = entries
+      .filter((entry) => /^extension\/dist\/webview\/[^/]+$/.test(entry))
+      .sort();
+
+    expect(inside).toEqual(
+      WEBVIEW_ENTRIES.flatMap((name) => [
+        `extension/dist/${webviewFile(name, 'css')}`,
+        `extension/dist/${webviewFile(name, 'js')}`,
+      ]).sort(),
+    );
+  });
+
   it('ships the icon the manifest points at', () => {
     expect(has('media/activity-bar.svg')).toBe(true);
+  });
+
+  /**
+   * The two faces the webviews are set in, and the
+   * terms they are shipped under.
+   *
+   * Redistributing an OFL face means carrying its
+   * licence, and this package is the only copy a
+   * user ever receives — so the notice travels
+   * with the bytes rather than living in a
+   * repository they will never see.
+   */
+  it('ships the vendored faces and their terms', () => {
+    expect(has('dist/webview/fonts/')).toBe(true);
+    expect(has('THIRD_PARTY_NOTICES.md')).toBe(true);
+    expect(has('media/fonts/albert-sans-OFL.txt')).toBe(true);
+    expect(has('media/fonts/spline-sans-mono-OFL.txt')).toBe(true);
+  });
+
+  /**
+   * And the code the bundler compiled into those
+   * bundles.
+   *
+   * Everything this package depends on that is not
+   * left external is inside `extension.cjs` or a
+   * webview bundle, and every one of those terms
+   * asks that the copyright notice travel with the
+   * bytes. The same reasoning as the faces above,
+   * applied to the part of the package that is not
+   * a file a person can see.
+   *
+   * Read off the manifest rather than listed here,
+   * so a dependency added without a notice fails
+   * this instead of shipping quietly.
+   */
+  it('names every dependency it bundles', () => {
+    const notices = readFileSync(
+      join(REPO_ROOT, 'THIRD_PARTY_NOTICES.md'),
+      'utf8',
+    );
+    const manifest = JSON.parse(
+      readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'),
+    ) as { dependencies: Record<string, string> };
+    const external = new Set(hostOptions(DIST).external ?? []);
+
+    expect(
+      Object.keys(manifest.dependencies).filter(
+        (name) => !external.has(name) && !notices.includes(`\n## ${name}\n`),
+      ),
+    ).toEqual([]);
   });
 
   /**

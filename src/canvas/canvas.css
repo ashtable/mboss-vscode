@@ -3,12 +3,14 @@
 /**
  * The canvas surface.
  *
- * A blueprint, not a diagramming app: the plotting
- * grid underneath, square corners, hairline
- * borders, and a condensed face on the titles. The
- * one thing drawn in ink rather than in pencil is
- * the wire type, because a workflow's whole
- * argument is which values flow where.
+ * A whiteboard, not a diagramming app: the dot grid
+ * underneath, one radius, hairline borders, and
+ * colour spent on nothing but state. What is not
+ * here is as much the point as what is — no chip on
+ * a wire, no square at a port, no tint per kind.
+ * Every one of those is a legend, and a person
+ * reading a canvas from across the room cannot use
+ * a legend.
  *
  * Nothing here sets a node's width or height. Both
  * come from the metrics core laid the graph out
@@ -21,6 +23,16 @@
   grid-template-rows: auto 1fr;
   height: 100vh;
   box-sizing: border-box;
+
+  /* How solid a thing under the pointer looks.
+     Declared here rather than in the token sheet:
+     that sheet carries state, provenance and
+     elevation, and none of these is any of those —
+     they are three hand-picked strengths for three
+     things that are happening rather than true. */
+  --drag-ghost: 0.8;
+  --drag-guide: 0.55;
+  --drag-dim: 0.4;
 }
 
 /* — the toolbar — */
@@ -30,7 +42,13 @@
   align-items: center;
   gap: var(--space-4);
   padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--hairline);
+  /* A grid row is as wide as its content unless told
+     otherwise, and the caption is one long line: without
+     this the toolbar sets the width of the whole canvas
+     in a narrow editor, and the graph is scrolled off
+     the side rather than given the room. */
+  min-width: 0;
 }
 
 .segments {
@@ -39,13 +57,12 @@
 
 .segment {
   appearance: none;
-  border: 1px solid var(--color-divider);
+  border: 1px solid var(--hairline);
   border-radius: 0;
   background: transparent;
   color: inherit;
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  font-size: var(--text-xs);
   letter-spacing: 0.09em;
   text-transform: uppercase;
   padding: var(--space-1) var(--space-3);
@@ -55,29 +72,66 @@
   border-left: 0;
 }
 .segment[aria-pressed='true'] {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: var(--vscode-button-foreground, var(--color-bg));
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--on-brand);
+}
+
+/* The toolbar's one action. Quiet: laying the graph
+   out again is something a person does now and then,
+   not the thing this screen is for. */
+.action {
+  appearance: none;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: var(--text-xs);
+  padding: 3px 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.action:hover {
+  background: var(--surface-2);
 }
 
 .toolbar .caption {
   margin: 0;
-  font-size: var(--text-caption);
+  /* A flex item will not shrink below its own text
+     without being told, so the ellipsis below never
+     came into it. */
+  min-width: 0;
+  font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* — the two columns — */
+/* — the three columns — */
 
+/* What can go on the canvas, the canvas, and what
+   the block on it does. All three at once, because
+   the middle one is unusable without the other
+   two: picking a block and saying what it does are
+   one gesture, not two panels. */
+/* The rails give way before the graph does. A
+   canvas opens in an editor group, so its width is
+   whatever somebody's split happens to be, and two
+   rails of fixed width in a frame narrower than
+   both of them together left the graph nothing at
+   all — a workflow drawn at zero pixels, with the
+   page scrolling sideways to fit the rails. */
 .workspace {
   display: grid;
-  grid-template-columns: 204px 1fr;
+  grid-template-columns: minmax(0, 204px) minmax(320px, 1fr) minmax(0, 284px);
   min-height: 0;
 }
 
 .palette {
-  border-right: 1px solid var(--color-divider);
+  border-right: 1px solid var(--hairline);
   padding: var(--space-3);
   overflow-y: auto;
 }
@@ -91,7 +145,7 @@
 
 .drawer-name {
   margin: 0 0 var(--space-1);
-  font-size: var(--text-eyebrow);
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -102,28 +156,130 @@
 .chip {
   margin: 0 0 var(--space-1);
   padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--color-divider);
-  background: var(--tint-text);
-  font-size: var(--text-caption);
+  border: 1px solid var(--hairline);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
   cursor: grab;
 }
 .chip:hover {
-  border-color: var(--color-accent);
+  border-color: var(--brand);
 }
 
+/* On its way onto the canvas. Filled rather than
+   ghosted, and dashed at a full pixel: the chip is
+   what a person left behind, and it should read as
+   the source of what they are holding rather than
+   as something half-there itself. That is the
+   opposite of the `/lib` row, which fades because
+   the row *is* the thing travelling. */
+.chip[data-state='dragging'] {
+  border: 1px dashed var(--brand);
+  background: var(--brand-tint);
+}
+
+/* How the gesture works, under the rail it starts
+   in. */
+.drag-hint {
+  margin: 0;
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+/* A function out of the project's code-behind, in
+   the two places one is offered: dragged off the
+   palette onto a block, pressed in the Inspector's
+   picker. One shape, because it is one list — the
+   gesture is what differs. */
 .lib-fn {
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 1px;
+  margin: 0 0 var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: 1.5px dashed transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: grab;
 }
+button.lib-fn {
+  cursor: pointer;
+}
+.lib-fn:hover {
+  background: var(--surface-2);
+}
+
+.lib-name {
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+/* The mark the design puts in front of a function
+   everywhere one is named. A glyph, not a word:
+   nothing here is a string a reader's locale
+   changes. */
+.lib-name::before {
+  content: 'ƒ ';
+  color: var(--ink-faint);
+}
+
 .signature {
-  font-size: var(--text-eyebrow);
+  font-size: var(--text-xs);
   overflow-wrap: anywhere;
+}
+
+/* Why this one cannot sit behind the block that is
+   selected. There is no grey of its own: not
+   getting the assigned row's treatment is the
+   grey, and the note is what says why. */
+.lib-note {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+}
+
+/* The function the selected block already runs. */
+.lib-fn[data-state='assigned'] {
+  background: var(--brand-tint);
+  box-shadow: inset 0 0 0 1px var(--brand-ring);
+}
+.lib-fn[data-state='assigned'] .lib-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+.lib-fn[data-state='assigned'] .lib-name::before {
+  color: var(--brand);
+}
+.lib-fn[data-state='assigned']::after {
+  content: '✓';
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-2);
+  color: var(--brand);
+  font-weight: 700;
+}
+
+/* On its way to a block. */
+.lib-fn[data-state='dragging'] {
+  border-color: var(--brand);
+  opacity: 0.85;
 }
 
 .drawer-empty {
   margin: 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
+}
+
+/* What the pointer is holding. The design puts it
+   in the tab strip, which no extension can write
+   into, so it goes at the far end of the toolbar. */
+.carrying {
+  margin: 0 0 0 auto;
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 
 /* The one line of chrome that belongs to a
@@ -134,7 +290,7 @@
    concerned. */
 .preview-line {
   margin: 0 0 0 auto;
-  color: var(--color-accent);
+  color: var(--brand);
   white-space: nowrap;
 }
 
@@ -153,19 +309,135 @@
   min-height: 0;
 }
 
+/* — carrying a block onto the graph — */
+
+/* The block a person is holding, drawn where the
+   pointer has it. Half-there because it is not on
+   the graph yet, and out of the way of every hit
+   test because the pointer is aiming through it. */
+.ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  opacity: var(--drag-ghost);
+  pointer-events: none;
+}
+
+/* The pointer's own arrow, on the corner of
+   whatever is following it. */
+.cursor-badge {
+  position: absolute;
+  right: -6px;
+  bottom: -8px;
+}
+
+/* Where a block could go in. Every wire opens one
+   while something is in flight, so the whole offer
+   is readable at once. */
+.splice-gap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px dashed var(--brand);
+  border-radius: var(--r-md);
+  pointer-events: none;
+}
+
+/* Only the one under the pointer is filled in, and
+   only it says what would happen. Filling all of
+   them would say the block was about to go into
+   all of them. */
+.splice-gap[data-under] {
+  background: var(--brand-tint);
+}
+
+.splice-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--brand);
+}
+
+.splice-note {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--brand);
+}
+
+/* — moving a block that is already on the graph — */
+
+/* The block, off the surface. Its own shadow, over
+   the one the block inside is already casting: it is
+   raised and it is the one being looked at, and
+   those are two facts rather than one darker one. */
+.lift {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-3);
+}
+
+/* Where it came from. Neutral, not brand: every
+   other mark a gesture leaves is blue because
+   somebody is doing it, and having left a place is
+   not something anybody is doing. */
+.old-slot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  border: 1.5px dashed var(--hairline-strong);
+  border-radius: var(--r-md);
+  pointer-events: none;
+}
+
+/* The centreline through the blocks it has come
+   level with. Hairline and half-there, because it is
+   about the block being moved rather than about the
+   ones standing still. */
+.snap-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px dashed var(--brand);
+  opacity: var(--drag-guide);
+  pointer-events: none;
+}
+
+/* Where the block is, in numbers, above it. Clear of
+   the block rather than on it, so that neither has
+   to be read through the other. */
+.move-readout {
+  position: absolute;
+  top: -22px;
+  left: 0;
+  font-size: 10px;
+  color: var(--brand);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 /* — a proposal, over the graph it is about — */
 
 /* Dashed, like the blocks under it: the whole strip
    is about something that has not happened. */
 .preview-banner {
-  border-bottom: 1px dashed var(--color-accent);
-  background: var(--tint-accent);
+  border-bottom: 1px dashed var(--brand);
+  background: var(--brand-tint);
   padding: var(--space-2) var(--space-3);
 }
 
 .preview-summary {
   margin: 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 .preview-nodes {
@@ -173,11 +445,11 @@
   flex-wrap: wrap;
   gap: var(--space-1) var(--space-2);
   margin: var(--space-1) 0 0;
-  font-size: var(--text-eyebrow);
+  font-size: var(--text-xs);
 }
 
 .preview-node {
-  border: 1px dashed color-mix(in srgb, var(--color-accent) 60%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--brand) 60%, transparent);
   padding: 0 var(--space-1);
 }
 
@@ -187,9 +459,9 @@
   bottom: var(--space-3);
   margin: 0;
   padding: var(--space-1) var(--space-2);
-  background: var(--color-bg);
-  border: 1px solid var(--color-divider);
-  font-size: var(--text-caption);
+  background: var(--canvas);
+  border: 1px solid var(--hairline);
+  font-size: var(--text-sm);
   z-index: 5;
 }
 
@@ -201,150 +473,536 @@
   right: var(--space-6);
   bottom: var(--space-6);
   max-width: 44ch;
-  background: var(--color-bg);
-  border-color: var(--color-accent);
-  box-shadow: var(--shadow-md);
+  background: var(--canvas);
+  border-color: var(--brand);
+  box-shadow: var(--elev-2);
   z-index: 5;
 }
 .rejection .eyebrow {
-  color: var(--color-accent);
+  color: var(--brand);
   margin-bottom: var(--space-1);
 }
 .rejection p:last-child {
   margin: 0;
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
 }
 
 /* — one block — */
 
-.block {
+/* The box is core's: a block that grew past what
+   it was laid out at would draw over the wires and
+   the blocks below it. Only the text inside is
+   clipped, because a handle sits half outside the
+   frame and a clipped one is a handle a pointer
+   cannot find. */
+.node {
   box-sizing: border-box;
+  position: relative;
   width: 100%;
   height: 100%;
-  padding: var(--space-2);
-  background: var(--color-bg);
-  box-shadow: var(--shadow-sm);
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--elev-1);
+  transition:
+    box-shadow var(--dur-med) var(--ease-out),
+    border-color var(--dur-med) var(--ease-out),
+    transform var(--dur-med) var(--ease-out);
 }
-.block[data-selected='true'] {
-  border-color: var(--color-accent);
-  box-shadow: var(--shadow-md);
+.node:hover {
+  border-color: var(--hairline-strong);
+  box-shadow: var(--elev-2);
+  transform: translateY(var(--lift));
 }
-.block-transaction {
-  border-color: var(--color-accent);
-  background: var(--tint-accent);
+
+/* Selection is a ring, not a fill: the block still
+   has to read as the block it is. */
+.node[data-state='selected'] {
+  border-color: transparent;
+  box-shadow: var(--halo), var(--elev-2);
+  transform: translateY(var(--lift));
 }
 
 /* A block that is not there yet: pencil over the
    drawing. Translucent rather than tinted, so the
    plotting grid reads through it and the block
    cannot be mistaken for one that was drawn. */
-.block[data-proposed='true'] {
-  border: 1px dashed var(--color-accent);
-  background: color-mix(in srgb, var(--color-bg) 82%, transparent);
+.node[data-state='proposed'] {
+  border: 1.5px dashed var(--agent);
+  background: var(--surface-ghost);
   box-shadow: none;
 }
 
-.block-title {
+/* A function is over this block, on its way to
+   being what it runs. Brand rather than agent: a
+   person is doing this, and purple is somebody
+   else's proposal. */
+.node[data-landing] {
+  border: 1.5px dashed var(--brand);
+  background: var(--brand-tint);
+}
+
+/* The run states. A glow means the run is at this
+   block right now, which is why the one that
+   finished wears nothing at all. */
+.node[data-state='running'] {
+  --glow-tone: var(--ok);
+  border-color: transparent;
+  box-shadow: var(--glow-ok);
+  animation: sig-breathe var(--dur-slow) var(--ease-out) infinite alternate;
+}
+.node[data-state='waiting'] {
+  border-color: transparent;
+  box-shadow: var(--glow-warn);
+}
+.node[data-state='failed'] {
+  border-color: transparent;
+  box-shadow: var(--glow-fail);
+}
+
+/* The tile the glyph sits in, and the one place a
+   block's state is spent as colour. */
+.node-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink-muted);
+}
+.node-icon svg {
+  width: 15px;
+  height: 15px;
+}
+.node-icon[data-tone='brand'] {
+  background: var(--brand-tint);
+  color: var(--brand);
+}
+.node-icon[data-tone='agent'] {
+  background: var(--agent-tint);
+  color: var(--agent);
+}
+.node-icon[data-tone='ok'] {
+  background: var(--ok-tint);
+  color: var(--ok);
+}
+.node-icon[data-tone='warn'] {
+  background: var(--warn-tint);
+  color: var(--warn);
+}
+.node-icon[data-tone='fail'] {
+  background: var(--fail-tint);
+  color: var(--fail);
+}
+
+.node-text {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.node-title {
   margin: 0;
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: var(--font-size);
-  line-height: 1.1;
+  font-weight: 600;
+  font-size: var(--text-sm);
+  line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.block-id {
-  margin: 0 0 var(--space-1);
-  font-size: var(--text-eyebrow);
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
-}
-
-/* One row per line core allotted the kind, at the
-   height it allotted them, so the box is the box
-   the coordinates were computed for. */
-.block-summary {
+/* Machine evidence: the export a block runs, or
+   the fact that it runs none yet. */
+.node-line {
   margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--text-caption);
-}
-.block-summary li {
-  height: 22px;
-  line-height: 22px;
+  font-size: var(--text-xs);
+  line-height: 1.3;
+  color: var(--ink-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Quieter where the line is a gap rather than a
+   fact. A function's name is something about the
+   block; a block still wanting one has an absence
+   there, and an absence written at the weight of a
+   fact makes the two read alike across a graph. */
+.node-line[data-line='unassigned'] {
+  color: var(--ink-faint);
+}
 
-.port-label {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: var(--text-eyebrow);
-  white-space: nowrap;
-  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+/* What the run did here, at the end of the row
+   because it is the last thing to become true about
+   a block. A block no run has reached carries none,
+   so there is nothing to leave room for. */
+.node-run {
+  flex: none;
+  margin-left: auto;
+  font-size: var(--text-sm);
+  line-height: 1;
+}
+.node-run[data-run='done'] {
+  color: var(--ok);
+}
+.node-run[data-run='failed'] {
+  color: var(--fail);
+}
+/* Still turning, because whatever it is parked on
+   has not answered yet. */
+.node-run[data-run='waiting'] {
+  color: var(--warn);
+  animation: sig-spin var(--dur-slow) linear infinite;
+}
+/* A dot, never a tick: the run has not finished
+   here, and the block must not say it has. */
+.node-run[data-run='running'] {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  animation: sig-pulse 1.2s ease-in-out infinite;
 }
 
 /* — wires — */
 
 .react-flow__edge .wire {
-  stroke: color-mix(in srgb, var(--color-text) 45%, transparent);
   stroke-width: 1.5;
 }
+/* A run going through, and a run parked. The
+   dashes march the way the value is going. */
+.react-flow__edge .wire[data-state='active'],
+.react-flow__edge .wire[data-state='waiting'] {
+  stroke-dasharray: 6 5;
+  animation: sig-edge-flow 0.7s linear infinite;
+}
+/* The one edge that means "again". */
 .react-flow__edge .wire-back {
-  stroke: var(--color-accent);
-  stroke-dasharray: 5 4;
+  stroke-dasharray: 6 5;
 }
 
-/* Above the blocks. A type name is a small chip and
-   the graph is a column, so a label will sometimes
-   land over a block — better read there than
-   hidden behind it. */
+/* Nothing to see: the arrowheads live in here, and
+   a marker is drawn where it is referenced rather
+   than where it is declared. */
+.wire-markers {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* Above the blocks. The graph is a column, so a
+   port name will sometimes land over a block —
+   better read there than hidden behind it. */
 .react-flow__edgelabel-renderer {
   z-index: 4;
 }
 
-.wire-label {
+.wire-port {
   position: absolute;
-  padding: 0 var(--space-1);
-  background: var(--color-bg);
-  border: 1px solid var(--color-divider);
-  font-size: var(--text-eyebrow);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  white-space: nowrap;
   pointer-events: none;
 }
 
-/* The library ships rounded handles and a blue
-   that belongs to no theme. They sit half outside
-   the block, which is why nothing on a block may
-   clip its overflow — a clipped handle is one a
-   pointer cannot find, and the only symptom is a
-   wire that will not start. */
+/* Connecting is a drag from one of these, so they
+   have to exist — but a canvas dotted with ports is
+   a diagramming app. They appear on the block under
+   the pointer, and on every block once a wire is
+   being drawn, so a person can see where one could
+   land. Filled leaves, hollow arrives: that is the
+   whole grammar of which end is which. */
 .react-flow__handle {
-  width: 7px;
-  height: 7px;
-  border-radius: 0;
-  border: 1px solid var(--color-text);
-  background: var(--color-bg);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.react-flow__handle-bottom {
+  background: var(--brand);
+  border: 2px solid var(--surface);
+  box-shadow: var(--elev-1);
+}
+.react-flow__handle-top {
+  background: var(--surface);
+  border: 2px solid var(--brand);
+}
+.node:hover .react-flow__handle,
+.react-flow:has(.react-flow__connectionline) .react-flow__handle {
+  opacity: 1;
 }
 /* Mid-drag, the library marks the handle a wire is
    over, and marks it again once it has asked
    whether the wire may be drawn. */
 .react-flow__handle.connectingto {
-  background: var(--vscode-editorError-foreground, #c4314b);
-  border-color: var(--vscode-editorError-foreground, #c4314b);
+  background: var(--fail);
+  border-color: var(--fail);
 }
 .react-flow__handle.connectingto.valid {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+/* — a wire being drawn — */
+
+/* Every block answers the question a person is
+   asking while a wire is in the air: could this go
+   here. The ones that could are ringed, in the one
+   colour the system spends on a match; the ones that
+   could not step back and say nothing else — a
+   dimmed block has nothing to add, and dimming that
+   also outlined would be two statements where the
+   design makes one. */
+.node-ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: 12px;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+  pointer-events: none;
+}
+.node[data-wire='no'] {
+  opacity: var(--drag-dim);
+}
+
+/* The wire itself, between the dot and the cursor.
+   Its own dash rhythm, deliberately not the one a
+   run travels along: a wire being drawn must never
+   read as a wire being run. The end is a dot rather
+   than an arrowhead, because that end is where the
+   pointer is and not where anything arrives. */
+.pending-wire path {
+  stroke: var(--brand);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+}
+.pending-wire circle {
+  fill: var(--brand);
+  stroke: var(--surface);
+  stroke-width: 2;
+}
+
+/* What would meet what, under the block the pointer
+   is over. Below the block rather than on it, clear
+   of the dot the wire would land on. */
+.shape-note {
+  position: absolute;
+  top: 0;
+  left: 0;
+  font-size: 10px;
+  color: var(--brand);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* The rail again, cut down to what could go where
+   the wire was let go of. Fixed to the page rather
+   than to the graph: it is a question about the
+   gesture, and one that panned away or grew with the
+   zoom while it was being read would be a thing on
+   the workflow instead. */
+.quick-add {
+  position: fixed;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  min-width: 148px;
+}
+.quick-add-kind {
+  all: unset;
+  padding: 3px var(--space-2);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.quick-add-kind:hover,
+.quick-add-kind:focus-visible {
+  background: var(--surface-2);
 }
 
 .react-flow__attribution {
   display: none;
+}
+
+/* — the Inspector column — */
+
+/* A fixed label on the left, the value taking the
+   rest, and a hairline between rows. Values are set
+   in the face the user reads code in, because every
+   one of them is a value out of the document — a
+   topic, a path, a handler's name. */
+
+.inspector {
+  border-left: 1px solid var(--hairline);
+  padding: var(--space-3);
+  min-width: 0;
+  overflow-y: auto;
+}
+
+.inspector > .eyebrow {
+  color: var(--brand);
+  margin-bottom: var(--space-3);
+}
+
+.state {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.fields {
+  margin: 0;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 8.5ch 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-top: 1px solid var(--hairline);
+}
+
+/* A group's label belongs at the top of the group,
+   not floating halfway down the side of it. */
+.field[data-control='rows'] {
+  align-items: start;
+}
+
+.field-name {
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.field-value {
+  margin: 0;
+  min-width: 0;
+}
+
+/* One control shape for all of them, so a column
+   of fields reads as a column rather than as a
+   sample sheet of widgets. */
+.field-value input[type='text'],
+.field-value textarea,
+.field-value select {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 2px var(--space-1);
+  background: var(--vscode-input-background, var(--canvas));
+  color: var(--vscode-input-foreground, var(--ink));
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.field-value textarea {
+  resize: vertical;
+}
+.field-value input[type='checkbox'] {
+  margin: 0;
+  accent-color: var(--brand);
+}
+
+/* A row that is read rather than edited: where an
+   outcome goes, which database a transaction
+   commits to. Set in mono, because every one of
+   them is a value out of the graph. */
+.field[data-control='told'] .field-value {
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* — the function picker — */
+
+/* The picker breaks the column's label-left rhythm
+   on purpose. What follows the label is a list of
+   signatures, and 8.5ch of label in front of them
+   leaves nothing to read them in. */
+.field[data-control='picker'] {
+  display: block;
+}
+
+.picker-value {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
+/* A block that runs nothing yet says where one
+   goes, rather than leaving a blank to guess at. */
+.picker-nothing {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border: 1.5px dashed var(--hairline-strong);
+  border-radius: var(--r-sm);
+  color: var(--ink-faint);
+}
+
+.picker {
+  margin-bottom: var(--space-2);
+}
+
+.picker-empty {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+
+/* What was left out of the list, and the way to
+   see it. Plain text rather than a button's
+   clothes: it is an aside about the list, not an
+   action on the block. */
+.picker-hidden {
+  all: unset;
+  display: block;
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.picker-name {
+  all: unset;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+/* The system's callout: a tinted block, no border
+   and no icon. Spent on the two kinds whose
+   relationship with their code a person would
+   otherwise have to be told twice. */
+.callout {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-sm);
+  background: var(--info-tint);
+  color: var(--ink-muted);
+  font-size: var(--text-xs);
+}
+.callout strong {
+  margin-right: 6px;
+  color: var(--info);
+}
+
+/* A repeating group — a branch's cases, a form's
+   fields — is drawn as a stack of small blocks so
+   that where one ends and the next begins is
+   readable without a heading per row. */
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  border-left: 2px solid var(--brand);
+  padding-left: var(--space-2);
+}
+.row .field {
+  grid-template-columns: 7ch 1fr;
+  border-top: 0;
+  padding: 1px 0;
 }
 
 /* — the JSON view, and the unreadable one — */
@@ -358,8 +1016,8 @@
   border: 0;
   resize: none;
   padding: var(--space-3);
-  background: var(--color-bg);
-  color: var(--color-text);
+  background: var(--canvas);
+  color: var(--ink);
   font-size: var(--font-size);
   line-height: 1.5;
   tab-size: 2;
@@ -370,9 +1028,9 @@
 }
 .unreadable p {
   margin: 0 0 var(--space-2);
-  font-size: var(--text-caption);
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 .unreadable .title {
-  font-size: var(--text-title);
+  font-size: var(--text-lg);
 }

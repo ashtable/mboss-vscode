@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 import { build, type BuildOptions } from 'esbuild';
@@ -51,11 +51,28 @@ export const HOST_BUNDLE = 'extension.cjs';
  */
 export const WEBVIEW_ENTRIES: readonly WebviewName[] = [
   'canvas',
-  'inspector',
   'sidebar',
   'runs',
   'see',
 ];
+
+/**
+ * The two faces the webviews are set in, and where
+ * a stylesheet expects to find them.
+ *
+ * A webview may only load a font the extension
+ * itself ships — `font-src` is its own origin and
+ * nothing else — so the faces are vendored rather
+ * than fetched. `tokens.css` asks for them with a
+ * relative `url()`, which resolves against the
+ * stylesheet's own webview URI, so they have to
+ * land in this directory beside the built
+ * stylesheets under exactly the names it spells.
+ */
+export const WEBVIEW_FONTS = {
+  from: 'media/fonts',
+  to: 'webview/fonts',
+} as const;
 
 /**
  * Core's runtime templates, and where they have to
@@ -260,6 +277,13 @@ export function webviewOptions(outdir: string): BuildOptions {
     format: 'esm',
     target: 'es2022',
     sourcemap: false,
+    // The faces are copied in whole, under the
+    // names `tokens.css` spells, so the `url()`s
+    // that name them are left exactly as written.
+    // Bundled instead, each would arrive under a
+    // content hash — a name no stylesheet a person
+    // reads could ever contain.
+    external: ['*.woff2'],
     // React branches on this. Left undefined it
     // survives into the bundle as a reference to a
     // `process` no browser frame has.
@@ -268,16 +292,44 @@ export function webviewOptions(outdir: string): BuildOptions {
   };
 }
 
-/** Builds the host, the webviews and the assets. */
+/**
+ * Builds the host, the webviews and the assets.
+ *
+ * Cleared first. The bundler overwrites the files
+ * it was asked for and leaves everything else
+ * alone, and packaging zips this directory rather
+ * than a list of names — so a webview since renamed
+ * or dropped would go on shipping out of any
+ * working copy that had built both, in an artifact
+ * nothing else in the repository mentions.
+ * Everything here is either built or copied in
+ * below, so there is nothing to keep.
+ */
 export async function buildExtension(outdir: string = DIST): Promise<void> {
+  rmSync(outdir, { recursive: true, force: true });
   mkdirSync(outdir, { recursive: true });
 
   await build(hostOptions(outdir));
   await build(webviewOptions(outdir));
 
+  copyWebviewFonts(outdir);
   copyScaffoldTemplates(outdir);
   copyShippedPackages(outdir);
   copyVendoredAssets(outdir);
+}
+
+/**
+ * The licences travel in the package beside the
+ * sources they are terms for, and are named again
+ * in `THIRD_PARTY_NOTICES.md`. Only the faces
+ * themselves have to be loadable, so only they go
+ * where a stylesheet can reach them.
+ */
+function copyWebviewFonts(outdir: string): void {
+  cpSync(join(repoRoot, WEBVIEW_FONTS.from), join(outdir, WEBVIEW_FONTS.to), {
+    recursive: true,
+    filter: (source) => !source.endsWith('.txt'),
+  });
 }
 
 /**

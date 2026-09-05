@@ -28,6 +28,7 @@ type Command = {
   title: string;
   category?: string;
   icon?: string;
+  enablement?: string;
 };
 type View = { type?: string; id: string; name: string; when?: string };
 type Menu = { command: string; when?: string; group?: string };
@@ -62,14 +63,31 @@ describe('commands', () => {
 
   const palette = commands.filter((entry) => !isSideBar(entry.command));
 
-  it('offers exactly the five the design names', () => {
+  it('offers exactly the nine the design names', () => {
     expect(palette.map((entry) => entry.command)).toEqual([
       'mboss.newProject',
       'mboss.openRuns',
       'mboss.generateCode',
       'mboss.openAgentSidebar',
       'mboss.chooseCodingAgent',
+      'mboss.startStack',
+      'mboss.stopStack',
+      'mboss.runWorkflow',
+      'mboss.arrangeWorkflow',
     ]);
+  });
+
+  /**
+   * Laying a graph out again means nothing without a
+   * graph on screen, so the palette greys the entry
+   * out rather than offering a command that would
+   * have to ask which canvas it was about.
+   */
+  it('greys out the one that is about the canvas in front of you', () => {
+    expect(
+      commands.find((entry) => entry.command === 'mboss.arrangeWorkflow')
+        ?.enablement,
+    ).toBe('activeCustomEditorId == mboss.workflowCanvas');
   });
 
   it('localizes every title', () => {
@@ -152,6 +170,10 @@ describe('commands', () => {
       'Generate Code',
       'Open Agent Sidebar',
       'Choose Coding Agent…',
+      'Start Local Stack',
+      'Stop Local Stack',
+      'Run Workflow…',
+      'Arrange Workflow',
     ]);
   });
 });
@@ -203,39 +225,23 @@ describe('views', () => {
   });
 
   /**
-   * A webview cannot host a webview view, so
-   * "selecting a node swaps the canvas's right
-   * panel" is built as two views that take each
-   * other's place. Both need a clause and the two
-   * have to be opposites: give them both the same
-   * one and the container is empty half the time,
-   * leave one off and they stack.
+   * The container holds the two panels that are
+   * about the whole window, and nothing in it
+   * appears and disappears. Setting a block's
+   * config is done in the canvas' own right-hand
+   * column, so there is no view here that another
+   * has to be hidden for — and a `when` clause on
+   * either of these would hide a conversation or a
+   * run history for a reason that has nothing to do
+   * with them.
    */
-  it('swaps the agent and the Inspector on one fact', () => {
+  it('shows every view it declares, all the time', () => {
     expect(views.map((view) => view.id)).toEqual([
       'mboss.agentSidebar',
-      'mboss.nodeInspector',
       'mboss.runs',
     ]);
 
-    expect(views.map((view) => view.when)).toEqual([
-      '!mboss.nodeSelected',
-      'mboss.nodeSelected',
-      undefined,
-    ]);
-  });
-
-  /**
-   * The run list is a third panel beside whichever
-   * of the two is showing, not a fourth thing in
-   * the swap: a run history is worth reading while
-   * a block is selected, and a `when` clause here
-   * would hide it for that reason alone.
-   */
-  it('leaves the run list showing whatever else is', () => {
-    expect(
-      views.find((view) => view.id === 'mboss.runs')?.when,
-    ).toBeUndefined();
+    expect(views.map((view) => view.when)).toEqual([undefined, undefined]);
   });
 });
 
