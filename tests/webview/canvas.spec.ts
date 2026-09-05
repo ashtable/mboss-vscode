@@ -99,6 +99,7 @@ const canvasStrings: CanvasStrings = {
   },
   misfits: {
     'no-handler-kind': 'this block runs no code',
+    'external-call': 'calls {0} at line {1}, needs a step',
     'too-many-params': 'takes {0} arguments, needs one',
     'input-mismatch': 'takes {0}, needs {1}',
     'output-mismatch': 'returns {0}, needs {1}',
@@ -1833,9 +1834,9 @@ test.describe('the function picker', () => {
       .map((fn) => fn.export);
   }
 
-  async function openPicker(page: Page) {
+  async function openPicker(page: Page, nodeId = 'slot_open') {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('slot_open') }));
+    await harness.show(canvasInit({ inspector: showing(nodeId) }));
 
     return harness;
   }
@@ -1874,6 +1875,29 @@ test.describe('the function picker', () => {
     await expect(page.locator('[data-picker-fn]')).toHaveCount(
       fitting('slot_open').length,
     );
+  });
+
+  /**
+   * The one reason a row is put away that is not
+   * about its signature. A transaction's block puts
+   * whatever its handler does inside the run's own
+   * database transaction, so a handler that calls
+   * another system is making a promise the block
+   * cannot keep — and the repair is a step, not a
+   * type. The row says which call and where, because
+   * it is the only place a person is told before the
+   * generated code runs.
+   */
+  test('puts away a transaction handler that dials out', async ({ page }) => {
+    await openPicker(page, 'record_booking');
+
+    expect(fitting('record_booking')).not.toContain('chargeCard');
+
+    await page.locator('[data-picker-hidden]').click();
+
+    await expect(
+      page.locator('[data-picker-fn="chargeCard"] .lib-note'),
+    ).toHaveText('calls fetch at line 12, needs a step');
   });
 
   test('assigns the row that was picked', async ({ page }) => {

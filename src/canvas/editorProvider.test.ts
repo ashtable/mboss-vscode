@@ -935,6 +935,36 @@ describe('assigning a function to a block', () => {
     expect(recorded.told.length).toBe(before + 1);
   });
 
+  /**
+   * The other way a misfit reaches a person: the
+   * picker greys the row, and a chip dropped on the
+   * block anyway is refused out loud. What the
+   * refusal says has to be the same sentence the
+   * greyed row said, or the two disagree about one
+   * pairing — so it is spelled out here rather than
+   * asked of the same helper that writes it.
+   *
+   * The line comes out of a real scan of the copied
+   * code-behind, which is what makes it worth
+   * printing at all.
+   */
+  it('refuses a handler that dials out of a transaction', async () => {
+    await openScanned();
+    const before = recorded.told.length;
+
+    assign('record_booking', 'chargeCard');
+    await settled();
+
+    expect(recorded.written).toEqual([]);
+    expect(recorded.told.slice(before)).toEqual([
+      messages.handlerMisfit(
+        'chargeCard',
+        'Record booking',
+        'calls fetch at line 12, needs a step',
+      ),
+    ]);
+  });
+
   it('writes a name the code-behind has never heard of', async () => {
     await openScanned();
 

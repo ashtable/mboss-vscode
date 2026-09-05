@@ -278,6 +278,7 @@
   "{0} → {1} \"{2}\"": "{0} → {1} \"{2}\"",
   "dragging {0}…": "dragging {0}…",
   "this block runs no code of its own": "this block runs no code of its own",
+  "calls {0} at line {1}, needs a step": "calls {0} at line {1}, needs a step",
   "takes {0} arguments, needs one": "takes {0} arguments, needs one",
   "takes {0}, needs {1}": "takes {0}, needs {1}",
   "returns {0}, needs {1}": "returns {0}, needs {1}",

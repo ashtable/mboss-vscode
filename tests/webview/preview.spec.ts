@@ -89,6 +89,7 @@ const canvasStrings: CanvasStrings = {
   },
   misfits: {
     'no-handler-kind': 'this block runs no code of its own',
+    'external-call': 'calls {0} at line {1}, needs a step',
     'too-many-params': 'takes {0} arguments, needs one',
     'input-mismatch': 'takes {0}, needs {1}',
     'output-mismatch': 'returns {0}, needs {1}',

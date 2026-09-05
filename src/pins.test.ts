@@ -23,7 +23,7 @@ const gitmodules = readFileSync(join(REPO_ROOT, '.gitmodules'), 'utf8');
 
 describe('the nested library', () => {
   it('is pinned to the released branch', () => {
-    expect(gitmodules).toMatch(/^\s*branch = core-v0\.0\.6$/m);
+    expect(gitmodules).toMatch(/^\s*branch = core-v0\.0\.7$/m);
   });
 
   it('is nested at the path the aliases point at', () => {

@@ -39,5 +39,26 @@ export function misfitNote(
 
     case 'not-a-decision':
       return filled(template, reason.returns);
+
+    case 'external-call':
+      return filled(template, reached(reason), String(reason.line));
   }
+}
+
+/**
+ * What the handler calls, said as briefly as it can
+ * be said and still be looked up.
+ *
+ * The name alone is not always enough: a function
+ * the project re-exports from one of its own modules
+ * is written `post`, and `post` on its own names
+ * nothing a person could go and find. So where it
+ * was declared comes along in brackets — except for
+ * a global, where the name already is the whole
+ * story and "fetch (globalThis)" would say it twice.
+ */
+function reached(reason: Extract<HandlerMisfit, { kind: 'external-call' }>) {
+  return reason.via === 'globalThis'
+    ? reason.callee
+    : `${reason.callee} (${reason.via})`;
 }

@@ -907,6 +907,20 @@ export const messages = {
    */
   misfitWords: (): Record<HandlerMisfit['kind'], string> => ({
     'no-handler-kind': l10n.t('this block runs no code of its own'),
+
+    // The call and the line it is on, then the
+    // block this handler belongs on instead. Short
+    // because it greys a row in a narrow column and
+    // fills a notification: why a transaction may
+    // not call out is a paragraph, and validation
+    // writes that paragraph against the same
+    // pairing. Where the call came from rides in
+    // the first value between brackets rather than
+    // as words of its own, so that nothing here has
+    // to be assembled out of two sentences to
+    // translate.
+    'external-call': l10n.t('calls {0} at line {1}, needs a step'),
+
     'too-many-params': l10n.t('takes {0} arguments, needs one'),
     'input-mismatch': l10n.t('takes {0}, needs {1}'),
     'output-mismatch': l10n.t('returns {0}, needs {1}'),
