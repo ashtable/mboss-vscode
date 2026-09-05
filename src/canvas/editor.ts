@@ -51,6 +51,7 @@ import type {
 } from '../webview/protocol.js';
 
 import { layoutKeyOf } from './graph.js';
+import { snapped } from './grid.js';
 import { configToForm } from './inspector/forms.js';
 import { misfitNote } from './misfit.js';
 import { wireBetween } from './wiring.js';
@@ -360,7 +361,9 @@ export class CanvasSession {
           ? { ok: true, ir: read.ir }
           : { ok: false, detail: read.detail };
 
-    this.boxes = this.read.ok ? await boxesFor(this.read.ir) : {};
+    this.boxes = this.read.ok
+      ? onTheGrid(this.read.ir, await boxesFor(this.read.ir))
+      : {};
 
     this.followRun();
     this.reselect();
@@ -956,6 +959,48 @@ export class CanvasSession {
 
     return true;
   }
+}
+
+/**
+ * The layout, moved onto the grid the canvas works
+ * in.
+ *
+ * The engine spaces a graph on numbers of its own,
+ * none of them the canvas's, so a block it laid out
+ * sits between two grid lines. The grid rounds where
+ * a block ends up rather than how far it moved, so
+ * the first arrow press on such a block goes a
+ * fraction of a square the way it was pressed and a
+ * few pixels sideways as well — and every gesture
+ * after that inherits the offset.
+ *
+ * Rounded here rather than in the panel, because
+ * this is the one number both halves read: it is
+ * what is drawn, and it is what a first move writes
+ * into the document.
+ *
+ * A block the document itself places is left exactly
+ * where it says. That coordinate is somebody's
+ * answer rather than the engine's, and a canvas
+ * drawing it ten pixels from where the file put it
+ * would be telling a different story from the file.
+ */
+function onTheGrid(
+  ir: WorkflowIR,
+  boxes: Record<string, NodeBox>,
+): Record<string, NodeBox> {
+  const placed = new Set(
+    ir.nodes
+      .filter((node) => node.position !== undefined)
+      .map((node) => node.id),
+  );
+
+  return Object.fromEntries(
+    Object.entries(boxes).map(([id, box]) => [
+      id,
+      placed.has(id) ? box : { ...box, ...snapped(box) },
+    ]),
+  );
 }
 
 /**

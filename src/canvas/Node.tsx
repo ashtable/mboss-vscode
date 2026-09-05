@@ -5,6 +5,7 @@ import { truncateTitle, type NodeKind } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 
 import { landingOn, useConnecting } from './connect/Connecting.js';
+import { CursorBadge } from './drag/CursorBadge.js';
 import { LIB_FN, carries } from './dragging.js';
 import {
   SOURCE_PORT,
@@ -105,7 +106,21 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
       data-wire={wire}
       {...dropping}
     >
-      <Handle type="target" position={Position.Top} id={TARGET_PORT} />
+      {/* A wire arrives here and never leaves from
+          here. Everything the canvas answers mid-drag
+          — which blocks are ringed, which step back,
+          what the note says, which kinds are offered
+          on open canvas — is worked out about the
+          block the wire is leaving. Let a gesture
+          begin at this end and every one of those
+          answers is about the wrong block, and the
+          wire is written the wrong way round. */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        id={TARGET_PORT}
+        isConnectableStart={false}
+      />
 
       {/* Its own element rather than an outline on
           the block, because the block is already
@@ -129,7 +144,20 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
   // of being selected sit on two elements. One
   // element cannot carry both without merging them,
   // and a merged shadow says neither thing.
-  return dragging ? <div className="lift">{block}</div> : block;
+  //
+  // It wears the same arrow a block carried in from
+  // the rail wears, out of the same component: two
+  // gestures that both mean "the cursor has this"
+  // reading two ways is the sort of difference a
+  // person feels without being able to name.
+  return dragging ? (
+    <div className="lift">
+      {block}
+      <CursorBadge />
+    </div>
+  ) : (
+    block
+  );
 }
 
 /**

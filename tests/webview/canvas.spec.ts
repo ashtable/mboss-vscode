@@ -65,9 +65,22 @@ function fixture(name: string): unknown {
 }
 
 const ir = WorkflowIRSchema.parse(fixture('ir/groom_booking.workflow.json'));
-const boxes = fixture(
-  'golden/layout/groom_booking.layout.json',
-) as CanvasInit['boxes'];
+/**
+ * The fixture's own layout, on the grid.
+ *
+ * The engine spaces a graph on numbers of its own,
+ * none of them the canvas's, and the host rounds
+ * what it computed onto this grid before sending it.
+ * A graph arriving any other way is one this canvas
+ * never sees — and a block half a square off the
+ * grid moves diagonally the first time somebody
+ * nudges it.
+ */
+const boxes: CanvasInit['boxes'] = Object.fromEntries(
+  Object.entries(
+    fixture('golden/layout/groom_booking.layout.json') as CanvasInit['boxes'],
+  ).map(([id, box]) => [id, { ...box, x: snap(box.x), y: snap(box.y) }]),
+);
 const manifest = fixture('golden/manifest/lib.manifest.json') as LibManifest;
 
 const canvasStrings: CanvasStrings = {
@@ -1359,6 +1372,37 @@ test.describe('drawing a wire', () => {
  * one under the pointer says what would meet what.
  */
 test.describe('a wire being drawn', () => {
+  /**
+   * It leaves by the out dot and only by the out
+   * dot. The in dot is drawn on hover so a block
+   * says where a wire arrives, and it takes a drop —
+   * but every answer the canvas gives mid-drag is
+   * worked out about the block the wire is leaving,
+   * so a gesture begun at the other end would ring
+   * what this block feeds instead of what could feed
+   * it, and write the wire the other way round.
+   */
+  test('cannot be started from the dot a wire arrives at', async ({ page }) => {
+    await openCanvas(page);
+
+    // The block rather than the dot, because the dot
+    // is what this is asserting a pointer cannot
+    // begin a wire on.
+    await nodeBody(page, 'record_booking').hover();
+
+    const box = (await targetHandle(page, 'record_booking').boundingBox())!;
+    const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+    await page.mouse.move(at.x, at.y);
+    await page.mouse.down();
+    await page.mouse.move(at.x, at.y + 30, { steps: 4 });
+
+    await expect(page.locator('[data-pending-wire]')).toHaveCount(0);
+    await expect(ringOf(page, 'send_confirmation')).toHaveCount(0);
+
+    await page.mouse.up();
+  });
+
   test('rings every block it could land on', async ({ page }) => {
     await openCanvas(page);
     await holdWire(page, 'find_slot');
@@ -2359,6 +2403,28 @@ test.describe('dragging a block onto the canvas', () => {
   });
 
   /**
+   * A gap is the shape of the block that would fill
+   * it, or it is not an offer of anything in
+   * particular — and the block lands centred on the
+   * gap, so an outline of some other height promises
+   * a place the block does not go.
+   */
+  test('opens it the size of the block that would fill it', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+    await dragBlockOverPane(page, 'step');
+
+    const gap = (await page.locator('[data-splice-gap="e2"]').boundingBox())!;
+    const block = (await nodeBody(page, 'find_slot').boundingBox())!;
+
+    expect(gap.width).toBeCloseTo(block.width, 1);
+    expect(gap.height).toBeCloseTo(block.height, 1);
+
+    await page.mouse.up();
+  });
+
+  /**
    * Every wire offers a gap; one of them is the
    * offer. Filling all ten in would say the block
    * was about to go into all ten.
@@ -2508,24 +2574,6 @@ test.describe('dragging a block onto the canvas', () => {
 });
 
 /**
- * The fixture's own layout, moved onto the grid.
- *
- * Core lays a graph out on a spacing of its own,
- * which is not this one, so every block on a
- * freshly-arranged graph starts a fraction of a
- * square off. That is the ordinary case and most of
- * the specs below want it — but the ones that turn
- * on whether the grid moved anything need a graph
- * that is already sitting on it.
- */
-const onGrid: CanvasInit['boxes'] = Object.fromEntries(
-  Object.entries(boxes).map(([id, box]) => [
-    id,
-    { ...box, x: snap(box.x), y: snap(box.y) },
-  ]),
-);
-
-/**
  * The same ten blocks in one column, small enough
  * that the graph is drawn as far in as the canvas
  * allows.
@@ -2603,6 +2651,46 @@ test.describe('moving a block by hand', () => {
   });
 
   /**
+   * And the pointer's own arrow on its corner, the
+   * one a block carried in from the rail wears. It
+   * is needed more here, not less: a block picked up
+   * off the graph keeps whatever offset it was
+   * grabbed at, so without the arrow there is
+   * nothing on screen saying where the pointer is —
+   * which is the thing deciding where it lands.
+   */
+  test('wears the pointer on its corner while it is held', async ({ page }) => {
+    await openAtRest(page);
+    await holdNode(page, 'find_slot', { x: 70, y: 50 });
+
+    const lift = page.locator('.react-flow__node[data-id="find_slot"] .lift');
+
+    await expect(lift.locator('svg.cursor-badge')).toBeVisible();
+
+    await page.mouse.up();
+    await expect(page.locator('svg.cursor-badge')).toHaveCount(0);
+  });
+
+  /**
+   * And exactly the size of the block that left it.
+   * The hole is the shape of the thing that was in
+   * it; an outline any other height is a different,
+   * smaller thing sitting where the block was.
+   */
+  test('outlines it the size of the block that left', async ({ page }) => {
+    await openAtRest(page);
+    await holdNode(page, 'find_slot', { x: 70, y: 50 });
+
+    const slot = (await page.locator('[data-old-slot]').boundingBox())!;
+    const block = (await nodeBody(page, 'find_slot').boundingBox())!;
+
+    expect(slot.width).toBeCloseTo(block.width, 1);
+    expect(slot.height).toBeCloseTo(block.height, 1);
+
+    await page.mouse.up();
+  });
+
+  /**
    * Two shadows on the wrapper and four inside it,
    * never one merged value. The block is raised off
    * the graph and lit as the one being looked at,
@@ -2630,7 +2718,7 @@ test.describe('moving a block by hand', () => {
   });
 
   test('says where the block is while it is in the air', async ({ page }) => {
-    await openAtRest(page, { boxes: onGrid });
+    await openAtRest(page);
     await holdNode(page, 'find_slot', { x: 70, y: 50 });
 
     const readout = page.locator('[data-readout]');
@@ -2706,7 +2794,7 @@ test.describe('moving a block by hand', () => {
   test('draws a line through a block it has come level with', async ({
     page,
   }) => {
-    await openAtRest(page, { boxes: onGrid });
+    await openAtRest(page);
 
     const scale = await zoom(page);
     await holdNode(page, 'find_slot', { x: 0, y: 60 * scale });
@@ -2728,7 +2816,7 @@ test.describe('moving a block by hand', () => {
    * "lined up" everywhere, which says it nowhere.
    */
   test('draws none where nothing is level with it', async ({ page }) => {
-    await openAtRest(page, { boxes: onGrid });
+    await openAtRest(page);
 
     const scale = await zoom(page);
     await holdNode(page, 'find_slot', { x: 60 * scale, y: 60 * scale });
@@ -2737,7 +2825,7 @@ test.describe('moving a block by hand', () => {
     // line is a line that was not drawn rather than a
     // gesture that never got going.
     const at = await flowPosition(page, 'find_slot');
-    expect(at.x).toBeGreaterThan(onGrid['find_slot']!.x + GRID);
+    expect(at.x).toBeGreaterThan(boxes['find_slot']!.x + GRID);
 
     await expect(page.locator('[data-readout]')).toHaveCount(1);
     await expect(page.locator('[data-snap-guide]')).toHaveCount(0);
@@ -2799,7 +2887,7 @@ test.describe('moving a block by hand', () => {
   test('nudges the selected block one square with an arrow key', async ({
     page,
   }) => {
-    const harness = await openAtRest(page, { boxes: onGrid });
+    const harness = await openAtRest(page);
 
     await nodeBody(page, 'find_slot').click();
     await page.keyboard.press('ArrowRight');
@@ -2818,8 +2906,8 @@ test.describe('moving a block by hand', () => {
       ir.nodes.map((one) => one.id).sort(),
     );
     expect(positions['find_slot']).toEqual({
-      x: onGrid['find_slot']!.x + GRID,
-      y: onGrid['find_slot']!.y,
+      x: boxes['find_slot']!.x + GRID,
+      y: boxes['find_slot']!.y,
     });
   });
 
@@ -2833,7 +2921,7 @@ test.describe('moving a block by hand', () => {
   test('writes once for a key held down, not once a repeat', async ({
     page,
   }) => {
-    const harness = await openAtRest(page, { boxes: onGrid });
+    const harness = await openAtRest(page);
 
     await nodeBody(page, 'find_slot').click();
 
@@ -2853,8 +2941,8 @@ test.describe('moving a block by hand', () => {
     // Three squares, in one message: the repeats
     // moved the block and the release reported it.
     expect(positions['find_slot']).toEqual({
-      x: onGrid['find_slot']!.x + GRID * 3,
-      y: onGrid['find_slot']!.y,
+      x: boxes['find_slot']!.x + GRID * 3,
+      y: boxes['find_slot']!.y,
     });
   });
 

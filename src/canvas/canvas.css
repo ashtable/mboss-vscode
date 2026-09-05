@@ -360,6 +360,7 @@ button.lib-fn {
    raised and it is the one being looked at, and
    those are two facts rather than one darker one. */
 .lift {
+  position: relative;
   width: 100%;
   height: 100%;
   border-radius: var(--r-md);

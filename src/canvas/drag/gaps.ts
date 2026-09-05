@@ -1,4 +1,5 @@
 import {
+  NODE_HEIGHT,
   NODE_WIDTH,
   type NodeBox,
   type Position,
@@ -34,11 +35,21 @@ export type SpliceGap = {
   at: Position;
 };
 
-/** As wide as the block that would fill it, and
- *  shorter — a gap is a space to put something in,
- *  not a thing. */
+/**
+ * The size of the block that would fill it.
+ *
+ * Both marks drawn from these — the gap a wire opens
+ * and the slot a lifted block left — are a
+ * block-shaped hole, and a hole any other size is a
+ * different, smaller thing sitting where a block
+ * goes. It has to be the block's own size rather
+ * than a number that resembles it: a block lands
+ * centred on a gap, so a gap eight pixels short puts
+ * the block four pixels above the outline that
+ * offered it.
+ */
 export const GAP_WIDTH = NODE_WIDTH;
-export const GAP_HEIGHT = 52;
+export const GAP_HEIGHT = NODE_HEIGHT;
 
 export function spliceGaps(
   ir: WorkflowIR,

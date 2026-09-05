@@ -27,6 +27,7 @@ import {
   type CanvasRuns,
   type CanvasTrust,
 } from './editor.js';
+import { GRID } from './grid.js';
 
 /**
  * The editor a workflow opens in, driven the way
@@ -337,6 +338,25 @@ describe('opening a workflow', () => {
     expect(Object.keys(init.boxes ?? {}).sort()).toEqual(
       ir.nodes.map((node) => node.id).sort(),
     );
+  });
+
+  /**
+   * The engine spaces a graph on numbers of its own,
+   * none of them the canvas's, so a freshly laid-out
+   * block sits between two grid lines. An arrow
+   * press rounds where the block ends up rather than
+   * how far it moved, so the first press on such a
+   * block goes a fraction of a square the way it was
+   * pressed and a few pixels sideways as well.
+   */
+  it('puts every box on the grid the canvas moves on', () => {
+    const boxes = lastCanvasInit().boxes ?? {};
+
+    expect(
+      Object.entries(boxes).filter(
+        ([, box]) => box.x % GRID !== 0 || box.y % GRID !== 0,
+      ),
+    ).toEqual([]);
   });
 
   it('tells it what core makes of the document', () => {
