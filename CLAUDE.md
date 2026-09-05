@@ -256,10 +256,18 @@ is an event every store subscribes to.
   `registry.ts` is the published contract for the `mboss.agent.*` settings.
   `test/fixtures/scripted-peer.mjs` is a hand-written JSON-RPC peer for
   `connection`/`capabilities`/`agent` specs only — do not grow it into an e2e agent.
-- **`runs/`** — hand-composed parameterised `SELECT`s over
-  `dbos.workflow_status` / `dbos.operation_outputs` via `pg` (`queries.test.ts`
-  enforces SELECT-only, the `dbos.` prefix and `$n` binds); the one write is a
-  fork through `DBOSClient` (`replay.ts`). `stack.ts` drives `docker compose`
+- **`runs/`** — `store.ts` is a façade over three zones with their own slots
+  and change signals: `history.ts` (the ledger read, the filter, the rows and
+  counts, the picked run and its replay; it also offers the connection string
+  quietly to whoever arms a watch), `stackZone.ts` (what compose says and the
+  three commands) and `testRun.ts` (the saved workflows, the chosen one and
+  its input, starting a run, the live watches, the session rows,
+  ask-the-agent). `list()` composes their renders into `RunsInit` directly;
+  `view.ts` turns a row into words. Each zone's spec builds only that zone's
+  collaborators from `src/test-support/runs.ts`. Hand-composed parameterised
+  `SELECT`s over `dbos.workflow_status` / `dbos.operation_outputs` via `pg`
+  (`queries.test.ts` enforces SELECT-only, the `dbos.` prefix and `$n` binds);
+  the one write is a fork through `DBOSClient` (`replay.ts`). `stack.ts` drives `docker compose`
   with `execFile`; `runner.ts` POSTs to the scaffolded app's `/runs` and
   `/events` with the secret from the project's `.env` (`env.ts` reads only that
   file); `watch.ts` polls a started run every 500 ms and goes quiet after 15 s.
