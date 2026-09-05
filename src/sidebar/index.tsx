@@ -1,5 +1,6 @@
 import {
   StrictMode,
+  useEffect,
   useRef,
   useState,
   type FormEvent,
@@ -147,7 +148,20 @@ function Panel(state: SidebarInit) {
   const { strings, status } = state;
   const blocked = blockedBy(state);
   const composer = useRef<HTMLTextAreaElement>(null);
+  const log = useRef<HTMLOListElement>(null);
   const rows = transcriptRows(state.transcript);
+
+  // The log follows what arrived last. An agent
+  // writes for minutes at a time, and a panel that
+  // held its position would put every one of those
+  // minutes above the fold — the reader would be
+  // scrolling to keep up with a stream they are
+  // watching happen.
+  useEffect(() => {
+    const element = log.current;
+
+    if (element !== null) element.scrollTop = element.scrollHeight;
+  }, [state.transcript]);
 
   return (
     <div className="agent">
@@ -172,7 +186,7 @@ function Panel(state: SidebarInit) {
         </div>
       )}
 
-      <ol className="transcript">
+      <ol className="transcript" ref={log}>
         {rows.map((row) =>
           row.kind === 'entry' ? (
             <li key={row.entry.id} data-entry={row.entry.id}>
@@ -421,7 +435,18 @@ function FileEdit({
       data-decision={entry.decision}
     >
       <p className="file-head">
-        <span className="mono path">{entry.path}</span>
+        {/* Isolated, because the line it sits on is
+            laid out right to left so that a long
+            path loses its head rather than its
+            filename. The leading slash has no
+            direction of its own, and at the edge of
+            a right-to-left run it is reordered to
+            the far end — the file then reads as a
+            directory. The isolate gives the path its
+            own run to be ordered inside, and leaves
+            the line's own direction, and so the end
+            it truncates from, alone. */}
+        <span className="mono path">{`\u2066${entry.path}\u2069`}</span>
         <span className="stat">
           {entry.isNew ? <span className="new">{strings.newFile}</span> : null}
           <span className="added">+{entry.added}</span>

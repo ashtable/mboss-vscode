@@ -125,6 +125,10 @@ export type CanvasEdgeData = {
   /** A loop-closing edge, drawn against the flow. */
   back: boolean;
 
+  /** Every block on the graph, so a wire can put
+   *  its name somewhere it can be read. */
+  blocks: readonly NodeBox[];
+
   [key: string]: unknown;
 };
 
@@ -211,6 +215,11 @@ export function toReactFlow(
   const ports = new Map(ir.nodes.map((node) => [node.id, portsOf(node)]));
   const run = tonesOf(ir, drawing.run);
 
+  // Built once and handed to every wire, rather
+  // than each of them keeping its own copy of the
+  // same graph.
+  const blocks = Object.values(boxes);
+
   return {
     nodes: ir.nodes.map((node) =>
       toCanvasNode(
@@ -238,6 +247,7 @@ export function toReactFlow(
             : undefined,
         state: run.edges.get(edge.id) ?? 'idle',
         back: edge.back,
+        blocks,
       },
     })),
   };

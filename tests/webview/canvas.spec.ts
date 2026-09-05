@@ -496,6 +496,54 @@ test.describe('the graph', () => {
     expect(Math.abs(yes.x - no.x) + Math.abs(yes.y - no.y)).toBeGreaterThan(20);
   });
 
+  /**
+   * And off the blocks. A branch leg that runs a
+   * long way down the column has its half-way point
+   * behind whatever it passes, so a name written
+   * there lands on that block's own title — two
+   * sentences in one place, and the one underneath
+   * belongs to a block the wire has nothing to do
+   * with.
+   */
+  test('keeps every name off the blocks it passes', async ({ page }) => {
+    await openCanvas(page);
+
+    // The graph fits itself to its pane a frame or
+    // two after the view opens, and a rectangle read
+    // before that is a rectangle of nothing.
+    await expect(page.locator('.wire-port')).toHaveCount(4);
+
+    const overlaps = await page.evaluate(() => {
+      const boxOf = (element: Element): DOMRect =>
+        element.getBoundingClientRect();
+      const blocks = [...document.querySelectorAll('.react-flow__node .node')];
+
+      return [...document.querySelectorAll('.wire-port')].flatMap((name) => {
+        const over = boxOf(name);
+
+        return blocks
+          .filter((block) => {
+            const under = boxOf(block);
+
+            return (
+              over.left < under.right &&
+              over.right > under.left &&
+              over.top < under.bottom &&
+              over.bottom > under.top
+            );
+          })
+          .map(
+            (block) =>
+              `${name.textContent} over ${
+                (block.closest('.react-flow__node') as HTMLElement).dataset.id
+              }`,
+          );
+      });
+    });
+
+    expect(overlaps).toEqual([]);
+  });
+
   test('draws the loop-closing wire against the flow', async ({ page }) => {
     await openCanvas(page);
 
@@ -1942,6 +1990,29 @@ test.describe('the Inspector column', () => {
       'grid-template-columns',
       '204px 792px 284px',
     );
+  });
+
+  /**
+   * And keeps standing there in a narrow editor.
+   * A canvas opens in an editor group, so its width
+   * is whatever somebody's split happens to be —
+   * and two rails of fixed width in a frame narrower
+   * than both of them leave the graph nothing at
+   * all. The rails give way; the graph has a floor.
+   */
+  test('gives the graph the room before the rails', async ({ page }) => {
+    await openCanvas(page);
+    await page.setViewportSize({ width: 480, height: 900 });
+
+    const graph = page.locator('.react-flow');
+
+    expect((await graph.boundingBox())!.width).toBeGreaterThanOrEqual(320);
+    expect(
+      await page.evaluate(() => ({
+        scroll: document.documentElement.scrollWidth,
+        client: document.documentElement.clientWidth,
+      })),
+    ).toEqual({ scroll: 480, client: 480 });
   });
 
   test('shows the block that was clicked, beside it', async ({ page }) => {

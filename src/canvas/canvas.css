@@ -107,9 +107,16 @@
    the middle one is unusable without the other
    two: picking a block and saying what it does are
    one gesture, not two panels. */
+/* The rails give way before the graph does. A
+   canvas opens in an editor group, so its width is
+   whatever somebody's split happens to be, and two
+   rails of fixed width in a frame narrower than
+   both of them together left the graph nothing at
+   all — a workflow drawn at zero pixels, with the
+   page scrolling sideways to fit the rails. */
 .workspace {
   display: grid;
-  grid-template-columns: 204px 1fr 284px;
+  grid-template-columns: minmax(0, 204px) minmax(320px, 1fr) minmax(0, 284px);
   min-height: 0;
 }
 

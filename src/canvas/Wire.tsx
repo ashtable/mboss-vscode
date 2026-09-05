@@ -5,6 +5,8 @@ import {
   type EdgeProps,
 } from '@xyflow/react';
 
+import type { NodeBox } from '../core/rules.js';
+
 import type { CanvasEdge, EdgeState } from './graph.js';
 
 /**
@@ -63,7 +65,7 @@ export function Wire(props: EdgeProps<CanvasEdge>) {
             className="wire-port mono nodrag nopan"
             data-edge-port={props.id}
             style={{
-              transform: beside({ ...props, back }),
+              transform: beside({ ...props, back }, props.data?.blocks ?? []),
               color: state === 'idle' ? undefined : STROKE[state],
             }}
           >
@@ -112,9 +114,13 @@ function arrowId(state: EdgeState): string {
   return `wire-arrow-${state}`;
 }
 
+/** How far a name sits from the line it belongs to,
+ *  and from anything it has to step around. */
+const NAME_GAP = 10;
+
 /**
  * Where the port name sits: beside the line, half
- * way along it.
+ * way along it, and off whatever the line passes.
  *
  * Not at the block it leaves, which is where a
  * reader would look for it first: every wire out of
@@ -122,11 +128,47 @@ function arrowId(state: EdgeState): string {
  * written where they leave would be three names on
  * top of each other. Half way along, the wires have
  * separated and each name is beside its own.
+ *
+ * Half way along a long branch leg is behind
+ * whatever that leg runs past, though, and a name
+ * written there lands on the title of a block the
+ * wire has nothing to do with — two sentences in one
+ * place, neither of them readable.
  */
-function beside(ends: Ends & { back: boolean }): string {
+function beside(
+  ends: Ends & { back: boolean },
+  blocks: readonly NodeBox[],
+): string {
   const [, x, y] = route(ends);
+  const at = clearOf(x + NAME_GAP, y, blocks);
 
-  return `translate(0, -50%) translate(${x + 10}px, ${y}px)`;
+  return `translate(0, -50%) translate(${at}px, ${y}px)`;
+}
+
+/**
+ * The nearest place at or to the right of `x` where
+ * a name is not written over a block.
+ *
+ * Right rather than left, and stepping past each
+ * block in turn: a graph is laid out in columns, so
+ * the room beside one is where the loop-closing wire
+ * already goes, and it is the direction a reader's
+ * eye is not following the flow in.
+ */
+function clearOf(x: number, y: number, blocks: readonly NodeBox[]): number {
+  let at = x;
+
+  for (const box of [...blocks].sort((one, two) => one.x - two.x)) {
+    const over =
+      at >= box.x - NAME_GAP &&
+      at <= box.x + box.w &&
+      y >= box.y &&
+      y <= box.y + box.h;
+
+    if (over) at = box.x + box.w + NAME_GAP;
+  }
+
+  return at;
 }
 
 type Ends = Pick<

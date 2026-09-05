@@ -383,6 +383,55 @@ test.describe('a tool call', () => {
     await expect(rows.nth(1).locator('.added')).toHaveText('+2');
     await expect(rows.nth(1).locator('.removed')).toHaveText('−1');
   });
+
+  /**
+   * A long path loses its head rather than its
+   * filename, which the stylesheet does by laying
+   * the line out right to left. That puts the
+   * leading slash — a character with no direction of
+   * its own, at the edge of the run — on the wrong
+   * end, and the file reads as a directory.
+   *
+   * The words in the element are right either way,
+   * so this is asked of where the glyphs are drawn
+   * and not of what the text says.
+   */
+  test('draws a path from its root, not with the root at the end', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [
+      {
+        ...call,
+        content: [
+          { type: 'diff', path: '/project/lib/twilioChat.ts', newText: 'a\n' },
+        ],
+      },
+    ]);
+
+    const drawn = await page
+      .locator('.file-head > .path')
+      .evaluate((element) => {
+        const text = element.firstChild as Text;
+
+        const leftOf = (index: number): number => {
+          const range = document.createRange();
+
+          range.setStart(text, index);
+          range.setEnd(text, index + 1);
+
+          return range.getBoundingClientRect().left;
+        };
+
+        return {
+          root: leftOf(text.data.indexOf('/')),
+          end: leftOf(text.data.lastIndexOf('s')),
+        };
+      });
+
+    expect(drawn.root).toBeLessThan(drawn.end);
+  });
 });
 
 test.describe('the plan', () => {
@@ -727,6 +776,61 @@ test.describe('a permission request', () => {
     expect(await harness.postedOfType('permission')).toEqual([
       { type: 'permission', optionId: 'yes-always', kind: 'allow_always' },
     ]);
+  });
+});
+
+/**
+ * The panel is a column the height of the view,
+ * with the log scrolling inside it.
+ *
+ * A work log grows without limit and the box a
+ * person types into is the one thing that must not
+ * move. A panel that grew with its log would put
+ * the composer further below the fold with every
+ * chunk that arrived, so saying the next thing
+ * would start with scrolling to the bottom of
+ * everything already said.
+ */
+test.describe('the shape of the panel', () => {
+  /** A log far longer than the view is tall. */
+  const long = 'Wiring the booking flow.\n'.repeat(120);
+
+  test('keeps the composer in view however long the log gets', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 420, height: 700 });
+
+    const harness = await openPanel(page);
+    await showing(harness, [said(long)]);
+
+    const composer = (await page.locator('.composer').boundingBox())!;
+
+    expect(composer.y + composer.height).toBeLessThanOrEqual(700);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollHeight),
+    ).toBe(700);
+  });
+
+  test('follows the log to whatever the agent said last', async ({ page }) => {
+    await page.setViewportSize({ width: 420, height: 700 });
+
+    const harness = await openPanel(page);
+    await showing(harness, [said(long)]);
+
+    const log = page.locator('.transcript');
+
+    // At the bottom, not near it: a log that
+    // followed to somewhere short of the end would
+    // hide the line that just arrived.
+    expect(
+      await log.evaluate(
+        (element) =>
+          element.scrollHeight - element.scrollTop - element.clientHeight,
+      ),
+    ).toBeLessThanOrEqual(1);
+    expect(await log.evaluate((element) => element.scrollTop)).toBeGreaterThan(
+      0,
+    );
   });
 });
 

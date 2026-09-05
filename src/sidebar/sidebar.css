@@ -23,9 +23,15 @@ body {
   --canvas: var(--vscode-sideBar-background, var(--vscode-editor-background));
 }
 
+/* The height of the view rather than at least it,
+   so the log scrolls inside the column and the
+   composer stays where a person left it. A panel
+   that grew with its log would carry the box they
+   type into further below the fold with every chunk
+   that arrived. */
 .agent {
   box-sizing: border-box;
-  min-height: 100vh;
+  height: 100vh;
   padding: var(--space-3);
   display: flex;
   flex-direction: column;
@@ -101,8 +107,14 @@ body {
 
 /* — the conversation — */
 
+/* The one part that scrolls. `min-height: 0` is
+   what lets it: a flex child's floor is its content
+   otherwise, and a column of them would push the
+   composer out of the panel rather than scroll. */
 .transcript {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   margin: 0;
   padding: 0;
   list-style: none;
