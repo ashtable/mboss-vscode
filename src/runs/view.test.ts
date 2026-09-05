@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { Run, Step } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
-import { runsInit, seeInit, type RunsView } from './view.js';
+import { rowOf, seeInit, sessionRowOf } from './view.js';
 import type { ProjectWorkflow } from './workflows.js';
 
 /**
@@ -83,49 +83,12 @@ const SESSION: SessionRun = {
   recovered: false,
 };
 
-const LIST: RunsView = {
-  project: 'my-app',
-  state: 'ok' as const,
-  detail: undefined,
-  database: 'localhost:5432/app',
-  filter: 'all' as const,
-  counts: { all: 6, failed: 1, recovered: 1 },
-  runs: [RUN],
-  selected: undefined,
-  stack: { available: true, services: [], detail: undefined },
-  busy: undefined,
-  workflows: WORKFLOWS,
-  workflow: 'groom_booking',
-  input: '{}',
-  hint: undefined,
-  problem: undefined,
-  live: undefined,
-  session: [SESSION],
-};
-
-describe('the run list', () => {
-  it('is addressed to the view that draws it', () => {
-    const init = runsInit(LIST);
-
-    expect(init.type).toBe('init');
-    expect(init.view).toBe('runs');
-  });
-
-  it('names the database it is reading, and no credential', () => {
-    expect(runsInit(LIST).source).toBe(
-      'dbos.workflow_status · localhost:5432/app',
-    );
-  });
-
-  it('says the scope out loud, because it is a boundary', () => {
-    expect(runsInit(LIST).strings.scope).toContain('Conductor');
-  });
-
+describe('a row of the run history', () => {
   it('names a run by the workflow it is a run of', () => {
-    const row = runsInit(LIST).rows[0];
+    const row = rowOf(RUN);
 
-    expect(row?.workflowId).toBe('wf_c9d2f3');
-    expect(row?.name).toBe('groom_booking');
+    expect(row.workflowId).toBe('wf_c9d2f3');
+    expect(row.name).toBe('groom_booking');
   });
 
   /**
@@ -136,16 +99,13 @@ describe('the run list', () => {
    * What is asserted is the composition.
    */
   it('says when it ran and how long it took', () => {
-    expect(runsInit(LIST).rows[0]?.when).toMatch(/^\d{1,2}:\d{2}.* · 10\.0 s$/);
+    expect(rowOf(RUN).when).toMatch(/^\d{1,2}:\d{2}.* · 10\.0 s$/);
   });
 
   it('leaves the duration off a run that is still going', () => {
-    const going = {
-      ...LIST,
-      runs: [{ ...RUN, status: 'PENDING', completedAt: undefined }],
-    };
-
-    expect(runsInit(going).rows[0]?.when).not.toContain('·');
+    expect(
+      rowOf({ ...RUN, status: 'PENDING', completedAt: undefined }).when,
+    ).not.toContain('·');
   });
 
   /**
@@ -154,10 +114,10 @@ describe('the run list', () => {
    * happened during a run, not a way one ended.
    */
   it('marks a run that recovered, whatever it went on to do', () => {
-    const row = runsInit(LIST).rows[0];
+    const row = rowOf(RUN);
 
-    expect(row?.severity).toBe('ok');
-    expect(row?.recovered).toBe(true);
+    expect(row.severity).toBe('ok');
+    expect(row.recovered).toBe(true);
   });
 
   /**
@@ -168,25 +128,17 @@ describe('the run list', () => {
    * for the commonest case there is.
    */
   it('counts the crashes only once there is more than one', () => {
-    const once = runsInit(LIST).rows[0];
-    expect(once?.recoveredNote).toBeUndefined();
-
-    const twice = runsInit({
-      ...LIST,
-      runs: [{ ...RUN, recoveryAttempts: 3 }],
-    }).rows[0];
-    expect(twice?.recoveredNote).toBe('recovered from 2 crashes');
+    expect(rowOf(RUN).recoveredNote).toBeUndefined();
+    expect(rowOf({ ...RUN, recoveryAttempts: 3 }).recoveredNote).toBe(
+      'recovered from 2 crashes',
+    );
   });
 
   it('draws a failure loudly and says what it was', () => {
-    const failed = {
-      ...LIST,
-      runs: [{ ...RUN, status: 'ERROR', error: 'login failed' }],
-    };
-    const row = runsInit(failed).rows[0];
+    const row = rowOf({ ...RUN, status: 'ERROR', error: 'login failed' });
 
-    expect(row?.severity).toBe('failed');
-    expect(row?.error).toBe('login failed');
+    expect(row.severity).toBe('failed');
+    expect(row.error).toBe('login failed');
   });
 
   /**
@@ -198,55 +150,25 @@ describe('the run list', () => {
    * failures.
    */
   it('tells a run DBOS gave up on apart from one that threw', () => {
-    const exhausted = {
-      ...LIST,
-      runs: [{ ...RUN, status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' }],
-    };
+    const row = rowOf({ ...RUN, status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' });
 
-    expect(runsInit(exhausted).rows[0]?.severity).toBe('exhausted');
-    expect(runsInit(exhausted).rows[0]?.status).toBe(
-      'MAX_RECOVERY_ATTEMPTS_EXCEEDED',
-    );
+    expect(row.severity).toBe('exhausted');
+    expect(row.status).toBe('MAX_RECOVERY_ATTEMPTS_EXCEEDED');
   });
 
   it('draws a run that has not finished as still going', () => {
     for (const status of ['PENDING', 'ENQUEUED', 'DELAYED']) {
-      const going = { ...LIST, runs: [{ ...RUN, status }] };
-
-      expect(runsInit(going).rows[0]?.severity).toBe('running');
+      expect(rowOf({ ...RUN, status }).severity).toBe('running');
     }
-  });
-
-  it('carries no database line when there is no database', () => {
-    const nothing = {
-      ...LIST,
-      state: 'unreachable' as const,
-      detail: 'no .env',
-      database: undefined,
-      rows: [],
-    };
-
-    expect(runsInit(nothing).source).toBeUndefined();
-    expect(runsInit(nothing).detail).toBe('no .env');
   });
 });
 
-describe('what this window set going', () => {
-  it('names each workflow and how a run of it starts', () => {
-    expect(runsInit(LIST).testRun.workflows).toEqual([
-      { name: 'groom_booking', title: 'Groom booking', mode: 'manual' },
-      { name: 'expense_claim', title: 'Expense claim', mode: 'event' },
-      { name: 'door_opened', title: 'Door opened', mode: 'event' },
-      { name: 'nightly_sweep', title: 'Nightly sweep', mode: 'schedule' },
-    ]);
-    expect(runsInit(LIST).testRun.selected).toBe('groom_booking');
-  });
-
+describe('a row of what this window set going', () => {
   it('says how long a finished run took, and nothing for one going', () => {
-    expect(runsInit(LIST).session[0]?.when).toContain('8.2 s');
-
-    const going = { ...LIST, session: [{ ...SESSION, durationMs: undefined }] };
-    expect(runsInit(going).session[0]?.when).not.toContain('·');
+    expect(sessionRowOf(SESSION, WORKFLOWS).when).toContain('8.2 s');
+    expect(
+      sessionRowOf({ ...SESSION, durationMs: undefined }, WORKFLOWS).when,
+    ).not.toContain('·');
   });
 
   /**
@@ -257,69 +179,38 @@ describe('what this window set going', () => {
    * from it.
    */
   it('marks the rows whose input decides the run', () => {
-    expect(runsInit(LIST).session[0]?.keyed).toBe(false);
-
-    const keyed = {
-      ...LIST,
-      session: [{ ...SESSION, workflow: 'expense_claim' }],
-    };
-    expect(runsInit(keyed).session[0]?.keyed).toBe(true);
+    expect(sessionRowOf(SESSION, WORKFLOWS).keyed).toBe(false);
+    expect(
+      sessionRowOf({ ...SESSION, workflow: 'expense_claim' }, WORKFLOWS).keyed,
+    ).toBe(true);
 
     // An event is not enough on its own: without a
     // key path the route mints a fresh id, so
     // sending it again is another run.
-    const unkeyed = {
-      ...LIST,
-      session: [{ ...SESSION, workflow: 'door_opened' }],
-    };
-    expect(runsInit(unkeyed).session[0]?.keyed).toBe(false);
+    expect(
+      sessionRowOf({ ...SESSION, workflow: 'door_opened' }, WORKFLOWS).keyed,
+    ).toBe(false);
   });
 
   /** One field, whether a step threw or the
    *  ingress refused to start it at all. */
   it('carries whichever failure the row has', () => {
-    const threw = {
-      ...LIST,
-      session: [
+    expect(
+      sessionRowOf(
         {
           ...SESSION,
-          outcome: 'failed' as const,
+          outcome: 'failed',
           failedStep: { name: 'find_slot', error: 'CDC_PASS rotated' },
         },
-      ],
-    };
-    expect(runsInit(threw).session[0]?.error).toBe('CDC_PASS rotated');
-
-    const refused = {
-      ...LIST,
-      session: [
-        { ...SESSION, outcome: 'failed' as const, error: 'the app is not up' },
-      ],
-    };
-    expect(runsInit(refused).session[0]?.error).toBe('the app is not up');
-  });
-
-  /**
-   * Carried apart from the sentence so the panel
-   * can offer the same Rebuild action the stack
-   * zone's `app` row does, without parsing the
-   * sentence to find out which problem this was.
-   */
-  it('says whether the same Rebuild action would fix the last problem', () => {
-    const stale = {
-      ...LIST,
-      problem: { detail: 'Rebuild the app.', rebuildToRun: true },
-    };
-    expect(runsInit(stale).testRun.problem).toEqual({
-      detail: 'Rebuild the app.',
-      rebuildToRun: true,
-    });
-
-    const notJson = {
-      ...LIST,
-      problem: { detail: 'That input is not JSON.', rebuildToRun: false },
-    };
-    expect(runsInit(notJson).testRun.problem?.rebuildToRun).toBe(false);
+        WORKFLOWS,
+      ).error,
+    ).toBe('CDC_PASS rotated');
+    expect(
+      sessionRowOf(
+        { ...SESSION, outcome: 'failed', error: 'the app is not up' },
+        WORKFLOWS,
+      ).error,
+    ).toBe('the app is not up');
   });
 });
 

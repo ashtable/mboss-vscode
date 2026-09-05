@@ -216,7 +216,7 @@ describe('a run history, read from a real dbos schema', () => {
 
     const list = store.list();
     expect(list.state).toBe('ok');
-    expect(list.runs.map((run) => run.workflowId).sort()).toEqual([
+    expect(list.rows.map((row) => row.workflowId).sort()).toEqual([
       FAILED_RUN,
       OK_RUN,
       RECOVERED_RUN,
@@ -270,17 +270,17 @@ describe('a run history, read from a real dbos schema', () => {
    */
   it('filters on what the database itself calls failed', async () => {
     await store.setFilter('failed');
-    expect(store.list().runs.map((run) => run.workflowId)).toEqual([
+    expect(store.list().rows.map((row) => row.workflowId)).toEqual([
       FAILED_RUN,
     ]);
 
     await store.setFilter('recovered');
-    expect(store.list().runs.map((run) => run.workflowId)).toEqual([
+    expect(store.list().rows.map((row) => row.workflowId)).toEqual([
       RECOVERED_RUN,
     ]);
 
     await store.setFilter('all');
-    expect(store.list().runs).toHaveLength(3);
+    expect(store.list().rows).toHaveLength(3);
   });
 
   /**

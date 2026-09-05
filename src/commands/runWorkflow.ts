@@ -60,7 +60,7 @@ export function runWorkflowCommand(
 
     const runnable = runs
       .list()
-      .workflows.filter((flow) => flow.trigger.mode !== 'schedule');
+      .testRun.workflows.filter((flow) => flow.mode !== 'schedule');
 
     if (runnable.length === 0) {
       host.info(messages.runWorkflowNone());
@@ -72,7 +72,7 @@ export function runWorkflowCommand(
       runnable.map((flow) => ({
         id: flow.name,
         label: flow.title,
-        detail: flow.trigger.mode === 'event' ? flow.trigger.topic : '',
+        detail: flow.topic ?? '',
       })),
     );
     if (picked === undefined) return;

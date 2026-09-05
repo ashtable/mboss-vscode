@@ -2,8 +2,6 @@ import { messages } from '../messages.js';
 import type {
   RunRow,
   RunSeverity,
-  RunsInit,
-  RunsState,
   SeeBar,
   SeeChip,
   SeeInit,
@@ -14,35 +12,27 @@ import type {
   SessionRow,
 } from '../webview/protocol.js';
 
-import { runsWords, seeWords } from './words.js';
-import type { RunFilter } from './queries.js';
-import {
-  hasRecovered,
-  recoveriesOf,
-  type Run,
-  type RunCounts,
-  type Step,
-} from './rows.js';
+import { seeWords } from './words.js';
+import { hasRecovered, recoveriesOf, type Run, type Step } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
-import type { StackStatus } from './stack.js';
-import type { StackAction } from './store.js';
 import { runTimeline, type Timeline } from './timeline.js';
-import type { LiveRun } from './watch.js';
 import type { ProjectWorkflow } from './workflows.js';
 
 /**
- * A run history, in the words and shapes the two
- * views draw.
+ * A row of the run history, a row of this session,
+ * and one run in detail, in the words the views
+ * draw.
  *
- * Everything a person reads is resolved here,
- * because a webview has no localization bundle.
- * And every position is a fraction of the chart's
- * own window rather than a pixel, because the
- * panel is resizable and the host has no idea how
- * wide it is — so the arithmetic is done once, in
- * one place with a test around it, instead of in a
- * renderer that would need to be handed the window
- * to do it.
+ * What a person reads on a row is resolved here,
+ * because a webview has no localization bundle;
+ * the store that holds the rows renders the list
+ * from these. And every position on the chart is
+ * a fraction of its own window rather than a
+ * pixel, because the panel is resizable and the
+ * host has no idea how wide it is — so the
+ * arithmetic is done once, in one place with a
+ * test around it, instead of in a renderer that
+ * would need to be handed the window to do it.
  */
 
 /** Statuses that mean the run has not finished. */
@@ -57,57 +47,6 @@ const IN_FLIGHT = new Set(['PENDING', 'ENQUEUED', 'DELAYED']);
  * the database this panel names.
  */
 const OUTPUT_CELL = 120;
-
-export type RunsView = {
-  /** As a person reads it: the folder's own name. */
-  project: string | undefined;
-
-  state: RunsState;
-
-  /** Why there is nothing to show. */
-  detail: string | undefined;
-
-  /** Host and database, never the credentials. */
-  database: string | undefined;
-
-  filter: RunFilter;
-
-  counts: RunCounts;
-
-  runs: Run[];
-
-  selected: string | undefined;
-
-  /** What compose says about the project's own
-   *  stack. */
-  stack: StackStatus;
-
-  /** Which stack command is going, while one is. */
-  busy: StackAction | undefined;
-
-  /** What the project has saved, and which of them
-   *  the input box belongs to. */
-  workflows: ProjectWorkflow[];
-  workflow: string | undefined;
-
-  /** The JSON text as it was last sent, held here
-   *  so a repaint does not empty the box. */
-  input: string;
-
-  /** That the same input is the same run, where
-   *  the trigger says so. */
-  hint: string | undefined;
-
-  /** Why the last start did not happen. */
-  problem: TestRunProblem | undefined;
-
-  /** The run being followed, if one is. */
-  live: LiveRun | undefined;
-
-  /** What this window has set going, newest
-   *  first. */
-  session: SessionRun[];
-};
 
 /**
  * Why a run did not start.
@@ -135,44 +74,6 @@ export type SeeView = {
   note: string | undefined;
 };
 
-export function runsInit(view: RunsView): RunsInit {
-  return {
-    type: 'init',
-    view: 'runs',
-    strings: runsWords(),
-    source:
-      view.database === undefined
-        ? undefined
-        : messages.runsSource(view.database),
-    project: view.project,
-    state: view.state,
-    detail: view.detail,
-    filter: view.filter,
-    counts: view.counts,
-    rows: view.runs.map(rowOf),
-    selected: view.selected,
-    stack: {
-      available: view.stack.available,
-      services: view.stack.services,
-      busy: view.busy,
-      detail: view.stack.detail,
-    },
-    testRun: {
-      workflows: view.workflows.map((flow) => ({
-        name: flow.name,
-        title: flow.title,
-        mode: flow.trigger.mode,
-      })),
-      selected: view.workflow,
-      input: view.input,
-      hint: view.hint,
-      problem: view.problem,
-    },
-    live: view.live,
-    session: view.session.map((run) => sessionRowOf(run, view.workflows)),
-  };
-}
-
 /**
  * One session run, in the words the panel draws.
  *
@@ -182,7 +83,7 @@ export function runsInit(view: RunsView): RunsInit {
  * and it is what decides which of the two actions
  * the row offers.
  */
-function sessionRowOf(
+export function sessionRowOf(
   run: SessionRun,
   workflows: readonly ProjectWorkflow[],
 ): SessionRow {
@@ -244,7 +145,7 @@ function seeRun(view: SeeView): SeeRun {
   };
 }
 
-function rowOf(run: Run): RunRow {
+export function rowOf(run: Run): RunRow {
   return {
     workflowId: run.workflowId,
     name: run.name,

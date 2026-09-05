@@ -381,7 +381,7 @@ describe('reading a project run history', () => {
 
     const list = store.list();
     expect(list.state).toBe('ok');
-    expect(list.runs.map((run) => run.workflowId)).toEqual(['wf_c9d2f3']);
+    expect(list.rows.map((row) => row.workflowId)).toEqual(['wf_c9d2f3']);
     expect(list.counts).toEqual({ all: 6, failed: 1, recovered: 1 });
   });
 
@@ -391,7 +391,9 @@ describe('reading a project run history', () => {
 
     await store.refresh();
 
-    expect(store.list().database).toBe('localhost:5432/app');
+    expect(store.list().source).toBe(
+      'dbos.workflow_status · localhost:5432/app',
+    );
   });
 
   /**
@@ -599,7 +601,7 @@ describe('the local stack', () => {
       'postgres',
       'app',
     ]);
-    expect(store.list().busy).toBeUndefined();
+    expect(store.list().stack.busy).toBeUndefined();
   });
 
   /**
@@ -673,7 +675,7 @@ describe('the workflows a person can run', () => {
     await store.refresh();
 
     expect(
-      store.list().workflows.map((flow) => `${flow.name}:${flow.trigger.mode}`),
+      store.list().testRun.workflows.map((flow) => `${flow.name}:${flow.mode}`),
     ).toEqual([
       'expense_claim:event',
       'groom_booking:manual',
@@ -698,7 +700,7 @@ describe('the workflows a person can run', () => {
 
     await store.refresh();
 
-    expect(store.list().hint).toContain('claimId');
+    expect(store.list().testRun.hint).toContain('claimId');
   });
 
   it('has no hint for a workflow that names no key', async () => {
@@ -712,7 +714,7 @@ describe('the workflows a person can run', () => {
 
     await store.refresh();
 
-    expect(store.list().hint).toBeUndefined();
+    expect(store.list().testRun.hint).toBeUndefined();
   });
 
   /**
@@ -737,13 +739,13 @@ describe('the workflows a person can run', () => {
 
     await store.refresh();
     await store.runWorkflow('groom_booking', '{}');
-    expect(store.list().problem).toBeDefined();
+    expect(store.list().testRun.problem).toBeDefined();
 
     store.selectWorkflow('expense_claim');
 
-    expect(store.list().workflow).toBe('expense_claim');
-    expect(store.list().hint).toContain('claimId');
-    expect(store.list().problem).toBeUndefined();
+    expect(store.list().testRun.selected).toBe('expense_claim');
+    expect(store.list().testRun.hint).toContain('claimId');
+    expect(store.list().testRun.problem).toBeUndefined();
   });
 });
 
@@ -809,8 +811,8 @@ describe('starting a run', () => {
     await store.runWorkflow('groom_booking', '{ bookingId: ');
 
     expect(ingress.requests).toEqual([]);
-    expect(store.list().problem).toBeDefined();
-    expect(store.list().problem?.rebuildToRun).toBe(false);
+    expect(store.list().testRun.problem).toBeDefined();
+    expect(store.list().testRun.problem?.rebuildToRun).toBe(false);
     expect(store.list().session).toEqual([]);
   });
 
@@ -832,7 +834,7 @@ describe('starting a run', () => {
     const row = store.list().session[0];
     expect(row?.outcome).toBe('failed');
     expect(row?.error).toBe('the app is not up');
-    expect(store.list().problem).toEqual({
+    expect(store.list().testRun.problem).toEqual({
       detail: 'the app is not up',
       rebuildToRun: false,
     });
@@ -858,8 +860,8 @@ describe('starting a run', () => {
 
     await store.runWorkflow('groom_booking', '{}');
 
-    expect(store.list().problem?.detail).toContain('Rebuild');
-    expect(store.list().problem?.rebuildToRun).toBe(true);
+    expect(store.list().testRun.problem?.detail).toContain('Rebuild');
+    expect(store.list().testRun.problem?.rebuildToRun).toBe(true);
   });
 
   /** An event run has no id to be keyed on until
@@ -975,10 +977,9 @@ describe('following a run', () => {
       }),
     );
 
-    expect(store.list().session[0]?.failedStep).toEqual({
-      name: 'find_slot',
-      error: 'login failed — CDC_PASS rotated',
-    });
+    expect(store.list().session[0]?.error).toBe(
+      'login failed — CDC_PASS rotated',
+    );
   });
 
   /**
@@ -1151,5 +1152,34 @@ describe('asking the agent why', () => {
     await store.askAgent('run_nothing');
 
     expect(noted).toEqual([]);
+  });
+});
+
+describe('what the list draws', () => {
+  it('is addressed to the view that draws it, in its words', () => {
+    const init = runsStore(deps()).list();
+
+    expect(init.type).toBe('init');
+    expect(init.view).toBe('runs');
+    expect(init.strings.scope).toContain('Conductor');
+  });
+
+  it('names each workflow and how a run of it starts', async () => {
+    const dir = project();
+    const store = runsStore(deps({ host: host({ projects: () => [dir] }) }));
+
+    await store.refresh();
+
+    expect(store.list().testRun.workflows).toEqual([
+      {
+        name: 'expense_claim',
+        title: 'The expense_claim',
+        mode: 'event',
+        topic: 'expense.filed',
+      },
+      { name: 'groom_booking', title: 'The groom_booking', mode: 'manual' },
+      { name: 'nightly_sync', title: 'The nightly_sync', mode: 'schedule' },
+    ]);
+    expect(store.list().testRun.selected).toBe('expense_claim');
   });
 });

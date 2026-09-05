@@ -11,7 +11,7 @@ import {
 import { mountWebview, type Mount } from '../webview/host.js';
 
 import type { RunsStore } from './store.js';
-import { runsInit, seeInit } from './view.js';
+import { seeInit } from './view.js';
 import { runsWords, seeWords } from './words.js';
 
 /**
@@ -52,7 +52,7 @@ export class RunsListView implements WebviewViewProvider {
       extensionUri: this.extensionUri,
       view: 'runs',
       title: runsWords().heading,
-      init: () => runsInit(this.store.list()),
+      init: () => this.store.list(),
       follows: [(repaint) => this.store.onChanged(repaint)],
       heard: (message) => {
         if (message.type === 'runRefresh') void this.store.refresh();

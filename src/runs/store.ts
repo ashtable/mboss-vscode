@@ -2,6 +2,8 @@ import { basename } from 'node:path';
 
 import type { Disposable } from 'vscode';
 
+import type { RunsInit } from '../webview/protocol.js';
+
 import { emitter } from '../emitter.js';
 
 import type { DiagnosticEntry } from '../acp/transcript.js';
@@ -37,8 +39,14 @@ import {
   type SessionRun,
 } from './sessionLog.js';
 import type { StackController, StackStatus } from './stack.js';
-import type { RunsView, SeeView, TestRunProblem } from './view.js';
+import {
+  rowOf,
+  sessionRowOf,
+  type SeeView,
+  type TestRunProblem,
+} from './view.js';
 import type { LiveRun, RunWatch, RunWatcher } from './watch.js';
+import { runsWords } from './words.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 
 /**
@@ -109,8 +117,10 @@ export type RunsDeps = {
 export type StackAction = 'up' | 'down' | 'rebuild';
 
 export type RunsStore = Disposable & {
-  /** What the list draws. */
-  list(): RunsView;
+  /** What the list draws, whole: the slots are the
+   *  store's and the shape is the panel's, and
+   *  nothing stands between them. */
+  list(): RunsInit;
 
   /** What the detail tab draws, when a run has been
    *  picked. */
@@ -190,7 +200,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
   const changes = emitter();
 
   let filter: RunFilter = 'all';
-  let state: RunsView['state'] = 'no-project';
+  let state: RunsInit['state'] = 'no-project';
   let detail: string | undefined;
   let database: string | undefined;
   let runs: Run[] = [];
@@ -579,23 +589,41 @@ export function runsStore(deps: RunsDeps): RunsStore {
 
   return {
     list: () => ({
+      type: 'init',
+      view: 'runs',
+      strings: runsWords(),
       project: mapDefined(project(), basename),
+      source: mapDefined(database, messages.runsSource),
       state,
       detail,
-      database,
       filter,
       counts,
-      runs,
+      rows: runs.map(rowOf),
       selected: selected?.run.workflowId,
-      stack,
-      busy,
-      workflows,
-      workflow,
-      input,
-      hint: hintFor(workflows, workflow),
-      problem,
+      stack: {
+        available: stack.available,
+        services: stack.services,
+        busy,
+        detail: stack.detail,
+      },
+      testRun: {
+        workflows: workflows.map((flow) => ({
+          name: flow.name,
+          title: flow.title,
+          mode: flow.trigger.mode,
+          ...(flow.trigger.mode === 'event'
+            ? { topic: flow.trigger.topic }
+            : {}),
+        })),
+        selected: workflow,
+        input,
+        hint: hintFor(workflows, workflow),
+        problem,
+      },
       live,
-      session: deps.sessionLog.list(),
+      session: deps.sessionLog
+        .list()
+        .map((run) => sessionRowOf(run, workflows)),
     }),
 
     detail: () => selected,

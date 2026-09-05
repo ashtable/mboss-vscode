@@ -377,6 +377,10 @@ export type RunnableWorkflow = {
   /** A scheduled workflow is listed and cannot be
    *  started: it runs on its schedule. */
   mode: WorkflowTrigger['mode'];
+
+  /** The event an event workflow starts on, for a
+   *  picker to say beside its name. */
+  topic?: string;
 };
 
 /** One run this window started, in the words the
