@@ -9,7 +9,6 @@ import type { ToolEntry } from '../acp/transcript.js';
 import {
   WorkflowIRSchema,
   starterNode,
-  withDecisionCases,
   type WorkflowIR,
 } from '../core/rules.js';
 import { messages } from '../messages.js';
@@ -19,7 +18,7 @@ import { fileExists } from '../test-support/repo.js';
 import { propose, specOf } from '../test-support/proposals.js';
 import type { LiveRun } from '../runs/watch.js';
 import type { PickChoice, VsCodeApi } from '../vscodeApi.js';
-import type { CanvasInit, CanvasInspector } from '../webview/protocol.js';
+import type { CanvasInit } from '../webview/protocol.js';
 
 import {
   WorkflowCanvasEditor,
@@ -379,6 +378,7 @@ describe('opening a workflow', () => {
 
     expect(init.document.ok).toBe(false);
     expect(init.document.ok === false && init.document.detail).toBeTruthy();
+    expect(init.editing).toBeUndefined();
   });
 });
 
@@ -643,80 +643,14 @@ describe('a change from anywhere else', () => {
  * message as the graph.
  */
 describe('selecting a node', () => {
-  it('hands the Inspector column the node and its fields', async () => {
+  it('hands the Inspector column the block, and the revision to edit against', async () => {
     panel.send({ type: 'select', view: 'canvas', nodeId: 'reply_decision' });
     await settled();
 
-    const shown = lastCanvasInit().inspector;
+    const init = lastCanvasInit();
 
-    expect(shown.selected?.node.id).toBe('reply_decision');
-    expect(shown.selected?.form.kind).toBe('branch');
-    expect(shown.selected?.revision).toBe(ir.revision);
-    expect(labelled(shown)).toBe(true);
-  });
-
-  /**
-   * A branch that runs a decision has no predicates
-   * to edit, so its cases are read back as the
-   * wires they stand for — which takes the graph,
-   * and is why the host works them out rather than
-   * the form.
-   */
-  it('reads a decision branch’s cases back as where they lead', async () => {
-    const decided = {
-      ...ir,
-      nodes: ir.nodes.map((node) =>
-        node.id === 'slot_open'
-          ? { ...node, handler: { export: 'tryAgain' } }
-          : node,
-      ),
-    };
-
-    await open(fakeDocument(JSON.stringify(decided)));
-
-    panel.send({ type: 'select', view: 'canvas', nodeId: 'slot_open' });
-    await settled();
-
-    expect(lastCanvasInit().inspector.selected?.outcomes).toEqual([
-      { value: 'true', target: 'Book appointment' },
-    ]);
-  });
-
-  /**
-   * A decision can bring more ways out than the
-   * branch has wires — three outcomes onto a branch
-   * somebody has wired twice. The unwired one names
-   * no block, and the column is what says the run
-   * stops there. Naming a block for it would be a
-   * lie, and leaving it out altogether would hide a
-   * way out that exists.
-   */
-  it('names no block for a way out nothing is wired to', async () => {
-    const branch = ir.nodes.find((node) => node.id === 'slot_open')!;
-    if (branch.kind !== 'branch') throw new Error('slot_open is not a branch');
-
-    const decided = {
-      ...ir,
-      nodes: ir.nodes.map((node) =>
-        node.id === 'slot_open'
-          ? {
-              ...withDecisionCases(branch, ['pay', 'refuse', 'hold']),
-              handler: { export: 'routeClaim' },
-            }
-          : node,
-      ),
-    };
-
-    await open(fakeDocument(JSON.stringify(decided)));
-
-    panel.send({ type: 'select', view: 'canvas', nodeId: 'slot_open' });
-    await settled();
-
-    expect(lastCanvasInit().inspector.selected?.outcomes).toEqual([
-      { value: 'pay', target: 'Book appointment' },
-      { value: 'refuse', target: 'Twilio chat — you decide' },
-      { value: 'hold', target: undefined },
-    ]);
+    expect(init.inspector.selected).toBe('reply_decision');
+    expect(init.editing).toEqual({ revision: ir.revision });
   });
 
   it('shows nothing at all once the canvas lets go of it', async () => {
@@ -749,7 +683,7 @@ describe('selecting a node', () => {
     panel.send({ type: 'ready', view: 'canvas' });
     await settled();
 
-    expect(lastCanvasInit().inspector.selected?.node.id).toBe('find_slot');
+    expect(lastCanvasInit().inspector.selected).toBe('find_slot');
   });
 
   /** Two canvases can be open at once, and each one
@@ -778,7 +712,7 @@ describe('selecting a node', () => {
     panel.send({ type: 'ready', view: 'canvas' });
     await settled();
 
-    expect(lastCanvasInit().inspector.selected?.node.id).toBe('find_slot');
+    expect(lastCanvasInit().inspector.selected).toBe('find_slot');
   });
 });
 
@@ -944,6 +878,7 @@ describe('a proposal about the document on screen', () => {
 
     expect(recorded.written).toEqual([]);
     expect(lastCanvasInit().inspector.selected).toBeUndefined();
+    expect(lastCanvasInit().editing).toBeUndefined();
   });
 
   /**
@@ -1138,7 +1073,7 @@ describe('placing blocks by hand', () => {
     addStep();
     await file.saved();
 
-    expect(lastCanvasInit().inspector.selected?.node.id).toBe('step');
+    expect(lastCanvasInit().inspector.selected).toBe('step');
   });
 
   /**
@@ -1328,19 +1263,3 @@ describe('a run of the workflow on screen', () => {
 
 /** Every field the Inspector is about to draw has
  *  a word to draw beside it. */
-function labelled(shown: CanvasInspector): boolean {
-  const fields = shown.selected?.form.fields ?? [];
-
-  return fields.every((field) => {
-    const own = shown.strings.fields[field.id] !== undefined;
-    if (field.control !== 'choice') return own;
-
-    return (
-      own &&
-      field.options.every(
-        (option) =>
-          shown.strings.options[`${field.id}.${option}`] !== undefined,
-      )
-    );
-  });
-}

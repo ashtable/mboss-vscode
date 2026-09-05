@@ -3,20 +3,20 @@ import { useRef, useState } from 'react';
 import type {
   HandlerMisfit,
   LibFunction,
+  WorkflowIR,
   WorkflowNode,
 } from '../../core/rules.js';
 import { postToHost } from '../../webview/client.js';
 import { filled } from '../../webview/fill.js';
 import type {
   Callout as CalloutWords,
-  CanvasInspector,
-  DecisionOutcome,
   InspectorStrings,
-  SelectedNode,
 } from '../../webview/protocol.js';
+import { useEditing } from '../Editing.js';
 import { FunctionLines, fitsFor, type LibFit } from '../libFunction.js';
 
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
+import { outcomesOf, type DecisionOutcome } from './outcomes.js';
 
 /**
  * The Inspector: the one place a block's config is
@@ -45,7 +45,15 @@ import { configToForm, formToConfig, type InspectorField } from './forms.js';
  * cannot see, so it goes to the host as its own
  * message and comes back as a document.
  */
-export type InspectorProps = CanvasInspector & {
+/** The block the column is showing, in the document
+ *  it belongs to. */
+export type Selection = { ir: WorkflowIR; node: WorkflowNode };
+
+export type InspectorProps = {
+  strings: InspectorStrings;
+
+  selected: Selection | undefined;
+
   /** What the project's code-behind offers, which
    *  is what the picker offers. */
   lib: LibFunction[] | undefined;
@@ -73,7 +81,12 @@ export function showInspectorHeading(): void {
 }
 
 export function Inspector({ strings, selected, lib, misfits }: InspectorProps) {
-  if (selected === undefined) {
+  // A block is shown only while it can be edited:
+  // the host lets go of the selection while a
+  // proposal is showing, and the column agrees.
+  const editing = useEditing();
+
+  if (selected === undefined || editing === undefined) {
     return (
       <div className="inspector">
         <p className="eyebrow text-muted">{strings.heading}</p>
@@ -84,9 +97,11 @@ export function Inspector({ strings, selected, lib, misfits }: InspectorProps) {
 
   return (
     <Fields
-      key={`${selected.node.id}:${selected.revision}`}
+      key={`${selected.node.id}:${editing.revision}`}
       strings={strings}
-      selected={selected}
+      ir={selected.ir}
+      node={selected.node}
+      revision={editing.revision}
       lib={lib}
       misfits={misfits}
     />
@@ -95,16 +110,23 @@ export function Inspector({ strings, selected, lib, misfits }: InspectorProps) {
 
 function Fields({
   strings,
-  selected,
+  ir,
+  node,
+  revision,
   lib,
   misfits,
 }: {
   strings: InspectorStrings;
-  selected: SelectedNode;
+  ir: WorkflowIR;
+  node: WorkflowNode;
+
+  /** What an edit from here is made against. */
+  revision: number;
+
   lib: LibFunction[] | undefined;
   misfits: Record<HandlerMisfit['kind'], string>;
 }) {
-  const [draft, setDraft] = useState(selected.node);
+  const [draft, setDraft] = useState(node);
   const form = configToForm(draft);
 
   const commit = (field: InspectorField): void => {
@@ -113,7 +135,7 @@ function Fields({
     setDraft(next);
     postToHost({
       type: 'edit',
-      baseRevision: selected.revision,
+      baseRevision: revision,
       node: next,
     });
   };
@@ -125,8 +147,8 @@ function Fields({
   const assign = (exported: string | null): void =>
     postToHost({
       type: 'assign',
-      baseRevision: selected.revision,
-      nodeId: selected.node.id,
+      baseRevision: revision,
+      nodeId: node.id,
       export: exported,
     });
 
@@ -158,7 +180,7 @@ function Fields({
           ),
         )}
 
-        {selected.outcomes.map((outcome) => (
+        {outcomesOf(ir, node).map((outcome) => (
           <Outcome key={outcome.value} strings={strings} outcome={outcome} />
         ))}
 

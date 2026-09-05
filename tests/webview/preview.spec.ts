@@ -156,6 +156,8 @@ function preview(over: Partial<CanvasPreview> = {}): CanvasPreview {
 }
 
 function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
+  const shown = { preview: preview(), ...over };
+
   return {
     type: 'init',
     view: 'canvas',
@@ -169,7 +171,11 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     diagnostics: [],
     manifest: undefined,
     inspector,
-    preview: preview(),
+    preview: shown.preview,
+    // Editable exactly when nothing is proposed, the
+    // way the host says it.
+    editing:
+      shown.preview === undefined ? { revision: ir.revision } : undefined,
     run: undefined,
     ...over,
   };

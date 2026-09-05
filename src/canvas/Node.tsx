@@ -4,6 +4,7 @@ import { useState, type DragEvent } from 'react';
 import { truncateTitle, type NodeKind } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 
+import { useEditing } from './Editing.js';
 import { landingOn, useConnecting } from './connect/Connecting.js';
 import { CursorBadge } from './drag/CursorBadge.js';
 import { LIB_FN, carries } from './dragging.js';
@@ -46,8 +47,9 @@ import { NodeIcon, TONE } from './icons.js';
  * when the answer is no.
  */
 export function Node({ data, dragging }: NodeProps<CanvasNode>) {
-  const { node, assignAgainst } = data;
+  const { node } = data;
   const [landing, setLanding] = useState(false);
+  const editing = useEditing();
 
   // A block a hand is holding is the block that hand
   // is about to be asked about, so it wears the
@@ -65,7 +67,7 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
   // all: a block takes a function only while what
   // is drawn is the document.
   const dropping =
-    assignAgainst === undefined
+    editing === undefined
       ? {}
       : {
           // The types are readable mid-drag and the
@@ -91,7 +93,7 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
 
             postToHost({
               type: 'assign',
-              baseRevision: assignAgainst,
+              baseRevision: editing.revision,
               nodeId: node.id,
               export: exported,
             });

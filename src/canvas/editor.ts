@@ -35,7 +35,6 @@ import type {
   CanvasDocument,
   CanvasInit,
   CanvasInspector,
-  DecisionOutcome,
 } from '../webview/protocol.js';
 
 import {
@@ -49,7 +48,6 @@ import {
 } from './edits.js';
 import { layoutKeyOf } from './graph.js';
 import { snapped } from './grid.js';
-import { configToForm } from './inspector/forms.js';
 import { misfitNote } from './misfit.js';
 
 /**
@@ -421,6 +419,16 @@ export class CanvasSession {
       strings: messages.canvasStrings(),
       paletteLabels: messages.paletteLabels(),
       document: this.read,
+
+      // Said once. Every gesture the panel sends
+      // carries this revision, and whether it may
+      // send one at all is the same fact: not over a
+      // file that will not parse, and not over a
+      // proposal nobody has approved.
+      editing:
+        this.read.ok && this.live === undefined
+          ? { revision: this.read.ir.revision }
+          : undefined,
       boxes: this.boxes,
 
       // An unreadable document draws no graph at all,
@@ -537,49 +545,14 @@ export class CanvasSession {
       : this.preview.forWorkflow(project, this.name);
   }
 
-  /** Everything the Inspector column draws. */
+  /** The column's words, and the block it is
+   *  showing — by id, since the panel holds the
+   *  document the block is in. */
   private inspector(): CanvasInspector {
-    const node = this.nodeAt(this.selected);
-
     return {
       strings: messages.inspectorStrings(),
-      selected:
-        node === undefined || !this.read.ok
-          ? undefined
-          : {
-              node,
-              form: configToForm(node),
-              revision: this.read.ir.revision,
-              outcomes: this.outcomesOf(node),
-            },
+      selected: this.nodeAt(this.selected)?.id,
     };
-  }
-
-  /**
-   * Where each way out of a decision leads.
-   *
-   * A branch that runs a function has no predicates
-   * to edit — the function decided these — so its
-   * cases are read beside the wires they stand for.
-   * Worked out here because it takes the graph, and
-   * a form is only ever handed one node.
-   */
-  private outcomesOf(node: WorkflowNode): DecisionOutcome[] {
-    if (!this.read.ok) return [];
-    if (node.kind !== 'branch' || node.handler === undefined) return [];
-
-    const ir = this.read.ir;
-
-    return node.config.cases.map((one) => {
-      const edge = ir.edges.find(
-        (wire) => wire.from.node === node.id && wire.from.port === one.port,
-      );
-
-      return {
-        value: String(one.when.value),
-        target: ir.nodes.find((to) => to.id === edge?.to.node)?.title,
-      };
-    });
   }
 
   private select(nodeId: string | null): void {

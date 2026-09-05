@@ -34,6 +34,7 @@ import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
 import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
 
+import { EditingProvider } from './Editing.js';
 import { Node } from './Node.js';
 import { Palette } from './Palette.js';
 import { Wire, WireMarkers } from './Wire.js';
@@ -199,11 +200,17 @@ function Workspace({
   const document = init.document;
 
   // A block can only be placed on a graph that is
-  // showing and that is the file: there is nowhere
+  // showing and that may be edited: there is nowhere
   // to aim on a JSON view, and nothing to edit on a
   // proposal.
-  const placing =
-    document.ok && showing === 'canvas' && init.preview === undefined;
+  const editing = init.editing;
+  const placing = document.ok && showing === 'canvas' && editing !== undefined;
+
+  // The one block the column is showing, and the
+  // rail marks the function of: found once, here.
+  const selected = document.ok
+    ? document.ir.nodes.find((node) => node.id === init.inspector.selected)
+    : undefined;
 
   const gaps = useMemo(
     () => (document.ok ? spliceGaps(document.ir, init.boxes) : []),
@@ -223,10 +230,9 @@ function Workspace({
    * that moved.
    */
   const carry = (kind: NodeKind, press: PointerEvent<HTMLElement>): void => {
-    if (!placing || !document.ok) return;
+    if (!placing || !document.ok || editing === undefined) return;
 
     const from = { x: press.clientX, y: press.clientY };
-    const ir = document.ir;
     let moved = false;
 
     setCarried({ kind, at: from, moved });
@@ -256,7 +262,7 @@ function Workspace({
 
       postToHost({
         type: 'addNode',
-        baseRevision: ir.revision,
+        baseRevision: editing.revision,
         kind,
         position: rounded(landing.lands),
         ...(landing.gap === undefined
@@ -285,37 +291,44 @@ function Workspace({
       : undefined;
 
   return (
-    <div className="workspace">
-      <Palette
-        strings={init.strings}
-        labels={init.paletteLabels}
-        lib={init.manifest?.functions}
-        selected={init.inspector.selected?.node}
-        dragging={dragging}
-        onDragging={onDragging}
-        carrying={flying?.ghost.kind}
-        onCarry={carry}
-      />
+    <EditingProvider value={editing}>
+      <div className="workspace">
+        <Palette
+          strings={init.strings}
+          labels={init.paletteLabels}
+          lib={init.manifest?.functions}
+          selected={selected}
+          dragging={dragging}
+          onDragging={onDragging}
+          carrying={flying?.ghost.kind}
+          onCarry={carry}
+        />
 
-      {document.ok ? (
-        showing === 'canvas' ? (
-          <Graph init={init} ir={document.ir} carrying={flying} />
+        {document.ok ? (
+          showing === 'canvas' ? (
+            <Graph init={init} ir={document.ir} carrying={flying} />
+          ) : (
+            <Json ir={document.ir} readOnly={editing === undefined} />
+          )
         ) : (
-          <Json ir={document.ir} readOnly={init.preview !== undefined} />
-        )
-      ) : (
-        <section className="unreadable">
-          <p className="title">{init.strings.unreadable}</p>
-          <p className="mono text-muted">{document.detail}</p>
-        </section>
-      )}
+          <section className="unreadable">
+            <p className="title">{init.strings.unreadable}</p>
+            <p className="mono text-muted">{document.detail}</p>
+          </section>
+        )}
 
-      <Inspector
-        {...init.inspector}
-        lib={init.manifest?.functions}
-        misfits={init.strings.misfits}
-      />
-    </div>
+        <Inspector
+          strings={init.inspector.strings}
+          selected={
+            document.ok && selected !== undefined
+              ? { ir: document.ir, node: selected }
+              : undefined
+          }
+          lib={init.manifest?.functions}
+          misfits={init.strings.misfits}
+        />
+      </div>
+    </EditingProvider>
   );
 }
 
@@ -471,10 +484,7 @@ function Toolbar({
   // document to edit: not over a file that will not
   // parse, and not over a proposal nobody has
   // approved.
-  const arrangeable =
-    init.document.ok && init.preview === undefined
-      ? init.document.ir.revision
-      : undefined;
+  const arrangeable = init.editing?.revision;
 
   return (
     <header className="toolbar">
@@ -541,13 +551,15 @@ function Graph({
   // the document: it is somebody else's draft of
   // one. An edit made on it would write proposed
   // content to a file nobody approved it for, so
-  // there is nothing here to edit with.
+  // the host says nothing may be edited, and there
+  // is nothing here to edit with.
   const preview = init.preview;
-  const editable = preview === undefined;
+  const editing = init.editing;
+  const editable = editing !== undefined;
 
   // Said once, by the column that is showing it:
   // the halo and the fields are the same fact.
-  const selected = init.inspector.selected?.node.id;
+  const selected = init.inspector.selected;
 
   const drawn = useMemo(
     () =>
@@ -556,7 +568,6 @@ function Graph({
         unassigned: init.strings.unassigned,
         proposed: preview?.proposed,
         selected,
-        editable,
         run: init.run,
       }),
     [
@@ -566,7 +577,6 @@ function Graph({
       init.strings.unassigned,
       preview?.proposed,
       selected,
-      editable,
       init.run,
     ],
   );
@@ -710,9 +720,11 @@ function Graph({
     nodes: CanvasNode[];
     edges: CanvasEdge[];
   }): Promise<boolean> => {
+    if (editing === undefined) return false;
+
     postToHost({
       type: 'delete',
-      baseRevision: ir.revision,
+      baseRevision: editing.revision,
       nodeIds: going.map((node) => node.id),
       edgeIds: cut.map((edge) => edge.id),
     });
@@ -728,9 +740,11 @@ function Graph({
    * selection of three is one edit rather than three.
    */
   const sayMoved = (): void => {
+    if (editing === undefined) return;
+
     postToHost({
       type: 'move',
-      baseRevision: ir.revision,
+      baseRevision: editing.revision,
       positions: Object.fromEntries(
         getNodes().map((node) => [node.id, rounded(node.position)]),
       ),
@@ -916,6 +930,8 @@ function Graph({
             snapGrid={[GRID, GRID]}
             onConnect={(connection) => {
               setRefused(undefined);
+              if (editing === undefined) return;
+
               // No port. A block has one dot to leave
               // by however many ways out it has, so
               // naming one here would be this panel
@@ -923,7 +939,7 @@ function Graph({
               // and `out` is not a port a branch has.
               postToHost({
                 type: 'connect',
-                baseRevision: ir.revision,
+                baseRevision: editing.revision,
                 from: { node: connection.source },
                 to: { node: connection.target },
               });
@@ -999,9 +1015,11 @@ function Graph({
               onClose={() => setQuickAdd(undefined)}
               onPick={(kind) => {
                 setQuickAdd(undefined);
+                if (editing === undefined) return;
+
                 postToHost({
                   type: 'addNode',
-                  baseRevision: ir.revision,
+                  baseRevision: editing.revision,
                   kind,
                   position: rounded(landsAt(kind, quickAdd.lands)),
                   connectFrom: { node: quickAdd.from },

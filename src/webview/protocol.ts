@@ -1,10 +1,7 @@
 import type { PanelStatus } from '../acp/agent.js';
 import type { ToolCallStatus } from '../acp/connection.js';
 import type { PermissionPrompt, TranscriptEntry } from '../acp/transcript.js';
-import type {
-  InspectorField,
-  InspectorForm,
-} from '../canvas/inspector/forms.js';
+import type { InspectorField } from '../canvas/inspector/forms.js';
 import type {
   Diagnostic,
   HandlerMisfit,
@@ -12,7 +9,6 @@ import type {
   NodeBox,
   NodeKind,
   WorkflowIR,
-  WorkflowNode,
 } from '../core/rules.js';
 import type { RunFilter } from '../runs/queries.js';
 import type { RunCounts } from '../runs/rows.js';
@@ -66,6 +62,19 @@ export type CanvasInit = {
   paletteLabels: Record<NodeKind, string>;
 
   document: CanvasDocument;
+
+  /**
+   * Whether what is drawn may be edited, and against
+   * which revision.
+   *
+   * Present when the document parsed and no proposal
+   * is showing. Every gesture the panel sends carries
+   * this revision, and this is the one place a view
+   * reads it — and the one place it reads whether it
+   * may edit at all. Absent, the graph is looked at
+   * and not touched.
+   */
+  editing: CanvasEditing | undefined;
 
   /** Where each node goes, empty when the document
    *  could not be read. */
@@ -249,6 +258,8 @@ export type CanvasStrings = {
 export type CanvasDocument =
   { ok: true; ir: WorkflowIR } | { ok: false; detail: string };
 
+export type CanvasEditing = { revision: number };
+
 /**
  * The Inspector, as a column of the canvas.
  *
@@ -260,38 +271,12 @@ export type CanvasDocument =
 export type CanvasInspector = {
   strings: InspectorStrings;
 
-  selected: SelectedNode | undefined;
-};
-
-export type SelectedNode = {
-  node: WorkflowNode;
-  form: InspectorForm;
-
-  /** What the edit will be made against. */
-  revision: number;
-
-  /** Where a decision's outcomes lead, empty for
-   *  every block that is not a branch running
-   *  one. */
-  outcomes: DecisionOutcome[];
-};
-
-/**
- * One thing a branch's function can decide, and
- * where the run goes when it does.
- *
- * The word for an outcome nothing is wired to is
- * the column's, not this — the host says which
- * block, or none, and the column draws it.
- */
-export type DecisionOutcome = {
-  /** The value the function returns to take this
-   *  way out, as it reads. */
-  value: string;
-
-  /** The block it leads to, absent where the port
-   *  is unwired. */
-  target: string | undefined;
+  /** The block the column is showing, by id: always
+   *  a block of the document on screen, and never
+   *  while a proposal is showing. What the column
+   *  draws for it — its fields, where its outcomes
+   *  lead — is read off the document. */
+  selected: string | undefined;
 };
 
 export type InspectorStrings = {

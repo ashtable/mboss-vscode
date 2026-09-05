@@ -14,7 +14,6 @@ import { DIST } from '../../src/build.js';
 
 import { layoutKeyOf } from '../../src/canvas/graph.js';
 import { GRID, snap } from '../../src/canvas/grid.js';
-import { configToForm } from '../../src/canvas/inspector/forms.js';
 import {
   NODE_PALETTE,
   WorkflowIRSchema,
@@ -31,9 +30,7 @@ import {
 import type { LiveOutcome, LiveRun, StepState } from '../../src/runs/watch.js';
 import type {
   CanvasInit,
-  CanvasInspector,
   CanvasStrings,
-  DecisionOutcome,
   InspectorStrings,
 } from '../../src/webview/protocol.js';
 
@@ -147,6 +144,12 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     layoutKey: drawn.document.ok
       ? layoutKeyOf(drawn.document.ir, drawn.boxes)
       : '',
+    // Editable exactly when the document parsed and
+    // nothing is proposed, the way the host says it.
+    editing:
+      drawn.document.ok && over.preview === undefined
+        ? { revision: drawn.document.ir.revision }
+        : undefined,
     diagnostics: validateWorkflow(ir, { manifest }),
     manifest,
     inspector: { strings: inspectorStrings, selected: undefined },
@@ -259,45 +262,26 @@ const inspectorStrings: InspectorStrings = {
 
 /** What the host sends back once it has been told
  *  which block was clicked. */
+/**
+ * The canvas with that block selected — and, where
+ * a test needs the block to read differently, with
+ * the document changed on the way in. The column
+ * reads everything about a block off the document,
+ * so that is the only place a variant can come
+ * from.
+ */
 function showing(
   nodeId: string,
   over: Partial<WorkflowNode> = {},
-): CanvasInspector {
-  const node = {
-    ...ir.nodes.find((one) => one.id === nodeId)!,
-    ...over,
-  } as WorkflowNode;
+): Partial<CanvasInit> {
+  const nodes = ir.nodes.map((one) =>
+    one.id === nodeId ? ({ ...one, ...over } as WorkflowNode) : one,
+  );
 
   return {
-    strings: inspectorStrings,
-    selected: {
-      node,
-      form: configToForm(node),
-      revision: ir.revision,
-      outcomes: outcomesOf(node),
-    },
+    document: { ok: true, ir: { ...ir, nodes } },
+    inspector: { strings: inspectorStrings, selected: nodeId },
   };
-}
-
-/**
- * Where each outcome of a decision goes, worked out
- * the way the host works it out — from the document
- * rather than from a list written into the spec, so
- * the assertion cannot drift from the graph.
- */
-function outcomesOf(node: WorkflowNode): DecisionOutcome[] {
-  if (node.kind !== 'branch' || node.handler === undefined) return [];
-
-  return node.config.cases.map((one) => {
-    const edge = ir.edges.find(
-      (wire) => wire.from.node === node.id && wire.from.port === one.port,
-    );
-
-    return {
-      value: String(one.when.value),
-      target: ir.nodes.find((to) => to.id === edge?.to.node)?.title,
-    };
-  });
 }
 
 /** The graph, on a page, showing the canonical
@@ -1033,7 +1017,7 @@ test.describe('the state a block is in', () => {
   });
 
   test('wears the ring whole when it is the one selected', async ({ page }) => {
-    await openAtRest(page, { inspector: showing('find_slot') });
+    await openAtRest(page, { ...showing('find_slot') });
 
     const block = nodeBody(page, 'find_slot');
 
@@ -1077,7 +1061,7 @@ test.describe('the state a block is in', () => {
     page,
   }) => {
     await openAtRest(page, {
-      inspector: showing('await_reply'),
+      ...showing('await_reply'),
       preview: proposing('await_reply'),
     });
 
@@ -1426,7 +1410,7 @@ test.describe('the tile a block’s glyph sits in', () => {
     const harness = await mount(page, 'canvas');
     await harness.show(
       canvasInit({
-        inspector: showing('find_slot'),
+        ...showing('find_slot'),
         preview: proposing('await_reply'),
       }),
     );
@@ -1949,7 +1933,7 @@ test.describe('selecting a block', () => {
 
   test('draws the selected one as selected', async ({ page }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+    await harness.show(canvasInit({ ...showing('find_slot') }));
 
     await expect(nodeBody(page, 'find_slot')).toHaveAttribute(
       'data-state',
@@ -2026,7 +2010,7 @@ test.describe('the Inspector column', () => {
 
     // The host's half: the canvas comes back with
     // that block in its column.
-    await harness.show(canvasInit({ inspector: showing('reply_decision') }));
+    await harness.show(canvasInit({ ...showing('reply_decision') }));
 
     await expect(page.locator('[data-inspector-heading]')).toHaveText(
       'Node inspector · Branch',
@@ -2038,7 +2022,7 @@ test.describe('the Inspector column', () => {
 
   test('offers a field per thing the kind carries', async ({ page }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('reply_decision') }));
+    await harness.show(canvasInit({ ...showing('reply_decision') }));
 
     await expect(page.locator('[data-field="elsePort"] input')).toHaveValue(
       'stop',
@@ -2048,7 +2032,7 @@ test.describe('the Inspector column', () => {
 
   test('sends an edit once the field is finished with', async ({ page }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+    await harness.show(canvasInit({ ...showing('find_slot') }));
 
     const title = page.locator('[data-field="title"] input');
 
@@ -2069,7 +2053,7 @@ test.describe('the Inspector column', () => {
     page,
   }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+    await harness.show(canvasInit({ ...showing('find_slot') }));
 
     const title = page.locator('[data-field="title"] input');
 
@@ -2084,7 +2068,7 @@ test.describe('the Inspector column', () => {
     page,
   }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+    await harness.show(canvasInit({ ...showing('find_slot') }));
 
     await page.locator('.react-flow__pane').click({ position: { x: 8, y: 8 } });
 
@@ -2125,7 +2109,7 @@ test.describe('the function picker', () => {
 
   async function openPicker(page: Page, nodeId = 'slot_open') {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing(nodeId) }));
+    await harness.show(canvasInit({ ...showing(nodeId) }));
 
     return harness;
   }
@@ -2251,7 +2235,7 @@ test.describe('the function picker', () => {
     await harness.show(
       canvasInit({
         manifest: undefined,
-        inspector: showing('slot_open'),
+        ...showing('slot_open'),
       }),
     );
 
@@ -2270,13 +2254,13 @@ test.describe('the function picker', () => {
    */
   test('says what a branch and a transaction are', async ({ page }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('slot_open') }));
+    await harness.show(canvasInit({ ...showing('slot_open') }));
 
     await expect(page.locator('[data-callout="branch"]')).toContainText(
       inspectorStrings.callouts.branch.title,
     );
 
-    await harness.show(canvasInit({ inspector: showing('record_booking') }));
+    await harness.show(canvasInit({ ...showing('record_booking') }));
 
     await expect(page.locator('[data-callout="transaction"]')).toContainText(
       inspectorStrings.callouts.transaction.title,
@@ -2297,7 +2281,7 @@ test.describe('the function picker', () => {
     const harness = await mount(page, 'canvas');
     await harness.show(
       canvasInit({
-        inspector: showing('slot_open', { handler: { export: 'tryAgain' } }),
+        ...showing('slot_open', { handler: { export: 'tryAgain' } }),
       }),
     );
 
@@ -2328,7 +2312,7 @@ test.describe('the function picker', () => {
 
     await harness.show(
       canvasInit({
-        inspector: showing('slot_open', {
+        ...showing('slot_open', {
           ...decided,
           handler: { export: 'routeClaim' },
         }),
@@ -2356,7 +2340,7 @@ test.describe('the function picker', () => {
     page,
   }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+    await harness.show(canvasInit({ ...showing('find_slot') }));
 
     await expect(page.locator('[data-field="handler"] .field-name')).toHaveText(
       'function',
@@ -2365,7 +2349,7 @@ test.describe('the function picker', () => {
 
     await harness.show(
       canvasInit({
-        inspector: showing('slot_open', { handler: { export: 'tryAgain' } }),
+        ...showing('slot_open', { handler: { export: 'tryAgain' } }),
       }),
     );
 
@@ -2384,11 +2368,11 @@ test.describe('the function picker', () => {
     page,
   }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+    await harness.show(canvasInit({ ...showing('find_slot') }));
 
     await expect(page.locator('[data-picker-value]')).toHaveText('findSlot ▾');
 
-    await harness.show(canvasInit({ inspector: showing('slot_open') }));
+    await harness.show(canvasInit({ ...showing('slot_open') }));
 
     await expect(page.locator('[data-picker-value]')).toHaveText(
       inspectorStrings.dropHere,
@@ -2406,7 +2390,7 @@ test.describe('the function picker', () => {
     const harness = await mount(page, 'canvas');
     await harness.show(
       canvasInit({
-        inspector: showing('slot_open', { handler: { export: 'tryAgain' } }),
+        ...showing('slot_open', { handler: { export: 'tryAgain' } }),
       }),
     );
 
@@ -2494,7 +2478,7 @@ test.describe('dragging a function onto a block', () => {
 
   test('marks the row the selected block already runs', async ({ page }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+    await harness.show(canvasInit({ ...showing('find_slot') }));
 
     await expect(page.locator('[data-lib-fn="findSlot"]')).toHaveAttribute(
       'data-state',
@@ -2515,7 +2499,7 @@ test.describe('dragging a function onto a block', () => {
    */
   test('shows the row it is carrying, and what it is', async ({ page }) => {
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('slot_open') }));
+    await harness.show(canvasInit({ ...showing('slot_open') }));
 
     const row = page.locator('[data-lib-fn="tryAgain"]');
     await lift(page, row);
@@ -2836,7 +2820,7 @@ test.describe('dragging a block onto the canvas', () => {
     await page.setViewportSize({ width: 1000, height: 240 });
 
     const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ inspector: showing('send_confirmation') }));
+    await harness.show(canvasInit({ ...showing('send_confirmation') }));
 
     const column = page.locator('.inspector');
     const heading = page.locator('[data-inspector-heading]');
@@ -3506,7 +3490,7 @@ test.describe('building the graph', () => {
     const moved = await flowPosition(page, 'find_slot');
 
     // The same layout, with the code-behind now read.
-    await harness.show(canvasInit({ inspector: showing('find_slot') }));
+    await harness.show(canvasInit({ ...showing('find_slot') }));
 
     expect(await flowPosition(page, 'find_slot')).toEqual(moved);
   });

@@ -208,8 +208,11 @@ is an event every store subscribes to.
   `next` / `refused` / `nothing`; `waysOutOf` says which ports a wire may
   leave by. `CanvasSession` is gate, compute, write: it refuses a stale
   `baseRevision` first, asks the picker which way out a wire takes, calls
-  `editFor`, then says the sentence, selects, notes and writes. The webview
-  never
+  `editFor`, then says the sentence, selects, notes and writes.
+  `CanvasInit.editing` is the one place a view reads whether it may edit and
+  against which revision (absent over an unreadable file or a live proposal),
+  and `inspector.selected` is an id: the column reads a block's fields and
+  where its outcomes lead off the document. The webview never
   repaints itself: it redraws when `onDocumentChanged` fires `reread` + post
   (tests simulate this with `livingDocument().saved()`). Layout: core `place()`
   runs ELK only when no node has a position; `onTheGrid` snaps unplaced boxes;
