@@ -26,6 +26,12 @@ mboss-mcp-server/**
 mboss-skills/**
 node_modules/**
 
+# Written for whoever works on this extension, the
+# way the skills under .claude/ are, and not for
+# whoever installs it. README.md and
+# THIRD_PARTY_NOTICES.md are the two that ship.
+CLAUDE.md
+
 .gitignore
 .gitmodules
 .nvmrc
