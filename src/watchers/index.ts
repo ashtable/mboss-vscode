@@ -4,14 +4,14 @@ import type { Disposable } from 'vscode';
 
 import { emitter } from '../emitter.js';
 
-import { isProject } from '../core/index.js';
+import { isProject, workflowFiles } from '../core/index.js';
 import type { Problem } from '../problem.js';
 import type { StatusBar } from '../statusBar.js';
 
 import { generate, type CodegenResult } from './codegen.js';
 import { Debouncer } from './debounce.js';
+import { Accounted } from './accounted.js';
 import type { WatchHost } from './host.js';
-import { SelfWrites } from './selfWrite.js';
 
 /**
  * Keeping a project's code in step with its
@@ -77,8 +77,17 @@ export function watchProjects(
   opts?: { debounceMs?: number },
 ): Watchers {
   const problems = host.problems();
-  const writes = new SelfWrites();
+  const accounted = new Accounted();
   const debouncer = new Debouncer(opts?.debounceMs);
+
+  /**
+   * Why each project's next run is due: the paths
+   * whose events asked for it, or `undefined` for a
+   * reason that is not a path — a save, or trust
+   * arriving. Read when the run fires, because the
+   * question about a path is asked twice (below).
+   */
+  const due = new Map<string, Set<string | undefined>>();
   const held = new Map<string, Problem[]>();
   const proposals = emitter<string>();
   const generated = emitter<string>();
@@ -88,16 +97,22 @@ export function watchProjects(
    * Generates one project and publishes what it
    * found.
    *
-   * Everything this extension wrote is remembered
-   * as it now stands, so the events those writes
-   * produce are recognised as nothing new rather
-   * than starting another round.
+   * Every document this run reads is accounted for
+   * before it is read, and everything the run wrote
+   * after, so the events those bytes produce are
+   * recognised as nothing new rather than starting
+   * another round. Before rather than after, so a
+   * write landing mid-run wears a different
+   * fingerprint and is answered: an extra run at
+   * worst, never a missed one.
    */
   const run = async (project: string): Promise<CodegenResult> => {
+    for (const path of workflowFiles(project)) accounted.record(path);
+
     const result = await generate(project);
 
     for (const path of [...result.written, ...result.removed]) {
-      writes.record(join(project, path));
+      accounted.record(join(project, path));
     }
 
     held.set(project, result.problems);
@@ -108,18 +123,42 @@ export function watchProjects(
     return result;
   };
 
-  const schedule = (project: string): void => {
+  /**
+   * Asks for a project to be generated, for a reason.
+   *
+   * A path is asked about again when the debounced
+   * run fires, not only when its event arrived: the
+   * editor's watcher can deliver the event about a
+   * document on either side of the generation that
+   * read it, and only the later question settles it.
+   * A reason that is not a path runs regardless.
+   */
+  const schedule = (project: string, because?: string): void => {
     if (!host.isTrusted() || !isProject(project)) return;
 
-    debouncer.schedule(project, async () => void (await run(project)));
+    const reasons = due.get(project) ?? new Set<string | undefined>();
+    reasons.add(because);
+    due.set(project, reasons);
+
+    debouncer.schedule(project, async () => {
+      const asked = due.get(project) ?? new Set<string | undefined>();
+      due.delete(project);
+
+      const settled = [...asked].every(
+        (path) => path !== undefined && accounted.unchanged(path),
+      );
+      if (settled) return;
+
+      await run(project);
+    });
   };
 
-  /** A file event nothing wrote is a file event
-   *  worth answering. */
+  /** A file event about bytes nothing here has
+   *  accounted for is a file event worth answering. */
   const changed = (project: string, path: string): void => {
-    if (writes.unchanged(path)) return;
+    if (accounted.unchanged(path)) return;
 
-    schedule(project);
+    schedule(project, path);
   };
 
   for (const folder of host.folders()) {

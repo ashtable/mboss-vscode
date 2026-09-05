@@ -346,6 +346,51 @@ describe('the watchers', () => {
     expect(status.finished).toHaveLength(1);
   });
 
+  /**
+   * A document a generation has already read is
+   * nothing to answer: the code reflects those bytes.
+   * That is what makes an approval, an undo and the
+   * canvas's own write cost one generation rather
+   * than two — the write, and then the event about
+   * it.
+   */
+  it('answer an event about a document they have generated from with nothing', async () => {
+    const { project, host, status, watchers } = await watching({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+
+    await watchers.generateNow();
+    host.fire(WORKFLOW_GLOB, path);
+    await quiet();
+
+    expect(status.finished).toHaveLength(1);
+  });
+
+  /** The editor's watcher can deliver the event
+   *  before the generation that reads the document
+   *  has accounted for it, so the question is asked
+   *  again when the debounced run fires. */
+  it('answer it with nothing even when the event arrives first', async () => {
+    const { project, host, status, watchers } = await watching({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+
+    host.fire(WORKFLOW_GLOB, path);
+    await watchers.generateNow();
+    await quiet();
+
+    expect(status.finished).toHaveLength(1);
+  });
+
+  it('still answer a document that changed since', async () => {
+    const { project, host, status, watchers } = await watching({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+
+    await watchers.generateNow();
+    writeFileSync(path, readWorkflowFixture('empty_draft'), 'utf8');
+    host.fire(WORKFLOW_GLOB, path);
+
+    await until(() => status.finished.length === 2);
+  });
+
   it('publish what they found where a person will see it', async () => {
     const { project, host } = await watching();
     const path = writeWorkflow(project, 'empty_draft');

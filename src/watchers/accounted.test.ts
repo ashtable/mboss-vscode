@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { SelfWrites } from './selfWrite.js';
+import { Accounted } from './accounted.js';
 
 /**
  * Telling this extension's own writes apart from
@@ -27,11 +27,11 @@ import { SelfWrites } from './selfWrite.js';
  */
 
 let dir: string;
-let writes: SelfWrites;
+let accounted: Accounted;
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), 'mboss-self-write-'));
-  writes = new SelfWrites();
+  dir = mkdtempSync(join(tmpdir(), 'mboss-accounted-'));
+  accounted = new Accounted();
 });
 
 /** Writes a file and answers with its path. */
@@ -43,36 +43,36 @@ function write(name: string, contents: string): string {
   return path;
 }
 
-describe('a file this extension wrote', () => {
+describe('a file this extension accounted for', () => {
   it('is recognised while it still holds what was written', () => {
     const path = write('generated.ts', 'one');
-    writes.record(path);
+    accounted.record(path);
 
-    expect(writes.unchanged(path)).toBe(true);
+    expect(accounted.unchanged(path)).toBe(true);
   });
 
   it('stops being recognised the moment somebody edits it', () => {
     const path = write('generated.ts', 'one');
-    writes.record(path);
+    accounted.record(path);
 
     write('generated.ts', 'two');
 
-    expect(writes.unchanged(path)).toBe(false);
+    expect(accounted.unchanged(path)).toBe(false);
   });
 
   it('stops being recognised when it is deleted', () => {
     const path = write('generated.ts', 'one');
-    writes.record(path);
+    accounted.record(path);
 
-    expect(writes.unchanged(join(dir, 'gone.ts'))).toBe(false);
+    expect(accounted.unchanged(join(dir, 'gone.ts'))).toBe(false);
   });
 });
 
-describe('a file this extension never wrote', () => {
+describe('a file this extension never accounted for', () => {
   it('is nobody it recognises', () => {
     write('handwritten.ts', 'one');
 
-    expect(writes.unchanged(join(dir, 'handwritten.ts'))).toBe(false);
+    expect(accounted.unchanged(join(dir, 'handwritten.ts'))).toBe(false);
   });
 });
 
@@ -84,20 +84,20 @@ describe('recording a file that is not there', () => {
    * measure, so nothing is claimed.
    */
   it('claims nothing about it', () => {
-    writes.record(join(dir, 'never-existed.ts'));
+    accounted.record(join(dir, 'never-existed.ts'));
 
-    expect(writes.unchanged(join(dir, 'never-existed.ts'))).toBe(false);
+    expect(accounted.unchanged(join(dir, 'never-existed.ts'))).toBe(false);
   });
 });
 
-describe('a file written twice', () => {
+describe('a file accounted for twice', () => {
   it('is recognised against the newer write', () => {
     const path = write('generated.ts', 'one');
-    writes.record(path);
+    accounted.record(path);
 
     write('generated.ts', 'two');
-    writes.record(path);
+    accounted.record(path);
 
-    expect(writes.unchanged(path)).toBe(true);
+    expect(accounted.unchanged(path)).toBe(true);
   });
 });

@@ -146,7 +146,12 @@ behaviour modules take the editor as an argument:
   calls that take it (`applySpec`, `proposeSpec`, `applyProposal`, `undo`,
   `compileProject`) must run one after another, never one inside another
   (`src/preview/approve.ts` is the model; its spec asserts wall time below
-  `STALE_LOCK_MS`).
+  `STALE_LOCK_MS`). Contending callers — the watchers' run beside an
+  approval's apply — are serialised by core's own lock, which polls; no host
+  call nests. A host-side queue owning every lock-taking call was considered
+  in the September 2026 architecture review and not built for that reason:
+  the second generation an approval used to cost was the ledger's gap, not a
+  sequencing one.
 
 ### Strings
 
@@ -264,7 +269,12 @@ is an event every store subscribes to.
   **pre-parse before `compileProject`** (which throws on an unreadable document
   and would otherwise prune its generated code), publish `Problem`s to the
   PROBLEMS panel (anchored at 0,0), update the status bar. The proposal glob
-  never triggers codegen; codegen follows a **save**, not a canvas edit.
+  never triggers codegen; codegen follows a **save**, not a canvas edit. A run
+  records the fingerprint of every document it reads and every file it writes
+  in `Accounted`, and an event about bytes already accounted for is answered
+  with nothing — asked when the event arrives and again when the debounced run
+  fires — so an approval, an undo or the canvas's own write costs one
+  generation (`approval.test.ts`).
 - **`vendor/`** — `shippedVendor` reads `dist/mcp` + `dist/skill`; `newProject`
   scaffolds through core with the bundle and copies the skill to both
   `.mboss/skills/mboss` and `.claude/skills/mboss`; `offerVendorRefresh` at
