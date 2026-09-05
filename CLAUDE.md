@@ -108,9 +108,9 @@ behaviour modules take the editor as an argument:
   onDocumentChanged) is the general-purpose seam used by `commands.ts` and the
   canvas editor.
 - Only editor plumbing value-imports `vscode`: `extension.ts`, `messages.ts`,
-  `vscodeApi.ts`, `statusBar.ts`, the providers (`sidebar/view.ts`,
-  `runs/panels.ts`, `canvas/editor.ts`), `webview/host.ts`, every `host.ts`,
-  and `acp/fs.ts`. `import type { Disposable } from 'vscode'` is fine anywhere.
+  the three `words.ts`, `vscodeApi.ts`, `statusBar.ts`, the providers
+  (`sidebar/view.ts`, `runs/panels.ts`, `canvas/editor.ts`),
+  `webview/host.ts`, every `host.ts`, and `acp/fs.ts`. `import type { Disposable } from 'vscode'` is fine anywhere.
 - `src/webview/host.ts` is a different kind of `host.ts`: the host side of the
   webview protocol (see below).
 - A second stand-in exists: the `DRIVER` script in
@@ -150,20 +150,24 @@ behaviour modules take the editor as an argument:
 
 ### Strings
 
-- `src/messages.ts` is the only file that calls `l10n.t`; every entry is a
-  function wrapping a **literal**. `l10n/bundle.l10n.json` is key === value and
-  `src/l10n.test.ts` checks both directions over every `.ts`/`.tsx` under
-  `src/` (tests included). `package.json` strings go through `%key%` +
+- `src/messages.ts` and the three `words.ts` modules (`canvas/`, `sidebar/`,
+  `runs/`) are the only files that call `l10n.t` (`l10n.test.ts` fences the
+  list); every entry wraps a **literal**. `l10n/bundle.l10n.json` is key ===
+  value and `src/l10n.test.ts` checks both directions over every `.ts`/`.tsx`
+  under `src/` (tests included). `package.json` strings go through `%key%` +
   `package.nls.json` (`src/nls.test.ts`, both directions); the two mechanisms
   share nothing and neither falls back to the other.
-- Webviews have no `l10n`: their words travel in the init message as typed
-  `<View>Strings` bags (`src/webview/protocol.ts`), with `{0}` templates filled
-  by `src/webview/fill.ts`. Nothing under a webview entry contains English a
-  user sees.
+- Webviews have no `l10n`: their words travel in the init message as bags
+  built once by the view's `words.ts` (`canvasWords`, `inspectorWords`,
+  `sidebarWords`, `runsWords`, `seeWords`), whose return types are the
+  `<View>Strings` types `protocol.ts` derives through type-only imports, with
+  `{0}` templates filled by `src/webview/fill.ts`. Nothing under a webview
+  entry contains English a user sees.
 - The unit double's `l10n.t` returns the English source, so unit specs pin
-  English literals; Playwright specs declare their own `strings` constants.
-  Rewording copy therefore touches `messages.ts`, the bundle, and whichever
-  spec pinned the sentence.
+  English literals; Playwright specs send the bags in `tests/webview/words.ts`,
+  which `src/words.test.ts` holds equal to the host's. Rewording a view's copy
+  therefore touches its `words.ts`, the bundle and that fixture; a host
+  sentence touches `messages.ts`, the bundle and whichever spec pinned it.
 
 ### Webview protocol
 
@@ -359,9 +363,10 @@ value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
   `mountView` + `<name>.css`; `<Name>Init` + `<Name>Strings` in the
   `HostMessage` union; a `messages.<name>Strings()` builder; a host caller of
   `mountWebview`; `build.test.ts` / `vsix.test.ts` expect one js+css per entry.
-- **Add a string**: `messages.ts` entry + identical key=value line in
-  `l10n/bundle.l10n.json`; if a webview shows it, a field on the `<View>Strings`
-  type and every Playwright spec's `strings` constant. Some copy is duplicated
+- **Add a string**: a host sentence is a `messages.ts` entry + identical
+  key=value line in `l10n/bundle.l10n.json`; a word a webview shows is a line
+  in that view's `words.ts`, the bundle line, and the same line in
+  `tests/webview/words.ts`. Some copy is duplicated
   across the two systems on purpose (agent names in `package.nls.json`
   enum descriptions and `messages.agents()`).
 - **Add an Inspector field**: `canvas/inspector/forms.ts` lens + entries in

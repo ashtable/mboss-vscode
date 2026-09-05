@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
 import type { HandlerMisfit } from '../core/rules.js';
-import { messages } from '../messages.js';
 
 import { misfitNote } from './misfit.js';
+import { misfitWords } from './words.js';
 
 /**
  * The sentence a misfit reads as.
@@ -17,7 +17,7 @@ import { misfitNote } from './misfit.js';
  * type would catch it.
  */
 describe('why a function cannot sit behind a block', () => {
-  const words = messages.misfitWords();
+  const words = misfitWords();
 
   const note = (reason: HandlerMisfit): string => misfitNote(words, reason);
 

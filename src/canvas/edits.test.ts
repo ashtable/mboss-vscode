@@ -11,7 +11,6 @@ import {
   type WorkflowIR,
   type WorkflowNode,
 } from '../core/rules.js';
-import { messages } from '../messages.js';
 import { CORE_ROOT, readJson } from '../test-support/repo.js';
 
 import {
@@ -21,6 +20,7 @@ import {
   type EditOutcome,
   type Gesture,
 } from './edits.js';
+import { paletteLabels } from './words.js';
 
 /**
  * What a canvas gesture means, asked with a document
@@ -54,7 +54,7 @@ const boxes: Record<string, NodeBox> = Object.fromEntries(
   ]),
 );
 
-const labels = messages.paletteLabels();
+const labels = paletteLabels();
 
 function context(over: Partial<EditContext> = {}): EditContext {
   return { ir, boxes, manifest, labels, ...over };

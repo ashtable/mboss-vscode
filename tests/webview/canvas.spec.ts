@@ -28,13 +28,14 @@ import {
   type WorkflowNode,
 } from '../../src/core/rules.js';
 import type { LiveOutcome, LiveRun, StepState } from '../../src/runs/watch.js';
-import type {
-  CanvasInit,
-  CanvasStrings,
-  InspectorStrings,
-} from '../../src/webview/protocol.js';
+import type { CanvasInit } from '../../src/webview/protocol.js';
 
 import { mount, type ThemeKind } from './harness.js';
+import {
+  canvasWords as canvasStrings,
+  inspectorWords as inspectorStrings,
+  paletteLabels,
+} from './words.js';
 
 /**
  * The canvas, driven — palette, graph and the
@@ -85,47 +86,6 @@ const boxes: CanvasInit['boxes'] = Object.fromEntries(
   ).map(([id, box]) => [id, { ...box, x: snap(box.x), y: snap(box.y) }]),
 );
 const manifest = fixture('golden/manifest/lib.manifest.json') as LibManifest;
-
-const canvasStrings: CanvasStrings = {
-  caption: 'Workflow IR — the source of truth',
-  unreadable: 'Not a workflow document.',
-  canvas: 'Canvas',
-  json: 'JSON',
-  graph: 'graph',
-  blocks: 'Blocks',
-  lib: '/lib · from manifest',
-  noLib: 'Nothing scanned yet.',
-  unassigned: 'unassigned',
-  typedWiring: 'Typed wiring',
-  arrange: 'Arrange',
-  libFnDragging: 'dragging {0}…',
-  blockDragging: '{0} · dragging',
-  spliceHere: 'splice here',
-  spliceNote: 'edge splits on drop',
-  dragHint: 'drag starts after {0} px of movement · esc cancels',
-  readout: 'x {0} · y {1}',
-  snapped: '{0} — snapped',
-  releaseToConnect: '{0} → {1} ✓ · release to connect',
-  quickAdd: 'Put a block here',
-  groups: {
-    start: 'Start',
-    work: 'Work',
-    control: 'Control',
-    people: 'People',
-  },
-  misfits: {
-    'no-handler-kind': 'this block runs no code',
-    'external-call': 'calls {0} at line {1}, needs a step',
-    'too-many-params': 'takes {0} arguments, needs one',
-    'input-mismatch': 'takes {0}, needs {1}',
-    'output-mismatch': 'returns {0}, needs {1}',
-    'not-a-decision': 'returns {0}, decides nothing',
-  },
-};
-
-const paletteLabels = Object.fromEntries(
-  NODE_PALETTE.map((entry) => [entry.kind, entry.label]),
-) as CanvasInit['paletteLabels'];
 
 function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
   const shown = { document: { ok: true, ir } as CanvasInit['document'], boxes };
@@ -206,59 +166,6 @@ async function openEveryKind(page: Page) {
 
   return harness;
 }
-
-const inspectorStrings: InspectorStrings = {
-  heading: 'Node inspector',
-  nothingSelected: 'Pick a block.',
-  kinds: paletteLabels,
-  fields: {
-    ...Object.fromEntries(
-      [
-        'title',
-        'in',
-        'out',
-        'handler',
-        'logic',
-        'database',
-        'cases',
-        'elsePort',
-        'port',
-        'predicatePath',
-        'predicateOp',
-        'predicateValue',
-        'maxIterations',
-        'onExhausted',
-      ].map((id) => [id, id]),
-    ),
-
-    // One field carries its real word rather than
-    // its id. A block runs a function and a branch
-    // runs its logic, and the column picks between
-    // them by field id — so an expectation of
-    // `handler` would read the same whichever one
-    // it drew.
-    handler: 'function',
-  },
-  options: {},
-  lib: '/lib · matched by signature',
-  hidden: '{0} incompatible functions hidden · show',
-  hide: 'Hide incompatible functions',
-  newFunction: 'New function…',
-  noLib: 'Nothing scanned yet.',
-  dropHere: 'drop a ƒ here',
-  end: 'end',
-  database: 'app postgres · prisma tx',
-  callouts: {
-    branch: {
-      title: 'Branches own no code.',
-      body: 'The Lib function is the logic.',
-    },
-    transaction: {
-      title: 'One commit.',
-      body: 'The writes and the record of them land together.',
-    },
-  },
-};
 
 /** What the host sends back once it has been told
  *  which block was clicked. */

@@ -8,11 +8,11 @@ import {
   type WebviewViewProvider,
 } from 'vscode';
 
-import { messages } from '../messages.js';
 import { mountWebview, type Mount } from '../webview/host.js';
 
 import type { RunsStore } from './store.js';
 import { runsInit, seeInit } from './view.js';
+import { runsWords, seeWords } from './words.js';
 
 /**
  * The two surfaces a run history has.
@@ -51,7 +51,7 @@ export class RunsListView implements WebviewViewProvider {
     mountWebview(view, {
       extensionUri: this.extensionUri,
       view: 'runs',
-      title: messages.runsStrings(undefined).heading,
+      title: runsWords().heading,
       init: () => runsInit(this.store.list()),
       follows: [(repaint) => this.store.onChanged(repaint)],
       heard: (message) => {
@@ -130,7 +130,7 @@ export class SeePanel {
 
     const panel = window.createWebviewPanel(
       'mboss.see',
-      messages.seeStrings().heading,
+      seeWords().heading,
       ViewColumn.Active,
     );
     this.panel = panel;
@@ -138,7 +138,7 @@ export class SeePanel {
     this.mounted = mountWebview(panel, {
       extensionUri: this.extensionUri,
       view: 'see',
-      title: messages.seeStrings().heading,
+      title: seeWords().heading,
       init: () => seeInit(this.store.detail()),
       // Redrawn whenever the store moves, so the
       // panel holds nothing of its own.

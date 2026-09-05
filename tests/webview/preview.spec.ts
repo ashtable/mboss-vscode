@@ -13,13 +13,16 @@ import type {
   CanvasInit,
   CanvasInspector,
   CanvasPreview,
-  CanvasStrings,
   SidebarInit,
   SidebarPreview,
-  SidebarStrings,
 } from '../../src/webview/protocol.js';
 
 import { mount, type Harness } from './harness.js';
+import {
+  canvasWords as canvasStrings,
+  inspectorWords,
+  sidebarWords as sidebarStrings,
+} from './words.js';
 
 /**
  * A proposal, on screen.
@@ -60,43 +63,6 @@ const boxes = fixture(
   'golden/layout/groom_booking.layout.json',
 ) as CanvasInit['boxes'];
 
-const canvasStrings: CanvasStrings = {
-  caption: 'Workflow IR — the source of truth',
-  unreadable: 'Not a workflow document.',
-  canvas: 'Canvas',
-  json: 'JSON',
-  graph: 'graph',
-  blocks: 'Blocks',
-  lib: '/lib · from manifest',
-  noLib: 'Nothing scanned yet.',
-  unassigned: 'unassigned',
-  typedWiring: 'Typed wiring',
-  arrange: 'Arrange',
-  libFnDragging: 'dragging {0}…',
-  blockDragging: '{0} · dragging',
-  spliceHere: 'splice here',
-  spliceNote: 'edge splits on drop',
-  dragHint: 'drag starts after {0} px of movement · esc cancels',
-  readout: 'x {0} · y {1}',
-  snapped: '{0} — snapped',
-  releaseToConnect: '{0} → {1} ✓ · release to connect',
-  quickAdd: 'Put a block here',
-  groups: {
-    start: 'Start',
-    work: 'Work',
-    control: 'Control',
-    people: 'People',
-  },
-  misfits: {
-    'no-handler-kind': 'this block runs no code of its own',
-    'external-call': 'calls {0} at line {1}, needs a step',
-    'too-many-params': 'takes {0} arguments, needs one',
-    'input-mismatch': 'takes {0}, needs {1}',
-    'output-mismatch': 'returns {0}, needs {1}',
-    'not-a-decision': 'returns {0}, decides nothing',
-  },
-};
-
 const HEADLINE = 'PREVIEW — proposed by claude code · not applied yet';
 
 const BANNER =
@@ -119,27 +85,7 @@ const PROPOSED = ['twilio_chat', 'await_reply'];
  * to. The column is still drawn; it is the canvas.
  */
 const inspector: CanvasInspector = {
-  strings: {
-    heading: 'Node inspector',
-    nothingSelected: 'Pick a block.',
-    kinds: Object.fromEntries(
-      NODE_PALETTE.map((entry) => [entry.kind, entry.label]),
-    ) as CanvasInit['paletteLabels'],
-    fields: {},
-    options: {},
-    lib: '/lib · matched by signature',
-    hidden: '{0} incompatible functions hidden · show',
-    hide: 'Hide incompatible functions',
-    newFunction: 'New function…',
-    noLib: 'Nothing scanned yet.',
-    dropHere: 'drop a ƒ here',
-    end: 'end',
-    database: 'app postgres · prisma tx',
-    callouts: {
-      branch: { title: 'Branches own no code.', body: 'The function is it.' },
-      transaction: { title: 'One commit.', body: 'Both land together.' },
-    },
-  },
+  strings: inspectorWords,
   selected: undefined,
 };
 
@@ -180,40 +126,6 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     ...over,
   };
 }
-
-const sidebarStrings: SidebarStrings = {
-  heading: 'Agent',
-  chooseAgent: 'Choose an agent',
-  notTrusted: 'Trust this folder to run a coding agent.',
-  noProject: 'Open a folder to run a coding agent in it.',
-  noAgent: 'No coding agent chosen yet.',
-  connecting: 'Starting the agent…',
-  ready: 'Ready',
-  thinking: 'Working…',
-  send: 'Send',
-  stop: 'Stop',
-  placeholder: 'Edit the graph, scaffold a lib fn, or ask why…',
-  newFile: 'new',
-  permission: 'Permission needed',
-  always: 'always',
-  approve: 'Approve & apply',
-  refine: 'Refine',
-  undo: 'Undo',
-  toolStatus: {
-    pending: 'queued',
-    in_progress: 'running',
-    completed: 'done',
-    failed: 'failed',
-  },
-  keepEdit: 'Keep',
-  undoEdit: 'Undo',
-  keepAllEdits: 'Keep all',
-  undoAllEdits: 'Undo all',
-  filesChanged: '{0} files changed',
-  changedSince: 'changed since · nothing to undo',
-  showLines: '{0} lines · show',
-  planProgress: 'Plan · {0}/{1}',
-};
 
 function sidebarInit(card: SidebarPreview | undefined): SidebarInit {
   return {

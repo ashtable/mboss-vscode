@@ -101,8 +101,8 @@ function Runs(state: RunsInit) {
       )}
 
       <footer className="runs-foot">
-        {strings.source === undefined ? null : (
-          <p className="mono">{strings.source}</p>
+        {state.source === undefined ? null : (
+          <p className="mono">{state.source}</p>
         )}
         <p>{strings.scope}</p>
         <p>{strings.sessionScope}</p>

@@ -1,10 +1,9 @@
 import type { PanelStatus } from '../acp/agent.js';
-import type { ToolCallStatus } from '../acp/connection.js';
 import type { PermissionPrompt, TranscriptEntry } from '../acp/transcript.js';
 import type { InspectorField } from '../canvas/inspector/forms.js';
+import type { canvasWords, inspectorWords } from '../canvas/words.js';
 import type {
   Diagnostic,
-  HandlerMisfit,
   LibManifest,
   NodeBox,
   NodeKind,
@@ -15,7 +14,9 @@ import type { RunCounts } from '../runs/rows.js';
 import type { ServiceHealth } from '../runs/stack.js';
 import type { StackAction } from '../runs/store.js';
 import type { LiveOutcome, LiveRun } from '../runs/watch.js';
+import type { runsWords, seeWords } from '../runs/words.js';
 import type { WorkflowTrigger } from '../runs/workflows.js';
+import type { sidebarWords } from '../sidebar/words.js';
 
 /**
  * What the host and a webview say to each other.
@@ -154,106 +155,14 @@ export type CanvasPreview = {
   more: string | undefined;
 };
 
-export type CanvasStrings = {
-  /** The caption under the graph's name. */
-  caption: string;
-
-  /** Shown when the document will not parse. */
-  unreadable: string;
-
-  /** The two halves of the view toggle. */
-  canvas: string;
-  json: string;
-
-  /** The `graph vN` caption's first word. */
-  graph: string;
-
-  /** Headings over the palette and its sections. */
-  blocks: string;
-  lib: string;
-  groups: Record<string, string>;
-
-  /** Shown in place of the code-behind list when
-   *  there is no manifest. */
-  noLib: string;
-
-  /** Follows the kind on a block that runs code
-   *  nobody has named yet. */
-  unassigned: string;
-
-  /** Titles the rejection callout. */
-  typedWiring: string;
-
-  /** The toolbar button that lays the graph out
-   *  again. */
-  arrange: string;
-
-  /** `dragging {0}…`, over a function on its way to
-   *  a block. */
-  libFnDragging: string;
-
-  /**
-   * `{0} · dragging`, on the rail's own chip while a
-   * block is on its way onto the canvas.
-   *
-   * Its own sentence rather than the one above,
-   * because the two are different journeys — a
-   * function is going to a block, a block is going
-   * to the graph — and a person part-way through one
-   * should not have to work out which they started.
-   */
-  blockDragging: string;
-
-  /** What a gap on a wire says, and what letting go
-   *  in it would do. */
-  spliceHere: string;
-  spliceNote: string;
-
-  /** `drag starts after {0} px of movement · esc
-   *  cancels`, under the rail. */
-  dragHint: string;
-
-  /**
-   * `x {0} · y {1}`, over a block being moved, and
-   * `{0} — snapped` around it on the moves where the
-   * grid put the block somewhere the pointer did
-   * not.
-   *
-   * Two sentences because the second is a remark
-   * about the first, and a locale that puts its
-   * remarks first can say so.
-   */
-  readout: string;
-  snapped: string;
-
-  /**
-   * `{0} → {1} ✓ · release to connect`, under the
-   * block a wire being drawn is over.
-   *
-   * The two are shapes rather than titles: what a
-   * person is being told is that what leaves one end
-   * is what the other takes, and the blocks are
-   * already named on themselves.
-   */
-  releaseToConnect: string;
-
-  /** Over the kinds offered where a wire was let go
-   *  of on nothing. */
-  quickAdd: string;
-
-  /**
-   * Why a function cannot sit behind a block, per
-   * the reason core gives.
-   *
-   * Here rather than in the column's own words
-   * because the palette and the picker both say it,
-   * and they are two drawers of one list. The
-   * values a note names — a type, a count — are
-   * known only where the pairing is worked out, so
-   * these are templates the view fills.
-   */
-  misfits: Record<HandlerMisfit['kind'], string>;
-};
+/**
+ * The words a view draws, typed by the builder that
+ * resolves them beside the view. A type-only import,
+ * erased before any browser bundle exists, so the
+ * shape is spelled once and the host's `vscode`
+ * never reaches a page.
+ */
+export type CanvasStrings = ReturnType<typeof canvasWords>;
 
 export type CanvasDocument =
   { ok: true; ir: WorkflowIR } | { ok: false; detail: string };
@@ -279,54 +188,7 @@ export type CanvasInspector = {
   selected: string | undefined;
 };
 
-export type InspectorStrings = {
-  /** The panel's own heading, before the kind. */
-  heading: string;
-
-  /** Shown when no node is selected. */
-  nothingSelected: string;
-
-  /** Per node kind, matching the palette. */
-  kinds: Record<NodeKind, string>;
-
-  /** Per field id. */
-  fields: Record<string, string>;
-
-  /** Per `<field id>.<option value>`. */
-  options: Record<string, string>;
-
-  /** Over the list of functions the picker
-   *  offers. */
-  lib: string;
-
-  /** `{0} incompatible functions hidden · show`,
-   *  and the way back. */
-  hidden: string;
-  hide: string;
-
-  /** The one row the manifest does not decide. */
-  newFunction: string;
-
-  /** Why the list is empty when there is no
-   *  code-behind to read. */
-  noLib: string;
-
-  /** Stands in for the value of a block that runs
-   *  nothing yet. */
-  dropHere: string;
-
-  /** Where an outcome goes when nothing is wired to
-   *  its port. */
-  end: string;
-
-  /** The one thing a transaction's `database` row
-   *  says. */
-  database: string;
-
-  /** The two kinds whose relationship with their
-   *  code needs saying out loud. */
-  callouts: Record<'branch' | 'transaction', Callout>;
-};
+export type InspectorStrings = ReturnType<typeof inspectorWords>;
 
 export type Callout = { title: string; body: string };
 
@@ -401,75 +263,7 @@ export type SidebarPreview =
       undoable: boolean;
     };
 
-export type SidebarStrings = {
-  /** The panel's own eyebrow. */
-  heading: string;
-
-  /** The button that opens the agent picker. */
-  chooseAgent: string;
-
-  /** Shown in place of the transcript. */
-  notTrusted: string;
-  noProject: string;
-  noAgent: string;
-
-  /** The line under the heading, per state. */
-  connecting: string;
-  ready: string;
-  thinking: string;
-
-  send: string;
-  stop: string;
-  placeholder: string;
-
-  /** The badge on a file that did not exist. */
-  newFile: string;
-
-  /** Over a permission request. */
-  permission: string;
-
-  /** Marks an option that outlives this turn. */
-  always: string;
-
-  /** The two answers to a proposal, and the way
-   *  back from one that was answered. */
-  approve: string;
-  refine: string;
-  undo: string;
-
-  /** What a tool call is doing, per status. */
-  toolStatus: Record<ToolCallStatus, string>;
-
-  /** The two answers to one pending file edit. Not
-   *  `keep`/`undo` — `undo` above already names the
-   *  proposal card's, and a second key by that name
-   *  would be read by the wrong button. */
-  keepEdit: string;
-  undoEdit: string;
-
-  /** The row that closes out a turn's edits at
-   *  once. */
-  keepAllEdits: string;
-  undoAllEdits: string;
-
-  /** `{0} files changed`, filled in by the view —
-   *  a webview resolves no string of its own, but
-   *  how many files are in one turn is a fact only
-   *  the view can see. */
-  filesChanged: string;
-
-  /** An undo refused because something else wrote
-   *  the file since. */
-  changedSince: string;
-
-  /** `{0} lines · show`, over a tool call's
-   *  printed output. */
-  showLines: string;
-
-  /** `Plan · {0}/{1}`, the collapsed row over the
-   *  checklist. */
-  planProgress: string;
-};
+export type SidebarStrings = ReturnType<typeof sidebarWords>;
 
 /**
  * The run list, in the mBoss container.
@@ -487,6 +281,12 @@ export type RunsInit = {
   /** The project whose runs these are, as a
    *  person reads it. */
   project: string | undefined;
+
+  /** Which database the list was read from, for the
+   *  footer — a fact about this init rather than a
+   *  word of the view, which is why it is not among
+   *  the strings. Absent when there is none. */
+  source: string | undefined;
 
   state: RunsState;
 
@@ -654,63 +454,7 @@ export type RunRow = {
  */
 export type RunSeverity = 'ok' | 'running' | 'failed' | 'exhausted';
 
-export type RunsStrings = {
-  /** The panel's eyebrow, before the project. */
-  heading: string;
-
-  /** The three segments, in order. */
-  filters: Record<RunFilter, string>;
-
-  /** The mark on a row DBOS picked back up. */
-  recoveredTag: string;
-
-  /** Shown in place of the list. */
-  untrusted: string;
-  noProject: string;
-  empty: string;
-
-  /**
-   * The two lines under the list, which say what is
-   * being read and what is not. The first is absent
-   * when there is no database to name.
-   */
-  source: string | undefined;
-  scope: string;
-
-  /** The footer's other sentence: where the
-   *  session list lives, against where the
-   *  history list's own rows do. */
-  sessionScope: string;
-
-  /** The stack zone's own words. */
-  localStack: string;
-  stackUp: string;
-  stackDown: string;
-  rebuildApp: string;
-  serviceState: Record<ServiceHealth['state'], string>;
-
-  /** The test-run zone's own words. */
-  testRun: string;
-  workflow: string;
-  input: string;
-  runWorkflow: string;
-  runCaption: string;
-  scheduledNotRunnable: string;
-
-  /** The running-now zone's own words. Distinct
-   *  on purpose: a parked run is waiting on a
-   *  person, a quiet one is waiting on nobody. */
-  runningNow: string;
-  waitingRefresh: string;
-  quietRefresh: string;
-
-  /** The session section's own words. */
-  thisSession: string;
-  rerunSameInput: string;
-  resendEvent: string;
-  openFlightRecorder: string;
-  askAgentWhy: string;
-};
+export type RunsStrings = ReturnType<typeof runsWords>;
 
 /**
  * One run, in as much detail as the ledger holds.
@@ -833,37 +577,7 @@ export type SeeRawRow = {
   committedAt: string;
 };
 
-export type SeeStrings = {
-  /** The tab's own eyebrow. */
-  heading: string;
-
-  /** Shown before a run has been picked. */
-  nothingSelected: string;
-
-  /** Over the step strip and the chart. */
-  steps: string;
-  timeline: string;
-
-  /** The legend under the chart's title. */
-  hatched: string;
-
-  /** The word on a chip whose output came back
-   *  from Postgres. */
-  restored: string;
-
-  /** Over the two tables. */
-  raw: string;
-  status: string;
-
-  /** The line under the rail. */
-  ledger: string;
-
-  /** The four columns of the raw table. */
-  columns: { stepId: string; fn: string; output: string; committedAt: string };
-
-  /** The one action this view offers. */
-  replay: string;
-};
+export type SeeStrings = ReturnType<typeof seeWords>;
 
 export type { InspectorField };
 

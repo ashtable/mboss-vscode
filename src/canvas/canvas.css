@@ -43,6 +43,12 @@
   gap: var(--space-4);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--hairline);
+  /* A grid row is as wide as its content unless told
+     otherwise, and the caption is one long line: without
+     this the toolbar sets the width of the whole canvas
+     in a narrow editor, and the graph is scrolled off
+     the side rather than given the room. */
+  min-width: 0;
 }
 
 .segments {
@@ -94,6 +100,10 @@
 
 .toolbar .caption {
   margin: 0;
+  /* A flex item will not shrink below its own text
+     without being told, so the ellipsis below never
+     came into it. */
+  min-width: 0;
   font-size: var(--text-sm);
   overflow: hidden;
   text-overflow: ellipsis;

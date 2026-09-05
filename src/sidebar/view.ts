@@ -13,6 +13,8 @@ import { appliedCard, proposalCard } from '../preview/view.js';
 import { mountWebview } from '../webview/host.js';
 import type { SidebarInit } from '../webview/protocol.js';
 
+import { agentFailure, sidebarHeading, sidebarWords } from './words.js';
+
 /**
  * The agent panel in the mBoss container.
  *
@@ -53,7 +55,7 @@ export class AgentSidebarView implements WebviewViewProvider {
     mountWebview(view, {
       extensionUri: this.extensionUri,
       view: 'sidebar',
-      title: messages.sidebarHeading(),
+      title: sidebarHeading(),
       init: draw,
       // Every chunk, every tool card, every answer:
       // the view is a picture of state it does not
@@ -93,16 +95,14 @@ export function sidebarInit(
   return {
     type: 'init',
     view: 'sidebar',
-    strings: messages.sidebarStrings(),
+    strings: sidebarWords(),
     agent:
       state.agent === undefined ? undefined : messages.agents()[state.agent],
     status: state.status,
     transcript: state.transcript,
     prompt: state.prompt,
     failure:
-      state.failure === undefined
-        ? undefined
-        : messages.agentFailure(state.failure),
+      state.failure === undefined ? undefined : agentFailure(state.failure),
     preview:
       card === undefined
         ? undefined

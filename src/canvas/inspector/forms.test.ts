@@ -11,7 +11,7 @@ import {
   type WorkflowNode,
 } from '../../core/rules.js';
 
-import { messages } from '../../messages.js';
+import { inspectorWords } from '../words.js';
 
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
 
@@ -605,7 +605,7 @@ describe('a node’s own fields', () => {
  * and every option of every menu.
  */
 describe('every field a person sees', () => {
-  const strings = messages.inspectorStrings();
+  const strings = inspectorWords();
 
   const everyField = (fields: InspectorField[]): InspectorField[] =>
     fields.flatMap((field) =>

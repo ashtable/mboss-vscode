@@ -3,13 +3,12 @@ import { expect, test, type Page } from '@playwright/test';
 import type {
   RunRow,
   RunsInit,
-  RunsStrings,
   SeeInit,
   SeeRun,
-  SeeStrings,
 } from '../../src/webview/protocol.js';
 
 import { mount, type Harness } from './harness.js';
+import { runsWords as runsStrings, seeWords as seeStrings } from './words.js';
 
 /**
  * A run history, on screen.
@@ -26,47 +25,6 @@ import { mount, type Harness } from './harness.js';
  * these specs; that the extension resolves the
  * right ones is checked where the extension is.
  */
-
-const runsStrings: RunsStrings = {
-  heading: 'Runs',
-  filters: { all: 'All', failed: 'Failed', recovered: 'Recovered' },
-  recoveredTag: 'recovered ✓',
-  untrusted: 'Trust this folder to read its run history.',
-  noProject: 'Open an mBoss project to see how its runs went.',
-  empty: 'No runs recorded yet.',
-  source: 'dbos.workflow_status · localhost:5432/app',
-  scope: "Local runs only. Deployed apps are DBOS Conductor's.",
-  sessionScope:
-    'held in the extension host for this session · ' +
-    'durable truth stays in postgres: dbos.workflow_status',
-
-  localStack: 'Local Stack',
-  stackUp: 'Start',
-  stackDown: 'Stop',
-  rebuildApp: 'Rebuild',
-  serviceState: {
-    running: 'running',
-    exited: 'stopped',
-    absent: 'not started',
-  },
-
-  testRun: 'Test Run',
-  workflow: 'Workflow',
-  input: 'Input',
-  runWorkflow: 'Run Workflow',
-  runCaption: 'POST :3000 → dbos start · nothing leaves this machine',
-  scheduledNotRunnable: 'runs on its schedule',
-
-  runningNow: 'Running Now',
-  waitingRefresh: 'waiting · refresh to check',
-  quietRefresh: 'quiet · refresh to check',
-
-  thisSession: 'This Session',
-  rerunSameInput: 'Rerun with same input',
-  resendEvent: 'Send the event again',
-  openFlightRecorder: 'Open flight recorder',
-  askAgentWhy: 'Ask agent why',
-};
 
 const ROWS: RunRow[] = [
   {
@@ -117,6 +75,7 @@ function runsInit(over: Partial<RunsInit> = {}): RunsInit {
     view: 'runs',
     strings: runsStrings,
     project: 'groom-shop',
+    source: 'dbos.workflow_status · localhost:5432/app',
     state: 'ok',
     detail: undefined,
     filter: 'all',
@@ -141,25 +100,6 @@ function runsInit(over: Partial<RunsInit> = {}): RunsInit {
     ...over,
   };
 }
-
-const seeStrings: SeeStrings = {
-  heading: 'Run',
-  nothingSelected: 'Pick a run to see what it did.',
-  steps: 'Steps',
-  timeline: 'Run timeline',
-  hatched: 'hatched = process down',
-  restored: 'restored',
-  raw: 'dbos.operation_outputs',
-  status: 'dbos.workflow_status',
-  ledger: 'The recovery ledger — your workflow is just rows in Postgres.',
-  columns: {
-    stepId: 'step',
-    fn: 'function',
-    output: 'output',
-    committedAt: 'committed',
-  },
-  replay: '⟲ Replay from this step',
-};
 
 const STEP_NAMES = ['parse_request', 'find_slot', 'book_appointment'];
 

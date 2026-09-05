@@ -49,6 +49,12 @@ import {
 import { layoutKeyOf } from './graph.js';
 import { snapped } from './grid.js';
 import { misfitNote } from './misfit.js';
+import {
+  canvasWords,
+  inspectorWords,
+  misfitWords,
+  paletteLabels,
+} from './words.js';
 
 /**
  * The editor a workflow document opens in.
@@ -422,8 +428,8 @@ export class CanvasSession {
     return {
       type: 'init',
       view: 'canvas',
-      strings: messages.canvasStrings(),
-      paletteLabels: messages.paletteLabels(),
+      strings: canvasWords(),
+      paletteLabels: paletteLabels(),
       document: this.read,
 
       // Said once. Every gesture the panel sends
@@ -554,7 +560,7 @@ export class CanvasSession {
    *  document the block is in. */
   private inspector(): CanvasInspector {
     return {
-      strings: messages.inspectorStrings(),
+      strings: inspectorWords(),
       selected: this.nodeAt(this.selected)?.id,
     };
   }
@@ -634,7 +640,7 @@ export class CanvasSession {
         ir,
         boxes: this.boxes,
         manifest: this.manifest,
-        labels: messages.paletteLabels(),
+        labels: paletteLabels(),
       }),
       message.baseRevision,
     );
@@ -779,7 +785,7 @@ export class CanvasSession {
       verb: messages.canvasAssignVerb(),
       target: messages.canvasAssignTarget(
         made.export,
-        messages.paletteLabels()[made.kind],
+        paletteLabels()[made.kind],
         made.title,
       ),
       status: 'applied',
@@ -859,7 +865,7 @@ function refusalOf(refused: Extract<EditOutcome, { at: 'refused' }>): string {
       return messages.handlerMisfit(
         refused.export,
         refused.title,
-        misfitNote(messages.misfitWords(), refused.reason),
+        misfitNote(misfitWords(), refused.reason),
       );
   }
 }

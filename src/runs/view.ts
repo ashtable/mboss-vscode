@@ -14,6 +14,7 @@ import type {
   SessionRow,
 } from '../webview/protocol.js';
 
+import { runsWords, seeWords } from './words.js';
 import type { RunFilter } from './queries.js';
 import {
   hasRecovered,
@@ -138,7 +139,11 @@ export function runsInit(view: RunsView): RunsInit {
   return {
     type: 'init',
     view: 'runs',
-    strings: messages.runsStrings(view.database),
+    strings: runsWords(),
+    source:
+      view.database === undefined
+        ? undefined
+        : messages.runsSource(view.database),
     project: view.project,
     state: view.state,
     detail: view.detail,
@@ -207,7 +212,7 @@ export function seeInit(view: SeeView | undefined): SeeInit {
   return {
     type: 'init',
     view: 'see',
-    strings: messages.seeStrings(),
+    strings: seeWords(),
     run: view === undefined ? undefined : seeRun(view),
   };
 }

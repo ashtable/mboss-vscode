@@ -112,7 +112,7 @@ describe('the run list', () => {
   });
 
   it('names the database it is reading, and no credential', () => {
-    expect(runsInit(LIST).strings.source).toBe(
+    expect(runsInit(LIST).source).toBe(
       'dbos.workflow_status · localhost:5432/app',
     );
   });
@@ -226,7 +226,7 @@ describe('the run list', () => {
       rows: [],
     };
 
-    expect(runsInit(nothing).strings.source).toBeUndefined();
+    expect(runsInit(nothing).source).toBeUndefined();
     expect(runsInit(nothing).detail).toBe('no .env');
   });
 });

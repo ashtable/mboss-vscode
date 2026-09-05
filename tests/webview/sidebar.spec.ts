@@ -6,12 +6,10 @@ import type {
   SessionUpdate,
 } from '../../src/acp/transcript.js';
 import { foldUpdates } from '../../src/acp/transcript.js';
-import type {
-  SidebarInit,
-  SidebarStrings,
-} from '../../src/webview/protocol.js';
+import type { SidebarInit } from '../../src/webview/protocol.js';
 
 import { mount, type Harness, type ThemeKind } from './harness.js';
+import { sidebarWords as strings } from './words.js';
 
 /**
  * The agent panel, driven.
@@ -31,40 +29,6 @@ import { mount, type Harness, type ThemeKind } from './harness.js';
  * user reads is written into a browser bundle, is
  * checked where the extension is.
  */
-
-const strings: SidebarStrings = {
-  heading: 'Agent',
-  chooseAgent: 'Choose an agent',
-  notTrusted: 'Trust this folder to run a coding agent.',
-  noProject: 'Open a folder to run a coding agent in it.',
-  noAgent: 'No coding agent chosen yet.',
-  connecting: 'Starting the agent…',
-  ready: 'Ready',
-  thinking: 'Working…',
-  send: 'Send',
-  stop: 'Stop',
-  placeholder: 'Edit the graph, scaffold a lib fn, or ask why…',
-  newFile: 'new',
-  permission: 'Permission needed',
-  always: 'always',
-  approve: 'Approve & apply',
-  refine: 'Refine',
-  undo: 'Undo',
-  toolStatus: {
-    pending: 'queued',
-    in_progress: 'running',
-    completed: 'done',
-    failed: 'failed',
-  },
-  keepEdit: 'Keep',
-  undoEdit: 'Undo',
-  keepAllEdits: 'Keep all',
-  undoAllEdits: 'Undo all',
-  filesChanged: '{0} files changed',
-  changedSince: 'changed since · nothing to undo',
-  showLines: '{0} lines · show',
-  planProgress: 'Plan · {0}/{1}',
-};
 
 const said = (body: string): SessionUpdate => ({
   sessionUpdate: 'agent_message_chunk',

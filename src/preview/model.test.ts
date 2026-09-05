@@ -9,7 +9,7 @@ import {
 } from '../test-support/project.js';
 import { propose, specOf } from '../test-support/proposals.js';
 
-import { messages } from '../messages.js';
+import { sidebarWords } from '../sidebar/words.js';
 
 import { previewOf } from './model.js';
 import { bannerFor, canvasPreview } from './view.js';
@@ -107,7 +107,7 @@ describe('the banner', () => {
  */
 describe('the words on the buttons', () => {
   it('are the ones the design settled on', () => {
-    const strings = messages.sidebarStrings();
+    const strings = sidebarWords();
 
     expect(strings.approve).toBe('Approve & apply');
     expect(strings.refine).toBe('Refine');
