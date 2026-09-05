@@ -50,6 +50,7 @@ import { pastThreshold } from './drag/gesture.js';
 import {
   lineOf,
   toReactFlow,
+  wantsHandler,
   type CanvasEdge,
   type CanvasNode,
 } from './graph.js';
@@ -370,7 +371,13 @@ type Carrying = {
    *  is over one. */
   under: string | undefined;
 
-  ghost: { kind: NodeKind; title: string; line: string; at: Position };
+  ghost: {
+    kind: NodeKind;
+    title: string;
+    line: string;
+    wanting: boolean;
+    at: Position;
+  };
 };
 
 /**
@@ -442,6 +449,7 @@ function inFlight(
         labels: init.paletteLabels,
         unassigned: init.strings.unassigned,
       }),
+      wanting: wantsHandler(block),
       at: landing.held,
     },
   };

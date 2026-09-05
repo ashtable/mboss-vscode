@@ -10,6 +10,7 @@ import { LIB_FN, carries } from './dragging.js';
 import {
   SOURCE_PORT,
   TARGET_PORT,
+  wantsHandler,
   type CanvasNode,
   type NodeState,
 } from './graph.js';
@@ -132,6 +133,7 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
         kind={node.kind}
         title={node.title}
         line={data.line}
+        wanting={wantsHandler(node)}
         state={state}
       />
 
@@ -198,11 +200,16 @@ export function BlockFace({
   kind,
   title,
   line,
+  wanting,
   state,
 }: {
   kind: NodeKind;
   title: string;
   line: string;
+
+  /** Whether that line is a gap where a function
+   *  goes rather than the name of one. */
+  wanting: boolean;
   state: NodeState;
 }) {
   const mark = RUN_MARK[state];
@@ -213,7 +220,12 @@ export function BlockFace({
 
       <div className="node-text">
         <p className="node-title">{truncateTitle(title)}</p>
-        <p className="node-line mono">{line}</p>
+        <p
+          className="node-line mono"
+          data-line={wanting ? 'unassigned' : undefined}
+        >
+          {line}
+        </p>
       </div>
 
       {mark === undefined ? null : (

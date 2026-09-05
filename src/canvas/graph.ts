@@ -462,3 +462,19 @@ export function lineOf(node: WorkflowNode, drawing: Drawing): string {
     ? `${label} · ${drawing.unassigned}`
     : label;
 }
+
+/**
+ * Whether the line under the title is a gap rather
+ * than a fact.
+ *
+ * The block is a kind that runs code and has none
+ * behind it yet, which is the one case where the
+ * line says something is missing. A function's name
+ * is a fact about the block, and so is the kind of a
+ * block that never takes one — both are written at
+ * the weight facts are written in, and the gap is
+ * written quieter.
+ */
+export function wantsHandler(node: WorkflowNode): boolean {
+  return node.handler === undefined && HANDLER_KINDS.has(node.kind);
+}

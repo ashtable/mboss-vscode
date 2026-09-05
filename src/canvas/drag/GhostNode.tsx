@@ -21,11 +21,16 @@ export function GhostNode({
   kind,
   title,
   line,
+  wanting,
   at,
 }: {
   kind: NodeKind;
   title: string;
   line: string;
+
+  /** Whether that line is a gap where a function
+   *  goes rather than the name of one. */
+  wanting: boolean;
 
   /** Its top-left corner, in the graph's own
    *  coordinates. */
@@ -40,7 +45,13 @@ export function GhostNode({
       style={{ transform: `translate(${at.x}px, ${at.y}px)`, width, height }}
     >
       <div className="node" data-node-kind={kind} data-state="selected">
-        <BlockFace kind={kind} title={title} line={line} state="selected" />
+        <BlockFace
+          kind={kind}
+          title={title}
+          line={line}
+          wanting={wanting}
+          state="selected"
+        />
       </div>
 
       <CursorBadge />

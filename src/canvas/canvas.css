@@ -610,6 +610,14 @@ button.lib-fn {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Quieter where the line is a gap rather than a
+   fact. A function's name is something about the
+   block; a block still wanting one has an absence
+   there, and an absence written at the weight of a
+   fact makes the two read alike across a graph. */
+.node-line[data-line='unassigned'] {
+  color: var(--ink-faint);
+}
 
 /* What the run did here, at the end of the row
    because it is the last thing to become true about

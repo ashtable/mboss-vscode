@@ -329,6 +329,53 @@ describe('the state a run puts a block in', () => {
   });
 
   /**
+   * The same two rounds the other way up, which is
+   * the only order that can tell the rule from an
+   * accident: with the worst one first, a rule that
+   * simply kept whatever it saw first would answer
+   * the same. This is also the order that matters —
+   * a loop that went round once and broke the second
+   * time is the one somebody has to be told about.
+   */
+  it('draws it in the worst even when the good round came first', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run(
+          [
+            ['find_slot', 'done'],
+            ['find_slot', 'failed'],
+          ],
+          'failed',
+        ),
+      }),
+    );
+
+    expect(statesOf(nodes)['find_slot']).toBe('failed');
+  });
+
+  /** And the middle rank, so the order is a ranking
+   *  rather than a preference for one word. */
+  it('holds a block parked on somebody over a round that finished', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run(
+          [
+            ['find_slot', 'waiting'],
+            ['find_slot', 'done'],
+          ],
+          'waiting',
+        ),
+      }),
+    );
+
+    expect(statesOf(nodes)['find_slot']).toBe('waiting');
+  });
+
+  /**
    * A branch deciding on predicates is decided in
    * the generated code and writes no row at all, so
    * a frontier that stopped at one would say the run

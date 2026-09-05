@@ -934,13 +934,36 @@ test.describe('one run in detail', () => {
     await expect(page.locator('[data-recovered-banner]')).toHaveCount(0);
   });
 
-  /** The page quotes its sources; it does not
-   *  decorate them. */
+  /**
+   * The page quotes its sources; it does not
+   * decorate them.
+   *
+   * Asked of the sections this view actually draws
+   * rather than of the class names an earlier one
+   * decorated with. A check for a name nothing
+   * renders is equally true of a blank page, of this
+   * page, and of a page covered in corner marks
+   * under some other name.
+   */
   test('frames its sections without ornament', async ({ page }) => {
     await showRun(page, seeInit());
 
-    await expect(page.locator('.blueprint')).toHaveCount(0);
-    await expect(page.locator('.corner')).toHaveCount(0);
+    const sections = page.locator('section');
+
+    await expect(sections.first()).toBeVisible();
+
+    const drawn = await sections.evaluateAll((all) =>
+      all.flatMap((element) => [
+        getComputedStyle(element).backgroundImage,
+        ...['::before', '::after'].map((part) => {
+          const style = getComputedStyle(element, part);
+
+          return `${style.content} ${style.backgroundImage}`;
+        }),
+      ]),
+    );
+
+    expect([...new Set(drawn)].sort()).toEqual(['none', 'none none']);
   });
 
   /**

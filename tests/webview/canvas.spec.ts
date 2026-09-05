@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import {
+  expect,
+  test,
+  type JSHandle,
+  type Locator,
+  type Page,
+} from '@playwright/test';
 
 import { DIST } from '../../src/build.js';
 
@@ -671,6 +677,40 @@ test.describe('one block', () => {
     await expect(nodeLine(page, 'loop')).toHaveText('Loop');
   });
 
+  /**
+   * And says it more quietly. A name is a fact about
+   * the block; a gap where a name goes is an absence,
+   * and the two read as the same sentence when they
+   * are the same grey. The kinds that never take a
+   * function are facts too, so they stay at the
+   * weight a name is written in.
+   */
+  test('draws a block still wanting a function fainter', async ({ page }) => {
+    await openEveryKind(page);
+
+    for (const id of ['trigger', 'loop']) {
+      await expect(nodeLine(page, id)).toHaveCSS(
+        'color',
+        'color(srgb 0.231373 0.231373 0.231373 / 0.62)',
+      );
+      await expect(nodeLine(page, id)).toHaveCSS('font-size', '10.01px');
+    }
+
+    for (const id of ['step', 'branch']) {
+      await expect(nodeLine(page, id)).toHaveCSS(
+        'color',
+        'color(srgb 0.231373 0.231373 0.231373 / 0.38)',
+      );
+    }
+
+    await openCanvas(page);
+
+    await expect(nodeLine(page, 'parse_request')).toHaveCSS(
+      'color',
+      'color(srgb 0.231373 0.231373 0.231373 / 0.62)',
+    );
+  });
+
   test('carries nothing else — no id, no config, no type chips', async ({
     page,
   }) => {
@@ -683,7 +723,18 @@ test.describe('one block', () => {
       'ƒ findSlot',
     ]);
 
-    await expect(page.locator('.wire-label')).toHaveCount(0);
+    // And nothing rides a wire but the way out of a
+    // branch. The count is the check: a type chip
+    // put back on the canvas would be drawn where
+    // these are, so a fifth label on this graph is
+    // one of them returning.
+    await expect(page.locator('.wire-port')).toHaveCount(4);
+    await expect(page.locator('.wire-port')).toHaveText([
+      'yes',
+      'no',
+      'new_time',
+      'book_it',
+    ]);
   });
 
   /**
@@ -903,6 +954,15 @@ test.describe('the state a block is in', () => {
       'rgba(23, 26, 35, 0.05) 0px 1px 2px 0px',
     );
     await expect(block).toHaveCSS('transform', 'none');
+
+    // And the room inside it. A block whose padding,
+    // gap and corner went to nothing would be the
+    // cramped, hard-edged box this canvas was drawn
+    // to stop being, and every check above it would
+    // go on passing.
+    await expect(block).toHaveCSS('padding', '8px 12px');
+    await expect(block).toHaveCSS('gap', '8px');
+    await expect(block).toHaveCSS('border-radius', '10px');
   });
 
   test('darkens its edge and lifts under the pointer', async ({ page }) => {
@@ -1189,6 +1249,77 @@ test.describe('the dashes on a wire a run is going down', () => {
   });
 });
 
+/**
+ * What colour a wire is drawn in.
+ *
+ * The colours live beside the wire rather than in
+ * the stylesheet, so that the arrowhead at the end
+ * of a line cannot disagree with the line — which
+ * also means nothing in the sheet would catch them
+ * going wrong. A run whose every wire came out the
+ * colour of structure would say a workflow was
+ * sitting still while it was going.
+ */
+test.describe('the colour a wire is drawn in', () => {
+  test('draws one nothing is going down as structure', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    const wire = wireBody(page, 'e10');
+
+    await expect(wire).toHaveCSS(
+      'stroke',
+      'color(srgb 0.231373 0.231373 0.231373 / 0.22)',
+    );
+    await expect(wire).toHaveCSS('stroke-width', '1.5px');
+  });
+
+  test('draws the one a run is travelling in the run’s own', async ({
+    page,
+  }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    await expect(wireBody(page, 'e5')).toHaveCSS('stroke', 'rgb(23, 184, 144)');
+  });
+
+  /** Behind the run, and faded: it says where the
+   *  run has been rather than where it is. */
+  test('fades the one a run has already come down', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    await expect(wireBody(page, 'e2')).toHaveCSS(
+      'stroke',
+      'color(srgb 0.0901961 0.721569 0.564706 / 0.5)',
+    );
+  });
+
+  test('draws the one into a parked block in the parked colour', async ({
+    page,
+  }) => {
+    await openAtRest(page, { run: runOf(PARKED, 'waiting') });
+
+    await expect(wireBody(page, 'e6')).toHaveCSS('stroke', 'rgb(233, 162, 59)');
+  });
+
+  test('draws the one into a broken block in the broken one', async ({
+    page,
+  }) => {
+    await openAtRest(page, { run: runOf(BROKEN, 'failed') });
+
+    await expect(wireBody(page, 'e2')).toHaveCSS('stroke', 'rgb(238, 93, 104)');
+  });
+
+  /** The one wire that means "again", dashed
+   *  whether or not anything is going down it. */
+  test('dashes the one that runs back up the graph', async ({ page }) => {
+    await openAtRest(page);
+
+    await expect(wireBody(page, 'e8')).toHaveCSS(
+      'stroke-dasharray',
+      '6px, 5px',
+    );
+  });
+});
+
 /** Tint and ink per tone, as the browser resolves
  *  the mixes over this harness' light surface. */
 const TONE_COLOURS = [
@@ -1263,6 +1394,40 @@ test.describe('the tile a block’s glyph sits in', () => {
     );
   });
 
+  /**
+   * And the three a run puts there, driven by a run
+   * rather than by setting the attribute. The tile
+   * is the one place on a block state is spent as
+   * colour, so a table read only through the states
+   * nothing is running could send every tile grey
+   * the moment a run started and nothing would say
+   * so.
+   */
+  test('turns the run’s own colours while one is going', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    await expect(tile(page, 'twilio_chat')).toHaveAttribute('data-tone', 'ok');
+
+    // A block the run has finished with is no longer
+    // the one to look at, so it goes back to neutral
+    // and the mark at its end carries the outcome.
+    await expect(tile(page, 'find_slot')).toHaveAttribute(
+      'data-tone',
+      'neutral',
+    );
+
+    await openAtRest(page, { run: runOf(PARKED, 'waiting') });
+
+    await expect(tile(page, 'await_reply')).toHaveAttribute(
+      'data-tone',
+      'warn',
+    );
+
+    await openAtRest(page, { run: runOf(BROKEN, 'failed') });
+
+    await expect(tile(page, 'find_slot')).toHaveAttribute('data-tone', 'fail');
+  });
+
   test('paints each tone in its own tint and ink', async ({ page }) => {
     await openCanvas(page);
 
@@ -1288,6 +1453,15 @@ test.describe('the tile a block’s glyph sits in', () => {
     await expect(square).toHaveCSS('height', '28px');
     await expect(square).toHaveCSS('border-radius', '6px');
     await expect(square.locator('svg')).toHaveCSS('width', '15px');
+
+    // One weight and one shape of corner across all
+    // ten glyphs. Ten icons drawn at ten weights
+    // reads as ten products rather than one, and it
+    // is the sort of thing nobody can name and
+    // everybody sees.
+    await expect(square.locator('svg')).toHaveCSS('stroke-width', '2px');
+    await expect(square.locator('svg')).toHaveCSS('stroke-linecap', 'round');
+    await expect(square.locator('svg')).toHaveCSS('stroke-linejoin', 'round');
   });
 });
 
@@ -2236,10 +2410,15 @@ test.describe('dragging a function onto a block', () => {
    * carrying the same transfer object the browser
    * would hand it.
    */
-  async function lift(page: Page, row: Locator): Promise<void> {
+  async function lift(
+    page: Page,
+    row: Locator,
+  ): Promise<JSHandle<DataTransfer>> {
     const transfer = await page.evaluateHandle(() => new DataTransfer());
 
     await row.dispatchEvent('dragstart', { dataTransfer: transfer });
+
+    return transfer;
   }
 
   test('marks the row the selected block already runs', async ({ page }) => {
@@ -2282,6 +2461,33 @@ test.describe('dragging a function onto a block', () => {
     await expect(page.locator('[data-dragging]')).toHaveText(
       'dragging tryAgain…',
     );
+  });
+
+  /**
+   * The block under the pointer answers, in the
+   * colour of somebody doing something rather than
+   * the colour of an agent proposing one. Without
+   * it a function is carried across a whole graph
+   * with nothing on screen saying where it would
+   * land, and the drop is a guess.
+   */
+  test('marks the block it is over, and lets go when it leaves', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    const carried = await lift(page, page.locator('[data-lib-fn="tryAgain"]'));
+    const block = nodeBody(page, 'slot_open');
+
+    await block.dispatchEvent('dragover', { dataTransfer: carried });
+
+    await expect(block).toHaveAttribute('data-landing', 'lib-fn');
+    await expect(block).toHaveCSS('border-top-style', 'dashed');
+    await expect(block).toHaveCSS('border-top-color', 'rgb(83, 103, 255)');
+
+    await block.dispatchEvent('dragleave', { dataTransfer: carried });
+
+    await expect(block).not.toHaveAttribute('data-landing', 'lib-fn');
   });
 
   test('tells the host to put it behind the block it landed on', async ({
@@ -2456,6 +2662,23 @@ test.describe('dragging a block onto the canvas', () => {
     await expect(
       page.locator('[data-splice-gap="e3"] .splice-title'),
     ).toHaveCount(0);
+
+    // The unfilled ones are still there to be seen,
+    // which is the whole point of opening all of
+    // them: the offer is meant to be readable at
+    // once. Unfilled and unoutlined is invisible.
+    await expect(page.locator('[data-splice-gap="e3"]')).toHaveCSS(
+      'border-top-style',
+      'dashed',
+    );
+    await expect(page.locator('[data-splice-gap="e3"]')).toHaveCSS(
+      'border-top-color',
+      'rgb(83, 103, 255)',
+    );
+    await expect(page.locator('[data-splice-gap="e3"]')).toHaveCSS(
+      'border-radius',
+      '10px',
+    );
 
     await page.mouse.up();
   });
