@@ -201,7 +201,15 @@ is an event every store subscribes to.
 - **`canvas/`** — `editor.ts` is the host side (`CustomTextEditorProvider`, one
   `CanvasSession` per panel in a static map, `active()` for the Arrange
   command). Every gesture is a message; every edit lands through
-  `api.replaceDocument` so VS Code keeps undo/dirty/save. The webview never
+  `api.replaceDocument` so VS Code keeps undo/dirty/save. A **gesture** is
+  what the panel sent; an **edit** is the pure function of the document it
+  becomes, worked out in `edits.ts`: `editFor(gesture, context)` takes the
+  document, its boxes, the manifest and the palette labels and answers
+  `next` / `refused` / `nothing`; `waysOutOf` says which ports a wire may
+  leave by. `CanvasSession` is gate, compute, write: it refuses a stale
+  `baseRevision` first, asks the picker which way out a wire takes, calls
+  `editFor`, then says the sentence, selects, notes and writes. The webview
+  never
   repaints itself: it redraws when `onDocumentChanged` fires `reread` + post
   (tests simulate this with `livingDocument().saved()`). Layout: core `place()`
   runs ELK only when no node has a position; `onTheGrid` snaps unplaced boxes;
@@ -282,7 +290,9 @@ pinned expectation is the record; edit the test.
 
 Other content-regex fences: `@agentclientprotocol/sdk` may appear only in
 `acp/connection.ts` and `acp/sdk.test.ts` (tests are not exempt); no
-`from 'node:fs'` in files directly under `src/acp`.
+`from 'node:fs'` in files directly under `src/acp`; `canvas/edits.ts`
+value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
+`messages` or `core/index` (`canvas/edits.test.ts`).
 
 ## Conventions
 
@@ -345,6 +355,12 @@ Other content-regex fences: `@agentclientprotocol/sdk` may appear only in
 - **Add an Inspector field**: `canvas/inspector/forms.ts` lens + entries in
   `inspectorFields()`/`inspectorOptions()` in `messages.ts` + bundle lines;
   `forms.test.ts` asserts every field and option has a word.
+- **Add a canvas gesture**: a zod schema in `webview/host.ts` and its member
+  in `WebviewMessageSchema`; a `Gesture` member and a case in `editFor` in
+  `canvas/edits.ts`, with the rule pinned in `edits.test.ts`; the
+  `postToHost` in `Canvas.tsx`; a Playwright case in
+  `tests/webview/canvas.spec.ts`. `CanvasSession` changes only when the
+  gesture asks a question first, as `connect` does.
 - **Bump a submodule**: `git -C <sub> fetch && git -C <sub> checkout <sha>`,
   `git add <sub>`; if the branch changed, edit `.gitmodules` and the regex in
   `src/pins.test.ts`; if `mboss-mcp-server` moved at all, `npm run build:mcp`;

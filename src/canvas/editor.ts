@@ -18,23 +18,11 @@ import {
   projectOf,
   readWorkflow,
 } from '../core/index.js';
-import {
-  NodeSchema,
-  decisionValues,
-  deleteNode,
-  handlerFit,
-  portsOf,
-  starterId,
-  starterNode,
-  withDecisionCases,
-  withoutPositions,
-  type LibFunction,
-  type LibManifest,
-  type NodeBox,
-  type NodeKind,
-  type Position,
-  type WorkflowIR,
-  type WorkflowNode,
+import type {
+  LibManifest,
+  NodeBox,
+  WorkflowIR,
+  WorkflowNode,
 } from '../core/rules.js';
 import { messages } from '../messages.js';
 import type { PreviewModel } from '../preview/model.js';
@@ -50,11 +38,19 @@ import type {
   DecisionOutcome,
 } from '../webview/protocol.js';
 
+import {
+  editFor,
+  waysOutOf,
+  type EditMessage,
+  type EditOutcome,
+  type Gesture,
+  type WayOut,
+  type WayTaken,
+} from './edits.js';
 import { layoutKeyOf } from './graph.js';
 import { snapped } from './grid.js';
 import { configToForm } from './inspector/forms.js';
 import { misfitNote } from './misfit.js';
-import { wireBetween } from './wiring.js';
 
 /**
  * The editor a workflow document opens in.
@@ -461,25 +457,31 @@ export class CanvasSession {
   heard(message: WebviewMessage): boolean {
     if (this.live !== undefined) return false;
 
-    if (message.type === 'select') {
-      this.select(message.nodeId);
+    switch (message.type) {
+      case 'select':
+        this.select(message.nodeId);
 
-      return true;
+        return true;
+      case 'text':
+        this.replaceText(message.text);
+
+        return false;
+      case 'connect':
+      case 'addNode':
+      case 'move':
+      case 'arrange':
+      case 'delete':
+      case 'edit':
+      case 'assign':
+        // Two of these may have to ask which way out
+        // of a block the new wire leaves by, so all of
+        // them answer later. What they do when they
+        // land is write the document, and the panel is
+        // drawn again from that rather than from here.
+        void this.perform(message);
+
+        return false;
     }
-
-    // Both of these may have to ask which way out of
-    // a block the new wire leaves by, so both answer
-    // later. What they do when they land is write the
-    // document, and the panel is drawn again from
-    // that rather than from here.
-    if (message.type === 'connect') void this.connect(message);
-    if (message.type === 'addNode') void this.addNode(message);
-    if (message.type === 'move') this.move(message);
-    if (message.type === 'arrange') this.arrange(message.baseRevision);
-    if (message.type === 'delete') this.remove(message);
-    if (message.type === 'edit') this.edit(message);
-    if (message.type === 'assign') this.assign(message);
-    if (message.type === 'text') this.replaceText(message.text);
 
     return false;
   }
@@ -505,11 +507,10 @@ export class CanvasSession {
   arrange(baseRevision?: number): void {
     if (!this.read.ok) return;
 
-    this.write(baseRevision ?? this.read.ir.revision, (ir) =>
-      ir.nodes.some((node) => node.position !== undefined)
-        ? withoutPositions(ir)
-        : undefined,
-    );
+    void this.perform({
+      type: 'arrange',
+      baseRevision: baseRevision ?? this.read.ir.revision,
+    });
   }
 
   /**
@@ -619,317 +620,18 @@ export class CanvasSession {
   }
 
   /**
-   * A wire somebody drew, once they let go of it.
+   * An edit, from the panel or from a command: gate,
+   * compute, write.
    *
-   * The panel names the two blocks and no port,
-   * because a block has one dot to leave by however
-   * many ways out it has. Which way out this wire
-   * takes is therefore asked here, against the ports
-   * the document says that block has — and where
-   * there is only one there is nothing to ask.
-   */
-  private async connect(edit: {
-    baseRevision: number;
-    from: { node: string };
-    to: { node: string };
-  }): Promise<void> {
-    const port = await this.wayOutOf(edit.from.node);
-    if (port === undefined) return;
-
-    this.write(edit.baseRevision, (ir) => ({
-      ...ir,
-      edges: [
-        ...ir.edges,
-        wireBetween(ir, { from: { node: edit.from.node, port }, to: edit.to }),
-      ],
-    }));
-  }
-
-  /**
-   * Which way out of a block a new wire leaves by.
-   *
-   * Nothing where the question was asked and nobody
-   * answered, which takes the whole edit down with
-   * it: a wire has to leave by something, and
-   * picking one on somebody's behalf would write a
-   * document they did not ask for.
-   */
-  private async wayOutOf(nodeId: string): Promise<string | undefined> {
-    const node = this.nodeAt(nodeId);
-    if (node === undefined) return undefined;
-
-    const ways = waysOutOf(node);
-    if (ways.length < 2) return ways[0]?.id;
-
-    return await this.api.pick(messages.canvasChoosePort(), ways);
-  }
-
-  /**
-   * A block dropped on the canvas.
-   *
-   * It lands with the smallest config its kind
-   * accepts and the kind's own name, because nobody
-   * has said what it does yet — that is the
-   * Inspector's next question, which is why the new
-   * block is what the column then shows.
-   *
-   * Let go of over a wire, it goes into the wire
-   * rather than beside it. A wire that cannot be
-   * split takes the whole edit down with it: half a
-   * splice is a block sitting loose on a graph
-   * somebody meant to put it into.
-   *
-   * Let go of at the end of a wire being drawn, it
-   * is what that wire was looking for, and the block
-   * and the wire are written together — one edit,
-   * one undo, because half of it is a block nobody
-   * asked for or a wire to nowhere.
-   */
-  private async addNode(edit: {
-    baseRevision: number;
-    kind: NodeKind;
-    position: Position;
-    spliceEdge?: string;
-    connectFrom?: { node: string };
-  }): Promise<void> {
-    if (!this.read.ok) return;
-
-    const from = edit.connectFrom;
-    const port =
-      from === undefined ? undefined : await this.wayOutOf(from.node);
-
-    if (from !== undefined && port === undefined) return;
-
-    const id = starterId(this.read.ir, edit.kind);
-    const added = {
-      ...starterNode(edit.kind, id, messages.paletteLabels()[edit.kind]),
-      position: edit.position,
-    };
-
-    const wrote = this.write(edit.baseRevision, (ir) => {
-      const pinned = pin(ir, this.boxes);
-      const placed = { ...pinned, nodes: [...pinned.nodes, added] };
-
-      if (edit.spliceEdge !== undefined) {
-        return spliced(placed, edit.spliceEdge, added);
-      }
-
-      if (from === undefined || port === undefined) return placed;
-
-      return {
-        ...placed,
-        edges: [
-          ...placed.edges,
-          wireBetween(placed, {
-            from: { node: from.node, port },
-            to: { node: added.id },
-          }),
-        ],
-      };
-    });
-
-    if (wrote) this.selected = id;
-  }
-
-  /** Where the blocks are now, after somebody moved
-   *  one. */
-  private move(edit: {
-    baseRevision: number;
-    positions: Record<string, Position>;
-  }): void {
-    this.write(edit.baseRevision, (ir) => ({
-      ...ir,
-      nodes: pin(ir, this.boxes).nodes.map((node) => {
-        const moved = edit.positions[node.id];
-
-        return moved === undefined ? node : { ...node, position: moved };
-      }),
-    }));
-  }
-
-  /**
-   * What somebody deleted, taken off in one edit.
-   *
-   * One edit rather than one per thing, because the
-   * whole selection went at once and every message
-   * about it would carry the same base revision:
-   * applied one after another to the document as it
-   * stood before any of them, only the last would
-   * survive.
-   *
-   * Blocks are bridged rather than simply removed —
-   * a block deleted out of a straight run leaves a
-   * run, not two halves — which is core's own rule,
-   * the same one an agent deleting a block gets. It
-   * takes the wires that touched the block with it,
-   * so what is left to cut is whichever of the named
-   * wires the document still has.
-   */
-  private remove(edit: {
-    baseRevision: number;
-    nodeIds: string[];
-    edgeIds: string[];
-  }): void {
-    this.write(edit.baseRevision, (ir) => {
-      let next = ir;
-
-      for (const nodeId of edit.nodeIds) {
-        const outcome = deleteNode(next, { nodeId, reconnect: true });
-
-        if (outcome.ok) next = outcome.ir;
-      }
-
-      const cut = next.edges.filter((edge) => !edit.edgeIds.includes(edge.id));
-      if (cut.length !== next.edges.length) next = { ...next, edges: cut };
-
-      // Nothing here was there to take off, so there
-      // is nothing to say.
-      return next === ir ? undefined : next;
-    });
-  }
-
-  /**
-   * An edit from the Inspector column.
-   *
-   * The node is parsed rather than trusted — it
-   * arrives from a frame running scripts — and a
-   * node the catalog would not accept is refused
-   * out loud rather than written and discovered on
-   * the next open: the column shows fields for
-   * shapes that are not yet complete, an address
-   * not typed or a topic not named, and the
-   * document keeps what it had until one of them
-   * is.
-   */
-  private edit(edit: { baseRevision: number; node: unknown }): void {
-    const parsed = NodeSchema.safeParse(edit.node);
-
-    if (!parsed.success) {
-      this.api.info(messages.inspectorEditRefused());
-
-      return;
-    }
-
-    this.writeNode(edit.baseRevision, parsed.data);
-  }
-
-  /**
-   * Which function from the code-behind a block
-   * runs.
-   *
-   * Both ways in — a row in the picker, a chip
-   * dropped on the block — arrive here, and the
-   * rule is asked again: the panel is a frame
-   * running scripts, and the picker that offered
-   * the row and the drop target that took the chip
-   * are the same untrusted place. A misfit is
-   * refused out loud, because a drop that silently
-   * did nothing is a bug report nobody can write.
-   *
-   * A name the manifest has never heard of is not a
-   * misfit. It is somebody naming a function they
-   * have not written yet — the thing the scaffolder
-   * writes a stub for — so it goes in as typed, and
-   * the rules say the code-behind does not export it
-   * until it does.
-   */
-  private assign(edit: {
-    baseRevision: number;
-    nodeId: string;
-    export: string | null;
-  }): void {
-    const node = this.nodeAt(edit.nodeId);
-    if (node === undefined) return;
-
-    const named = edit.export;
-
-    // Clearing leaves a branch's cases where they
-    // are: the person may be going back to
-    // predicates, and the Inspector shows them
-    // again the moment the handler is gone.
-    if (named === null) {
-      this.writeNode(edit.baseRevision, withoutHandler(node));
-
-      return;
-    }
-
-    const fn = this.manifest?.functions.find((one) => one.export === named);
-    const fit = fn === undefined ? undefined : handlerFit(node, fn);
-
-    if (fit?.fits === false) {
-      this.api.info(
-        messages.handlerMisfit(
-          named,
-          node.title,
-          misfitNote(messages.misfitWords(), fit.reason),
-        ),
-      );
-
-      return;
-    }
-
-    // A branch's cases are what its function decides
-    // between, so assigning one rewrites them. An
-    // unwritten function is taken to decide
-    // `true`/`false`, which is what the scaffolded
-    // stub returns and so already fits.
-    const written = this.writeNode(
-      edit.baseRevision,
-      node.kind === 'branch'
-        ? withDecisionCases(
-            { ...node, handler: { export: named } },
-            decisionsOf(fn),
-          )
-        : { ...node, handler: { export: named } },
-    );
-
-    // Only what actually landed. A refused or stale
-    // edit has already been said out loud, and a
-    // row about it would claim the document
-    // changed.
-    if (written) {
-      this.note({
-        at: 'tool',
-        id: `assign:${node.id}:${edit.baseRevision}`,
-        by: 'person',
-        kind: 'edit',
-        verb: messages.canvasAssignVerb(),
-        target: messages.canvasAssignTarget(
-          named,
-          messages.paletteLabels()[node.kind],
-          node.title,
-        ),
-        status: 'applied',
-        body: [],
-      });
-    }
-  }
-
-  /** The document with that one node in place of
-   *  the one it has by that id. */
-  private writeNode(baseRevision: number, node: WorkflowNode): boolean {
-    return this.write(baseRevision, (ir) => ({
-      ...ir,
-      nodes: ir.nodes.map((one) => (one.id === node.id ? node : one)),
-    }));
-  }
-
-  /**
-   * Applies an edit to the document VS Code owns.
-   *
-   * The base revision is checked first. The panel
-   * was drawn from a document that may since have
-   * been rewritten by an agent or by a hand edit
-   * in the JSON view, and applying an edit made
-   * against content nobody is looking at any more
-   * is how a change disappears without anyone
-   * being told.
-   *
-   * An edit with nothing to say — a block that is
-   * not there, a wire already gone — answers with
-   * nothing and is not written: raising the revision
-   * over an unchanged document would spend somebody
-   * else's base revision on no change at all.
+   * The base revision is checked first, before
+   * anything is asked or worked out. The panel was
+   * drawn from a document that may since have been
+   * rewritten by an agent or by a hand edit in the
+   * JSON view, and applying an edit made against
+   * content nobody is looking at any more is how a
+   * change disappears without anyone being told — so
+   * a panel that has moved on is told that, whatever
+   * it sent.
    *
    * Nothing is written at all while a proposal is on
    * screen. The panel refuses an edit there too, but
@@ -937,27 +639,175 @@ export class CanvasSession {
    * command has no panel to be refused by — and what
    * is drawn then is somebody's draft rather than the
    * file.
-   *
-   * Answers whether anything was written.
    */
-  private write(
-    baseRevision: number,
-    edit: (ir: WorkflowIR) => WorkflowIR | undefined,
-  ): boolean {
-    if (!this.read.ok || this.live !== undefined) return false;
+  private async perform(message: EditMessage): Promise<void> {
+    if (this.live !== undefined) return;
+    if (this.current(message.baseRevision) === undefined) return;
 
-    if (baseRevision !== this.read.ir.revision) {
-      this.api.info(messages.canvasEditStale());
+    const gesture = await this.resolved(message);
+    if (gesture === undefined) return;
 
-      return false;
+    // Choosing a port is time in which the document
+    // can move, so the question is asked again.
+    const ir = this.current(message.baseRevision);
+    if (ir === undefined) return;
+
+    this.land(
+      editFor(gesture, {
+        ir,
+        boxes: this.boxes,
+        manifest: this.manifest,
+        labels: messages.paletteLabels(),
+      }),
+      message.baseRevision,
+    );
+  }
+
+  /**
+   * The document on screen, when it is the one that
+   * revision names — and the stale sentence when it
+   * is not.
+   *
+   * An unreadable document answers nothing and says
+   * nothing: there is no graph on screen for the
+   * edit to have been made against.
+   */
+  private current(baseRevision: number): WorkflowIR | undefined {
+    if (!this.read.ok) return undefined;
+    if (baseRevision === this.read.ir.revision) return this.read.ir;
+
+    this.api.info(messages.canvasEditStale());
+
+    return undefined;
+  }
+
+  /**
+   * The gesture a message is, once the questions it
+   * leaves open are answered.
+   *
+   * Two messages name the block a wire leaves and no
+   * port, because a block has one dot to leave by
+   * however many ways out it has. Which way out the
+   * wire takes is asked here, and nothing where it
+   * was asked and nobody answered — which takes the
+   * whole edit down with it: a wire has to leave by
+   * something, and picking one on somebody's behalf
+   * would write a document they did not ask for.
+   */
+  private async resolved(message: EditMessage): Promise<Gesture | undefined> {
+    switch (message.type) {
+      case 'connect': {
+        const from = await this.wayTaken(message.from.node);
+
+        return from === undefined
+          ? undefined
+          : { type: 'connect', from, to: message.to };
+      }
+      case 'addNode': {
+        const from = message.connectFrom;
+        const way =
+          from === undefined ? undefined : await this.wayTaken(from.node);
+
+        if (from !== undefined && way === undefined) return undefined;
+
+        return {
+          type: 'addNode',
+          kind: message.kind,
+          position: message.position,
+          spliceEdge: message.spliceEdge,
+          connectFrom: way,
+        };
+      }
+      case 'move':
+        return { type: 'move', positions: message.positions };
+      case 'arrange':
+        return { type: 'arrange' };
+      case 'delete':
+        return {
+          type: 'delete',
+          nodeIds: message.nodeIds,
+          edgeIds: message.edgeIds,
+        };
+      case 'edit':
+        return { type: 'edit', node: message.node };
+      case 'assign':
+        return {
+          type: 'assign',
+          nodeId: message.nodeId,
+          export: message.export,
+        };
+    }
+  }
+
+  /**
+   * Which way out of a block a new wire leaves by,
+   * asked against the ports the document says that
+   * block has — and where there is only one, there
+   * is nothing to ask.
+   */
+  private async wayTaken(nodeId: string): Promise<WayTaken | undefined> {
+    const node = this.nodeAt(nodeId);
+    if (node === undefined) return undefined;
+
+    const ways = waysOutOf(node);
+
+    if (ways.length < 2) {
+      const only = ways[0];
+
+      return only === undefined ? undefined : { node: nodeId, port: only.port };
     }
 
-    const next = edit(this.read.ir);
-    if (next === undefined) return false;
+    const port = await this.api.pick(
+      messages.canvasChoosePort(),
+      ways.map((way) => choiceOf(way, node)),
+    );
 
-    void this.api.replaceDocument(this.document, nextDocument(next));
+    return port === undefined ? undefined : { node: nodeId, port };
+  }
 
-    return true;
+  /**
+   * What an edit came to, done.
+   *
+   * A refusal is said out loud. A next document goes
+   * through the document VS Code owns, which is what
+   * puts it on the undo stack beside every other
+   * edit to the file. What follows a write — the
+   * block the column shows next, the row in the
+   * agent's transcript — follows only what actually
+   * landed: a refused or stale edit has already been
+   * said out loud, and a row about it would claim
+   * the document changed.
+   */
+  private land(outcome: EditOutcome, baseRevision: number): void {
+    if (outcome.at === 'nothing') return;
+
+    if (outcome.at === 'refused') {
+      this.api.info(refusalOf(outcome));
+
+      return;
+    }
+
+    void this.api.replaceDocument(this.document, nextDocument(outcome.ir));
+
+    if (outcome.select !== undefined) this.selected = outcome.select;
+
+    const made = outcome.assigned;
+    if (made === undefined) return;
+
+    this.note({
+      at: 'tool',
+      id: `assign:${made.nodeId}:${baseRevision}`,
+      by: 'person',
+      kind: 'edit',
+      verb: messages.canvasAssignVerb(),
+      target: messages.canvasAssignTarget(
+        made.export,
+        messages.paletteLabels()[made.kind],
+        made.title,
+      ),
+      status: 'applied',
+      body: [],
+    });
   }
 }
 
@@ -1004,140 +854,35 @@ function onTheGrid(
 }
 
 /**
- * The document with every block's position filled
- * in, when nobody has placed one yet.
+ * A way out, as a row somebody is asked to choose
+ * from.
  *
- * A person's first move pins the whole graph, from
- * the boxes the canvas was drawn with. Writing only
- * the block they touched would leave the rest to be
- * laid out around it, and the graph would rearrange
- * itself under a drag — so a document is either
- * fully placed or not placed at all.
- *
- * The one document this leaves alone is a
- * half-placed one, where somebody has arranged the
- * graph and an agent has added a block to it since.
- * Where that block goes is core's answer, and
- * pinning here would be a second one.
+ * A branch's port comes along underneath, because
+ * it is what the wire will be labelled with on the
+ * canvas; every other kind's label is its port
+ * already.
  */
-function pin(ir: WorkflowIR, boxes: Record<string, NodeBox>): WorkflowIR {
-  if (ir.nodes.some((node) => node.position !== undefined)) return ir;
+function choiceOf(way: WayOut, node: WorkflowNode): PickChoice {
+  const label =
+    way.fallThrough === true
+      ? messages.canvasFallThrough()
+      : (way.decides ?? way.port);
 
-  return {
-    ...ir,
-    nodes: ir.nodes.map((node) => {
-      const box = boxes[node.id];
-
-      return box === undefined
-        ? node
-        : { ...node, position: { x: box.x, y: box.y } };
-    }),
-  };
+  return node.kind === 'branch'
+    ? { label, id: way.port, detail: way.port }
+    : { label, id: way.port };
 }
 
-/**
- * The document with a block put inside one of its
- * wires.
- *
- * The wire now ends at the block, and a second wire
- * carries on from it to wherever the first one went,
- * so a run that went through two blocks goes through
- * three in the same order.
- *
- * Two wires it will not split. One that is not
- * there, because the panel is a frame running
- * scripts and may be naming a graph that has moved
- * on. And a loop-closing one, because what comes
- * back round would come back round to a block
- * created a moment ago — a document core refuses,
- * and refusing it here is what keeps the block from
- * being written without its wires.
- *
- * The new block is left by its first way out. Every
- * kind but a branch and an approval has exactly one,
- * and those two have a first case rather than an
- * `out` — naming a port they do not have would write
- * a wire that leaves nowhere.
- */
-function spliced(
-  ir: WorkflowIR,
-  edgeId: string,
-  added: WorkflowNode,
-): WorkflowIR | undefined {
-  const split = ir.edges.find((edge) => edge.id === edgeId);
-  if (split === undefined || split.back) return undefined;
-
-  const onward = wireBetween(ir, {
-    from: { node: added.id, port: portsOf(added)[0]! },
-    to: split.to,
-  });
-
-  return {
-    ...ir,
-    edges: [
-      ...ir.edges.map((edge) =>
-        edge.id === edgeId ? { ...edge, to: { node: added.id } } : edge,
-      ),
-      onward,
-    ],
-  };
-}
-
-/**
- * The ways out of a block, as somebody is asked to
- * choose between them.
- *
- * A branch's cases read as what they decide, since
- * that is the question a person answered when they
- * wrote them and `yes` is a port rather than an
- * answer. A case with nothing decided yet — a
- * branch tests a path rather than a value until a
- * function is put behind it — has only its port to
- * go by, and so does every other kind. The port
- * comes along underneath either way, because it is
- * what the wire will be labelled with on the
- * canvas.
- */
-function waysOutOf(node: WorkflowNode): PickChoice[] {
-  if (node.kind !== 'branch') {
-    return portsOf(node).map((port) => ({ label: port, id: port }));
+/** The sentence a refusal is said in. */
+function refusalOf(refused: Extract<EditOutcome, { at: 'refused' }>): string {
+  switch (refused.because) {
+    case 'unparseable-node':
+      return messages.inspectorEditRefused();
+    case 'misfit':
+      return messages.handlerMisfit(
+        refused.export,
+        refused.title,
+        misfitNote(messages.misfitWords(), refused.reason),
+      );
   }
-
-  const cases = node.config.cases.map((one) => ({
-    label: one.when.value === undefined ? one.port : String(one.when.value),
-    id: one.port,
-    detail: one.port,
-  }));
-
-  return [
-    ...cases,
-    {
-      label: messages.canvasFallThrough(),
-      id: node.config.elsePort,
-      detail: node.config.elsePort,
-    },
-  ];
-}
-
-/** The node with nothing behind it. */
-function withoutHandler<N extends WorkflowNode>(node: N): N {
-  const cleared = { ...node };
-  delete cleared.handler;
-
-  return cleared;
-}
-
-/**
- * What a branch's function decides between.
- *
- * A function that fits a branch decides something —
- * that is what fitting means there — and one the
- * manifest does not know is taken to decide
- * `true`/`false`, so the stub scaffolds as
- * `Promise<boolean>` and lands already fitting.
- */
-function decisionsOf(
-  fn: LibFunction | undefined,
-): readonly (string | boolean)[] {
-  return (fn === undefined ? undefined : decisionValues(fn)) ?? [true, false];
 }

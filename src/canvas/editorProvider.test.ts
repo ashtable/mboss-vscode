@@ -43,6 +43,13 @@ import { GRID } from './grid.js';
  * reaches every panel showing that file. Only the
  * last of those is obvious when it works, and all
  * four are silent when they do not.
+ *
+ * What a gesture means — which wire a dropped
+ * block splices, what a deleted block leaves — is
+ * a function of the document, and is asked as one
+ * in `edits.test.ts`. Here each of those is driven
+ * through once, for the sentence it says or the
+ * effect that follows the write.
  */
 
 const text = readFileSync(
@@ -152,8 +159,10 @@ function livingDocument(contents = text) {
 
     /** What VS Code does once a write lands: the
      *  file says the new thing, and every panel
-     *  showing it is told. */
+     *  showing it is told. The write is given the
+     *  tick it takes to land first. */
     saved: async () => {
+      await settled();
       says = recorded.written.at(-1)!.text;
       recorded.change(document);
       await settled();
@@ -587,32 +596,6 @@ describe('which way out a new wire leaves by', () => {
     expect(recorded.written).toEqual([]);
   });
 
-  it('writes a block and the wire that reaches it in one edit', async () => {
-    panel.send({
-      type: 'addNode',
-      view: 'canvas',
-      baseRevision: ir.revision,
-      kind: 'step',
-      position: { x: 400, y: 600 },
-      connectFrom: { node: 'find_slot' },
-    });
-    await settled();
-
-    expect(recorded.written).toHaveLength(1);
-
-    const written = WorkflowIRSchema.parse(
-      JSON.parse(recorded.written[0]!.text),
-    );
-    const added = written.nodes.at(-1)!;
-
-    expect(written.nodes).toHaveLength(ir.nodes.length + 1);
-    expect(written.edges).toHaveLength(ir.edges.length + 1);
-    expect(written.edges.at(-1)).toMatchObject({
-      from: { node: 'find_slot', port: 'out' },
-      to: { node: added.id },
-    });
-  });
-
   it('writes neither the block nor the wire when nobody answers', async () => {
     recorded.answers(undefined);
 
@@ -800,29 +783,6 @@ describe('selecting a node', () => {
 });
 
 describe('an edit from the Inspector column', () => {
-  it('replaces the node it names and leaves the rest alone', async () => {
-    panel.send({
-      type: 'edit',
-      view: 'canvas',
-      baseRevision: ir.revision,
-      node: {
-        ...ir.nodes.find((node) => node.id === 'find_slot'),
-        title: 'Find an open slot',
-      },
-    });
-    await settled();
-
-    const written = WorkflowIRSchema.parse(
-      JSON.parse(recorded.written[0]!.text),
-    );
-
-    expect(written.nodes.find((node) => node.id === 'find_slot')?.title).toBe(
-      'Find an open slot',
-    );
-    expect(written.nodes).toHaveLength(ir.nodes.length);
-    expect(written.revision).toBe(ir.revision + 1);
-  });
-
   it('refuses a node the schema would not accept', async () => {
     panel.send({
       type: 'edit',
@@ -833,7 +793,7 @@ describe('an edit from the Inspector column', () => {
     await settled();
 
     expect(recorded.written).toHaveLength(0);
-    expect(recorded.told).toHaveLength(1);
+    expect(recorded.told).toEqual([messages.inspectorEditRefused()]);
   });
 });
 
@@ -872,89 +832,6 @@ describe('assigning a function to a block', () => {
     });
   }
 
-  /** The one node the write is about, as it was
-   *  written. */
-  function wrote(id: string) {
-    expect(recorded.written).toHaveLength(1);
-
-    const written = WorkflowIRSchema.parse(
-      JSON.parse(recorded.written[0]!.text),
-    );
-
-    return written.nodes.find((node) => node.id === id)!;
-  }
-
-  /**
-   * The ordinary case, and the one every other test
-   * here happens not to cover: a block that is not a
-   * branch, given the function it will run. Nothing
-   * about its config is the picker's business, and
-   * the seeding a branch gets must not follow the
-   * function onto a step.
-   */
-  it('writes one that fits a block that decides nothing', async () => {
-    const project = await makeProject({ lib: 'lib' });
-    const path = writeWorkflow(project, 'groom_booking');
-
-    // The same workflow with one step's function
-    // taken off, which is the state a person is in
-    // when they reach for the picker at all.
-    const bare = {
-      ...ir,
-      nodes: ir.nodes.map((node) =>
-        node.id === 'find_slot'
-          ? Object.fromEntries(
-              Object.entries(node).filter(([key]) => key !== 'handler'),
-            )
-          : node,
-      ),
-    };
-
-    await open(fakeDocument(JSON.stringify(bare), path));
-    await until(() => lastCanvasInit().manifest !== undefined);
-
-    assign('find_slot', 'findSlot');
-    await settled();
-
-    const node = wrote('find_slot');
-
-    expect(node.handler).toEqual({ export: 'findSlot' });
-    expect(node.kind).toBe('step');
-    expect(node.config).toEqual({});
-  });
-
-  it('writes one that fits, and seeds the branch’s cases from it', async () => {
-    await openScanned();
-
-    assign('slot_open', 'tryAgain');
-    await settled();
-
-    const node = wrote('slot_open');
-
-    expect(node.handler).toEqual({ export: 'tryAgain' });
-    expect(node.kind === 'branch' && node.config.cases).toEqual([
-      expect.objectContaining({
-        port: 'yes',
-        when: { path: '', op: 'eq', value: true },
-      }),
-      expect.objectContaining({
-        port: 'no',
-        when: { path: '', op: 'eq', value: false },
-      }),
-    ]);
-  });
-
-  it('refuses one that does not fit, and writes nothing', async () => {
-    await openScanned();
-    const before = recorded.told.length;
-
-    assign('slot_open', 'parseRequest');
-    await settled();
-
-    expect(recorded.written).toEqual([]);
-    expect(recorded.told.length).toBe(before + 1);
-  });
-
   /**
    * The other way a misfit reaches a person: the
    * picker greys the row, and a chip dropped on the
@@ -983,20 +860,6 @@ describe('assigning a function to a block', () => {
         'calls fetch at line 12, needs a step',
       ),
     ]);
-  });
-
-  it('writes a name the code-behind has never heard of', async () => {
-    await openScanned();
-
-    assign('slot_open', 'decideLater');
-    await settled();
-
-    const node = wrote('slot_open');
-
-    expect(node.handler).toEqual({ export: 'decideLater' });
-    expect(
-      node.kind === 'branch' && node.config.cases.map((one) => one.when.value),
-    ).toEqual([true, false]);
   });
 
   /**
@@ -1036,28 +899,6 @@ describe('assigning a function to a block', () => {
     await settled();
 
     expect(recorded.noted).toEqual([]);
-  });
-
-  it('clears the handler and leaves a branch’s cases alone', async () => {
-    const decided = {
-      ...ir,
-      nodes: ir.nodes.map((node) =>
-        node.id === 'slot_open'
-          ? { ...node, handler: { export: 'tryAgain' } }
-          : node,
-      ),
-    };
-
-    await open(fakeDocument(JSON.stringify(decided)));
-
-    assign('slot_open', null);
-    await settled();
-
-    const node = wrote('slot_open');
-    const before = decided.nodes.find((one) => one.id === 'slot_open')!;
-
-    expect(node).not.toHaveProperty('handler');
-    expect(node.kind === 'branch' && node.config).toEqual(before.config);
   });
 });
 
@@ -1261,17 +1102,11 @@ describe('code written while a canvas is open', () => {
 });
 
 /**
- * Where the blocks sit, which is a fact about the
- * document rather than about the panel drawing it.
- *
- * A person's first move pins the whole graph: the
- * canvas writes a position for every node, not only
- * the one that was touched, so a document is either
- * fully placed or not placed at all. The one case in
- * between — an agent adding a block to a document
- * somebody has arranged — is core's to answer, and
- * the canvas must not answer it a second way by
- * pinning over the top.
+ * What follows a block being placed by hand: the
+ * column showing it, a no-op that is not written,
+ * and the Arrange command finding the canvas it
+ * means. What the placing itself writes is asked in
+ * `edits.test.ts`.
  */
 describe('placing blocks by hand', () => {
   /** The document as the canvas wrote it. */
@@ -1281,135 +1116,20 @@ describe('placing blocks by hand', () => {
     return WorkflowIRSchema.parse(JSON.parse(recorded.written[index]!.text));
   }
 
-  /** Where a node ended up, in the document that was
-   *  written. */
-  function placed(written: WorkflowIR, id: string) {
-    return written.nodes.find((node) => node.id === id)?.position;
-  }
-
-  function addStep(position = { x: 320, y: 480 }, spliceEdge?: string): void {
+  function addStep(): void {
     panel.send({
       type: 'addNode',
       view: 'canvas',
       baseRevision: ir.revision,
       kind: 'step',
-      position,
-      ...(spliceEdge === undefined ? {} : { spliceEdge }),
+      position: { x: 320, y: 480 },
     });
   }
-
-  it('writes the block that was dropped in, where it was dropped', async () => {
-    addStep();
-    await settled();
-
-    const added = wrote().nodes.at(-1)!;
-
-    expect(added.id).toBe('step');
-    expect(added.kind).toBe('step');
-    expect(added.title).toBe(messages.paletteLabels().step);
-    expect(added.position).toEqual({ x: 320, y: 480 });
-  });
-
-  /**
-   * A block let go of on a wire goes into it. The
-   * wire ends at the new block, and a second wire
-   * carries on to wherever the first one went — so
-   * the run that went through two blocks goes
-   * through three, in the same order.
-   */
-  it('splices the block into the wire it was dropped on', async () => {
-    const split = ir.edges.find((edge) => edge.id === 'e2')!;
-
-    addStep({ x: 160, y: 240 }, 'e2');
-    await settled();
-
-    const written = wrote();
-
-    expect(written.nodes).toHaveLength(ir.nodes.length + 1);
-    expect(written.edges).toHaveLength(ir.edges.length + 1);
-
-    const added = written.nodes.at(-1)!;
-    const before = written.edges.find((edge) => edge.id === 'e2')!;
-    const after = written.edges.at(-1)!;
-
-    // Into the block, and out of it to where the
-    // wire used to go.
-    expect(before.from).toEqual(split.from);
-    expect(before.to).toEqual({ node: added.id });
-    expect(after.from).toEqual({ node: added.id, port: 'out' });
-    expect(after.to).toEqual(split.to);
-  });
-
-  it('wires the block to nothing when it was dropped on nothing', async () => {
-    addStep();
-    await settled();
-
-    const written = wrote();
-
-    expect(written.nodes).toHaveLength(ir.nodes.length + 1);
-    expect(written.edges.map((edge) => edge.id)).toEqual(
-      ir.edges.map((edge) => edge.id),
-    );
-  });
-
-  /**
-   * A loop-closing wire cannot be split. What came
-   * back round would come back round to a block
-   * created a moment ago, which is a document core
-   * refuses — so the whole edit is refused here,
-   * block included, rather than half-written.
-   *
-   * The canvas offers no gap on one, so this only
-   * arrives from a frame running scripts. That is
-   * exactly why it is checked here.
-   */
-  it('refuses a wire it could not split', async () => {
-    const file = livingDocument();
-    await open(file.document);
-
-    addStep({ x: 160, y: 240 }, 'e8');
-    addStep({ x: 160, y: 240 }, 'e_nope');
-    await settled();
-
-    expect(recorded.written).toEqual([]);
-    expect(lastCanvasInit().inspector.selected).toBeUndefined();
-  });
-
-  it('pins every other block to the box it was drawn with', async () => {
-    const { boxes } = lastCanvasInit();
-
-    addStep();
-    await settled();
-
-    const written = wrote();
-
-    for (const node of ir.nodes) {
-      expect(placed(written, node.id)).toEqual({
-        x: boxes[node.id]!.x,
-        y: boxes[node.id]!.y,
-      });
-    }
-  });
 
   /** Somebody has arranged this graph and an agent
    *  has added a block to it since. Core parks the
    *  unplaced one; pinning it here would be a second
    *  answer to the same question. */
-  it('leaves a half-placed document to core', async () => {
-    const halfPlaced = {
-      ...ir,
-      nodes: ir.nodes.map((node) =>
-        node.id === 'find_slot' ? node : { ...node, position: { x: 0, y: 0 } },
-      ),
-    };
-
-    await open(fakeDocument(JSON.stringify(halfPlaced)));
-
-    addStep();
-    await settled();
-
-    expect(placed(wrote(), 'find_slot')).toBeUndefined();
-  });
 
   it('shows the block it just added', async () => {
     const file = livingDocument();
@@ -1419,45 +1139,6 @@ describe('placing blocks by hand', () => {
     await file.saved();
 
     expect(lastCanvasInit().inspector.selected?.node.id).toBe('step');
-  });
-
-  it('writes every position a move carries, and pins the rest', async () => {
-    const { boxes } = lastCanvasInit();
-
-    panel.send({
-      type: 'move',
-      view: 'canvas',
-      baseRevision: ir.revision,
-      positions: { find_slot: { x: 140, y: 260 } },
-    });
-    await settled();
-
-    const written = wrote();
-
-    expect(placed(written, 'find_slot')).toEqual({ x: 140, y: 260 });
-    expect(placed(written, 'parse_request')).toEqual({
-      x: boxes['parse_request']!.x,
-      y: boxes['parse_request']!.y,
-    });
-  });
-
-  it('lets go of every position when the graph is arranged', async () => {
-    const file = livingDocument();
-    await open(file.document);
-
-    addStep();
-    await file.saved();
-
-    panel.send({
-      type: 'arrange',
-      view: 'canvas',
-      baseRevision: ir.revision + 1,
-    });
-    await settled();
-
-    expect(wrote(1).nodes.map((node) => node.position)).toEqual(
-      wrote(1).nodes.map(() => undefined),
-    );
   });
 
   /**
@@ -1529,119 +1210,6 @@ describe('placing blocks by hand', () => {
     await settled();
 
     expect(recorded.written).toEqual([]);
-  });
-});
-
-/**
- * Deleting, which the document does and the canvas
- * does not.
- *
- * React Flow would happily drop a node out of its
- * own copy and leave the file holding a workflow
- * nobody asked for, so the key posts a message and
- * the picture changes when the document does.
- */
-describe('deleting through the document', () => {
-  function written(): WorkflowIR {
-    expect(recorded.written).toHaveLength(1);
-
-    return WorkflowIRSchema.parse(JSON.parse(recorded.written[0]!.text));
-  }
-
-  /** One press of the delete key: what was
-   *  selected, and the wires the graph library
-   *  hands over along with it. */
-  function deleting(nodeIds: string[], edgeIds: string[]): void {
-    panel.send({
-      type: 'delete',
-      view: 'canvas',
-      baseRevision: ir.revision,
-      nodeIds,
-      edgeIds,
-    });
-  }
-
-  it('bridges the gap a deleted block leaves', async () => {
-    deleting(['record_booking'], ['e10', 'e11']);
-    await settled();
-
-    const after = written();
-
-    expect(after.nodes.map((node) => node.id)).not.toContain('record_booking');
-    expect(after.edges).toContainEqual(
-      expect.objectContaining({
-        from: { node: 'book_appointment', port: 'out' },
-        to: { node: 'send_confirmation' },
-      }),
-    );
-  });
-
-  /**
-   * A block and the wires it came with, in one
-   * write.
-   *
-   * The graph library hands over every wire touching
-   * a block that is going, so this is what an
-   * ordinary delete of a wired block looks like. A
-   * message per thing going would carry the base
-   * revision the last one carried, each applied to
-   * the document as it stood before any of them —
-   * so only the last would survive, and the block
-   * would still be there.
-   */
-  it('takes a wired block and its wires in one write', async () => {
-    deleting(['find_slot'], ['e2', 'e3', 'e8']);
-    await settled();
-
-    const after = written();
-
-    expect(after.nodes.map((node) => node.id)).not.toContain('find_slot');
-    expect(after.edges.map((edge) => edge.id)).toEqual([
-      'e1',
-      'e4',
-      'e5',
-      'e6',
-      'e7',
-      'e9',
-      'e10',
-      'e11',
-    ]);
-    expect(after.revision).toBe(ir.revision + 1);
-  });
-
-  it('takes a whole selection in one write', async () => {
-    deleting(['twilio_chat', 'await_reply'], ['e5', 'e6', 'e7']);
-    await settled();
-
-    const after = written();
-
-    expect(after.nodes.map((node) => node.id)).toEqual(
-      ir.nodes
-        .map((node) => node.id)
-        .filter((id) => id !== 'twilio_chat' && id !== 'await_reply'),
-    );
-    expect(after.edges).toContainEqual(
-      expect.objectContaining({
-        from: { node: 'slot_open', port: 'no' },
-        to: { node: 'reply_decision' },
-      }),
-    );
-  });
-
-  it('says nothing about a block the document does not have', async () => {
-    deleting(['no_such_node'], []);
-    await settled();
-
-    expect(recorded.written).toEqual([]);
-  });
-
-  it('removes only the wire it was told to', async () => {
-    deleting([], ['e9']);
-    await settled();
-
-    expect(written().edges.map((edge) => edge.id)).toEqual(
-      ir.edges.filter((edge) => edge.id !== 'e9').map((edge) => edge.id),
-    );
   });
 });
 
