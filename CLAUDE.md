@@ -246,7 +246,9 @@ is an event every store subscribes to.
 - **`acp/`** — `connection.ts` is the only importer of
   `@agentclientprotocol/sdk` (content-regex enforced; the version is pinned
   exactly by `sdk.test.ts`). `agent.ts` holds one session per window,
-  `session.ts` is the pure state machine, `permissions.ts` remembers "always"
+  `session.ts` is the pure state machine and says whether a prompt may go now
+  (`sendingWhile`: spawn, queue or prompt; a start that fails drops what was
+  waiting for it), `permissions.ts` remembers "always"
   answers in `workspaceState`, `fs.ts` serves `fs/read_text_file` and
   `fs/write_text_file` through `workspace.fs` (no terminal capability).
   `registry.ts` is the published contract for the `mboss.agent.*` settings.

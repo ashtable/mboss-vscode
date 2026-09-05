@@ -20,6 +20,7 @@ import type { AgentCommand, AgentId } from './registry.js';
 import {
   IDLE,
   nextSession,
+  sendingWhile,
   type Failure,
   type SessionEvent,
   type SessionState,
@@ -280,17 +281,30 @@ export function agentPanel(host: PanelHost): AgentPanel {
     if (!host.isTrusted() || project === undefined) return;
     if (chosen?.launch === undefined) return;
 
-    // A turn at a time. The agent is the one who
-    // decides when this one is over, so anything
-    // asked for during it waits here until it is.
-    if (session.at === 'streaming' || session.at === 'awaitingPermission') {
+    // Whether this can go now is the session's
+    // question, answered beside its states: a prompt
+    // that arrives mid-turn, or while the agent is
+    // still coming up, waits here for its turn.
+    const sending = sendingWhile(session);
+
+    if (sending === 'queue') {
       queued.push(text);
 
       return;
     }
 
-    if (live === undefined) await start(project, chosen.launch);
-    if (live === undefined) return;
+    if (sending === 'spawn') await start(project, chosen.launch);
+
+    // A start that failed has nothing to send this
+    // to, and nothing that was waiting for it either:
+    // the person has been shown why, and their next
+    // prompt starts afresh rather than behind a
+    // prompt from before.
+    if (live === undefined) {
+      queued = [];
+
+      return;
+    }
 
     transcript = [
       ...transcript,

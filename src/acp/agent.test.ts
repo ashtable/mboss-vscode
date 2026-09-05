@@ -428,6 +428,62 @@ describe('a second prompt mid-turn', () => {
 
     expect(driven.spawns()).toBe(1);
   });
+
+  /**
+   * Starting the agent takes a moment, and a prompt
+   * can arrive in it: the approval prompt after a
+   * proposal is applied, or "ask the agent why" from
+   * the run list, neither of which waits for the
+   * sidebar. The panel is spawning, nothing is live
+   * yet, and the second prompt must wait for the
+   * process the first is starting rather than start
+   * one of its own.
+   */
+  it('waits for the process the first one is starting', async () => {
+    const driven = drive();
+
+    answerWith(driven, 'yes', 'allow_once');
+
+    const first = driven.panel.send('wire it');
+    expect(driven.panel.state().status).toBe('spawning');
+    const second = driven.panel.send('while you are at it');
+
+    await Promise.all([first, second]);
+
+    expect(driven.spawns()).toBe(1);
+    expect(said(driven)).toEqual(['wire it', 'while you are at it']);
+  });
+
+  /**
+   * A start that fails takes what was waiting for it
+   * with it. There is nothing to send the waiting
+   * prompt to, the person is shown why, and a prompt
+   * held over to some later conversation would go
+   * out there unasked.
+   */
+  it('drops what was waiting when the start fails', async () => {
+    const missing = mkdtempSync(join(tmpdir(), 'mboss-no-agent-'));
+    scratch.push(missing);
+
+    let launch = {
+      command: join(missing, 'no-such-agent'),
+      args: [] as string[],
+    };
+    const driven = drive({ chosen: () => ({ id: 'custom', launch }) });
+
+    answerWith(driven, 'yes', 'allow_once');
+
+    const first = driven.panel.send('wire it');
+    const second = driven.panel.send('while you are at it');
+    await Promise.all([first, second]);
+
+    expect(driven.panel.state().status).toBe('failed');
+
+    launch = { command: process.execPath, args: [PEER_SCRIPT] };
+    await driven.panel.send('later');
+
+    expect(said(driven)).toEqual(['later']);
+  });
 });
 
 /**

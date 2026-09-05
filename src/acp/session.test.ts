@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   IDLE,
   nextSession,
+  sendingWhile,
   versionFailure,
   type SessionEvent,
   type SessionState,
@@ -209,5 +210,48 @@ describe('events that arrive at the wrong moment', () => {
     );
 
     expect(nextSession(failed, { is: 'stopped' })).toEqual({ at: 'idle' });
+  });
+});
+
+/**
+ * One answer per state, so that a state this table
+ * forgets is a compile error rather than a second
+ * agent process: the one that was started, once, by
+ * a prompt sent while another was already starting
+ * it.
+ */
+describe('whether a prompt may go now', () => {
+  const ready = run({ is: 'start' }, { is: 'started', sessionId: 's1' });
+
+  it('starts the agent when there is none', () => {
+    expect(sendingWhile(IDLE)).toBe('spawn');
+    expect(
+      sendingWhile(
+        run(
+          { is: 'start' },
+          { is: 'failed', failure: { because: 'spawn', detail: 'ENOENT' } },
+        ),
+      ),
+    ).toBe('spawn');
+  });
+
+  it('waits while the agent is still coming up', () => {
+    expect(sendingWhile(run({ is: 'start' }))).toBe('queue');
+  });
+
+  it('goes at once to an agent that is ready', () => {
+    expect(sendingWhile(ready)).toBe('prompt');
+  });
+
+  it('waits its turn while the agent is talking or asking', () => {
+    expect(sendingWhile(nextSession(ready, { is: 'prompted' }))).toBe('queue');
+    expect(
+      sendingWhile(
+        nextSession(nextSession(ready, { is: 'prompted' }), {
+          is: 'permissionRequested',
+          prompt,
+        }),
+      ),
+    ).toBe('queue');
   });
 });
