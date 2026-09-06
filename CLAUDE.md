@@ -37,6 +37,7 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
 | Fast host + webview rebuild into `dist/`      | `node src/build.ts`                                                          |
 | Package a `.vsix` (root, gitignored)          | `npm run package`                                                            |
 | Typecheck + ESLint + Prettier check           | `npm run lint`                                                               |
+| Rewrite the l10n bundle from the source       | `npm run l10n`                                                               |
 | Typecheck only / format everything            | `npm run typecheck` / `npm run format`                                       |
 | Unit tier                                     | `npm test` (`npm run test:watch` for watch mode)                             |
 | One unit file / one test by name              | `npx vitest run src/watchers/debounce.test.ts -t "costs one run"`            |
@@ -60,7 +61,8 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
   project's own compose), so run one file at a time. It creates and drops only
   the database `mboss_vscode_runs_test`.
 - `prettier --check .` covers Markdown, JSON, YAML and CSS too. After editing
-  `l10n/bundle.l10n.json` or `package.nls.json`, run `npm run format`.
+  `package.nls.json`, run `npm run format`. `l10n/bundle.l10n.json` is not
+  edited: `npm run l10n` writes it, already prettier-shaped.
 - There is no `launch.json`; the only way to see the extension in a real window
   is `npm run package` and installing `mboss-vscode-0.0.0.vsix`.
 - CI (`.github/workflows/ci.yml`) runs on `pull_request` only: build:mcp, lint,
@@ -162,11 +164,16 @@ behaviour modules take the editor as an argument:
 
 - `src/messages.ts` and the three `words.ts` modules (`canvas/`, `sidebar/`,
   `runs/`) are the only files that call `l10n.t` (`l10n.test.ts` fences the
-  list); every entry wraps a **literal**. `l10n/bundle.l10n.json` is key ===
-  value and `src/l10n.test.ts` checks both directions over every `.ts`/`.tsx`
-  under `src/` (tests included). `package.json` strings go through `%key%` +
-  `package.nls.json` (`src/nls.test.ts`, both directions); the two mechanisms
-  share nothing and neither falls back to the other.
+  list); every entry wraps a **literal**. That rule is load-bearing rather than
+  policed: `src/bundle.ts` parses every non-spec `.ts`/`.tsx` under `src/` with
+  TypeScript's own parser and **writes** `l10n/bundle.l10n.json` (key === value,
+  sorted) — `npm run l10n`. A `l10n.t` wrapping anything but a literal throws
+  `NotALiteral` with the file and line. The bundle is checked in because a
+  translator forks it and the VSIX ships it; `l10n.test.ts` asserts only that it
+  matches what the source generates, plus the four-file fence. `package.json`
+  strings go through `%key%` + `package.nls.json` (`src/nls.test.ts`, both
+  directions); the two mechanisms share nothing and neither falls back to the
+  other.
 - Webviews have no `l10n`: their words travel in the init message as bags
   built once by the view's `words.ts` (`canvasWords`, `inspectorWords`,
   `sidebarWords`, `runsWords`, `seeWords`), whose return types are the
@@ -404,15 +411,14 @@ value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
   `mountView` + `<name>.css`; `<Name>Init` + `<Name>Strings` in the
   `HostMessage` union; a `messages.<name>Strings()` builder; a host caller of
   `mountWebview`; `build.test.ts` / `vsix.test.ts` expect one js+css per entry.
-- **Add a string**: a host sentence is a `messages.ts` entry + identical
-  key=value line in `l10n/bundle.l10n.json`; a word a webview shows is a line
-  in that view's `words.ts`, the bundle line, and the same line in
-  `tests/webview/words.ts`. Some copy is duplicated
-  across the two systems on purpose (agent names in `package.nls.json`
-  enum descriptions and `messages.agents()`).
+- **Add a string**: a host sentence is one `messages.ts` entry; a word a
+  webview shows is a line in that view's `words.ts` plus the same line in
+  `tests/webview/words.ts`. Then `npm run l10n` to rewrite the bundle — never
+  edit it by hand. Some copy is duplicated across the two systems on purpose
+  (agent names in `package.nls.json` enum descriptions and `messages.agents()`).
 - **Add an Inspector field**: `canvas/inspector/forms.ts` lens + entries in
-  `inspectorFields()`/`inspectorOptions()` in `messages.ts` + bundle lines;
-  `forms.test.ts` asserts every field and option has a word.
+  `inspectorFields()`/`inspectorOptions()` in `canvas/words.ts`, then
+  `npm run l10n`; `forms.test.ts` asserts every field and option has a word.
 - **Add a canvas gesture**: a zod schema in `webview/host.ts` and its member
   in `WebviewMessageSchema`; a `Gesture` member and a case in `editFor` in
   `canvas/edits.ts`, with the rule pinned in `edits.test.ts`; the
