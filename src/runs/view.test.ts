@@ -850,3 +850,92 @@ describe('when a run wakes', () => {
     expect(shown?.groups[0]?.wakes).toContain('times out');
   });
 });
+
+/**
+ * The two readings a parked run needs at once.
+ *
+ * One walk over the same rows answers two different
+ * questions: which arm a branch took, read out of
+ * what a step returned, and whether the run is
+ * asleep, read off a sleep row's deadline. Each is
+ * covered on its own; this is the run that asks
+ * both, because the rows they read sit side by side
+ * in one ledger.
+ */
+describe('a run that decided and then went to sleep', () => {
+  const BRANCHING = {
+    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+    version: 1,
+    revision: 5,
+    name: 'expense_claim',
+    nodes: [
+      {
+        id: 'how_big',
+        kind: 'branch',
+        title: 'How big',
+        config: {
+          cases: [
+            { port: 'large', when: { path: 'amount', op: 'gt', value: 500 } },
+          ],
+          elsePort: 'small',
+        },
+      },
+      { id: 'charge_it', kind: 'step', title: 'Charge it', config: {} },
+    ],
+    edges: [
+      {
+        id: 'e1',
+        from: { node: 'how_big', port: 'large' },
+        to: { node: 'charge_it' },
+      },
+    ],
+  } as unknown as WorkflowIR;
+
+  /** The branch's own row as DBOS stores it, beside
+   *  a sleep row whose deadline is `wakesAt`. */
+  function parked(wakesAt: number): SeeRun {
+    const shown = seeInit({
+      run: { ...RUN, status: 'PENDING', completedAt: undefined },
+      steps: [
+        {
+          ...step(0, 0, 1000),
+          name: 'how_big',
+          output: JSON.stringify({
+            json: { amount: 900 },
+            __dbos_serializer: 'superjson',
+          }),
+        },
+        {
+          ...step(1, wakesAt - 120_000, wakesAt),
+          name: 'DBOS.sleep',
+          output: String(wakesAt),
+        },
+      ],
+      selectedStep: 0,
+      note: undefined,
+      ir: BRANCHING,
+      boxes: {
+        how_big: { x: 0, y: 0, w: 230, h: 64 },
+        charge_it: { x: 0, y: 160, w: 230, h: 64 },
+      },
+    }).run;
+
+    if (shown === undefined) throw new Error('no run to draw');
+
+    return shown;
+  }
+
+  it('reads the arm it took and reports it still asleep', () => {
+    const shown = parked(Date.now() + 120_000);
+
+    expect(shown.graph?.decided).toEqual({ how_big: 'large' });
+    expect(shown.live?.outcome).toBe('waiting');
+  });
+
+  it('keeps the arm once the deadline has passed', () => {
+    const shown = parked(Date.now() - 1000);
+
+    expect(shown.graph?.decided).toEqual({ how_big: 'large' });
+    expect(shown.live?.outcome).toBe('running');
+  });
+});
