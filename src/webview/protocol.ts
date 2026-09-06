@@ -516,7 +516,27 @@ export type SeeRun = {
   span: string;
 
   /** The banner over a run DBOS picked back up. */
-  recovered: { heading: string; body: string } | undefined;
+  recovered:
+    | {
+        heading: string;
+
+        body: string;
+
+        /**
+         * How long nothing ran, and how many durable
+         * operations came back — each its own line
+         * so the page can mark it derived beside the
+         * figure rather than burying it in a
+         * paragraph.
+         *
+         * Absent where the steps are timed too
+         * closely together to place the gap at all,
+         * which is what the other form of the body
+         * is about.
+         */
+        figures: { down: string; reused: string } | undefined;
+      }
+    | undefined;
 
   chips: SeeChip[];
 

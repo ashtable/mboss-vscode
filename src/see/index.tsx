@@ -139,6 +139,22 @@ function Run({
         {run.recovered === undefined ? null : (
           <section className="card recovered" data-recovered-banner>
             <p className="eyebrow">{run.recovered.heading}</p>
+            {run.recovered.figures === undefined ? null : (
+              <p className="recovered-figures">
+                <span className="hint" data-recovered-down>
+                  {run.recovered.figures.down}
+                  <span className="provenance" data-provenance="derived">
+                    {strings.derived}
+                  </span>
+                </span>
+                <span className="hint" data-recovered-reused>
+                  {run.recovered.figures.reused}
+                  <span className="provenance" data-provenance="derived">
+                    {strings.derived}
+                  </span>
+                </span>
+              </p>
+            )}
             <p className="recovered-body">{run.recovered.body}</p>
           </section>
         )}

@@ -361,12 +361,21 @@ describe('one run in detail', () => {
     expect(slept.run?.timeline.outage).toBeUndefined();
   });
 
+  /**
+   * Two derived numbers, each its own line so the
+   * page can mark it derived beside the figure. A
+   * number buried in a paragraph wears no chip, and
+   * a derived number a person reads as a recorded
+   * one is the whole failure mode of a flight
+   * recorder.
+   */
   it('says what the crash cost, out of what the ledger holds', () => {
     expect(run?.recovered?.heading).toBe(
       'Recovered — completed durable operations were not re-executed',
     );
-    expect(run?.recovered?.body).toContain('6.0 s');
-    expect(run?.recovered?.body).toContain('2 durable operations');
+    expect(run?.recovered?.figures?.down).toContain('6.0 s');
+    expect(run?.recovered?.figures?.reused).toContain('2 durable operations');
+    expect(run?.recovered?.body).not.toContain('6.0 s');
   });
 
   /**
@@ -386,6 +395,9 @@ describe('one run in detail', () => {
 
     expect(unplaced.run?.timeline.outage).toBeUndefined();
     expect(unplaced.run?.recovered?.body).toContain('too closely together');
+
+    // Nothing to place is nothing to chip.
+    expect(unplaced.run?.recovered?.figures).toBeUndefined();
   });
 
   it('draws no banner over a run that never crashed', () => {
@@ -708,7 +720,7 @@ describe('one run, as the run page draws it', () => {
       'Recovered — completed durable operations were not re-executed',
     );
     expect(shown?.recovered?.body).toContain('derived from the widest gap');
-    expect(shown?.recovered?.body).toContain('durable operations (derived)');
+    expect(shown?.recovered?.body).toContain('rather than run again');
     expect(shown?.recovered?.body).not.toContain('instead of running again');
   });
 });

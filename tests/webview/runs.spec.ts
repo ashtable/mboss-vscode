@@ -134,10 +134,16 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     severity: 'ok',
     span: 'started 14:02:11 · finished 14:02:19',
     recovered: {
-      heading: 'Crash recovered — exactly-once held',
+      heading: 'Recovered — completed durable operations were not re-executed',
       body:
-        'Nothing ran for 2.9 s. DBOS picked this run back up and 2 steps ' +
-        'came back from dbos.operation_outputs instead of running again.',
+        'DBOS picked this run back up. Both figures are derived from the ' +
+        'widest gap between recorded operations — the durable operations ' +
+        'that finished before that gap were reused from ' +
+        'dbos.operation_outputs rather than run again.',
+      figures: {
+        down: 'nothing ran for about 2.9 s',
+        reused: '2 durable operations reused',
+      },
     },
     chips: STEP_NAMES.map((name, index) => ({
       functionId: index,
@@ -1027,13 +1033,61 @@ test.describe('one run in detail', () => {
     await showRun(page, seeInit());
 
     const banner = page.locator('[data-recovered-banner]');
-    await expect(banner).toContainText('exactly-once held');
-    await expect(banner).toContainText('2 steps came back');
+    await expect(banner.locator('.eyebrow')).toHaveText(
+      'Recovered — completed durable operations were not re-executed',
+    );
+    await expect(banner).toContainText('derived from the widest gap');
+
+    // Each figure wears its own chip. A derived
+    // number a person reads as a recorded one is
+    // the whole failure mode of a flight recorder,
+    // and a number inside the paragraph wears
+    // nothing.
+    await expect(banner.locator('[data-recovered-down]')).toContainText(
+      'nothing ran for about 2.9 s',
+    );
+    await expect(banner.locator('[data-recovered-reused]')).toContainText(
+      '2 durable operations reused',
+    );
+    await expect(
+      banner.locator(`.provenance[data-provenance='derived']`),
+    ).toHaveText([seeStrings.derived, seeStrings.derived]);
 
     // Washed in the warn colour, like every other
     // surface that says a run was picked back up.
     await expect(banner).toHaveCSS('background-color', WARN_TINT);
     await expect(banner.locator('.eyebrow')).toHaveCSS('color', WARN);
+  });
+
+  /**
+   * Nothing to place is nothing to chip: a run
+   * whose steps are timed too closely together to
+   * say where the gap was still gets the banner,
+   * and gets no figures.
+   */
+  test('chips no figures where the gap could not be placed', async ({
+    page,
+  }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          recovered: {
+            heading:
+              'Recovered — completed durable operations were not re-executed',
+            body:
+              'DBOS picked this run back up. Its steps are timed too ' +
+              'closely together to say where the process went down; the ' +
+              'recovery count is in the ledger.',
+            figures: undefined,
+          },
+        }),
+      ),
+    );
+
+    const banner = page.locator('[data-recovered-banner]');
+    await expect(banner).toContainText('too closely together');
+    await expect(banner.locator('[data-recovered-down]')).toHaveCount(0);
   });
 
   test('draws no banner over a run that never crashed', async ({ page }) => {

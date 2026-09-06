@@ -317,15 +317,23 @@ export const messages = {
    * durable operations were not re-executed, and the
    * gap is an inference over the recorded rows
    * rather than a moment anything wrote down.
+   *
+   * The two numbers are not in the sentence. Each is
+   * its own line so the page can mark it derived
+   * beside the figure — a number inside a paragraph
+   * wears no chip, and a derived number a person
+   * reads as a recorded one is the whole failure
+   * mode of a flight recorder.
    */
   runRecoveredHeading: () =>
     l10n.t('Recovered — completed durable operations were not re-executed'),
-  runRecoveredBody: (down: string, restored: number) =>
+  runRecoveredBody: () =>
     l10n.t(
-      'Nothing ran for about {0} — derived from the widest gap between recorded operations. DBOS picked this run back up and {1} durable operations (derived) were reused from dbos.operation_outputs rather than run again.',
-      down,
-      restored,
+      'DBOS picked this run back up. Both figures are derived from the widest gap between recorded operations — the durable operations that finished before that gap were reused from dbos.operation_outputs rather than run again.',
     ),
+  runRecoveredDown: (down: string) => l10n.t('nothing ran for about {0}', down),
+  runRecoveredReused: (count: number) =>
+    l10n.t('{0} durable operations reused', count),
 
   /**
    * The same fact, when the steps are timed too

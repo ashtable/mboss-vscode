@@ -492,24 +492,29 @@ function spanOf(run: Run): string {
  * no column anywhere holds the moment a process
  * died.
  */
-function recoveredBanner(
-  run: Run,
-  timeline: Timeline,
-): { heading: string; body: string } | undefined {
+function recoveredBanner(run: Run, timeline: Timeline): SeeRun['recovered'] {
   if (!hasRecovered(run)) return undefined;
 
-  const restored = timeline.steps.filter((step) => step.restored).length;
+  const heading = messages.runRecoveredHeading();
   const outage = timeline.outage;
 
+  if (outage === undefined) {
+    return {
+      heading,
+      body: messages.runRecoveredUnplaced(),
+      figures: undefined,
+    };
+  }
+
+  const restored = timeline.steps.filter((step) => step.restored).length;
+
   return {
-    heading: messages.runRecoveredHeading(),
-    body:
-      outage === undefined
-        ? messages.runRecoveredUnplaced()
-        : messages.runRecoveredBody(
-            duration(outage.to - outage.from),
-            restored,
-          ),
+    heading,
+    body: messages.runRecoveredBody(),
+    figures: {
+      down: messages.runRecoveredDown(duration(outage.to - outage.from)),
+      reused: messages.runRecoveredReused(restored),
+    },
   };
 }
 
