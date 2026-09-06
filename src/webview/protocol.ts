@@ -613,6 +613,15 @@ export type TraceGroupView = {
   /** `· round 2`, `· 12 items`, or nothing. */
   qualifier: string | undefined;
 
+  /**
+   * `asleep until 14:04:11.000` or
+   * `times out 14:04:11.000`, where the project's
+   * SDK records the row it is read off. Derived: it
+   * is a deadline the SDK wrote down rather than
+   * something that has happened.
+   */
+  wakes: string | undefined;
+
   /** Whether it is open when the page is drawn. */
   open: boolean;
 

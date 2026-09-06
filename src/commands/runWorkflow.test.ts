@@ -94,6 +94,7 @@ function deps(dir: string): RunsDeps {
     }),
     watch: () => ({ stop: () => undefined }),
     sessionLog: sessionLog(),
+    projectSdk: () => ({ ok: false, because: 'no-lockfile' }) as const,
   };
 }
 

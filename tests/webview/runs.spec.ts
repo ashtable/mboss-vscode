@@ -1481,6 +1481,22 @@ test.describe('one run, as a trace', () => {
     ]);
   });
 
+  /** Chipped derived, because it is a deadline the
+   *  SDK wrote down rather than something that has
+   *  happened. */
+  test('says when a parked block gives up, and that it worked it out', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    const wakes = page.locator('[data-wakes]');
+    await expect(wakes).toContainText('times out 14:04:11.000');
+    await expect(wakes.locator('.provenance')).toHaveAttribute(
+      'data-provenance',
+      'derived',
+    );
+  });
+
   test('says a group belongs to no block in the saved workflow', async ({
     page,
   }) => {
@@ -1603,6 +1619,7 @@ const GROUPS: TraceGroupView[] = [
     nodeId: 'parse_request',
     title: 'Parse',
     qualifier: undefined,
+    wakes: undefined,
     open: false,
     failed: false,
     operations: [
@@ -1626,6 +1643,7 @@ const GROUPS: TraceGroupView[] = [
     nodeId: 'find_slot',
     title: 'Find a slot',
     qualifier: '· round 2',
+    wakes: 'times out 14:04:11.000',
     open: true,
     failed: true,
     operations: [
@@ -1663,6 +1681,7 @@ const GROUPS: TraceGroupView[] = [
     nodeId: undefined,
     title: 'gone_away',
     qualifier: undefined,
+    wakes: undefined,
     open: false,
     failed: false,
     operations: [

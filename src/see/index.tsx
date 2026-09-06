@@ -582,6 +582,14 @@ function Group({
         {group.qualifier === undefined ? null : (
           <span className="hint">{group.qualifier}</span>
         )}
+        {group.wakes === undefined ? null : (
+          <span className="hint" data-wakes>
+            {group.wakes}
+            <span className="provenance" data-provenance="derived">
+              {strings.derived}
+            </span>
+          </span>
+        )}
         {group.nodeId === undefined ? (
           <span className="hint" data-unattributed>
             {strings.unattributed}

@@ -669,3 +669,104 @@ describe('one run, as the run page draws it', () => {
     expect(shown?.recovered?.body).not.toContain('instead of running again');
   });
 });
+
+/**
+ * When a run wakes, drawn only where the project's
+ * SDK records the row it is read off.
+ */
+describe('when a run wakes', () => {
+  const WAITING = {
+    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+    version: 1,
+    revision: 2,
+    name: 'expense_claim',
+    nodes: [
+      { id: 'file_it', kind: 'step', title: 'File it', config: {} },
+      {
+        id: 'hold_on',
+        kind: 'durableWait',
+        title: 'Hold on',
+        config: { waitKind: 'timer', seconds: 60 },
+      },
+    ],
+    edges: [
+      {
+        id: 'e1',
+        from: { node: 'file_it', port: 'out' },
+        to: { node: 'hold_on' },
+      },
+    ],
+  } as unknown as WorkflowIR;
+
+  function sleeping(over: Partial<SeeView> = {}): SeeRun {
+    const shown = seeInit({
+      run: { ...RUN, status: 'PENDING', completedAt: undefined },
+      steps: [
+        { ...step(0, 0, 1000), name: 'file_it' },
+        { ...step(1, 1000, 90_000), name: 'DBOS.sleep', output: '90000' },
+      ],
+      selectedStep: 0,
+      note: undefined,
+      ir: WAITING,
+      boxes: {
+        file_it: { x: 0, y: 0, w: 230, h: 64 },
+        hold_on: { x: 0, y: 120, w: 230, h: 64 },
+      },
+      ...over,
+    }).run;
+
+    if (shown === undefined) throw new Error('no run to draw');
+
+    return shown;
+  }
+
+  it('says when a sleeping block wakes, under the gate', () => {
+    expect(sleeping({ timing: true }).groups[0]?.wakes).toContain(
+      'asleep until',
+    );
+  });
+
+  it('says nothing about it below the gate', () => {
+    expect(sleeping({ timing: false }).groups[0]?.wakes).toBeUndefined();
+    expect(sleeping().groups[0]?.wakes).toBeUndefined();
+  });
+
+  /**
+   * A bare sleep inside a block that branches
+   * afterwards says nothing about where the run
+   * goes next, and guessing would be the page
+   * making something up.
+   */
+  it('says nothing where the block has more than one way onward', () => {
+    const forked = {
+      ...WAITING,
+      edges: [
+        ...WAITING.edges,
+        {
+          id: 'e2',
+          from: { node: 'file_it', port: 'out' },
+          to: { node: 'hold_on' },
+        },
+      ],
+    } as unknown as WorkflowIR;
+
+    expect(
+      sleeping({ timing: true, ir: forked }).groups[0]?.wakes,
+    ).toBeUndefined();
+  });
+
+  it('says when a parked block gives up, wherever one is recorded', () => {
+    const shown = seeInit({
+      run: { ...RUN, status: 'PENDING', completedAt: undefined },
+      steps: [
+        { ...step(0, 0, 1000), name: 'manager_ok.register' },
+        { ...step(1, 1000, 1000), name: 'DBOS.sleep', output: '90000' },
+      ],
+      selectedStep: 0,
+      note: undefined,
+      timing: true,
+    }).run;
+
+    expect(shown?.groups[0]?.wakes).toContain('times out');
+  });
+});

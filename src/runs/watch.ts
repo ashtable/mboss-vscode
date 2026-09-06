@@ -376,7 +376,7 @@ export function toLiveRun(
     steps: live,
     recovered,
     recoveryAttempts: run.recoveryAttempts,
-    outcome: outcomeOf(run, live),
+    outcome: outcomeOf(run, live, steps),
     error: run.error,
     applicationVersion: run.applicationVersion,
     createdAt: run.createdAt,
@@ -457,7 +457,11 @@ function stateOf(step: Step, parked: boolean): StepState {
  * retry it, and only the status column says the run
  * is over.
  */
-function outcomeOf(run: Run, steps: LiveStep[]): LiveOutcome {
+function outcomeOf(
+  run: Run,
+  steps: LiveStep[],
+  all: readonly Step[],
+): LiveOutcome {
   if (run.status === SUCCEEDED) return 'done';
 
   // Before the failed set, which contains it.
@@ -467,7 +471,34 @@ function outcomeOf(run: Run, steps: LiveStep[]): LiveOutcome {
   if (FAILED.includes(run.status)) return 'failed';
   if (steps.some((step) => step.state === 'waiting')) return 'waiting';
 
-  return 'running';
+  return asleep(all) ? 'waiting' : 'running';
+}
+
+/**
+ * Whether the run is sitting out a timer.
+ *
+ * A sleep row records the wake deadline as its
+ * completion, so a row whose completion is later
+ * than its start is a run that has not woken yet —
+ * and nothing is happening in it, so the watch may
+ * let go rather than reading somebody's database
+ * every half second for a day.
+ *
+ * Ungated on purpose. An older SDK does not write a
+ * row of this shape at all, so the rule is simply
+ * inert there and needs no version check to make it
+ * safe. Only the words a page draws about it are
+ * gated, and those are drawn where a lockfile can be
+ * read.
+ */
+function asleep(steps: readonly Step[]): boolean {
+  return steps.some(
+    (step) =>
+      step.name === 'DBOS.sleep' &&
+      step.startedAt !== undefined &&
+      step.completedAt !== undefined &&
+      step.completedAt > step.startedAt,
+  );
 }
 
 /**

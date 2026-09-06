@@ -29,6 +29,8 @@
   "↻ recovered": "↻ recovered",
   "workflow as saved · revision {0}": "workflow as saved · revision {0}",
   "no saved workflow named {0} · trace only": "no saved workflow named {0} · trace only",
+  "asleep until {0}": "asleep until {0}",
+  "times out {0}": "times out {0}",
   "· round {0}": "· round {0}",
   "· {0} items": "· {0} items",
   "failed · {0}": "failed · {0}",

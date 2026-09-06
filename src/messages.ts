@@ -259,6 +259,18 @@ export const messages = {
   runGraphMissing: (name: string) =>
     l10n.t('no saved workflow named {0} · trace only', name),
 
+  /**
+   * When a block wakes, and when it gives up.
+   *
+   * Both are read off the sleep row the SDK writes
+   * beside a wait — and both are drawn as derived,
+   * because the moment is a deadline the SDK
+   * recorded rather than something that has
+   * happened.
+   */
+  runAsleepUntil: (at: string) => l10n.t('asleep until {0}', at),
+  runTimesOut: (at: string) => l10n.t('times out {0}', at),
+
   /** What tells one turn of a block from another. */
   runGroupRound: (round: number) => l10n.t('· round {0}', round),
   runGroupItems: (items: number) => l10n.t('· {0} items', items),

@@ -293,16 +293,80 @@ describe('how the rows group', () => {
    * that is only drawn where the project's SDK
    * records one.
    */
-  it('answers the same groups whether or not it may read timings', () => {
+  /**
+   * The moment a block wakes is read off a row the
+   * SDK writes beside a wait, and an older SDK
+   * writes no such row — so whether it may be read
+   * at all is the host's answer, and this file
+   * cannot ask.
+   */
+  it('says when a sleeping block wakes, where it may read timings', () => {
     const found = operationsOf(
       RUN,
-      ledger('charge_each.r1', 'DBOS.sleep', 'charge_each.r2'),
+      [
+        step({ functionId: 0, name: 'charge_each' }),
+        step({
+          functionId: 1,
+          name: 'DBOS.sleep',
+          startedAt: 1000,
+          completedAt: 90_000,
+          output: '90000',
+        }),
+      ],
       IR,
     );
 
-    expect(groupsOf(found, { timing: true })).toEqual(
-      groupsOf(found, { timing: false }),
+    expect(groupsOf(found, { timing: true })[0]?.wakesAt).toEqual({
+      at: 90_000,
+      kind: 'sleep',
+    });
+  });
+
+  it('says nothing about it where it may not', () => {
+    const found = operationsOf(
+      RUN,
+      [
+        step({ functionId: 0, name: 'charge_each' }),
+        step({
+          functionId: 1,
+          name: 'DBOS.sleep',
+          startedAt: 1000,
+          completedAt: 90_000,
+          output: '90000',
+        }),
+      ],
+      IR,
     );
+
+    expect(groupsOf(found, { timing: false })[0]?.wakesAt).toBeUndefined();
+    expect(groupsOf(found)[0]?.wakesAt).toBeUndefined();
+  });
+
+  /**
+   * A zero-width sleep is the marker a timeout
+   * leaves: its deadline may never be reached,
+   * because the run wakes when somebody answers.
+   */
+  it('tells a timeout marker from a sleep by its width', () => {
+    const found = operationsOf(
+      RUN,
+      [
+        step({ functionId: 0, name: 'manager_ok.register' }),
+        step({
+          functionId: 1,
+          name: 'DBOS.sleep',
+          startedAt: 1000,
+          completedAt: 1000,
+          output: '90000',
+        }),
+      ],
+      IR,
+    );
+
+    expect(groupsOf(found, { timing: true })[0]?.wakesAt).toEqual({
+      at: 90_000,
+      kind: 'timeout',
+    });
   });
 });
 

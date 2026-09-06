@@ -7,6 +7,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { openDatabase, openManagement } from '../../src/runs/db.js';
+import { projectSdk } from '../../src/runs/sdk.js';
 import { fakeTrust } from '../doubles/trust.js';
 import { sessionLog } from '../../src/runs/sessionLog.js';
 import { runsStore, type RunsStore } from '../../src/runs/store.js';
@@ -65,6 +66,8 @@ const OK_RUN = 'itest_ok';
 const FAILED_RUN = 'itest_failed';
 const RECOVERED_RUN = 'itest_recovered';
 const BOOKED_RUN = 'itest_booked';
+const SLEEPING_RUN = 'itest_sleeping';
+const PARKED_RUN = 'itest_parked';
 
 /** What the ingress a generated project ships
  *  hands a workflow: one object, positionally. */
@@ -127,6 +130,84 @@ const book = DBOS.registerWorkflow(
   { name: 'book' },
 );
 
+/**
+ * The two shapes the SDK writes while a run is not
+ * running.
+ *
+ * Both are the SDK's own rows rather than anything
+ * the compiler emits, which is why they are checked
+ * here against a real schema and not against a
+ * golden. Whether the run page can draw "asleep
+ * until" and "times out" at all rests entirely on
+ * what these rows turn out to hold.
+ */
+const SLEEP_MS = 120_000;
+
+const RECV_TIMEOUT_S = 120;
+
+const timerWait = DBOS.registerWorkflow(
+  async (): Promise<void> => {
+    await DBOS.runStep(async () => 'ready', { name: 'before_wait' });
+    await DBOS.sleep(SLEEP_MS);
+    await DBOS.runStep(async () => 'woken', { name: 'after_wait' });
+  },
+  { name: 'timer_wait_probe' },
+);
+
+const approvalFlow = DBOS.registerWorkflow(
+  async (): Promise<void> => {
+    await DBOS.runStep(async () => 'asked', { name: 'manager_ok.ask' });
+    await DBOS.runStep(async () => 'parked', { name: 'manager_ok.register' });
+    await DBOS.recv('approval', RECV_TIMEOUT_S);
+    await DBOS.runStep(async () => 'woken', { name: 'manager_ok.clear' });
+  },
+  { name: 'approval_flow_probe' },
+);
+
+/** One row of the ledger, as the SDK wrote it. */
+type Recorded = {
+  function_id: number;
+  function_name: string;
+  started_at_epoch_ms: string | null;
+  completed_at_epoch_ms: string | null;
+  output: string | null;
+  serialization: string | null;
+};
+
+async function rowsOf(workflowId: string): Promise<Recorded[]> {
+  const client = new pg.Client({ connectionString: SYSTEM_DATABASE_URL });
+  await client.connect();
+  try {
+    const { rows } = await client.query<Recorded>(
+      'SELECT function_id, function_name, started_at_epoch_ms, ' +
+        'completed_at_epoch_ms, output, serialization ' +
+        'FROM dbos.operation_outputs WHERE workflow_uuid = $1 ' +
+        'ORDER BY function_id',
+      [workflowId],
+    );
+
+    return rows;
+  } finally {
+    await client.end();
+  }
+}
+
+/** Polls until the run has written as many rows as
+ *  it is going to before it parks. */
+async function settledAt(
+  workflowId: string,
+  rows: number,
+): Promise<Recorded[]> {
+  for (let tries = 0; tries < 60; tries += 1) {
+    const found = await rowsOf(workflowId);
+    if (found.length >= rows) return found;
+
+    await new Promise((wake) => setTimeout(wake, 250));
+  }
+
+  return await rowsOf(workflowId);
+}
+
 async function onMaintenanceServer(sql: string): Promise<void> {
   const client = new pg.Client({ connectionString: `${SERVER}/postgres` });
   await client.connect();
@@ -164,6 +245,8 @@ function project(): string {
 describe('a run history, read from a real dbos schema', () => {
   let store: RunsStore;
   let said: string[];
+  let sleeping: Recorded[];
+  let parked: Recorded[];
 
   beforeAll(async () => {
     await onMaintenanceServer(
@@ -187,6 +270,15 @@ describe('a run history, read from a real dbos schema', () => {
       workflowID: BOOKED_RUN,
     })(BOOKING);
     await expect(booking.getResult()).rejects.toThrow();
+
+    // Started and deliberately not awaited: what is
+    // being read is what the ledger holds *while*
+    // each of them is parked.
+    await DBOS.startWorkflow(timerWait, { workflowID: SLEEPING_RUN })();
+    await DBOS.startWorkflow(approvalFlow, { workflowID: PARKED_RUN })();
+
+    sleeping = await settledAt(SLEEPING_RUN, 2);
+    parked = await settledAt(PARKED_RUN, 3);
 
     // The one hand-written statement here. A crash
     // that DBOS really recovered from would mean
@@ -240,6 +332,7 @@ describe('a run history, read from a real dbos schema', () => {
       }),
       watch: () => ({ stop: () => undefined }),
       sessionLog: sessionLog(),
+      projectSdk,
     });
   });
 
@@ -258,9 +351,11 @@ describe('a run history, read from a real dbos schema', () => {
       BOOKED_RUN,
       FAILED_RUN,
       OK_RUN,
+      PARKED_RUN,
       RECOVERED_RUN,
+      SLEEPING_RUN,
     ]);
-    expect(list.counts).toEqual({ all: 4, failed: 2, recovered: 1 });
+    expect(list.counts).toEqual({ all: 6, failed: 2, recovered: 1 });
   });
 
   /**
@@ -323,6 +418,52 @@ describe('a run history, read from a real dbos schema', () => {
   });
 
   /**
+   * What the SDK writes while a run is asleep.
+   *
+   * A sleep's row records the wake deadline as its
+   * completion, so the step's duration is the sleep
+   * — which is what would let a run page say when a
+   * run wakes.
+   */
+  it('records a sleep as the deadline it will wake at', () => {
+    const row = sleeping.find((one) => one.function_name === 'DBOS.sleep');
+
+    expect(row).toBeDefined();
+    if (row === undefined) return;
+
+    const deadline = Number(JSON.parse(row.output ?? 'null'));
+    const startedAt = Number(row.started_at_epoch_ms);
+
+    expect(Number.isFinite(deadline)).toBe(true);
+    expect(deadline).toBeGreaterThanOrEqual(startedAt);
+    expect(Number(row.completed_at_epoch_ms)).toBe(deadline);
+  });
+
+  /**
+   * And what it writes while a run is parked on a
+   * person: the wait's own two rows, nothing at the
+   * id `DBOS.recv` reserved, and a zero-width sleep
+   * carrying the moment the wait gives up.
+   */
+  it('records a timeout as a marker of zero width', () => {
+    expect(parked.map((one) => [one.function_id, one.function_name])).toEqual([
+      [0, 'manager_ok.ask'],
+      [1, 'manager_ok.register'],
+      [3, 'DBOS.sleep'],
+    ]);
+
+    const marker = parked[2];
+    if (marker === undefined) return;
+
+    expect(Number(marker.completed_at_epoch_ms)).toBe(
+      Number(marker.started_at_epoch_ms),
+    );
+    expect(Number.isFinite(Number(JSON.parse(marker.output ?? 'null')))).toBe(
+      true,
+    );
+  });
+
+  /**
    * A run can match two filters at once — recovering
    * is something that happened during a run, not a
    * way one ended — so the counts do not add up and
@@ -343,7 +484,7 @@ describe('a run history, read from a real dbos schema', () => {
     ]);
 
     await store.setFilter('all');
-    expect(store.list().rows).toHaveLength(4);
+    expect(store.list().rows).toHaveLength(6);
   });
 
   /**

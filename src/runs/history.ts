@@ -33,6 +33,7 @@ import {
   type Step,
   type WorkflowStatusRow,
 } from './rows.js';
+import type { ProjectSdk } from './sdk.js';
 import { rowOf, type SeeView } from './view.js';
 import { workflowDocument } from './workflows.js';
 
@@ -72,6 +73,11 @@ export type HistoryDeps = {
   trust: Trust;
   open: OpenDatabase;
   openManagement: OpenManagement;
+
+  /** Which DBOS a project runs, so the run page
+   *  knows whether the rows the wake lines are read
+   *  off are recorded at all. */
+  projectSdk: (project: string) => ProjectSdk;
 
   /** The one owner of every watch this window arms.
    *  This zone listens for the run it is showing;
@@ -363,6 +369,7 @@ export function runHistory(deps: HistoryDeps): History {
       ...(ir === undefined ? {} : { ir, boxes: await boxesFor(ir) }),
       raw: false,
       following: finished(found.run) ? 'quiet' : 'following',
+      timing: dir !== undefined && recordsTimings(deps.projectSdk(dir)),
     };
   };
 
@@ -487,6 +494,36 @@ export function runHistory(deps: HistoryDeps): History {
       changes.dispose();
     },
   };
+}
+
+/**
+ * The first SDK that records a wake deadline beside
+ * a wait.
+ *
+ * Below it the rows the run page would read those
+ * lines off are simply not there, so the lines are
+ * not drawn — and a project a version behind is an
+ * ordinary state of somebody's folder rather than
+ * something to complain about.
+ */
+const RECORDS_TIMINGS = [4, 27, 6] as const;
+
+function recordsTimings(sdk: ProjectSdk): boolean {
+  if (!sdk.ok) return false;
+
+  const found = /^(\d+)\.(\d+)\.(\d+)/.exec(sdk.version);
+  if (found === null) return false;
+
+  const [major, minor, patch] = [
+    Number(found[1]),
+    Number(found[2]),
+    Number(found[3]),
+  ];
+
+  if (major !== RECORDS_TIMINGS[0]) return major > RECORDS_TIMINGS[0];
+  if (minor !== RECORDS_TIMINGS[1]) return minor > RECORDS_TIMINGS[1];
+
+  return patch >= RECORDS_TIMINGS[2];
 }
 
 /** DBOS's own three, widened so a status read out

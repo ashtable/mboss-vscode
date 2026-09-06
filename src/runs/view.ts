@@ -105,6 +105,11 @@ export type SeeView = {
 
   /** Whether a watch is still reading this run. */
   following?: 'following' | 'waiting' | 'quiet';
+
+  /** Whether the project's SDK records the rows the
+   *  wake and timeout lines are read off. The host
+   *  answers this; nothing browser-side can. */
+  timing?: boolean;
 };
 
 /**
@@ -182,7 +187,9 @@ function seeRun(view: SeeView): SeeRun {
     note: view.note,
     graph: graphOf(view, operations),
     live: toLiveRun(run, steps, hasRecovered(run)),
-    groups: groupsOf(operations).map((group) => groupOf(group, view)),
+    groups: groupsOf(operations, { timing: view.timing ?? false }).map(
+      (group) => groupOf(group, view),
+    ),
     selected: {
       nodeId: view.selectedNode,
       functionId: view.selectedStep,
@@ -232,6 +239,7 @@ function groupOf(group: TraceGroup, view: SeeView): TraceGroupView {
     nodeId: group.nodeId,
     title: node?.title ?? first?.name ?? '',
     qualifier: qualifierOf(group),
+    wakes: wakesOf(group, view),
     // Closed by default, and open where a person is
     // most likely to be going: the turn that failed,
     // and the one holding the block they picked.
@@ -241,6 +249,42 @@ function groupOf(group: TraceGroup, view: SeeView): TraceGroupView {
     failed,
     operations: group.operations.map(opOf),
   };
+}
+
+/**
+ * When this block wakes, in words.
+ *
+ * A timeout marker is drawn wherever one is
+ * recorded: the block is parked and the marker says
+ * when it stops being. A real sleep is drawn only
+ * where the block has exactly one way onward and
+ * that way is a timer wait — a bare sleep inside a
+ * block that branches afterwards says nothing about
+ * where the run goes next, and guessing would be
+ * the page making something up.
+ */
+function wakesOf(group: TraceGroup, view: SeeView): string | undefined {
+  const wakes = group.wakesAt;
+  if (wakes === undefined) return undefined;
+
+  if (wakes.kind === 'timeout') return messages.runTimesOut(fine(wakes.at));
+
+  return timerWaitAhead(group.nodeId, view)
+    ? messages.runAsleepUntil(fine(wakes.at))
+    : undefined;
+}
+
+function timerWaitAhead(nodeId: string | undefined, view: SeeView): boolean {
+  const ir = view.ir;
+  if (ir === undefined || nodeId === undefined) return false;
+
+  const onward = ir.edges.filter((edge) => edge.from.node === nodeId);
+  const [only] = onward;
+  if (onward.length !== 1 || only === undefined) return false;
+
+  const next = ir.nodes.find((node) => node.id === only.to.node);
+
+  return next?.kind === 'durableWait';
 }
 
 function qualifierOf(group: TraceGroup): string | undefined {

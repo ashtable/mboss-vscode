@@ -82,6 +82,20 @@ export type TraceGroup = {
    *  one. */
   items: number | undefined;
 
+  /**
+   * When the block wakes, or when it gives up
+   * waiting.
+   *
+   * Read off the sleep row the SDK writes: a real
+   * sleep records the wake deadline as its
+   * completion, so the row has width; a timeout
+   * marker records zero width, because its deadline
+   * may never be reached. Only ever set where the
+   * host has said the project's SDK records these
+   * at all.
+   */
+  wakesAt: { at: number; kind: 'sleep' | 'timeout' } | undefined;
+
   operations: Operation[];
 };
 
@@ -167,8 +181,6 @@ export function groupsOf(
   operations: readonly Operation[],
   options: { timing?: boolean } = {},
 ): TraceGroup[] {
-  void options.timing;
-
   const groups: TraceGroup[] = [];
   let open: TraceGroup | undefined;
 
@@ -195,12 +207,52 @@ export function groupsOf(
       owner: operation.owner,
       round,
       items: undefined,
+      wakesAt: undefined,
       operations: [operation],
     };
     groups.push(open);
   }
 
-  return groups.map((group) => ({ ...group, items: itemsIn(group) }));
+  return groups.map((group) => ({
+    ...group,
+    items: itemsIn(group),
+    wakesAt: options.timing === true ? wakesIn(group) : undefined,
+  }));
+}
+
+/** The moment a sleep row in this group names. */
+const SLEEP = 'DBOS.sleep';
+
+/**
+ * When a block wakes, out of the sleep row the SDK
+ * wrote inside its turn.
+ *
+ * A real sleep records the wake deadline as its
+ * completion, so the row has width. A timeout
+ * marker records zero width, because its deadline
+ * may never be reached — the run wakes when
+ * somebody answers, and only then. Both carry the
+ * same number in `output`, and the width is what
+ * says which of the two it is.
+ */
+function wakesIn(group: TraceGroup): TraceGroup['wakesAt'] {
+  const row = group.operations.find(
+    (one) => one.owner === 'sdk' && one.name === SLEEP,
+  );
+  if (row === undefined) return undefined;
+
+  const at = Number(row.output);
+  if (!Number.isFinite(at)) return undefined;
+
+  return {
+    at,
+    kind:
+      row.completedAt !== undefined &&
+      row.startedAt !== undefined &&
+      row.completedAt > row.startedAt
+        ? 'sleep'
+        : 'timeout',
+  };
 }
 
 /**

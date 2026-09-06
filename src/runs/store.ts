@@ -9,6 +9,7 @@ import type { RunsInit } from '../webview/protocol.js';
 
 import type { OpenDatabase, OpenManagement } from './db.js';
 import { following } from './following.js';
+import type { ProjectSdk } from './sdk.js';
 import { runHistory } from './history.js';
 import type { RunFilter } from './queries.js';
 import type { RunStarter } from './runner.js';
@@ -79,6 +80,11 @@ export type RunsDeps = {
   trust: Trust;
   open: OpenDatabase;
   openManagement: OpenManagement;
+
+  /** Which DBOS a project runs. Handed in rather
+   *  than read here, so the store can be driven
+   *  without a project on disk. */
+  projectSdk: (project: string) => ProjectSdk;
   stack: StackController;
   runner: RunStarter;
   watch: RunWatch;
@@ -191,6 +197,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     open: deps.open,
     openManagement: deps.openManagement,
     following: follow,
+    projectSdk: deps.projectSdk,
   });
   const stack = stackZone({
     host: deps.host,

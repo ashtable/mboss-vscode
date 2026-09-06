@@ -44,6 +44,7 @@ function deps(over: Partial<RunsDeps> = {}): RunsDeps {
     }),
     watch: watcher().watch,
     sessionLog: sessionLog(),
+    projectSdk: () => ({ ok: true, version: '4.27.6' }),
     ...over,
   };
 }

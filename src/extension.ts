@@ -11,6 +11,7 @@ import { runWorkflowCommand } from './commands/runWorkflow.js';
 import { isProject } from './core/index.js';
 import { previewStore } from './preview/store.js';
 import { openDatabase, openManagement } from './runs/db.js';
+import { projectSdk } from './runs/sdk.js';
 import { projectEnv } from './runs/env.js';
 import { runsHost } from './runs/host.js';
 import { RunsListView, SeePanel } from './runs/panels.js';
@@ -106,6 +107,7 @@ export function activate(context: ExtensionContext): void {
     trust,
     open: openDatabase,
     openManagement,
+    projectSdk,
     stack,
     // The runner is handed its collaborators here
     // rather than reaching for them: the store has

@@ -33,6 +33,7 @@ function history(over: Partial<HistoryDeps> = {}): History {
     open: async () => database(),
     openManagement: async () => management(),
     following: follows().held,
+    projectSdk: () => ({ ok: true, version: '4.27.6' }),
     ...over,
   });
 }
@@ -459,5 +460,31 @@ describe('the run somebody has open', () => {
     read.show('trace');
 
     expect(read.showing()).toBe('trace');
+  });
+});
+
+/**
+ * Whether the run page may draw when a run wakes.
+ *
+ * The rows those lines are read off are written by
+ * an SDK from 4.27.6 on; below that they are simply
+ * not there, and a project a version behind is an
+ * ordinary state of somebody's folder.
+ */
+describe('whether a project records when a run wakes', () => {
+  it('reads timings only where the project runs an SDK that records them', async () => {
+    for (const [sdk, timing] of [
+      [{ ok: true, version: '4.27.6' }, true],
+      [{ ok: true, version: '4.28.0' }, true],
+      [{ ok: true, version: '4.25.14' }, false],
+      [{ ok: false, because: 'not-locked' }, false],
+      [{ ok: false, because: 'no-lockfile' }, false],
+    ] as const) {
+      const read = reading(database(), { projectSdk: () => sdk });
+
+      await read.select('wf_c9d2f3');
+
+      expect({ sdk, timing: read.detail()?.timing }).toEqual({ sdk, timing });
+    }
   });
 });
