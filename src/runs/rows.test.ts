@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   FIRST_DISPATCH,
+  OUTPUT_KEPT,
+  errorIn,
   hasRecovered,
+  inputIn,
+  outputIn,
   recoveriesOf,
   toCounts,
   toRun,
@@ -271,5 +275,145 @@ describe('what recovery_attempts counts', () => {
   it('reads a run nothing has picked up yet as not recovered', () => {
     expect(hasRecovered(run(0))).toBe(false);
     expect(recoveriesOf(run(0))).toBe(0);
+  });
+});
+
+/**
+ * What DBOS actually wrote where a step failed.
+ *
+ * Two serializers are in play. The default wraps
+ * everything superjson does, so the error sits
+ * under `json` with the dialect named beside it;
+ * the portable one writes the fields flat and
+ * carries no stack at all. Both are read here
+ * because either can be the one a project chose,
+ * and a panel that only understood one would be
+ * blank against the other.
+ */
+describe('what a stored error says', () => {
+  it('reads a plain serialized error', () => {
+    expect(
+      errorIn(JSON.stringify({ name: 'SlotTaken', message: 'no slot left' })),
+    ).toEqual({ name: 'SlotTaken', message: 'no slot left' });
+  });
+
+  it('reads one inside the wrapper a richer serializer adds', () => {
+    expect(
+      errorIn(
+        JSON.stringify({
+          json: {
+            name: 'SlotTaken',
+            message: 'no slot left',
+            stack: 'SlotTaken: no slot left\n    at findSlot',
+          },
+          meta: { values: ['Error'] },
+          __dbos_serializer: 'superjson',
+        }),
+      ),
+    ).toEqual({
+      name: 'SlotTaken',
+      message: 'no slot left',
+      stack: 'SlotTaken: no slot left\n    at findSlot',
+    });
+  });
+
+  /**
+   * A step that ran out of retries stores one error
+   * whose message is DBOS's own sentence about the
+   * retries, with every attempt underneath it. The
+   * attempts are what a person is looking for, so
+   * they are kept rather than flattened into that
+   * sentence.
+   */
+  it('keeps every attempt when the step ran out of retries', () => {
+    const stored = errorIn(
+      JSON.stringify({
+        json: {
+          dbosErrorCode: 23,
+          name: 'Error',
+          message:
+            'Step find_slot has exceeded its maximum of 2 retries. ' +
+            'Previous errors: Error 1: first. Error 2: second',
+          errors: [
+            { name: 'SlotTaken', message: 'first', stack: 'a' },
+            { name: 'SlotTaken', message: 'second', stack: 'b' },
+          ],
+        },
+        __dbos_serializer: 'superjson',
+      }),
+    );
+
+    expect(stored?.errors).toEqual([
+      { name: 'SlotTaken', message: 'first', stack: 'a' },
+      { name: 'SlotTaken', message: 'second', stack: 'b' },
+    ]);
+    expect(stored?.message).toContain('exceeded its maximum');
+  });
+
+  it('shows the bytes when it cannot read them', () => {
+    expect(errorIn('not json at all')).toEqual({
+      message: 'not json at all',
+    });
+    expect(errorIn(null)).toBeUndefined();
+  });
+});
+
+/**
+ * `dbos.workflow_status.inputs` holds the argument
+ * *array* a run was started with, serialized. A
+ * generated workflow takes exactly one argument, so
+ * an array of one is the payload and anything else
+ * is somebody else's workflow — kept as the text it
+ * was stored as rather than guessed at.
+ */
+describe('what a run was started with', () => {
+  it('unwraps the one argument a generated workflow takes', () => {
+    expect(
+      inputIn(JSON.stringify([{ email: 'ada@example.com' }]), null),
+    ).toEqual({ shape: 'payload', value: { email: 'ada@example.com' } });
+  });
+
+  it('keeps anything else as the text it was stored as', () => {
+    expect(inputIn('[1,2]', 'superjson')).toEqual({
+      shape: 'raw',
+      text: '[1,2]',
+      serialization: 'superjson',
+    });
+    expect(inputIn('"a string"', null)).toEqual({
+      shape: 'raw',
+      text: '"a string"',
+    });
+  });
+
+  it('says nothing for a run with no recorded input', () => {
+    expect(inputIn(null, null)).toEqual({ shape: 'none' });
+    expect(inputIn('', null)).toEqual({ shape: 'none' });
+  });
+});
+
+/**
+ * A step's output goes on screen whole where it is
+ * small and cut where it is not. The cut is said
+ * out loud, and the size before the cut is kept —
+ * a panel showing two thousand characters of a
+ * megabyte with no sign of it is lying about what
+ * the step returned.
+ */
+describe('what a step returned', () => {
+  it('carries a short output through whole', () => {
+    expect(outputIn('{"confirmation":"AB-1209"}')).toEqual({
+      text: '{"confirmation":"AB-1209"}',
+      cut: false,
+      bytes: 26,
+    });
+  });
+
+  it('cuts a long one and says it cut it', () => {
+    const long = `"${'x'.repeat(OUTPUT_KEPT + 500)}"`;
+    const read = outputIn(long);
+
+    expect(read.text).toHaveLength(OUTPUT_KEPT);
+    expect(read.cut).toBe(true);
+    expect(read.bytes).toBe(OUTPUT_KEPT + 502);
   });
 });

@@ -29,6 +29,8 @@ const RUN: Run = {
   startedAt: 0,
   completedAt: 10_000,
   error: undefined,
+  forkedFrom: undefined,
+  wasForkedFrom: false,
 };
 
 function step(functionId: number, from: number, to: number): Step {

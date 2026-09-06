@@ -36,6 +36,8 @@ const RUN: Run = {
   startedAt: 1000,
   completedAt: 2000,
   error: 'boom',
+  forkedFrom: undefined,
+  wasForkedFrom: false,
 };
 
 function client(over: Partial<ForkClient> = {}): ForkClient & {

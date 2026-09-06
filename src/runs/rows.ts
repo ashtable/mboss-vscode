@@ -45,6 +45,25 @@ export type WorkflowStatusRow = {
   error: string | null;
 
   serialization: string | null;
+
+  forked_from?: string | null;
+
+  was_forked_from?: boolean | null;
+
+  /** Selected only where a single run is being
+   *  read: the list would carry every run's whole
+   *  argument array for a column nothing on it
+   *  draws. */
+  inputs?: string | null;
+
+  /** The three the list read for itself, out of
+   *  `dbos.operation_outputs`, and which the
+   *  one-run read does not ask for. */
+  last_operation?: string | null;
+
+  last_operation_at?: BigIntColumn | null;
+
+  operation_count?: BigIntColumn | null;
 };
 
 /** A row of `dbos.operation_outputs`, as selected. */
@@ -115,6 +134,40 @@ export type Run = {
   /** What it failed with, in as many words as could
    *  be read out of the stored error. */
   error: string | undefined;
+
+  /**
+   * The same failure, whole — the name, the stack
+   * and every attempt, where the row carried them.
+   * `error` stays the sentence, so nothing that
+   * already draws it has to change.
+   */
+  failure?: StoredError;
+
+  /** The run this one was forked from, and whether
+   *  anything was ever forked from it. */
+  forkedFrom: string | undefined;
+
+  wasForkedFrom: boolean;
+
+  /**
+   * Filled by the one-run read only. The list does
+   * not select `inputs`: it would carry every run's
+   * whole argument array for a column no row draws.
+   */
+  input?: RunInput;
+
+  /**
+   * Filled by the list read only, out of the three
+   * correlated columns it asks
+   * `dbos.operation_outputs` for. The one-run read
+   * has every operation in hand and needs no
+   * summary of them.
+   */
+  lastOperation?: string;
+
+  lastOperationAt?: number;
+
+  operationCount?: number;
 };
 
 /** One step of a run. */
@@ -131,6 +184,10 @@ export type Step = {
   output: string | undefined;
 
   error: string | undefined;
+
+  /** The same failure, whole. `error` stays the
+   *  sentence. */
+  failure?: StoredError;
 
   childWorkflowId: string | undefined;
 };
@@ -170,7 +227,18 @@ export function recoveriesOf(run: Run): number {
   return Math.max(run.recoveryAttempts - FIRST_DISPATCH, 0);
 }
 
+/**
+ * A run, from whichever read produced the row.
+ *
+ * The optional fields follow the columns: a list
+ * row carries the three correlated summaries and no
+ * `inputs`, a one-run row carries `inputs` and none
+ * of the three. Nothing here decides which — the
+ * statement did, and this reads what arrived.
+ */
 export function toRun(row: WorkflowStatusRow): Run {
+  const failure = errorIn(row.error);
+
   return {
     workflowId: row.workflow_uuid,
     name: row.name,
@@ -182,10 +250,27 @@ export function toRun(row: WorkflowStatusRow): Run {
     startedAt: epoch(row.started_at_epoch_ms),
     completedAt: epoch(row.completed_at),
     error: messageIn(row.error),
+    ...(failure === undefined ? {} : { failure }),
+    forkedFrom: text(row.forked_from ?? null),
+    wasForkedFrom: row.was_forked_from === true,
+    ...(row.inputs === undefined
+      ? {}
+      : { input: inputIn(row.inputs, row.serialization) }),
+    ...(text(row.last_operation ?? null) === undefined
+      ? {}
+      : { lastOperation: text(row.last_operation ?? null) }),
+    ...(row.last_operation_at === undefined || row.last_operation_at === null
+      ? {}
+      : { lastOperationAt: Number(row.last_operation_at) }),
+    ...(row.operation_count === undefined || row.operation_count === null
+      ? {}
+      : { operationCount: Number(row.operation_count) }),
   };
 }
 
 export function toStep(row: OperationOutputRow): Step {
+  const failure = errorIn(row.error);
+
   return {
     functionId: row.function_id,
     name: row.function_name,
@@ -193,6 +278,7 @@ export function toStep(row: OperationOutputRow): Step {
     completedAt: epoch(row.completed_at_epoch_ms),
     output: text(row.output),
     error: messageIn(row.error),
+    ...(failure === undefined ? {} : { failure }),
     childWorkflowId: text(row.child_workflow_id),
   };
 }
@@ -204,6 +290,152 @@ export function toCounts(row: CountsRow | undefined): RunCounts {
     all: Number(row.all_runs),
     failed: Number(row.failed_runs),
     recovered: Number(row.recovered_runs),
+  };
+}
+
+/**
+ * An error as DBOS stored it.
+ *
+ * Two serializers write two shapes. The default one
+ * runs the error through `serialize-error` first,
+ * so the stack and every own property survive under
+ * a `json` wrapper; the portable one writes name,
+ * message and nothing else, which is why the stack
+ * is optional. `errors` is what a step that ran out
+ * of retries carries: one entry per attempt, each
+ * the same shape.
+ */
+export type StoredError = {
+  name?: string;
+  message: string;
+  stack?: string;
+  errors?: StoredError[];
+};
+
+/**
+ * The error a row holds, read as far as it can be.
+ *
+ * Tolerant in exactly the way `messageIn` beside it
+ * is, and for the same reason: a project may
+ * register a serializer this build has never seen.
+ * The `serialization` column is not consulted — the
+ * reader tries the wrapper and the flat shape
+ * either way, which is right about a dialect it has
+ * never heard of and about a column that lies.
+ */
+export function errorIn(stored: string | null): StoredError | undefined {
+  const raw = text(stored);
+  if (raw === undefined) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { message: raw };
+  }
+
+  return (
+    storedError(parsed) ??
+    storedError(fieldOf(parsed, 'json')) ?? { message: raw }
+  );
+}
+
+/** One error object, or nothing where the value is
+ *  not one. */
+function storedError(value: unknown): StoredError | undefined {
+  const message = fieldOf(value, 'message');
+  if (typeof message !== 'string' || message === '') return undefined;
+
+  const name = fieldOf(value, 'name');
+  const stack = fieldOf(value, 'stack');
+  const attempts = fieldOf(value, 'errors');
+
+  return {
+    ...(typeof name === 'string' ? { name } : {}),
+    message,
+    ...(typeof stack === 'string' ? { stack } : {}),
+    ...(Array.isArray(attempts)
+      ? { errors: attempts.flatMap((one) => storedError(one) ?? []) }
+      : {}),
+  };
+}
+
+/**
+ * What a run was started with.
+ *
+ * `dbos.workflow_status.inputs` holds the whole
+ * *argument array*, serialized. A generated workflow
+ * takes exactly one argument, so an array of one is
+ * the payload a person meant; anything else came
+ * from a workflow this compiler did not write and
+ * is shown as the text it was stored as rather than
+ * guessed at.
+ *
+ * There is no per-step equivalent. The schema has
+ * no such column, and inventing one would be a
+ * panel making something up.
+ */
+export type RunInput =
+  | { shape: 'payload'; value: unknown }
+  | { shape: 'raw'; text: string; serialization?: string }
+  | { shape: 'none' };
+
+export function inputIn(
+  stored: string | null,
+  serialization: string | null,
+): RunInput {
+  const raw = text(stored);
+  if (raw === undefined) return { shape: 'none' };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return asRaw(raw, serialization);
+  }
+
+  const args = Array.isArray(parsed) ? parsed : fieldOf(parsed, 'json');
+
+  return Array.isArray(args) && args.length === 1
+    ? { shape: 'payload', value: args[0] }
+    : asRaw(raw, serialization);
+}
+
+function asRaw(raw: string, serialization: string | null): RunInput {
+  const dialect = text(serialization);
+
+  return {
+    shape: 'raw',
+    text: raw,
+    ...(dialect === undefined ? {} : { serialization: dialect }),
+  };
+}
+
+/**
+ * How much of a step's output a panel will hold.
+ *
+ * A step may return a megabyte, and a cell that
+ * quietly showed the first part of one would be
+ * lying about what the step returned. Cut, said out
+ * loud, with the size before the cut kept.
+ */
+export const OUTPUT_KEPT = 2000;
+
+export function outputIn(stored: string | null): {
+  text: string;
+  cut: boolean;
+  bytes: number;
+} {
+  const raw = text(stored) ?? '';
+
+  // `TextEncoder` rather than `Buffer`, because this
+  // module is in the browser bundles as well as the
+  // host and a Node global there is `undefined`
+  // rather than a build failure.
+  return {
+    text: raw.slice(0, OUTPUT_KEPT),
+    cut: raw.length > OUTPUT_KEPT,
+    bytes: new TextEncoder().encode(raw).length,
   };
 }
 
