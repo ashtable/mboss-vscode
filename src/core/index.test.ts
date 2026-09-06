@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { applySpec } from '@mboss/core';
+import * as fromCore from '@mboss/core';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -13,8 +14,22 @@ import {
   WorkflowIRSchema,
   ownerOf,
 } from './rules.js';
-import { nextDocument, readWorkflow } from './index.js';
+import {
+  compileInputs,
+  compileWorkflow,
+  compileWorkflows,
+  nextDocument,
+  readWorkflow,
+  type TraceMatch,
+  type UsePatternOutcome,
+} from './index.js';
+import * as fromIndex from './index.js';
 import { paletteLabels } from '../canvas/words.js';
+import {
+  makeProject,
+  readWorkflowFixture,
+  writeWorkflow,
+} from '../test-support/project.js';
 import { CORE_ROOT, sourceFiles } from '../test-support/repo.js';
 
 const GROOM_BOOKING = join(
@@ -164,6 +179,40 @@ describe('the browser-safe slice', () => {
 });
 
 /**
+ * A document compiled on its own has to be
+ * compiled the way the project would compile it,
+ * or the source a person is shown is not the
+ * source that would be written. The manifest and
+ * the zone are the whole of that: the manifest
+ * says what the handlers are, and the zone is
+ * stamped into every schedule whose trigger names
+ * none.
+ */
+describe('what a document is compiled with', () => {
+  it('gives one document the same manifest and timezone the project gets', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'groom_booking');
+
+    const compiled = await compileWorkflows(project);
+    expect(compiled.ok).toBe(true);
+    const [generated] = compiled.written;
+    expect(generated).toBeDefined();
+    if (generated === undefined) return;
+
+    const onDisk = readFileSync(join(project, generated), 'utf8');
+    const ir = WorkflowIRSchema.parse(
+      JSON.parse(readWorkflowFixture('groom_booking')),
+    );
+
+    const alone = compileWorkflow({ ir, ...compileInputs(project) });
+
+    expect(alone.ok).toBe(true);
+    if (!alone.ok) return;
+    expect(alone.source).toBe(onDisk);
+  });
+});
+
+/**
  * The seam, asserted rather than agreed to.
  *
  * Core's shapes are a library's, and they change
@@ -197,5 +246,51 @@ describe('the boundary', () => {
    */
   it('reaches past it in exactly one other place', () => {
     expect(importing(/mboss-core\/src\//)).toEqual(['src/core/rules.ts']);
+  });
+
+  /**
+   * The wrapper wraps most of core and forwards the
+   * rest, and forwarding is only worth anything if
+   * what arrives is the same function. A local
+   * reimplementation under a core name would satisfy
+   * the type and drift the first time core changed
+   * its mind, so identity is what is asserted rather
+   * than shape.
+   *
+   * This file is exempt from the fence above, which
+   * is what lets it hold the two sides of each name
+   * against each other.
+   */
+  it('carries core own names, not copies of them', () => {
+    expect(fromIndex.compileWorkflow).toBe(fromCore.compileWorkflow);
+    expect(fromIndex.replayBoundaries).toBe(fromCore.replayBoundaries);
+    expect(fromIndex.traceGrammar).toBe(fromCore.traceGrammar);
+    expect(fromIndex.matchTrace).toBe(fromCore.matchTrace);
+    expect(fromIndex.listPatterns).toBe(fromCore.listPatterns);
+    expect(fromIndex.patternNamed).toBe(fromCore.patternNamed);
+    expect(fromIndex.usePattern).toBe(fromCore.usePattern);
+    expect(fromIndex.blankSpec).toBe(fromCore.blankSpec);
+    expect(fromIndex.patternSpec).toBe(fromCore.patternSpec);
+    expect(fromIndex.WorkflowNameSchema).toBe(fromCore.WorkflowNameSchema);
+    expect(fromIndex.CONTAINER_APP_DIR).toBe(fromCore.CONTAINER_APP_DIR);
+    expect(fromIndex.LIB_DIR).toBe(fromCore.LIB_DIR);
+  });
+
+  /**
+   * The two type-only forwards, read at run time
+   * because a type that does not resolve is a
+   * compile failure and there is nothing else to
+   * assert about it.
+   */
+  it('carries the two answers that are types and nothing else', () => {
+    const matched: TraceMatch = { ok: true };
+    const used: UsePatternOutcome = {
+      ok: false,
+      code: 'WORKFLOW_EXISTS',
+      name: 'groom_booking',
+    };
+
+    expect(matched.ok).toBe(true);
+    expect(used.ok).toBe(false);
   });
 });

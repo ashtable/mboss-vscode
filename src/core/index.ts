@@ -32,6 +32,41 @@ export { STALE_LOCK_MS } from '@mboss/core';
 export type { DiffSummary, Proposal } from '@mboss/core';
 
 /**
+ * What core offers the host unchanged, named one
+ * at a time.
+ *
+ * Everything above this line is wrapped, because
+ * the extension wants a different shape than core
+ * hands out. These are the exceptions: a compiler
+ * call over a document held in memory, the replay
+ * grammar a recorded run is matched against, the
+ * pattern gallery, and two path constants a
+ * generated project is laid out by. Wrapping any
+ * of them would be a second name for one thing.
+ *
+ * Listed rather than re-exported wholesale, so
+ * that what the rest of the extension may reach
+ * for is a decision somebody made here rather than
+ * whatever core's barrel happens to carry.
+ */
+export {
+  blankSpec,
+  compileWorkflow,
+  listPatterns,
+  matchTrace,
+  patternNamed,
+  patternSpec,
+  replayBoundaries,
+  traceGrammar,
+  usePattern,
+  CONTAINER_APP_DIR,
+  LIB_DIR,
+  WorkflowNameSchema,
+} from '@mboss/core';
+
+export type { TraceMatch, UsePatternOutcome } from '@mboss/core';
+
+/**
  * The one module that talks to `@mboss/core`.
  *
  * Everything the extension knows about workflow
@@ -346,6 +381,25 @@ export async function compileWorkflows(project: string): Promise<Compiled> {
       failureOf(name, failure),
     ),
   };
+}
+
+/**
+ * The two things a project compiles a document
+ * with, for a caller that has the document already
+ * and wants the source without writing it.
+ *
+ * `compileProject` loads the manifest and is told
+ * the zone; anything compiling one document in
+ * memory has to be given the same pair or it is
+ * compiling something else. Handing them out is
+ * what keeps that from being a second copy of the
+ * decision.
+ */
+export function compileInputs(project: string): {
+  manifest: LibManifest;
+  timezone: string;
+} {
+  return { manifest: loadOrScan(project), timezone: DEFAULT_TIMEZONE };
 }
 
 /**
