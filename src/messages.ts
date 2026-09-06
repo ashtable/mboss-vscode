@@ -233,7 +233,10 @@ export const messages = {
   runsScope: () =>
     l10n.t("Local runs only. Deployed apps are DBOS Conductor's."),
 
-  runsRecoveredTag: () => l10n.t('recovered ✓'),
+  /** The mark leads, because recovery is what
+   *  happened to the run and the tick after it read
+   *  as a second opinion about the outcome. */
+  runsRecoveredTag: () => l10n.t('↻ recovered'),
   /**
    * How many crashes, not what the column says: the
    * column counts dispatches, so a run that never

@@ -566,6 +566,7 @@ function Graph({
       toReactFlow(ir, init.boxes, {
         labels: init.paletteLabels,
         unassigned: init.strings.unassigned,
+        runningDerived: init.strings.runningDerived,
         proposed: preview?.proposed,
         selected,
         run: init.run,
@@ -575,6 +576,7 @@ function Graph({
       init.boxes,
       init.paletteLabels,
       init.strings.unassigned,
+      init.strings.runningDerived,
       preview?.proposed,
       selected,
       init.run,

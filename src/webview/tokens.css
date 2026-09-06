@@ -771,13 +771,6 @@ body.vscode-high-contrast-light {
   }
 }
 
-/* Waiting on something that has not answered. */
-@keyframes sig-spin {
-  to {
-    transform: rotate(1turn);
-  }
-}
-
 /* Somebody who asked for less movement asked for
    less movement, not for a different panel: every
    duration collapses, and everything still ends

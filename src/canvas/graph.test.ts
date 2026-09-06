@@ -62,7 +62,12 @@ const labels = Object.fromEntries(
  *  proposed and nothing selected unless a test
  *  says so. */
 function drawing(over: Partial<Drawing> = {}): Drawing {
-  return { labels, unassigned: 'unassigned', ...over };
+  return {
+    labels,
+    unassigned: 'unassigned',
+    runningDerived: 'RUNNING · derived',
+    ...over,
+  };
 }
 
 /**

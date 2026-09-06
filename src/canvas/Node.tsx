@@ -137,6 +137,7 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
         line={data.line}
         wanting={wantsHandler(node)}
         state={state}
+        runTitle={data.runTitle}
       />
 
       <Handle type="source" position={Position.Bottom} id={SOURCE_PORT} />
@@ -170,18 +171,20 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
  * tone is.
  *
  * The three states that are not a run leave none at
- * all. The block a run is at leaves an empty one on
- * purpose: what it wears is a dot the stylesheet
- * draws, because a tick on a block that has not
- * finished is the one thing this set must never
- * say.
+ * all. The two the run has not finished leave an
+ * empty one on purpose: what each wears is a dot
+ * the stylesheet draws, because a tick on a block
+ * that has not finished is the one thing this set
+ * must never say — and because a block waiting on a
+ * person is not doing anything, which is what a
+ * turning mark would deny.
  */
 const RUN_MARK: Record<NodeState, string | undefined> = {
   dormant: undefined,
   selected: undefined,
   proposed: undefined,
   running: '',
-  waiting: '↻',
+  waiting: '',
   failed: '✕',
   done: '✓',
 };
@@ -204,6 +207,7 @@ export function BlockFace({
   line,
   wanting,
   state,
+  runTitle,
 }: {
   kind: NodeKind;
   title: string;
@@ -213,6 +217,11 @@ export function BlockFace({
    *  goes rather than the name of one. */
   wanting: boolean;
   state: NodeState;
+
+  /** What the mark says it is, for anything that
+   *  cannot see a colour. Absent where the block is
+   *  not part of a run and there is no mark. */
+  runTitle?: string;
 }) {
   const mark = RUN_MARK[state];
 
@@ -231,7 +240,7 @@ export function BlockFace({
       </div>
 
       {mark === undefined ? null : (
-        <span className="node-run" data-run={state}>
+        <span className="node-run" data-run={state} title={runTitle}>
           {mark}
         </span>
       )}

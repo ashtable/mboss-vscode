@@ -652,11 +652,16 @@ button.lib-fn {
 .node-run[data-run='failed'] {
   color: var(--fail);
 }
-/* Still turning, because whatever it is parked on
-   has not answered yet. */
+/* Hollow, and still. Nothing is running here — the
+   block is parked on something that has not
+   answered — and a mark that turned would say the
+   opposite. */
 .node-run[data-run='waiting'] {
-  color: var(--warn);
-  animation: sig-spin var(--dur-slow) linear infinite;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--warn);
+  border-radius: 50%;
+  background: transparent;
 }
 /* A dot, never a tick: the run has not finished
    here, and the block must not say it has. */

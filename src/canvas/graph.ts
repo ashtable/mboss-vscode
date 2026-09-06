@@ -77,6 +77,13 @@ export type Drawing = {
    *  code nobody has named yet. */
   unassigned: string;
 
+  /** What the mark on the block a run is at says it
+   *  is. The mark itself is a dot, so the sentence
+   *  is the only thing a screen reader has, and it
+   *  is also where the mark admits it was worked
+   *  out rather than read off a row. */
+  runningDerived: string;
+
   /** Blocks an agent is asking for, which the file
    *  does not have. */
   proposed?: readonly string[];
@@ -98,6 +105,10 @@ export type CanvasNodeData = {
   line: string;
 
   state: NodeState;
+
+  /** What the run mark says, where there is a run
+   *  and it is at this block. */
+  runTitle?: string;
 
   [key: string]: unknown;
 };
@@ -215,6 +226,7 @@ export function toReactFlow(
         boxes[node.id],
         stateOf(node.id, arriving, drawing.selected, run.nodes),
         lineOf(node, drawing),
+        drawing.runningDerived,
       ),
     ),
     edges: ir.edges.map((edge) => ({
@@ -245,6 +257,7 @@ function toCanvasNode(
   box: NodeBox | undefined,
   state: NodeState,
   line: string,
+  runningDerived: string,
 ): CanvasNode {
   if (box === undefined) {
     throw new Error(`the layout has no box for \`${node.id}\``);
@@ -262,7 +275,12 @@ function toCanvasNode(
     // because selection is its keyboard handling
     // and its z-order too, not only a colour.
     selected: state === 'selected',
-    data: { node, line, state },
+    data: {
+      node,
+      line,
+      state,
+      ...(state === 'running' ? { runTitle: runningDerived } : {}),
+    },
   };
 }
 
@@ -449,7 +467,10 @@ function frontierFrom(
  * trigger, and saying otherwise would send a
  * person looking for code to write.
  */
-export function lineOf(node: WorkflowNode, drawing: Drawing): string {
+export function lineOf(
+  node: WorkflowNode,
+  drawing: Pick<Drawing, 'labels' | 'unassigned'>,
+): string {
   if (node.handler !== undefined) return `ƒ ${node.handler.export}`;
 
   const label = drawing.labels[node.kind];

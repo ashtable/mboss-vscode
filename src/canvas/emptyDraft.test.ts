@@ -44,6 +44,7 @@ const drawing = {
     NODE_PALETTE.map((entry) => [entry.kind, entry.label]),
   ) as Record<NodeKind, string>,
   unassigned: 'unassigned',
+  runningDerived: 'RUNNING · derived',
 };
 
 describe('an empty draft', () => {

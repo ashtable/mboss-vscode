@@ -81,11 +81,11 @@ body {
 /* — the banner — */
 
 .recovered {
-  background: var(--brand-tint);
+  background: var(--warn-tint);
 }
 
 .recovered > .eyebrow {
-  color: var(--brand);
+  color: var(--warn);
   margin-bottom: var(--space-2);
 }
 
@@ -153,7 +153,7 @@ body {
   font-size: var(--text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--brand);
+  color: var(--warn);
 }
 
 /* — the chart — */
@@ -221,7 +221,7 @@ body {
   inset-block: 0;
   background: var(--hatch);
   border-left: 1px dashed var(--fail);
-  border-right: 1px dashed var(--brand);
+  border-right: 1px dashed var(--warn);
 }
 
 .bar {
@@ -235,7 +235,7 @@ body {
    again. */
 .bar[data-restored='true'] {
   background: transparent;
-  border: 1px solid var(--brand);
+  border: 1px solid var(--warn);
 }
 
 .bar[data-failed='true'] {
@@ -271,7 +271,7 @@ body {
 }
 
 .band-labels > .resumed {
-  color: var(--brand);
+  color: var(--warn);
 }
 
 .ticks {

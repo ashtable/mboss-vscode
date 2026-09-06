@@ -1120,14 +1120,33 @@ test.describe('the mark a run leaves on a block', () => {
     await expect(mark).toHaveCSS('color', 'rgb(238, 93, 104)');
   });
 
-  test('turns a mark on the block a run is parked at', async ({ page }) => {
+  test('leaves a hollow dot where a run is parked', async ({ page }) => {
     await openAtRest(page, { run: runOf(PARKED, 'waiting') });
 
     const mark = runMark(page, 'await_reply');
 
-    await expect(mark).toHaveText('↻');
-    await expect(mark).toHaveCSS('color', 'rgb(233, 162, 59)');
-    await expect(mark).toHaveCSS('animation-name', 'sig-spin');
+    // Hollow rather than filled, and still rather
+    // than turning: nothing is happening at this
+    // block, which is exactly what a spinner would
+    // deny.
+    await expect(mark).toBeEmpty();
+    await expect(mark).toHaveCSS('width', '8px');
+    await expect(mark).toHaveCSS('height', '8px');
+    await expect(mark).toHaveCSS('border-color', 'rgb(233, 162, 59)');
+    await expect(mark).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(mark).toHaveCSS('animation-name', 'none');
+  });
+
+  /** The dot is worked out from the ledger rather
+   *  than read off it, and every derived thing in
+   *  this extension says so. */
+  test('says the running dot is derived, not recorded', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    await expect(runMark(page, 'twilio_chat')).toHaveAttribute(
+      'title',
+      canvasStrings.runningDerived,
+    );
   });
 
   /** The mark is the run's, so a canvas nobody is

@@ -37,6 +37,7 @@ export const canvasWords: CanvasStrings = {
   lib: '/lib · from manifest',
   noLib: 'No code-behind has been scanned yet.',
   unassigned: 'unassigned',
+  runningDerived: 'RUNNING · derived',
   typedWiring: 'Typed wiring',
   arrange: 'Arrange',
   libFnDragging: 'dragging {0}…',
@@ -231,7 +232,7 @@ export const sidebarWords: SidebarStrings = {
 export const runsWords: RunsStrings = {
   heading: 'Runs',
   filters: { all: 'All', failed: 'Failed', recovered: 'Recovered' },
-  recoveredTag: 'recovered ✓',
+  recoveredTag: '↻ recovered',
   untrusted:
     'Reading a run history opens a database this folder names, so it waits until you trust this window.',
   noProject: 'Open an mBoss project to see how its runs went.',

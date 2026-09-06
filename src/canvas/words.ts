@@ -114,6 +114,13 @@ export const canvasWords = once(() => ({
   // is lowercase and why it is one word.
   unassigned: l10n.t('unassigned'),
 
+  // On the dot at the block a run is at. The dot
+  // says nothing on its own, and where it is drawn
+  // is worked out from the rows either side of it
+  // rather than read off a row of its own — which
+  // is the second half of the sentence.
+  runningDerived: l10n.t('RUNNING · derived'),
+
   typedWiring: l10n.t('Typed wiring'),
 
   // The toolbar's own word for what the palette

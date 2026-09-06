@@ -188,6 +188,19 @@ async function showRun(page: Page, init: SeeInit): Promise<Harness> {
   return harness;
 }
 
+/** The warn colour, as the light theme resolves it.
+ *  Recovery is drawn in it wherever it is drawn. */
+const WARN = 'rgb(233, 162, 59)';
+
+/** The tint of it a whole surface is washed in. */
+const WARN_TINT = 'color(srgb 0.964314 0.925333 0.868784)';
+
+function tagColour(page: Page, runId: string): Promise<string> {
+  return page
+    .locator(`[data-run="${runId}"] .run-tag`)
+    .evaluate((node) => getComputedStyle(node).color);
+}
+
 test.describe('the local stack', () => {
   test('draws a row per service and names the one about to run', async ({
     page,
@@ -745,12 +758,12 @@ test.describe('the run list', () => {
 
     const recovered = page.locator('[data-run="wf_c9d2f3"]');
     await expect(recovered).toHaveAttribute('data-recovered', 'true');
-    await expect(recovered).toContainText('recovered ✓');
+    await expect(recovered).toContainText('↻ recovered');
     await expect(recovered).toContainText('14:02 · 8.2 s');
 
     const plain = page.locator('[data-run="wf_a1b4e7"]');
     await expect(plain).toHaveAttribute('data-recovered', 'false');
-    await expect(plain).not.toContainText('recovered ✓');
+    await expect(plain).not.toContainText('↻ recovered');
 
     const failed = page.locator('[data-run="wf_77c101"]');
     await expect(failed).toHaveAttribute('data-severity', 'failed');
@@ -761,6 +774,13 @@ test.describe('the run list', () => {
    * The accent rule is the one ornament on a row, so
    * it has to be a rule a person can see and not
    * just an attribute a test can read.
+   *
+   * Recovery is drawn in the warn colour and not in
+   * the brand one, everywhere it is drawn: a run
+   * DBOS picked back up is a thing that happened to
+   * the run, and the brand colour means a person or
+   * the product did this. The literal is the light
+   * theme's, which is what the harness mounts.
    */
   test('rules the edge of a recovered row in the accent', async ({ page }) => {
     await showList(page, runsInit());
@@ -773,7 +793,8 @@ test.describe('the run list', () => {
       .evaluate((node) => getComputedStyle(node).borderLeftColor);
 
     expect(edge).not.toBe(plain);
-    expect(edge).not.toContain('rgba(0, 0, 0, 0)');
+    expect(edge).toBe(WARN);
+    expect(await tagColour(page, 'wf_c9d2f3')).toBe(WARN);
   });
 
   /**
@@ -866,6 +887,11 @@ test.describe('one run in detail', () => {
     const banner = page.locator('[data-recovered-banner]');
     await expect(banner).toContainText('exactly-once held');
     await expect(banner).toContainText('2 steps came back');
+
+    // Washed in the warn colour, like every other
+    // surface that says a run was picked back up.
+    await expect(banner).toHaveCSS('background-color', WARN_TINT);
+    await expect(banner.locator('.eyebrow')).toHaveCSS('color', WARN);
   });
 
   test('draws no banner over a run that never crashed', async ({ page }) => {
@@ -995,6 +1021,13 @@ test.describe('one run in detail', () => {
         .evaluate((node) => getComputedStyle(node).backgroundColor);
 
     expect(await fill(0)).not.toBe(await fill(2));
+
+    // Hollow, and edged in the recovery colour
+    // rather than the brand one.
+    await expect(page.locator('[data-bar="0"]')).toHaveCSS(
+      'border-top-color',
+      WARN,
+    );
   });
 
   /**

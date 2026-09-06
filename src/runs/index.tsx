@@ -35,7 +35,7 @@ import './runs.css';
  *  the extension would have to ship. */
 const MARKS: Record<RunRow['severity'], string> = {
   ok: '✓',
-  running: '◐',
+  running: '●',
   failed: '✕',
   exhausted: '⊘',
 };
@@ -53,10 +53,10 @@ const STEP_MARKS: Record<StepState, string> = {
  *  step marks above: this is a whole run, and
  *  `quiet` is a state no step ever carries. */
 const SESSION_MARKS: Record<SessionRow['outcome'], string> = {
-  running: '◐',
+  running: '●',
   done: '✓',
   failed: '✕',
-  waiting: '◑',
+  waiting: '◐',
   quiet: '○',
 };
 

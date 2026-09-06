@@ -486,8 +486,12 @@ body {
   background: var(--brand-tint);
 }
 
+/* Recovery is a thing that happened to the run,
+   not something a person or the product did, so it
+   is drawn in the warn colour and never in the
+   brand one. */
 .run-row[data-recovered='true'] {
-  border-left-color: var(--brand);
+  border-left-color: var(--warn);
 }
 
 .run-line {
@@ -527,7 +531,7 @@ body {
   font-size: var(--text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--brand);
+  color: var(--warn);
   white-space: nowrap;
 }
 
