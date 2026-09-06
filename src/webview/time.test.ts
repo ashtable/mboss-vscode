@@ -20,18 +20,25 @@ import { fine } from './time.js';
  * so a webview bundle could not carry it.
  */
 describe('a recorded moment', () => {
-  it('formats a moment to the millisecond', () => {
-    const at = Date.UTC(2026, 1, 18, 14, 2, 19, 240);
-    const drawn = fine(at);
+  const AT = Date.UTC(2026, 1, 18, 14, 2, 19, 240);
 
-    expect(drawn).toContain(
-      new Date(at).toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      }),
-    );
-    expect(drawn).toMatch(/\.\d{3}$/);
+  it('formats a moment to the millisecond', () => {
+    expect(fine(AT)).toMatch(/\d{2}:\d{2}:\d{2}\.240/);
+  });
+
+  /**
+   * The fraction belongs to the seconds rather than
+   * being stuck on the end of the string. Only a
+   * 12-hour locale can show the difference — one
+   * that writes the clock and nothing after it
+   * draws both forms identically — so the case
+   * names its locales instead of taking the
+   * reader's, which would leave it unable to fail
+   * on half the machines it runs on.
+   */
+  it('keeps the milliseconds on the seconds', () => {
+    expect(fine(AT, 'en-US')).toMatch(/^\d{2}:\d{2}:\d{2}\.240\s(AM|PM)$/);
+    expect(fine(AT, 'en-GB')).toMatch(/^\d{2}:\d{2}:\d{2}\.240$/);
   });
 
   /**

@@ -673,7 +673,7 @@ describe('one run, as the run page draws it', () => {
     expect(first?.qualifier).toBeUndefined();
     expect(first?.operations).toHaveLength(1);
     expect(first?.operations[0]?.owner).toBe('node');
-    expect(first?.operations[0]?.at).toMatch(/\.\d{3}$/);
+    expect(first?.operations[0]?.at).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3}/);
   });
 
   /**

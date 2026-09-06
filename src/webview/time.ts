@@ -19,15 +19,21 @@
  * within a few milliseconds of each other, and a
  * trace timed to the second is a column of
  * identical strings.
+ *
+ * It is asked for as part of the clock rather than
+ * appended to it, because where the rest of the
+ * clock goes is the locale's business: a 12-hour
+ * one writes the meridiem last, and a fraction
+ * stuck on the end of that reads `02:02:19 PM.240`.
+ *
+ * The locale is the reader's unless a caller names
+ * one.
  */
-export function fine(epoch: number): string {
-  const at = new Date(epoch);
-
-  const clock = at.toLocaleTimeString(undefined, {
+export function fine(epoch: number, locale?: string): string {
+  return new Date(epoch).toLocaleTimeString(locale, {
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
+    fractionalSecondDigits: 3,
   });
-
-  return `${clock}.${String(at.getMilliseconds()).padStart(3, '0')}`;
 }
