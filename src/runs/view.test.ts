@@ -613,6 +613,7 @@ describe('one run, as the run page draws it', () => {
     const shown = page({ selectedNode: 'find_slot', following: 'following' });
 
     expect(shown.graph?.caption).toBe('workflow as saved · revision 4');
+    expect(shown.noGraph).toBeUndefined();
     expect(shown.graph?.ir.name).toBe('groom_booking');
     expect(shown.groups.map((group) => group.nodeId)).toEqual([
       'parse_request',
@@ -644,6 +645,9 @@ describe('one run, as the run page draws it', () => {
     const shown = page({ ir: undefined, boxes: undefined });
 
     expect(shown.graph).toBeUndefined();
+    expect(shown.noGraph).toBe(
+      'no saved workflow named groom_booking · trace only',
+    );
     expect(shown.groups).toHaveLength(1);
     expect(shown.groups[0]?.operations).toHaveLength(2);
     expect(shown.groups[0]?.nodeId).toBeUndefined();

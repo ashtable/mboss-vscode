@@ -468,7 +468,7 @@ function RunGraph({
   if (graph === undefined || drawn === undefined) {
     return (
       <p className="state" data-graph-caption>
-        {strings.unattributed}
+        {run.noGraph}
       </p>
     );
   }

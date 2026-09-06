@@ -547,6 +547,17 @@ export type SeeRun = {
    */
   graph: SeeGraph | undefined;
 
+  /**
+   * Why there is no picture, where there is none.
+   *
+   * Set exactly where `graph` is not. A pane that
+   * drew nothing and said nothing about why looks
+   * broken — and what is missing is the whole
+   * document, which is different news from one
+   * block of it being gone.
+   */
+  noGraph: string | undefined;
+
   /** The run itself, as the canvas reads one: what
    *  state each block is in, and where the frontier
    *  is. The graph is the document; this is the run

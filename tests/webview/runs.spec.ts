@@ -121,6 +121,10 @@ function runsInit(over: Partial<RunsInit> = {}): RunsInit {
 
 const STEP_NAMES = ['parse_request', 'find_slot', 'book_appointment'];
 
+/** What the host says over a run whose workflow the
+ *  project no longer has. */
+const NO_SAVED_WORKFLOW = 'no saved workflow named groom_booking · trace only';
+
 function seeRun(over: Partial<SeeRun> = {}): SeeRun {
   return {
     workflowId: 'wf_c9d2f3',
@@ -177,6 +181,10 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     selectedStep: 2,
     note: undefined,
     graph: undefined,
+    // Set to match, the way the host sets it: the
+    // sentence is there exactly where the picture
+    // is not.
+    noGraph: over.graph === undefined ? NO_SAVED_WORKFLOW : undefined,
     live: liveRun({
       workflowId: 'wf_c9d2f3',
       workflow: 'groom_booking',
@@ -1417,7 +1425,7 @@ test.describe('one run, as a graph', () => {
 
     await expect(page.locator('[data-run-node]')).toHaveCount(0);
     await expect(page.locator('[data-graph-caption]')).toHaveText(
-      seeStrings.unattributed,
+      NO_SAVED_WORKFLOW,
     );
   });
 

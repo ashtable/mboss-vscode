@@ -164,6 +164,7 @@ function seeRun(view: SeeView): SeeRun {
   const { run, steps } = view;
   const timeline = runTimeline(run, steps);
   const operations = operationsOf(run, steps, view.ir);
+  const graph = graphOf(view, operations);
 
   // The chart and the strip above it are about what
   // the workflow did, so the SDK's own rows are not
@@ -194,7 +195,11 @@ function seeRun(view: SeeView): SeeRun {
     rail: railOf(run),
     selectedStep: view.selectedStep,
     note: view.note,
-    graph: graphOf(view, operations),
+    graph,
+    // Decided by the same call, so the sentence is
+    // there exactly when the picture is not.
+    noGraph:
+      graph === undefined ? messages.runGraphMissing(run.name) : undefined,
     live: toLiveRun(run, steps, hasRecovered(run)),
     groups: groupsOf(operations, { timing: view.timing ?? false }).map(
       (group) => groupOf(group, view),
