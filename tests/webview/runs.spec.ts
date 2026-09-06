@@ -1483,6 +1483,86 @@ test.describe('one run, as a graph', () => {
     );
   });
 
+  test('tones every block by what the run did there', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(seeRun({ graph: RUNNING_GRAPH, live: RUNNING }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    await expect(
+      page.locator('[data-run-node="parse_request"]'),
+    ).toHaveAttribute('data-state', 'done');
+    await expect(page.locator('[data-run-node="find_slot"]')).toHaveAttribute(
+      'data-state',
+      'failed',
+    );
+    await expect(page.locator('[data-run-node="await_reply"]')).toHaveAttribute(
+      'data-state',
+      'waiting',
+    );
+  });
+
+  /**
+   * Where a run is *now* is in no column: it is
+   * worked out from the last block that recorded
+   * anything, so the block it lights says `derived`
+   * on the mark itself. And only the arm the branch
+   * is recorded as having taken is lit — the other
+   * is somewhere the run demonstrably did not go.
+   */
+  test('lights where the run is now, and says it was derived', async ({
+    page,
+  }) => {
+    await showRun(
+      page,
+      seeInit(seeRun({ graph: RUNNING_GRAPH, live: RUNNING }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    const ahead = page.locator('[data-run-node="charge_it"]');
+    await expect(ahead).toHaveAttribute('data-state', 'running');
+    await expect(ahead.locator('.node-run')).toHaveAttribute(
+      'title',
+      seeStrings.derived,
+    );
+
+    await expect(page.locator('[data-run-node="refund_it"]')).toHaveAttribute(
+      'data-state',
+      'dormant',
+    );
+  });
+
+  /**
+   * The block a person picked reads as picked on
+   * both views of the run at once: the group in the
+   * trace, and the block that group belongs to on
+   * the graph.
+   */
+  test('halos the block whose group is picked', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: RUNNING_GRAPH,
+          live: RUNNING,
+          groups: GROUPS,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+        'graph',
+      ),
+    );
+    await graphAtRest(page);
+
+    await expect(page.locator('[data-run-node="find_slot"]')).toHaveAttribute(
+      'data-state',
+      'selected',
+    );
+    await expect(
+      page.locator('[data-trace-group="find_slot"]'),
+    ).toHaveAttribute('aria-current', 'true');
+  });
+
   test('hands the block somebody clicked to the extension', async ({
     page,
   }) => {
@@ -1675,6 +1755,118 @@ const GRAPH: SeeGraph = {
   caption: 'workflow as saved · revision 4',
   decided: {},
 };
+
+/**
+ * The same run, still going, on a workflow that
+ * branches.
+ *
+ * Four things are true of it at once and each is
+ * drawn differently: one block finished, one threw,
+ * one is parked on a person, and one is where the
+ * run is *now* — which the ledger does not record
+ * and the page therefore works out.
+ */
+const RUNNING_GRAPH: SeeGraph = {
+  ir: {
+    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+    version: 1,
+    revision: 4,
+    name: 'groom_booking',
+    nodes: [
+      { id: 'parse_request', kind: 'step', title: 'Parse', config: {} },
+      { id: 'find_slot', kind: 'step', title: 'Find a slot', config: {} },
+      {
+        id: 'await_reply',
+        kind: 'durableWait',
+        title: 'Ask',
+        config: {
+          source: { kind: 'form', email: 'parse_request' },
+          onTimeout: 'abort',
+        },
+      },
+      {
+        id: 'how_big',
+        kind: 'branch',
+        title: 'How big',
+        config: {
+          cases: [
+            { port: 'large', when: { path: 'amount', op: 'gt', value: 500 } },
+          ],
+          elsePort: 'small',
+        },
+      },
+      { id: 'charge_it', kind: 'step', title: 'Charge it', config: {} },
+      { id: 'refund_it', kind: 'step', title: 'Refund it', config: {} },
+    ],
+    edges: [
+      {
+        id: 'e1',
+        from: { node: 'parse_request', port: 'out' },
+        to: { node: 'find_slot' },
+      },
+      {
+        id: 'e2',
+        from: { node: 'find_slot', port: 'out' },
+        to: { node: 'await_reply' },
+      },
+      {
+        id: 'e3',
+        from: { node: 'await_reply', port: 'out' },
+        to: { node: 'how_big' },
+      },
+      {
+        id: 'e4',
+        from: { node: 'how_big', port: 'large' },
+        to: { node: 'charge_it' },
+      },
+      {
+        id: 'e5',
+        from: { node: 'how_big', port: 'small' },
+        to: { node: 'refund_it' },
+      },
+    ],
+  } as unknown as SeeGraph['ir'],
+  boxes: {
+    parse_request: { x: 0, y: 0, w: 230, h: 64 },
+    find_slot: { x: 0, y: 160, w: 230, h: 64 },
+    await_reply: { x: 0, y: 320, w: 230, h: 64 },
+    how_big: { x: 0, y: 480, w: 230, h: 64 },
+    charge_it: { x: -160, y: 640, w: 230, h: 64 },
+    refund_it: { x: 160, y: 640, w: 230, h: 64 },
+  },
+  labels: paletteLabels,
+  unassigned: 'unassigned',
+  caption: 'workflow as saved · revision 4',
+  // The arm the run is recorded as having taken.
+  // The other one is somewhere it demonstrably did
+  // not go.
+  decided: { how_big: 'large' },
+};
+
+/** What the ledger holds for that run: the last row
+ *  is the block it parked on, which is where the
+ *  walk to the frontier starts. */
+const RUNNING = liveRun({
+  workflowId: 'wf_c9d2f3',
+  workflow: 'groom_booking',
+  status: 'PENDING',
+  outcome: 'running',
+  steps: [
+    liveStep({ name: 'parse_request', nodeId: 'parse_request' }),
+    liveStep({
+      name: 'find_slot',
+      nodeId: 'find_slot',
+      state: 'failed',
+      functionId: 1,
+    }),
+    liveStep({
+      name: 'await_reply.register',
+      nodeId: 'await_reply',
+      state: 'waiting',
+      functionId: 2,
+    }),
+  ],
+});
 
 const GROUPS: TraceGroupView[] = [
   {
