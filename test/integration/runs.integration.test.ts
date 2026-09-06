@@ -64,6 +64,11 @@ const SYSTEM_DATABASE_URL = `${SERVER}/${DATABASE}`;
 const OK_RUN = 'itest_ok';
 const FAILED_RUN = 'itest_failed';
 const RECOVERED_RUN = 'itest_recovered';
+const BOOKED_RUN = 'itest_booked';
+
+/** What the ingress a generated project ships
+ *  hands a workflow: one object, positionally. */
+const BOOKING = { email: 'ada@example.com', slot: '09:00' };
 
 /** Two steps that return, so a run has a ledger to
  *  be restored from. */
@@ -94,6 +99,32 @@ const stumble = DBOS.registerWorkflow(
     );
   },
   { name: 'stumble' },
+);
+
+/**
+ * One argument and one named failure, which is the
+ * shape a generated workflow and its handlers
+ * actually have.
+ *
+ * Started the way the scaffold's ingress starts one
+ * — `DBOS.startWorkflow(fn, { workflowID })(payload)`
+ * — rather than through `withNextWorkflowID`,
+ * because what is being checked here is the
+ * `inputs` column, and the two start paths are the
+ * two ways an argument reaches it.
+ */
+const book = DBOS.registerWorkflow(
+  async (event: { email: string; slot: string }): Promise<void> => {
+    await DBOS.runStep(
+      async () => {
+        const taken = new Error(`the ${event.slot} slot is taken`);
+        taken.name = 'SlotTaken';
+        throw taken;
+      },
+      { name: 'find_slot', retriesAllowed: false },
+    );
+  },
+  { name: 'book' },
 );
 
 async function onMaintenanceServer(sql: string): Promise<void> {
@@ -151,6 +182,11 @@ describe('a run history, read from a real dbos schema', () => {
     await expect(
       DBOS.withNextWorkflowID(FAILED_RUN, async () => stumble()),
     ).rejects.toThrow();
+
+    const booking = await DBOS.startWorkflow(book, {
+      workflowID: BOOKED_RUN,
+    })(BOOKING);
+    await expect(booking.getResult()).rejects.toThrow();
 
     // The one hand-written statement here. A crash
     // that DBOS really recovered from would mean
@@ -218,11 +254,12 @@ describe('a run history, read from a real dbos schema', () => {
     const list = store.list();
     expect(list.state).toBe('ok');
     expect(list.rows.map((row) => row.workflowId).sort()).toEqual([
+      BOOKED_RUN,
       FAILED_RUN,
       OK_RUN,
       RECOVERED_RUN,
     ]);
-    expect(list.counts).toEqual({ all: 3, failed: 1, recovered: 1 });
+    expect(list.counts).toEqual({ all: 4, failed: 2, recovered: 1 });
   });
 
   /**
@@ -264,6 +301,27 @@ describe('a run history, read from a real dbos schema', () => {
   });
 
   /**
+   * The `inputs` column and the stored error, read
+   * back through the extension's own decoders
+   * against bytes the SDK itself wrote. Both shapes
+   * are the SDK's rather than the ingress's, and a
+   * fixture could assert neither.
+   */
+  it('reads what a run was started with, and what its step threw', async () => {
+    await store.refresh();
+    await store.select(BOOKED_RUN);
+
+    const detail = store.detail();
+
+    expect(detail?.run.input).toEqual({ shape: 'payload', value: BOOKING });
+
+    const failure = detail?.steps[0]?.failure;
+    expect(failure?.name).toBe('SlotTaken');
+    expect(failure?.message).toContain('09:00 slot is taken');
+    expect(failure?.stack).toContain('SlotTaken');
+  });
+
+  /**
    * A run can match two filters at once — recovering
    * is something that happened during a run, not a
    * way one ended — so the counts do not add up and
@@ -271,9 +329,12 @@ describe('a run history, read from a real dbos schema', () => {
    */
   it('filters on what the database itself calls failed', async () => {
     await store.setFilter('failed');
-    expect(store.list().rows.map((row) => row.workflowId)).toEqual([
-      FAILED_RUN,
-    ]);
+    expect(
+      store
+        .list()
+        .rows.map((row) => row.workflowId)
+        .sort(),
+    ).toEqual([BOOKED_RUN, FAILED_RUN]);
 
     await store.setFilter('recovered');
     expect(store.list().rows.map((row) => row.workflowId)).toEqual([
@@ -281,7 +342,7 @@ describe('a run history, read from a real dbos schema', () => {
     ]);
 
     await store.setFilter('all');
-    expect(store.list().rows).toHaveLength(3);
+    expect(store.list().rows).toHaveLength(4);
   });
 
   /**

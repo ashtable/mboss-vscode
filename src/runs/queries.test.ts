@@ -1,8 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
+import { SDK_OPERATIONS } from '../core/rules.js';
+
 import {
+  ALL_QUERIES,
   FAILED_STATUSES,
   MAX_RUNS,
+  RUN_COLUMNS,
   RUN_FILTERS,
   countsQuery,
   latestRunQuery,
@@ -26,14 +30,6 @@ import { FIRST_DISPATCH } from './rows.js';
 /** Epoch milliseconds, which is what
  *  `created_at` holds. */
 const SOME_MOMENT = 1_767_268_800_000;
-
-const ALL_QUERIES = [
-  ...RUN_FILTERS.map((filter) => runsQuery(filter, MAX_RUNS)),
-  countsQuery(),
-  runQuery('wf_c9d2f3'),
-  stepsQuery('wf_c9d2f3'),
-  latestRunQuery('counter', SOME_MOMENT),
-];
 
 describe('every statement', () => {
   it('only ever reads', () => {
@@ -102,8 +98,8 @@ describe('the run list', () => {
     const query = runsQuery('all', MAX_RUNS);
 
     expect(query.text).toContain('ORDER BY created_at DESC');
-    expect(query.text).toContain('LIMIT $1');
-    expect(query.values).toEqual([MAX_RUNS]);
+    expect(query.text).toContain(`LIMIT $${query.values.length}`);
+    expect(query.values.at(-1)).toBe(MAX_RUNS);
   });
 
   /**
@@ -121,8 +117,11 @@ describe('the run list', () => {
 
     const query = runsQuery('failed', MAX_RUNS);
 
-    expect(query.text).toContain('WHERE status = ANY($1)');
-    expect(query.values).toEqual([FAILED_STATUSES, MAX_RUNS]);
+    // Third and fourth, not first and second: the
+    // exclusion the summary columns bind sits in
+    // the SELECT list, ahead of the WHERE clause.
+    expect(query.text).toContain('WHERE status = ANY($3)');
+    expect(query.values.slice(2)).toEqual([FAILED_STATUSES, MAX_RUNS]);
   });
 
   /**
@@ -140,8 +139,8 @@ describe('the run list', () => {
   it('discounts the dispatch every run already has', () => {
     const query = runsQuery('recovered', MAX_RUNS);
 
-    expect(query.text).toContain('WHERE recovery_attempts > $1');
-    expect(query.values).toEqual([FIRST_DISPATCH, MAX_RUNS]);
+    expect(query.text).toContain('WHERE recovery_attempts > $3');
+    expect(query.values.slice(2)).toEqual([FIRST_DISPATCH, MAX_RUNS]);
     expect(FIRST_DISPATCH).toBe(1);
   });
 
@@ -225,6 +224,66 @@ describe('one run', () => {
       'serialization',
     ]) {
       expect(stepsQuery('wf_c9d2f3').text).toContain(column);
+    }
+  });
+});
+
+describe('the run list', () => {
+  /**
+   * A row says what the run last did of its own,
+   * and that is a column of the other table. Asked
+   * for as a correlated scalar rather than as a
+   * join, because a join would multiply the run out
+   * by its operations and the list would then have
+   * to fold it back up.
+   */
+  it('names the last operation a run recorded of its own', () => {
+    const text = runsQuery('all', MAX_RUNS).text;
+
+    expect(text).toContain('last_operation');
+    expect(text).toContain('last_operation_at');
+    expect(text).toContain('operation_count');
+    expect(text).toContain('dbos.operation_outputs');
+  });
+
+  /**
+   * `of its own` is the whole point: every row DBOS
+   * writes for itself is left out, so the summary
+   * names a block rather than a primitive. The
+   * prefixed ones go by a `LIKE`; the un-prefixed
+   * ones are named, and this holds that list equal
+   * to the compiler's own set rather than to a
+   * literal written twice.
+   */
+  it('leaves out the bookkeeping DBOS records for itself', () => {
+    const query = runsQuery('all', MAX_RUNS);
+    const unprefixed = [...SDK_OPERATIONS].filter(
+      (name) => !name.startsWith('DBOS.'),
+    );
+
+    expect(query.text).toContain('function_name NOT LIKE');
+    expect(query.text).toContain('function_name <> ALL(');
+    expect(query.values).toContain('DBOS.%');
+    expect(query.values).toContainEqual(unprefixed);
+    expect(unprefixed).toEqual(['getStatus']);
+  });
+});
+
+describe('one run', () => {
+  /**
+   * The whole argument array a run was started
+   * with, and only where one run is being read: on
+   * the list it would be fifty of them for a column
+   * no row draws.
+   */
+  it('reads the input only where a single run is being read', () => {
+    expect(runQuery('wf_c9d2f3').text).toContain('inputs');
+    expect(runsQuery('all', MAX_RUNS).text).not.toContain('inputs');
+  });
+
+  it('reads the columns that say where a run came from', () => {
+    for (const column of ['forked_from', 'was_forked_from']) {
+      expect(RUN_COLUMNS).toContain(column);
     }
   });
 });

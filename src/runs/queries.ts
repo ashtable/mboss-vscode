@@ -18,6 +18,8 @@
  * against a schema DBOS itself created.
  */
 
+import { SDK_OPERATIONS } from '../core/rules.js';
+
 import { FIRST_DISPATCH } from './rows.js';
 
 /** A statement and the values it is given. */
@@ -60,7 +62,14 @@ export const FAILED_STATUSES = [
   'MAX_RECOVERY_ATTEMPTS_EXCEEDED',
 ] as const;
 
-const RUN_COLUMNS = [
+/**
+ * What every read of a run selects.
+ *
+ * An array rather than a joined string, because the
+ * one-run read appends a column the list must not
+ * ask for.
+ */
+export const RUN_COLUMNS: readonly string[] = [
   'workflow_uuid',
   'name',
   'status',
@@ -72,7 +81,29 @@ const RUN_COLUMNS = [
   'completed_at',
   'error',
   'serialization',
-].join(', ');
+  'forked_from',
+  'was_forked_from',
+];
+
+/**
+ * Every operation name DBOS writes for itself,
+ * split the two ways it has to be matched.
+ *
+ * Almost all of them carry the `DBOS.` prefix and
+ * go by a pattern, so a primitive a later SDK adds
+ * is already excluded. `getStatus` is the odd one
+ * out — recorded without the prefix, and read
+ * syntactically a plausible block name — so it is
+ * named. Taken from the compiler's own set rather
+ * than written here, which is what makes a new
+ * un-prefixed name a failing test rather than a row
+ * quietly attributed to a block.
+ */
+const SDK_PREFIX_PATTERN = 'DBOS.%';
+
+const SDK_UNPREFIXED = [...SDK_OPERATIONS].filter(
+  (name) => !name.startsWith('DBOS.'),
+);
 
 const STEP_COLUMNS = [
   'function_id',
@@ -96,15 +127,53 @@ const STEP_COLUMNS = [
  * otherwise.
  */
 export function runsQuery(filter: RunFilter, limit: number): Query {
-  const where = whereFor(filter);
+  // The two exclusion binds are $1 and $2 because
+  // they are in the SELECT list, which comes before
+  // the WHERE clause — so the filter and the limit
+  // shift along behind them.
+  const where = whereFor(filter, 3);
+  const limitAt = 3 + where.values.length;
 
   return {
     text:
-      `SELECT ${RUN_COLUMNS} FROM dbos.workflow_status ` +
-      `${where.text}ORDER BY created_at DESC LIMIT $${where.values.length + 1}`,
-    values: [...where.values, limit],
+      `SELECT ${RUN_COLUMNS.join(', ')}, ` +
+      `${ownOperation('function_name')} AS last_operation, ` +
+      `${ownOperation('completed_at_epoch_ms')} AS last_operation_at, ` +
+      `${ownOperationCount()} AS operation_count ` +
+      'FROM dbos.workflow_status s ' +
+      `${where.text}ORDER BY created_at DESC LIMIT $${limitAt}`,
+    values: [SDK_PREFIX_PATTERN, SDK_UNPREFIXED, ...where.values, limit],
   };
 }
+
+/**
+ * One column of the last row this run recorded of
+ * its own.
+ *
+ * A correlated scalar rather than a join: a join
+ * would multiply each run out by its operations and
+ * the list would have to fold it back up. Ordered
+ * by `function_id` and never by time, for the same
+ * reason the step read is — a restored row keeps
+ * the timestamps it was first written with.
+ */
+function ownOperation(column: string): string {
+  return (
+    `(SELECT o.${column} FROM dbos.operation_outputs o ` +
+    `WHERE ${OWN_ROWS} ORDER BY o.function_id DESC LIMIT 1)`
+  );
+}
+
+function ownOperationCount(): string {
+  return `(SELECT count(*) FROM dbos.operation_outputs o WHERE ${OWN_ROWS})`;
+}
+
+/** This run's rows, minus everything DBOS records
+ *  for itself. */
+const OWN_ROWS =
+  'o.workflow_uuid = s.workflow_uuid ' +
+  'AND o.function_name NOT LIKE $1 ' +
+  'AND o.function_name <> ALL($2)';
 
 /**
  * All three numbers over the segmented control, in
@@ -126,12 +195,18 @@ export function countsQuery(): Query {
   };
 }
 
-/** One run, by the id on its row. */
+/**
+ * One run, by the id on its row.
+ *
+ * The only read that asks for `inputs`. On the list
+ * it would be fifty runs' whole argument arrays for
+ * a column no row draws.
+ */
 export function runQuery(workflowId: string): Query {
   return {
     text:
-      `SELECT ${RUN_COLUMNS} FROM dbos.workflow_status ` +
-      'WHERE workflow_uuid = $1',
+      `SELECT ${[...RUN_COLUMNS, 'inputs'].join(', ')} ` +
+      'FROM dbos.workflow_status WHERE workflow_uuid = $1',
     values: [workflowId],
   };
 }
@@ -176,10 +251,17 @@ export function stepsQuery(workflowId: string): Query {
   };
 }
 
-/** The clause one filter adds, and what it binds. */
-function whereFor(filter: RunFilter): { text: string; values: unknown[] } {
+/** The clause one filter adds, what it binds, and
+ *  the placeholder it starts numbering from. */
+function whereFor(
+  filter: RunFilter,
+  from: number,
+): { text: string; values: unknown[] } {
   if (filter === 'failed') {
-    return { text: 'WHERE status = ANY($1) ', values: [FAILED_STATUSES] };
+    return {
+      text: `WHERE status = ANY($${from}) `,
+      values: [FAILED_STATUSES],
+    };
   }
 
   // Greater than the first dispatch, not greater
@@ -187,10 +269,28 @@ function whereFor(filter: RunFilter): { text: string; values: unknown[] } {
   // every run in the database has at least one.
   if (filter === 'recovered') {
     return {
-      text: 'WHERE recovery_attempts > $1 ',
+      text: `WHERE recovery_attempts > $${from} `,
       values: [FIRST_DISPATCH],
     };
   }
 
   return { text: '', values: [] };
 }
+
+/**
+ * Every statement this module composes.
+ *
+ * Written out by hand and exported, so the rules
+ * that hold of all of them — read-only, DBOS's own
+ * schema, every value bound, placeholders matching
+ * values — are checked over a list a new statement
+ * has to be added to rather than over whatever a
+ * spec happened to remember.
+ */
+export const ALL_QUERIES: readonly Query[] = [
+  ...RUN_FILTERS.map((filter) => runsQuery(filter, MAX_RUNS)),
+  countsQuery(),
+  runQuery('wf_c9d2f3'),
+  stepsQuery('wf_c9d2f3'),
+  latestRunQuery('groom_booking', 0),
+];

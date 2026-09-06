@@ -124,8 +124,15 @@ export function database(): Database & {
       state.asked.push(text);
 
       if (state.fail !== undefined) throw new Error(state.fail);
-      if (text.includes('count(*)')) return [COUNTS_ROW] as Row[];
-      if (text.includes('operation_outputs')) return [STEP_ROW] as Row[];
+
+      // Told apart by what each one selects rather
+      // than by a fragment somewhere in it: the run
+      // list now counts operations in a correlated
+      // subquery, so both `count(*)` and
+      // `operation_outputs` appear inside a
+      // statement that is neither of these.
+      if (text.startsWith('SELECT count(*)')) return [COUNTS_ROW] as Row[];
+      if (text.startsWith('SELECT function_id')) return [STEP_ROW] as Row[];
 
       return state.rows as Row[];
     },
