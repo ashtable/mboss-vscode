@@ -417,6 +417,99 @@ describe('the state a run puts a block in', () => {
     });
   });
 
+  /**
+   * A branch that recorded a value went one way, and
+   * the ledger says which. Lighting both arms after
+   * that would tell somebody the run might be
+   * somewhere it demonstrably is not.
+   */
+  it('lights one arm of a decision the run has already made', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([
+          ['parse_request', 'done'],
+          ['find_slot', 'done'],
+        ]),
+        decided: new Map([['slot_open', 'yes']]),
+      }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      book_appointment: 'running',
+      twilio_chat: 'dormant',
+    });
+  });
+
+  /**
+   * A branch deciding on predicates in the generated
+   * code writes no row, so nothing knows which way
+   * it went and both arms stay lit.
+   */
+  it('lights both arms of a decision nothing recorded', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([
+          ['parse_request', 'done'],
+          ['find_slot', 'done'],
+        ]),
+      }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      book_appointment: 'running',
+      twilio_chat: 'running',
+    });
+  });
+
+  it('lights the arm a person approved', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([
+          ['parse_request', 'done'],
+          ['find_slot', 'done'],
+        ]),
+        decided: new Map([['slot_open', 'no']]),
+      }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      book_appointment: 'dormant',
+      twilio_chat: 'running',
+    });
+  });
+
+  /**
+   * The rule that keeps a round-one decision out of
+   * round two: nothing names the branch, so both
+   * arms light again. Which round a recorded value
+   * belongs to is settled before the drawing sees
+   * it.
+   */
+  it('lights both arms again on a round the run has not decided', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([
+          ['parse_request', 'done'],
+          ['find_slot', 'done'],
+        ]),
+        decided: new Map([['reply_decision', 'book_it']]),
+      }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      book_appointment: 'running',
+      twilio_chat: 'running',
+    });
+  });
+
   /** Written against a run that stopped in the
    *  middle, because a run that reached the end of
    *  the graph would have nothing ahead of it to get

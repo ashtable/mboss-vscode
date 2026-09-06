@@ -93,6 +93,19 @@ export type Drawing = {
   /** The run this canvas is about, while somebody is
    *  following one of this workflow. */
   run?: LiveRun;
+
+  /**
+   * Which way out each decided block took, where the
+   * ledger says.
+   *
+   * Optional because a canvas with no run has no
+   * decisions, and making every caller pass an empty
+   * map would be noise. Only ever names the round
+   * the run is on — which round a recorded value
+   * belongs to is settled before the drawing sees
+   * it.
+   */
+  decided?: ReadonlyMap<string, string>;
 };
 
 /** What a node component is handed. */
@@ -212,7 +225,7 @@ export function toReactFlow(
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
   const arriving = new Set(drawing.proposed ?? []);
   const ports = new Map(ir.nodes.map((node) => [node.id, portsOf(node)]));
-  const run = tonesOf(ir, drawing.run);
+  const run = tonesOf(ir, drawing.run, drawing.decided ?? new Map());
 
   // Built once and handed to every wire, rather
   // than each of them keeping its own copy of the
@@ -336,7 +349,11 @@ const EDGE_FOR: Record<RunState, EdgeState> = {
  *  recorded. */
 const LOUDNESS: readonly StepState[] = ['done', 'waiting', 'failed'];
 
-function tonesOf(ir: WorkflowIR, run: LiveRun | undefined): RunTones {
+function tonesOf(
+  ir: WorkflowIR,
+  run: LiveRun | undefined,
+  decided: ReadonlyMap<string, string>,
+): RunTones {
   if (run === undefined) return { nodes: new Map(), edges: new Map() };
 
   const recorded = recordedStates(run.steps);
@@ -349,7 +366,7 @@ function tonesOf(ir: WorkflowIR, run: LiveRun | undefined): RunTones {
   // is being told about any more.
   const ahead =
     run.outcome === 'running'
-      ? frontierFrom(ir, run.steps.at(-1)?.nodeId, recorded)
+      ? frontierFrom(ir, run.steps.at(-1)?.nodeId, recorded, decided)
       : { nodes: new Set<string>(), edges: new Set<string>() };
 
   for (const id of ahead.nodes) nodes.set(id, 'running');
@@ -425,6 +442,7 @@ function frontierFrom(
   ir: WorkflowIR,
   from: string | undefined,
   recorded: ReadonlyMap<string, StepState>,
+  decided: ReadonlyMap<string, string>,
 ): { nodes: ReadonlySet<string>; edges: ReadonlySet<string> } {
   const nodes = new Set<string>();
   const edges = new Set<string>();
@@ -438,8 +456,15 @@ function frontierFrom(
     if (walked.has(at)) return;
     walked.add(at);
 
+    // Which way out this block is known to have
+    // taken, where the ledger recorded one. Every
+    // other way out is somewhere the run
+    // demonstrably did not go.
+    const arm = decided.get(at);
+
     for (const edge of ir.edges) {
       if (edge.from.node !== at) continue;
+      if (arm !== undefined && edge.from.port !== arm) continue;
 
       // A block the ledger already holds is behind
       // the run rather than ahead of it.
