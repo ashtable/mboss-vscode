@@ -360,6 +360,65 @@ function storedError(value: unknown): StoredError | undefined {
   };
 }
 
+/** Where in the code-behind a failure came from,
+ *  read off the stack the error carried. */
+export type SourceFrame = { file: string; line: number; column: number };
+
+/**
+ * A failure as a person needs it, rather than as it
+ * was stored.
+ *
+ * The headline is the stored error's own, except
+ * where DBOS stored a max-retries error — then it is
+ * the last attempt's, because the sentence DBOS
+ * writes about the retries names no cause and the
+ * attempt does. Every attempt is kept, and
+ * `retriesExhausted` is what says which case this
+ * is.
+ *
+ * Stated here, once, beside the reader that produced
+ * the stored shape — everything that draws a failure
+ * asks this rather than deciding for itself.
+ */
+export type StepError = StoredError & {
+  retriesExhausted: boolean;
+
+  frame: SourceFrame | undefined;
+};
+
+export function stepError(
+  stored: StoredError | undefined,
+): StepError | undefined {
+  if (stored === undefined) return undefined;
+
+  const attempts = stored.errors;
+  const headline = attempts?.at(-1) ?? stored;
+
+  return {
+    ...(headline.name === undefined ? {} : { name: headline.name }),
+    message: headline.message,
+    ...(headline.stack === undefined ? {} : { stack: headline.stack }),
+    ...(attempts === undefined ? {} : { errors: attempts }),
+    retriesExhausted: attempts !== undefined && attempts.length > 0,
+    frame: frameOf(headline.stack),
+  };
+}
+
+/** The first `file:line:column` in a stack, which is
+ *  where the throw was. */
+const STACK_FRAME = /(?:\(|\s)([^()\s]+):(\d+):(\d+)\)?/;
+
+function frameOf(stack: string | undefined): SourceFrame | undefined {
+  const found = stack === undefined ? null : STACK_FRAME.exec(stack);
+  if (found === null) return undefined;
+
+  return {
+    file: found[1] ?? '',
+    line: Number(found[2]),
+    column: Number(found[3]),
+  };
+}
+
 /**
  * What a run was started with.
  *

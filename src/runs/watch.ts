@@ -1,18 +1,24 @@
+import { ownerOf } from '../core/rules.js';
+
 import type { Database, OpenDatabase } from './db.js';
 import { FAILED_STATUSES, runQuery, stepsQuery } from './queries.js';
+import { parkedNodes } from './operations.js';
 import {
   hasRecovered,
   outputIn,
+  stepError,
   toRun,
   toStep,
   type OperationOutputRow,
   type Run,
   type RunInput,
   type Step,
-  type StoredError,
+  type StepError,
   type WorkflowStatusRow,
 } from './rows.js';
 import { runTimeline } from './timeline.js';
+
+export type { SourceFrame, StepError } from './rows.js';
 
 /**
  * Following one run while it is going.
@@ -44,27 +50,6 @@ import { runTimeline } from './timeline.js';
  * one.
  */
 export type StepState = 'done' | 'failed' | 'waiting';
-
-/** Where in the code-behind a failure came from,
- *  read off the stack the error carried. */
-export type SourceFrame = { file: string; line: number; column: number };
-
-/**
- * A step's failure, as a person needs it.
- *
- * The headline is the stored error's own, except
- * where DBOS stored a max-retries error — then it
- * is the last attempt's, because the sentence DBOS
- * writes about the retries is bookkeeping and the
- * thing that failed is the attempt. Every attempt
- * is kept, and `retriesExhausted` is what says
- * which case this is.
- */
-export type StepError = StoredError & {
-  retriesExhausted: boolean;
-
-  frame: SourceFrame | undefined;
-};
 
 export type LiveStep = {
   /** The name the ledger recorded, rounds, item
@@ -218,18 +203,6 @@ const CANCELLED = 'CANCELLED';
  *  of a row can be compared against them. */
 const FAILED: readonly string[] = FAILED_STATUSES;
 
-/** Steps the SDK records for its own bookkeeping —
- *  `DBOS.sleep`, `DBOS.recv`, `DBOS.setEvent` —
- *  which belong to no block on any canvas. */
-const SDK_PREFIX = 'DBOS.';
-
-/** The two steps a durable wait is made of: the row
- *  that says which run is parked, and its deletion
- *  once the run wakes. */
-const REGISTERED = '.register';
-
-const CLEARED = '.clear';
-
 export function watchRun(
   open: OpenDatabase,
   url: string,
@@ -381,7 +354,7 @@ export function toLiveRun(
   steps: Step[],
   recovered: boolean,
 ): LiveRun {
-  const own = steps.filter((step) => !step.name.startsWith(SDK_PREFIX));
+  const own = steps.filter((step) => ownerOf(step.name).kind !== 'sdk');
 
   // Computed over every row, because a wait the SDK
   // wrote fills a hole that would otherwise look
@@ -419,10 +392,11 @@ function liveSteps(
   run: Run,
   restored: ReadonlyMap<number, boolean>,
 ): LiveStep[] {
-  const parked = parkedNodes(steps);
+  const parked = parkedNodes(steps.map((one) => one.name));
 
   return steps.map((step) => {
-    const nodeId = nodeOf(step.name);
+    const owner = ownerOf(step.name);
+    const nodeId = owner.kind === 'node' ? owner.nodeId : step.name;
     const output = outputIn(step.output ?? null);
 
     return {
@@ -460,46 +434,6 @@ function reusedFrom(step: Step, run: Run): boolean {
   );
 }
 
-/**
- * The failure a step recorded, with the headline
- * rule applied.
- *
- * Where DBOS stored a max-retries error the
- * headline is the last attempt's, because the
- * sentence DBOS writes about the retries names no
- * cause and the attempt does.
- */
-function stepError(stored: StoredError | undefined): StepError | undefined {
-  if (stored === undefined) return undefined;
-
-  const attempts = stored.errors;
-  const headline = attempts?.at(-1) ?? stored;
-
-  return {
-    ...(headline.name === undefined ? {} : { name: headline.name }),
-    message: headline.message,
-    ...(headline.stack === undefined ? {} : { stack: headline.stack }),
-    ...(attempts === undefined ? {} : { errors: attempts }),
-    retriesExhausted: attempts !== undefined && attempts.length > 0,
-    frame: frameOf(headline.stack),
-  };
-}
-
-/** The first `file:line:column` in a stack, which
- *  is where the throw was. */
-const STACK_FRAME = /(?:\(|\s)([^()\s]+):(\d+):(\d+)\)?/;
-
-function frameOf(stack: string | undefined): SourceFrame | undefined {
-  const found = stack === undefined ? null : STACK_FRAME.exec(stack);
-  if (found === null) return undefined;
-
-  return {
-    file: found[1] ?? '',
-    line: Number(found[2]),
-    column: Number(found[3]),
-  };
-}
-
 /** What a run was started with, as text a panel can
  *  put in a cell. */
 function printed(input: RunInput | undefined): string | undefined {
@@ -510,55 +444,10 @@ function printed(input: RunInput | undefined): string | undefined {
     : input.text;
 }
 
-/**
- * The blocks a run is parked on.
- *
- * A wait writes `.register` when the run parks and
- * `.clear` when it wakes, and can write a reminder
- * in between — so the question is whether a block's
- * latest registration has been cleared, and not
- * whether its latest row happens to be one.
- */
-function parkedNodes(steps: Step[]): Set<string> {
-  const registered = new Map<string, number>();
-  const cleared = new Map<string, number>();
-
-  steps.forEach((step, index) => {
-    const nodeId = nodeOf(step.name);
-
-    if (step.name.endsWith(REGISTERED)) registered.set(nodeId, index);
-    if (step.name.endsWith(CLEARED)) cleared.set(nodeId, index);
-  });
-
-  const parked = new Set<string>();
-
-  for (const [nodeId, at] of registered) {
-    if ((cleared.get(nodeId) ?? -1) < at) parked.add(nodeId);
-  }
-
-  return parked;
-}
-
 function stateOf(step: Step, parked: boolean): StepState {
   if (step.error !== undefined) return 'failed';
 
   return parked ? 'waiting' : 'done';
-}
-
-/**
- * The block a recorded step belongs to.
- *
- * The compiler names a step for its block and then
- * appends where it ran — `.r${round}` for a loop,
- * `[${index}]` for a fan-out, `.register`,
- * `.clear`, `.ask` and `.resend.${n}` for the parts
- * of a wait — so everything up to the first `.` or
- * `[` is the block's id.
- */
-function nodeOf(name: string): string {
-  const cut = name.search(/[.[]/);
-
-  return cut === -1 ? name : name.slice(0, cut);
 }
 
 /**
