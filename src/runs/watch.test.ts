@@ -10,8 +10,8 @@ import {
   type LedgerRead,
   type LiveRun,
   type LiveStep,
-  type StepState,
 } from './watch.js';
+import type { StepState } from './reading.js';
 
 /**
  * Following one run, against a ledger a spec writes
@@ -145,10 +145,8 @@ function recordedStep(over: {
     completedAt: 1200,
     output: '{}',
     outputCut: false,
-    outputBytes: 2,
     error: undefined,
     childWorkflowId: undefined,
-    reused: false,
     restored: false,
   };
 }

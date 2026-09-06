@@ -323,10 +323,8 @@ export function liveStep(over: Partial<LiveStep> = {}): LiveStep {
     completedAt: 1100,
     output: '{}',
     outputCut: false,
-    outputBytes: 2,
     error: undefined,
     childWorkflowId: undefined,
-    reused: false,
     restored: false,
     ...over,
   };

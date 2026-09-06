@@ -45,6 +45,11 @@ const RUN: Run = {
   wasForkedFrom: false,
 };
 
+/** Later than anything these fixtures record, so a
+ *  window closes at the run's own ending rather
+ *  than at the moment of the read. */
+const READ_AT = 1_000_000;
+
 function step(functionId: number, from: number, to: number): Step {
   return {
     functionId,
@@ -78,7 +83,7 @@ describe('a run that never recovered', () => {
    * picked back up.
    */
   it('has no outage however long its gaps are', () => {
-    const timeline = runTimeline(quiet, CRASHED);
+    const timeline = runTimeline(quiet, CRASHED, READ_AT);
 
     expect(timeline.outage).toBeUndefined();
     expect(timeline.steps.every((one) => !one.restored)).toBe(true);
@@ -86,7 +91,7 @@ describe('a run that never recovered', () => {
 });
 
 describe('a run that recovered', () => {
-  const timeline = runTimeline(RUN, CRASHED);
+  const timeline = runTimeline(RUN, CRASHED, READ_AT);
 
   it('puts the outage in the widest hole between steps', () => {
     expect(timeline.outage).toEqual({ from: 1500, to: 4400 });
@@ -122,6 +127,7 @@ describe('a run that recovered', () => {
     const going = runTimeline(
       { ...RUN, status: 'PENDING', completedAt: undefined },
       CRASHED,
+      READ_AT,
     );
 
     expect(going.to).toBe(5000);
@@ -138,7 +144,11 @@ describe('what the rule cannot answer', () => {
    * never claims to show every one.
    */
   it('draws one band however many times a run recovered', () => {
-    const twice = runTimeline({ ...RUN, recoveryAttempts: 3 }, CRASHED);
+    const twice = runTimeline(
+      { ...RUN, recoveryAttempts: 3 },
+      CRASHED,
+      READ_AT,
+    );
 
     expect(twice.outage).toEqual({ from: 1500, to: 4400 });
   });
@@ -146,14 +156,14 @@ describe('what the rule cannot answer', () => {
   it('draws none when there is no hole to put one in', () => {
     const unbroken = [step(0, 1000, 1200), step(1, 1200, 1500)];
 
-    const timeline = runTimeline(RUN, unbroken);
+    const timeline = runTimeline(RUN, unbroken, READ_AT);
 
     expect(timeline.outage).toBeUndefined();
     expect(timeline.steps.every((one) => !one.restored)).toBe(true);
   });
 
   it('draws none when there is only one step to hold it', () => {
-    const timeline = runTimeline(RUN, [step(0, 1000, 1200)]);
+    const timeline = runTimeline(RUN, [step(0, 1000, 1200)], READ_AT);
 
     expect(timeline.outage).toBeUndefined();
   });
@@ -172,11 +182,11 @@ describe('what the rule cannot answer', () => {
       completedAt: undefined,
     };
 
-    const timeline = runTimeline(RUN, [
-      step(0, 1000, 1200),
-      untimed,
-      step(2, 4400, 4700),
-    ]);
+    const timeline = runTimeline(
+      RUN,
+      [step(0, 1000, 1200), untimed, step(2, 4400, 4700)],
+      READ_AT,
+    );
 
     expect(timeline.steps).toHaveLength(3);
     expect(timeline.steps[1]?.startedAt).toBeUndefined();
@@ -184,7 +194,7 @@ describe('what the rule cannot answer', () => {
   });
 
   it('draws nothing at all for a run with no steps', () => {
-    const timeline = runTimeline(RUN, []);
+    const timeline = runTimeline(RUN, [], READ_AT);
 
     expect(timeline.steps).toEqual([]);
     expect(timeline.outage).toBeUndefined();

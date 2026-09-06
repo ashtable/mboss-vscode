@@ -19,17 +19,11 @@ import type {
 } from '../webview/protocol.js';
 
 import { seeWords } from './words.js';
-import {
-  decidedArms,
-  groupsOf,
-  operationsOf,
-  type Operation,
-  type TraceGroup,
-} from './operations.js';
+import { decidedArms, groupsOf, type TraceGroup } from './operations.js';
+import { readRun, type Operation, type Reading } from './reading.js';
 import { hasRecovered, recoveriesOf, type Run, type Step } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
-import { runTimeline, type Timeline, type TimelineStep } from './timeline.js';
-import { toLiveRun } from './watch.js';
+import { liveRunOf } from './watch.js';
 import type { ProjectWorkflow } from './workflows.js';
 
 /**
@@ -162,18 +156,28 @@ export function seeInit(
 
 function seeRun(view: SeeView): SeeRun {
   const { run, steps } = view;
-  const timeline = runTimeline(run, steps);
-  const operations = operationsOf(run, steps, view.ir);
-  const graph = graphOf(view, operations);
+
+  // One clock for the whole page, so that a bar's
+  // end and whether a timer has run out are answered
+  // about the same moment. And `lost` rather than
+  // nothing where the project no longer has a
+  // document of this name: that is an answer, and it
+  // is why the trace draws one nameless group.
+  const reading = readRun(
+    run,
+    steps,
+    view.ir ?? 'lost',
+    hasRecovered(run),
+    Date.now(),
+  );
+  const graph = graphOf(view, reading.steps);
 
   // The chart and the strip above it are about what
   // the workflow did, so the SDK's own rows are not
-  // drawn on either. The timeline still holds them,
+  // drawn on either. The reading still holds them,
   // and has to: a wait the SDK wrote is what fills a
   // gap that would otherwise be read as a crash.
-  const drawn = timeline.steps.filter(
-    (step) => ownerOf(step.name).kind !== 'sdk',
-  );
+  const drawn = reading.steps.filter((step) => step.owner !== 'sdk');
 
   return {
     workflowId: run.workflowId,
@@ -188,9 +192,9 @@ function seeRun(view: SeeView): SeeRun {
           ),
     severity: severityOf(run),
     span: spanOf(run),
-    recovered: recoveredBanner(run, timeline),
+    recovered: recoveredBanner(run, reading),
     chips: drawn.map(chipOf),
-    timeline: chartOf(timeline, drawn),
+    timeline: chartOf(reading, drawn),
     raw: steps.map(rawRowOf),
     rail: railOf(run),
     selectedStep: view.selectedStep,
@@ -200,8 +204,8 @@ function seeRun(view: SeeView): SeeRun {
     // there exactly when the picture is not.
     noGraph:
       graph === undefined ? messages.runGraphMissing(run.name) : undefined,
-    live: toLiveRun(run, steps, hasRecovered(run)),
-    groups: groupsOf(operations, { timing: view.timing ?? false }).map(
+    live: liveRunOf(run, reading),
+    groups: groupsOf(reading.steps, { timing: view.timing ?? false }).map(
       (group) => groupOf(group, view),
     ),
     selected: {
@@ -492,11 +496,11 @@ function spanOf(run: Run): string {
  * no column anywhere holds the moment a process
  * died.
  */
-function recoveredBanner(run: Run, timeline: Timeline): SeeRun['recovered'] {
+function recoveredBanner(run: Run, reading: Reading): SeeRun['recovered'] {
   if (!hasRecovered(run)) return undefined;
 
   const heading = messages.runRecoveredHeading();
-  const outage = timeline.outage;
+  const outage = reading.outage;
 
   if (outage === undefined) {
     return {
@@ -506,7 +510,7 @@ function recoveredBanner(run: Run, timeline: Timeline): SeeRun['recovered'] {
     };
   }
 
-  const restored = timeline.steps.filter((step) => step.restored).length;
+  const restored = reading.steps.filter((step) => step.restored).length;
 
   return {
     heading,
@@ -518,7 +522,7 @@ function recoveredBanner(run: Run, timeline: Timeline): SeeRun['recovered'] {
   };
 }
 
-function chipOf(step: TimelineStep): SeeChip {
+function chipOf(step: Operation): SeeChip {
   return {
     functionId: step.functionId,
     name: step.name,
@@ -537,15 +541,12 @@ function chipOf(step: TimelineStep): SeeChip {
  * the chart is a step nobody knows ran.
  *
  * The window, the band and the axis come from the
- * whole timeline; the bars come from `drawn`, which
+ * whole reading; the bars come from `drawn`, which
  * is the rows a block owns.
  */
-function chartOf(
-  timeline: Timeline,
-  drawn: readonly TimelineStep[],
-): SeeTimeline {
-  const span = timeline.to - timeline.from;
-  const place = (at: number): number => round((at - timeline.from) / span);
+function chartOf(reading: Reading, drawn: readonly Operation[]): SeeTimeline {
+  const span = reading.to - reading.from;
+  const place = (at: number): number => round((at - reading.from) / span);
 
   const bars: SeeBar[] = drawn.map((step) => ({
     functionId: step.functionId,
@@ -563,17 +564,17 @@ function chartOf(
 
   return {
     bars,
-    outage: bandOf(timeline, place, span),
-    ticks: ticksOf(timeline),
+    outage: bandOf(reading, place, span),
+    ticks: ticksOf(reading),
   };
 }
 
 function bandOf(
-  timeline: Timeline,
+  reading: Reading,
   place: (at: number) => number,
   span: number,
 ): SeeOutage | undefined {
-  const outage = timeline.outage;
+  const outage = reading.outage;
   if (outage === undefined) return undefined;
 
   return {
@@ -586,18 +587,18 @@ function bandOf(
 
 /** The axis: where it started, where it ended, and
  *  the two edges of the hole if there is one. */
-function ticksOf(timeline: Timeline): { at: number; label: string }[] {
-  const span = timeline.to - timeline.from;
+function ticksOf(reading: Reading): { at: number; label: string }[] {
+  const span = reading.to - reading.from;
   const marks = [
-    timeline.from,
-    ...(timeline.outage === undefined
+    reading.from,
+    ...(reading.outage === undefined
       ? []
-      : [timeline.outage.from, timeline.outage.to]),
-    timeline.to,
+      : [reading.outage.from, reading.outage.to]),
+    reading.to,
   ];
 
   return marks.map((at) => ({
-    at: round((at - timeline.from) / span),
+    at: round((at - reading.from) / span),
     label: precise(at),
   }));
 }

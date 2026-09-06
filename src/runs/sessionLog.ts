@@ -1,4 +1,4 @@
-import type { LiveOutcome } from './watch.js';
+import type { LiveOutcome } from './reading.js';
 
 /**
  * What this window has set going.

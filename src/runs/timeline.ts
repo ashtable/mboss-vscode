@@ -83,11 +83,14 @@ export type Timeline = {
  */
 const MINIMUM_SPAN_MS = 1;
 
-export function runTimeline(
-  run: Run,
-  steps: Step[],
-  now = Date.now(),
-): Timeline {
+/**
+ * `now` is a parameter and not a default. A default
+ * is what let three callers take three clocks
+ * without any of them saying so, and the right edge
+ * of a window has to be the same moment as every
+ * other answer drawn beside it.
+ */
+export function runTimeline(run: Run, steps: Step[], now: number): Timeline {
   const outage = hasRecovered(run) ? widestHole(steps) : undefined;
 
   return {

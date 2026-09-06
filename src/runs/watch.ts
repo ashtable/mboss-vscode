@@ -1,22 +1,21 @@
-import { ownerOf } from '../core/rules.js';
-
 import type { Database, OpenDatabase } from './db.js';
-import { FAILED_STATUSES, runQuery, stepsQuery } from './queries.js';
-import { parkedNodes } from './operations.js';
+import { runQuery, stepsQuery } from './queries.js';
+import {
+  readRun,
+  type LiveOutcome,
+  type Operation,
+  type Reading,
+} from './reading.js';
 import {
   hasRecovered,
-  outputIn,
-  stepError,
   toRun,
   toStep,
   type OperationOutputRow,
   type Run,
   type RunInput,
   type Step,
-  type StepError,
   type WorkflowStatusRow,
 } from './rows.js';
-import { runTimeline } from './timeline.js';
 
 export type { SourceFrame, StepError } from './rows.js';
 
@@ -41,72 +40,14 @@ export type { SourceFrame, StepError } from './rows.js';
  */
 
 /**
- * What the ledger can say about one step.
+ * One row of a run, as it crosses to a webview.
  *
- * There is no `running`: `dbos.operation_outputs`
- * records a step when it completes, never when it
- * starts. Where a run has got to is derived from
- * the edges of the graph, by whoever is drawing
- * one.
+ * The reading's own step, less the two things only
+ * the trace needs: which of the three kinds of owner
+ * wrote the row, and where inside its block it ran.
+ * A canvas paints blocks and needs neither.
  */
-export type StepState = 'done' | 'failed' | 'waiting';
-
-export type LiveStep = {
-  /** The name the ledger recorded, rounds, item
-   *  indexes and wait suffixes and all. */
-  name: string;
-
-  /** The block it belongs to. */
-  nodeId: string;
-
-  state: StepState;
-
-  /** DBOS's own numbering, which is the order the
-   *  steps ran in and the handle a replay takes. */
-  functionId: number;
-
-  startedAt: number | undefined;
-
-  completedAt: number | undefined;
-
-  /** What it returned, cut where it was long. */
-  output: string | undefined;
-
-  outputCut: boolean;
-
-  outputBytes: number;
-
-  error: StepError | undefined;
-
-  childWorkflowId: string | undefined;
-
-  /**
-   * Whether this row came from the run this one was
-   * forked from rather than from this run. A forked
-   * run inherits the rows before the fork point,
-   * timestamps and all, so a row completed before
-   * this run was created is one of them.
-   */
-  reused: boolean;
-
-  /** Whether this row came back from the ledger
-   *  rather than running again after a crash. */
-  restored: boolean;
-};
-
-/**
- * Where the watch left the run.
- *
- * `waiting` and `quiet` are both stopped watches
- * and are kept apart on purpose. A parked run is
- * waiting on a person and will move when they act;
- * a quiet one is waiting on nobody and the watch
- * simply let go of it. Telling somebody a quiet run
- * is waiting would send them looking for an email
- * that was never sent.
- */
-export type LiveOutcome =
-  'running' | 'done' | 'failed' | 'waiting' | 'quiet' | 'cancelled';
+export type LiveStep = Omit<Operation, 'owner' | 'segments'>;
 
 export type LiveRun = {
   workflowId: string;
@@ -199,17 +140,6 @@ export const WATCH_INTERVAL_MS = 500;
  */
 export const WATCH_QUIET_MS = 15_000;
 
-/** The one status that means it worked. */
-const SUCCEEDED = 'SUCCESS';
-
-/** One of the three DBOS calls failed, told apart
- *  because somebody asked for it. */
-const CANCELLED = 'CANCELLED';
-
-/** DBOS's own three, widened so a status read out
- *  of a row can be compared against them. */
-const FAILED: readonly string[] = FAILED_STATUSES;
-
 export function watchRun(
   open: OpenDatabase,
   url: string,
@@ -279,7 +209,7 @@ export function watchRun(
     return held;
   };
 
-  const readRun = async (): Promise<
+  const readTick = async (): Promise<
     { live: LiveRun; read: LedgerRead } | undefined
   > => {
     const database = await connect();
@@ -306,8 +236,14 @@ export function watchRun(
       const run = toRun(row);
       recovered = recovered || hasRecovered(run);
 
+      // A watch polls a database and never looked
+      // for a document, so the grammar's answer
+      // about which block a row names is the only
+      // one there is.
+      const reading = readRun(run, recorded, 'unasked', recovered, Date.now());
+
       return {
-        live: toLiveRun(run, recorded, recovered),
+        live: liveRunOf(run, reading),
         read: { run, steps: recorded },
       };
     } catch {
@@ -319,7 +255,7 @@ export function watchRun(
   };
 
   const tick = async (): Promise<void> => {
-    const seen = await readRun();
+    const seen = await readTick();
     if (stopped) return;
 
     if (seen !== undefined && !same(seen.live, last)) {
@@ -349,47 +285,22 @@ export function watchRun(
 }
 
 /**
- * One reading of a run, from the rows a tick read.
+ * A reading, as it crosses to a webview.
  *
  * `steps` keeps the rows a block owns. Everything
- * the SDK recorded for itself is still read — the
- * outage inference and the outcome both need it —
- * but a canvas has no block to put it on.
- *
- * `now` is taken once and passed down, the way
- * `runTimeline` takes one, so that a bar's end and
- * whether a timer has run out are answered about
- * the same moment.
+ * the SDK recorded for itself was read — the outage
+ * inference and the outcome both needed it — but a
+ * canvas has no block to put it on.
  */
-export function toLiveRun(
-  run: Run,
-  steps: Step[],
-  recovered: boolean,
-  now = Date.now(),
-): LiveRun {
-  const own = steps.filter((step) => ownerOf(step.name).kind !== 'sdk');
-
-  // Computed over every row, because a wait the SDK
-  // wrote fills a hole that would otherwise look
-  // like an outage, and then attached to the rows a
-  // block owns by the number DBOS gave them.
-  const restored = new Map(
-    runTimeline(run, steps, now).steps.map((step) => [
-      step.functionId,
-      step.restored,
-    ]),
-  );
-
-  const live = liveSteps(own, run, restored);
-
+export function liveRunOf(run: Run, reading: Reading): LiveRun {
   return {
     workflowId: run.workflowId,
     workflow: run.name,
     status: run.status,
-    steps: live,
-    recovered,
+    steps: reading.steps.filter((one) => one.owner !== 'sdk').map(liveStepOf),
+    recovered: reading.recovered,
     recoveryAttempts: run.recoveryAttempts,
-    outcome: outcomeOf(run, live, steps, now),
+    outcome: reading.outcome,
     error: run.error,
     applicationVersion: run.applicationVersion,
     createdAt: run.createdAt,
@@ -400,51 +311,23 @@ export function toLiveRun(
   };
 }
 
-function liveSteps(
-  steps: Step[],
-  run: Run,
-  restored: ReadonlyMap<number, boolean>,
-): LiveStep[] {
-  const parked = parkedNodes(steps.map((one) => one.name));
-
-  return steps.map((step) => {
-    const owner = ownerOf(step.name);
-    const nodeId = owner.kind === 'node' ? owner.nodeId : step.name;
-    const output = outputIn(step.output ?? null);
-
-    return {
-      name: step.name,
-      nodeId,
-      state: stateOf(step, parked.has(nodeId)),
-      functionId: step.functionId,
-      startedAt: step.startedAt,
-      completedAt: step.completedAt,
-      output: step.output === undefined ? undefined : output.text,
-      outputCut: output.cut,
-      outputBytes: output.bytes,
-      error: stepError(step.failure),
-      childWorkflowId: step.childWorkflowId,
-      reused: reusedFrom(step, run),
-      restored: restored.get(step.functionId) ?? false,
-    };
-  });
-}
-
-/**
- * Whether a row belongs to the run this one was
- * forked from.
- *
- * A fork inherits the rows before the fork point
- * with the timestamps they were first written with,
- * so a row that finished before this run was even
- * created never ran here.
- */
-function reusedFrom(step: Step, run: Run): boolean {
-  return (
-    run.forkedFrom !== undefined &&
-    step.completedAt !== undefined &&
-    step.completedAt < run.createdAt
-  );
+/** Named field by field rather than spread, so that
+ *  widening the reading is a decision about what
+ *  crosses rather than something that just happens. */
+function liveStepOf(operation: Operation): LiveStep {
+  return {
+    name: operation.name,
+    nodeId: operation.nodeId,
+    state: operation.state,
+    functionId: operation.functionId,
+    startedAt: operation.startedAt,
+    completedAt: operation.completedAt,
+    output: operation.output,
+    outputCut: operation.outputCut,
+    error: operation.error,
+    childWorkflowId: operation.childWorkflowId,
+    restored: operation.restored,
+  };
 }
 
 /** What a run was started with, as text a panel can
@@ -455,71 +338,6 @@ function printed(input: RunInput | undefined): string | undefined {
   return input.shape === 'payload'
     ? JSON.stringify(input.value, null, 2)
     : input.text;
-}
-
-function stateOf(step: Step, parked: boolean): StepState {
-  if (step.error !== undefined) return 'failed';
-
-  return parked ? 'waiting' : 'done';
-}
-
-/**
- * Where the run is, as the ledger has it.
- *
- * A step that threw is not an ending: DBOS may
- * retry it, and only the status column says the run
- * is over.
- */
-function outcomeOf(
-  run: Run,
-  steps: LiveStep[],
-  all: readonly Step[],
-  now: number,
-): LiveOutcome {
-  if (run.status === SUCCEEDED) return 'done';
-
-  // Before the failed set, which contains it.
-  // Somebody asked for this one; it is not a failure
-  // anybody has to look into.
-  if (run.status === CANCELLED) return 'cancelled';
-  if (FAILED.includes(run.status)) return 'failed';
-  if (steps.some((step) => step.state === 'waiting')) return 'waiting';
-
-  return asleep(all, now) ? 'waiting' : 'running';
-}
-
-/**
- * Whether the run is sitting out a timer *now*.
- *
- * A sleep row records the wake deadline as its
- * completion and is written once, before the wait,
- * and never rewritten — so a deadline later than the
- * row's own start says the run slept, not that it is
- * still sleeping. Asked against the clock instead:
- * a run whose deadline has passed has woken and may
- * well be working, and answering `waiting` for it
- * would stop the watch and send somebody looking for
- * an email that was never sent.
- *
- * A deadline still ahead is the case worth stopping
- * for. Nothing is happening in that run, so the
- * watch may let go rather than reading somebody's
- * database every half second for a day.
- *
- * Ungated on purpose. An older SDK does not write a
- * row of this shape at all, so the rule is simply
- * inert there and needs no version check to make it
- * safe. Only the words a page draws about it are
- * gated, and those are drawn where a lockfile can be
- * read.
- */
-function asleep(steps: readonly Step[], now: number): boolean {
-  return steps.some(
-    (step) =>
-      step.name === 'DBOS.sleep' &&
-      step.completedAt !== undefined &&
-      step.completedAt > now,
-  );
 }
 
 /**

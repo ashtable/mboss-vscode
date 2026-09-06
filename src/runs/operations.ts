@@ -1,63 +1,22 @@
-import {
-  ownerOf,
-  type Predicate,
-  type RecordedSegment,
-  type WorkflowIR,
-  type WorkflowNode,
-} from '../core/rules.js';
+import type { Predicate, WorkflowIR, WorkflowNode } from '../core/rules.js';
 
-import { outputIn, stepError, valueIn, type Run, type Step } from './rows.js';
-import { runTimeline } from './timeline.js';
-import type { LiveStep } from './watch.js';
+import type { Operation, OperationOwner } from './reading.js';
+import { valueIn } from './rows.js';
 
 /**
- * The ledger, read as operations and grouped the way
- * they happened.
+ * A run's rows, grouped the way they happened, and
+ * the arms it is known to have taken.
  *
- * Two questions are kept apart here on purpose.
- * Which block a row belongs to is a question about
- * the row's *name*, and the compiler's own grammar
- * answers it without seeing a document. Whether that
- * block still exists is a question about the
- * *document*, and only the document answers it — a
- * workflow somebody edited between the run and the
- * reading has rows naming blocks that are gone, and
- * a panel that threw on one would fail exactly when
- * somebody needs it.
+ * Both questions are asked of a reading rather than
+ * of the ledger: which block each row belongs to is
+ * already answered by then, and asking it twice is
+ * how the two used to disagree.
  *
- * So an operation is `unmapped` in two different
- * situations that a reader does not need to tell
- * apart: a name the grammar cannot read, and a name
- * it can read naming a block the document no longer
- * has. Neither is the SDK's own, and neither points
- * at a block anybody can click.
- *
- * Browser-safe: no filesystem, no clock of its own,
- * nothing about the project. Whether the project's
- * SDK records timings is the host's question, and
+ * Browser-safe: no filesystem, no clock, nothing
+ * about the project. Whether the project's SDK
+ * records timings is the host's question, and
  * arrives as an answer.
  */
-
-/** Who a recorded row belongs to. */
-export type OperationOwner = 'node' | 'sdk' | 'unmapped';
-
-/**
- * One recorded row, drawable.
- *
- * `Omit` rather than an intersection, because an
- * intersection with `nodeId: string | undefined`
- * narrows back to `string` and every unattributed
- * row would then claim to name a block.
- */
-export type Operation = Omit<LiveStep, 'nodeId'> & {
-  nodeId: string | undefined;
-
-  owner: OperationOwner;
-
-  /** Where inside the block it ran: which round,
-   *  which item, which part of a wait. */
-  segments: readonly RecordedSegment[];
-};
 
 /**
  * One block's turn, with whatever the SDK wrote
@@ -100,66 +59,6 @@ export type TraceGroup = {
 };
 
 /**
- * Every row of a run, attributed.
- *
- * Takes every row and not only the ones a block
- * owns: what the SDK recorded is what a block was
- * waiting on, and the outage inference needs all of
- * it.
- */
-export function operationsOf(
-  run: Run,
-  all: Step[],
-  ir: WorkflowIR | undefined,
-): Operation[] {
-  const known = new Set(ir?.nodes.map((node) => node.id) ?? []);
-  const parked = parkedNodes(all.map((step) => step.name));
-
-  // Over every row, because a wait the SDK wrote
-  // fills a hole that would otherwise read as an
-  // outage.
-  const restored = new Map(
-    runTimeline(run, all).steps.map((step) => [step.functionId, step.restored]),
-  );
-
-  return all.map((step) => {
-    const owner = ownerOf(step.name);
-    const output = outputIn(step.output ?? null);
-    const nodeId =
-      owner.kind === 'node' && known.has(owner.nodeId)
-        ? owner.nodeId
-        : undefined;
-    const failure = stepError(step.failure);
-
-    return {
-      name: step.name,
-      nodeId,
-      owner: ownerFor(owner.kind, nodeId),
-      segments: owner.kind === 'node' ? owner.segments : [],
-      state:
-        failure !== undefined
-          ? 'failed'
-          : owner.kind === 'node' && parked.has(owner.nodeId)
-            ? 'waiting'
-            : 'done',
-      functionId: step.functionId,
-      startedAt: step.startedAt,
-      completedAt: step.completedAt,
-      output: step.output === undefined ? undefined : output.text,
-      outputCut: output.cut,
-      outputBytes: output.bytes,
-      error: failure,
-      childWorkflowId: step.childWorkflowId,
-      reused:
-        run.forkedFrom !== undefined &&
-        step.completedAt !== undefined &&
-        step.completedAt < run.createdAt,
-      restored: restored.get(step.functionId) ?? false,
-    };
-  });
-}
-
-/**
  * The rows, in turns.
  *
  * One walk in the order DBOS numbered them. A row of
@@ -173,9 +72,7 @@ export function operationsOf(
  * had not started.
  *
  * `timing` says whether the project's SDK records
- * the timings a wait would be drawn from. It is
- * threaded and changes nothing yet; the group it
- * gates does not exist until something draws it.
+ * the timings a wait would be drawn from.
  */
 export function groupsOf(
   operations: readonly Operation[],
@@ -260,38 +157,6 @@ function wakesIn(group: TraceGroup): TraceGroup['wakesAt'] {
         ? 'sleep'
         : 'timeout',
   };
-}
-
-/**
- * The blocks a run is parked on.
- *
- * A wait writes `.register` when the run parks and
- * `.clear` when it wakes, and can write a reminder
- * in between — so the question is whether a block's
- * latest registration has been cleared, and not
- * whether its latest row happens to be one.
- */
-export function parkedNodes(names: readonly string[]): Set<string> {
-  const registered = new Map<string, number>();
-  const cleared = new Map<string, number>();
-
-  names.forEach((name, index) => {
-    const owner = ownerOf(name);
-    if (owner.kind !== 'node') return;
-
-    const last = owner.segments.at(-1)?.kind;
-
-    if (last === 'register') registered.set(owner.nodeId, index);
-    if (last === 'clear') cleared.set(owner.nodeId, index);
-  });
-
-  const parked = new Set<string>();
-
-  for (const [nodeId, at] of registered) {
-    if ((cleared.get(nodeId) ?? -1) < at) parked.add(nodeId);
-  }
-
-  return parked;
 }
 
 /**
@@ -455,15 +320,6 @@ function approvedIn(value: unknown): boolean | undefined {
   const approved = (held as { approved?: unknown }).approved;
 
   return typeof approved === 'boolean' ? approved : undefined;
-}
-
-function ownerFor(
-  kind: 'node' | 'sdk' | 'unknown',
-  nodeId: string | undefined,
-): OperationOwner {
-  if (kind === 'sdk') return 'sdk';
-
-  return nodeId === undefined ? 'unmapped' : 'node';
 }
 
 function roundOf(operation: Operation | undefined): number | undefined {

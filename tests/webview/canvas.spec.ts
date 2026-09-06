@@ -27,7 +27,8 @@ import {
   type WorkflowIR,
   type WorkflowNode,
 } from '../../src/core/rules.js';
-import type { LiveOutcome, LiveRun, StepState } from '../../src/runs/watch.js';
+import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
+import type { LiveRun } from '../../src/runs/watch.js';
 import { liveStep } from '../../src/test-support/runs.js';
 import type { CanvasInit } from '../../src/webview/protocol.js';
 

@@ -2,29 +2,39 @@ import { describe, expect, it } from 'vitest';
 
 import type { WorkflowIR } from '../core/rules.js';
 
-import { decidedArms, groupsOf, operationsOf } from './operations.js';
+import { decidedArms, groupsOf } from './operations.js';
+import { readRun, type Operation } from './reading.js';
 import { errorIn, type Run, type Step } from './rows.js';
 
 /**
- * The ledger read as operations, and grouped the
- * way they happened.
- *
- * Two things are being kept apart here. Which block
- * a row belongs to is a question about the row's
- * name, and the compiler's own grammar answers it.
- * Whether that block is still in the document is a
- * different question, and only the document can
- * answer it — a workflow somebody edited between
- * the run and the reading has rows naming blocks
- * that no longer exist, and a panel that threw on
- * one would be useless exactly when a person needs
- * it.
+ * A run's rows, grouped the way they happened, and
+ * the arms it is known to have taken.
  *
  * The grouping is in ledger order and never
  * reordered. A block that ran twice gets two
  * groups; folding them into one would say the run
  * did something it did not do.
+ *
+ * Both questions are asked of a reading, which is
+ * where a row is attributed — so these cases go
+ * through `readRun` rather than building operations
+ * of their own, and a change to attribution shows up
+ * here as well as in `reading.test.ts`.
  */
+
+/** Later than anything these fixtures record, so
+ *  the window closes at the last thing that
+ *  happened. */
+const NOW = 1_000_000;
+
+/** The rows, read. */
+function operationsOf(
+  run: Run,
+  steps: Step[],
+  ir: WorkflowIR | undefined,
+): Operation[] {
+  return readRun(run, steps, ir ?? 'lost', false, NOW).steps;
+}
 
 const RUN: Run = {
   workflowId: 'wf_1',
@@ -113,102 +123,6 @@ const IR: WorkflowIR = {
   ],
   edges: [],
 } as unknown as WorkflowIR;
-
-describe('what a block recorded', () => {
-  it('reads one row as one operation of its block', () => {
-    const [only] = operationsOf(RUN, ledger('parse_claim'), IR);
-
-    expect(only?.owner).toBe('node');
-    expect(only?.nodeId).toBe('parse_claim');
-    expect(only?.segments).toEqual([]);
-    expect(only?.state).toBe('done');
-  });
-
-  /**
-   * A wait writes the mail it sent and the row that
-   * says which run is parked, and the SDK writes its
-   * own between them. None of those is the block; all
-   * of them are what the block did.
-   */
-  it('reads a parked approval as the rows the SDK writes for it', () => {
-    const found = operationsOf(
-      RUN,
-      ledger('manager_ok.ask', 'manager_ok.register', 'DBOS.sleep'),
-      IR,
-    );
-
-    expect(found.map((one) => one.owner)).toEqual(['node', 'node', 'sdk']);
-    expect(found.map((one) => one.nodeId)).toEqual([
-      'manager_ok',
-      'manager_ok',
-      undefined,
-    ]);
-    expect(found[1]?.segments).toEqual([{ kind: 'register' }]);
-    expect(found[1]?.state).toBe('waiting');
-  });
-
-  it('reads an answered approval the same way', () => {
-    const found = operationsOf(
-      RUN,
-      ledger(
-        'manager_ok.ask',
-        'manager_ok.register',
-        'DBOS.recv',
-        'manager_ok.clear',
-      ),
-      IR,
-    );
-
-    expect(found.map((one) => one.owner)).toEqual([
-      'node',
-      'node',
-      'sdk',
-      'node',
-    ]);
-
-    // Cleared, so nothing is parked any more.
-    expect(found.every((one) => one.state !== 'waiting')).toBe(true);
-  });
-
-  it('carries a failed row to the block that failed', () => {
-    const [only] = operationsOf(
-      RUN,
-      [
-        step({
-          name: 'parse_claim',
-          error: JSON.stringify({ name: 'BadClaim', message: 'no amount' }),
-        }),
-      ],
-      IR,
-    );
-
-    expect(only?.state).toBe('failed');
-    expect(only?.nodeId).toBe('parse_claim');
-    expect(only?.error?.name).toBe('BadClaim');
-  });
-
-  /**
-   * The name still parses as a block's; the document
-   * simply no longer has that block. That is a
-   * different answer from a name the grammar cannot
-   * read at all, and both come back rather than
-   * throwing.
-   */
-  it('leaves a row naming a block the document lost unattributed', () => {
-    const found = operationsOf(RUN, ledger('deleted_block', 'Not A Name'), IR);
-
-    expect(found.map((one) => one.owner)).toEqual(['unmapped', 'unmapped']);
-    expect(found.map((one) => one.nodeId)).toEqual([undefined, undefined]);
-    expect(found[0]?.name).toBe('deleted_block');
-  });
-
-  it('leaves every row unattributed where there is no document', () => {
-    const found = operationsOf(RUN, ledger('parse_claim'), undefined);
-
-    expect(found[0]?.owner).toBe('unmapped');
-    expect(found[0]?.nodeId).toBeUndefined();
-  });
-});
 
 describe('how the rows group', () => {
   /**

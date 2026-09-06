@@ -9,7 +9,8 @@ import {
   type WorkflowIR,
   type WorkflowNode,
 } from '../core/rules.js';
-import type { LiveRun, LiveStep, StepState } from '../runs/watch.js';
+import type { StepState } from '../runs/reading.js';
+import type { LiveRun, LiveStep } from '../runs/watch.js';
 
 /**
  * A workflow document, as the graph library wants
@@ -409,13 +410,20 @@ function recordedStates(
   const states = new Map<string, StepState>();
 
   for (const step of steps) {
-    const held = states.get(step.nodeId);
+    // A row naming no block of this drawing paints
+    // nothing: an unreadable name, or a block
+    // somebody deleted between the run and the
+    // reading.
+    const nodeId = step.nodeId;
+    if (nodeId === undefined) continue;
+
+    const held = states.get(nodeId);
 
     if (
       held === undefined ||
       LOUDNESS.indexOf(step.state) > LOUDNESS.indexOf(held)
     ) {
-      states.set(step.nodeId, step.state);
+      states.set(nodeId, step.state);
     }
   }
 

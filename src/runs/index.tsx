@@ -11,7 +11,8 @@ import type {
   TestRunZone,
 } from '../webview/protocol.js';
 import { RUN_FILTERS, type RunFilter } from './queries.js';
-import type { LiveRun, StepState } from './watch.js';
+import type { StepState } from './reading.js';
+import type { LiveRun } from './watch.js';
 
 import './runs.css';
 

@@ -10,7 +10,8 @@ import {
   type NodeBox,
   type NodeKind,
 } from '../core/rules.js';
-import type { LiveOutcome, LiveRun, StepState } from '../runs/watch.js';
+import type { LiveOutcome, StepState } from '../runs/reading.js';
+import type { LiveRun } from '../runs/watch.js';
 import { liveStep } from '../test-support/runs.js';
 
 import {
