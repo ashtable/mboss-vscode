@@ -28,7 +28,7 @@ import {
 } from './operations.js';
 import { hasRecovered, recoveriesOf, type Run, type Step } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
-import { runTimeline, type Timeline } from './timeline.js';
+import { runTimeline, type Timeline, type TimelineStep } from './timeline.js';
 import { toLiveRun } from './watch.js';
 import type { ProjectWorkflow } from './workflows.js';
 
@@ -165,6 +165,15 @@ function seeRun(view: SeeView): SeeRun {
   const timeline = runTimeline(run, steps);
   const operations = operationsOf(run, steps, view.ir);
 
+  // The chart and the strip above it are about what
+  // the workflow did, so the SDK's own rows are not
+  // drawn on either. The timeline still holds them,
+  // and has to: a wait the SDK wrote is what fills a
+  // gap that would otherwise be read as a crash.
+  const drawn = timeline.steps.filter(
+    (step) => ownerOf(step.name).kind !== 'sdk',
+  );
+
   return {
     workflowId: run.workflowId,
     name: run.name,
@@ -179,8 +188,8 @@ function seeRun(view: SeeView): SeeRun {
     severity: severityOf(run),
     span: spanOf(run),
     recovered: recoveredBanner(run, timeline),
-    chips: timeline.steps.map(chipOf),
-    timeline: chartOf(timeline),
+    chips: drawn.map(chipOf),
+    timeline: chartOf(timeline, drawn),
     raw: steps.map(rawRowOf),
     rail: railOf(run),
     selectedStep: view.selectedStep,
@@ -499,7 +508,7 @@ function recoveredBanner(
   };
 }
 
-function chipOf(step: Timeline['steps'][number]): SeeChip {
+function chipOf(step: TimelineStep): SeeChip {
   return {
     functionId: step.functionId,
     name: step.name,
@@ -516,12 +525,19 @@ function chipOf(step: Timeline['steps'][number]): SeeChip {
  * can state. A step DBOS did not time gets no bar
  * and is still drawn, because a step missing from
  * the chart is a step nobody knows ran.
+ *
+ * The window, the band and the axis come from the
+ * whole timeline; the bars come from `drawn`, which
+ * is the rows a block owns.
  */
-function chartOf(timeline: Timeline): SeeTimeline {
+function chartOf(
+  timeline: Timeline,
+  drawn: readonly TimelineStep[],
+): SeeTimeline {
   const span = timeline.to - timeline.from;
   const place = (at: number): number => round((at - timeline.from) / span);
 
-  const bars: SeeBar[] = timeline.steps.map((step) => ({
+  const bars: SeeBar[] = drawn.map((step) => ({
     functionId: step.functionId,
     name: step.name,
     at:

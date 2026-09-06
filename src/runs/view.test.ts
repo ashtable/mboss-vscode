@@ -331,6 +331,36 @@ describe('one run in detail', () => {
     expect(shown.run?.timeline.bars[3]?.at).toBeUndefined();
   });
 
+  /**
+   * The chart is about what the workflow did, so
+   * the SDK's own rows get no bar and no chip. The
+   * hole computation still sees them, and has to:
+   * a wait the SDK wrote is what fills a gap that
+   * would otherwise be read as a crash.
+   */
+  it('draws no bar for a row the SDK wrote, and still counts it', () => {
+    const slept = seeInit({
+      run: RUN,
+      steps: [
+        step(0, 0, 1000),
+        { ...step(1, 1000, 9000), name: 'DBOS.sleep' },
+        step(2, 9000, 10_000),
+      ],
+      selectedStep: undefined,
+      note: undefined,
+    });
+
+    expect(slept.run?.timeline.bars.map((bar) => bar.name)).toEqual([
+      'step_0',
+      'step_2',
+    ]);
+    expect(slept.run?.chips.map((chip) => chip.name)).toEqual([
+      'step_0',
+      'step_2',
+    ]);
+    expect(slept.run?.timeline.outage).toBeUndefined();
+  });
+
   it('says what the crash cost, out of what the ledger holds', () => {
     expect(run?.recovered?.heading).toBe(
       'Recovered — completed durable operations were not re-executed',
