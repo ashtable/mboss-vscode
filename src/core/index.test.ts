@@ -283,7 +283,16 @@ describe('the boundary', () => {
   });
 
   it('starts a run through the app own ingress', () => {
-    expect(importing(/\/runs\/\$\{/)).toEqual(['src/runs/runner.ts']);
+    const ingress = importing(/\/runs\/\$\{/);
+
+    expect(ingress).toEqual(['src/runs/runner.ts']);
+
+    // The verb as well as the path. The rule is
+    // POST `/runs/:workflow`, and a fence that read
+    // only the path would not notice the request
+    // becoming something the route that starts runs
+    // does not answer.
+    expect(importing(/method: 'POST'/)).toEqual(ingress);
   });
 
   /**
