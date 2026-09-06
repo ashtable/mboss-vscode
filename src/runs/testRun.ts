@@ -6,7 +6,7 @@ import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
 import type { RunsInit } from '../webview/protocol.js';
 
-import type { OpenDatabase } from './db.js';
+import type { Following } from './following.js';
 import { newRunId, type RunStart, type RunStarter } from './runner.js';
 import {
   refusedRunId,
@@ -14,7 +14,7 @@ import {
   type SessionRun,
 } from './sessionLog.js';
 import { sessionRowOf, type TestRunProblem } from './view.js';
-import type { LiveRun, RunWatch, RunWatcher } from './watch.js';
+import type { LiveRun } from './watch.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 
 /**
@@ -54,25 +54,28 @@ export type TestRunHost = {
 export type TestRunDeps = {
   host: TestRunHost;
   trust: Trust;
-  open: OpenDatabase;
   runner: RunStarter;
-  watch: RunWatch;
   sessionLog: SessionLog;
 
-  /** The connection string a watch reads the run
-   *  from, quietly: none is a reason not to arm
-   *  one. */
-  ledger(): string | undefined;
+  /** The one owner of every watch this window arms.
+   *  This zone says which runs it started and hears
+   *  back; it polls nothing itself. */
+  following: Following;
 };
 
 /** What the list draws of this session. */
 export type TestRunZone = Pick<RunsInit, 'testRun' | 'live' | 'session'>;
 
 export type TestRun = Disposable & {
-  /** Reads the saved workflows again and re-arms
-   *  the watches on runs still moving, quietly:
-   *  the panel is drawn again by whoever asked. */
+  /** Reads the saved workflows again, quietly: the
+   *  panel is drawn again by whoever asked, and
+   *  re-arming is the watch owner's. */
   refresh(): void;
+
+  /** The runs this session started that have not
+   *  settled, for whoever composes what is worth
+   *  following. */
+  unsettled(): readonly string[];
 
   /** Re-reads the project's saved workflows off
    *  disk and says so — what a command needs before
@@ -123,10 +126,6 @@ export function testRunZone(deps: TestRunDeps): TestRun {
   let problem: TestRunProblem | undefined;
   let live: LiveRun | undefined;
 
-  /** One watch per run, so that asking twice does
-   *  not poll twice. */
-  const watching = new Map<string, RunWatcher>();
-
   const changed = changes.fire;
 
   const project = (): string | undefined => deps.host.projects()[0];
@@ -152,10 +151,24 @@ export function testRunZone(deps: TestRunDeps): TestRun {
    * let go — and the run is what a canvas of the
    * same workflow draws itself against.
    */
+  /**
+   * What the ledger says about a run somebody is
+   * watching — but only about one this window
+   * started.
+   *
+   * One owner polls every followed run, including
+   * ones a person merely opened on the run page, so
+   * a report about a foreign run arrives here too.
+   * The session log is what says which ones are
+   * this window's, and colouring the editable
+   * document with somebody else's run is exactly
+   * what this guard prevents.
+   */
   const heard = (run: LiveRun): void => {
-    live = run;
-
     const row = deps.sessionLog.find(run.workflowId);
+    if (row === undefined) return;
+
+    live = run;
     const failed = run.steps.find((step) => step.state === 'failed');
 
     deps.sessionLog.update(run.workflowId, {
@@ -165,36 +178,15 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       ...(failed === undefined
         ? {}
         : { failedStep: { name: failed.name, error: run.error ?? '' } }),
-      ...(SETTLED.includes(run.outcome) && row !== undefined
+      ...(SETTLED.includes(run.outcome)
         ? { durationMs: Date.now() - row.startedAt }
         : {}),
     });
 
-    // A watch stops itself on anything but
-    // `running`, so what is held here has to go
-    // with it or refresh would find a watcher that
-    // is no longer watching.
-    if (run.outcome !== 'running') watching.delete(run.workflowId);
-
     changed();
   };
 
-  const arm = (workflowId: string): void => {
-    if (watching.has(workflowId)) return;
-
-    const url = deps.ledger();
-    if (url === undefined) return;
-
-    watching.set(workflowId, deps.watch(deps.open, url, workflowId, heard));
-  };
-
-  /** The runs that are still moving, watched
-   *  again. */
-  const rewatch = (): void => {
-    for (const row of deps.sessionLog.list()) {
-      if (!SETTLED.includes(row.outcome)) arm(row.workflowId);
-    }
-  };
+  const reports = deps.following.onRun(heard);
 
   /** What the zone says when a start did not
    *  happen, and whether the same Rebuild action
@@ -267,7 +259,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
         // came back: the route starts the run under
         // the id it was handed, and the row on
         // screen is the thing being followed.
-        arm(workflowId);
+        deps.following.arm(workflowId);
       } else {
         deps.sessionLog.update(workflowId, {
           outcome: 'failed',
@@ -306,15 +298,20 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       deps.sessionLog.record(row(answer.workflowId, flow.name, payload));
     }
 
-    arm(answer.workflowId);
+    deps.following.arm(answer.workflowId);
     changed();
   };
 
   return {
     refresh: () => {
       readWorkflows();
-      rewatch();
     },
+
+    unsettled: () =>
+      deps.sessionLog
+        .list()
+        .filter((row) => !SETTLED.includes(row.outcome))
+        .map((row) => row.workflowId),
 
     refreshWorkflows: () => {
       readWorkflows();
@@ -414,10 +411,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     onChanged: changes.on,
 
     dispose: () => {
-      // A watch outliving the window that armed it
-      // would poll a database nobody is looking at.
-      for (const watcher of watching.values()) watcher.stop();
-      watching.clear();
+      reports.dispose();
       changes.dispose();
     },
   };

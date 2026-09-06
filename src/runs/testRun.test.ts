@@ -15,6 +15,7 @@ import {
 } from '../test-support/runs.js';
 
 import { sessionLog, type SessionRun } from './sessionLog.js';
+import { following, type Following } from './following.js';
 import { testRunZone, type TestRun, type TestRunDeps } from './testRun.js';
 
 /**
@@ -28,17 +29,32 @@ function zone(over: Partial<TestRunDeps> = {}): TestRun {
   return testRunZone({
     host: host({ projects: () => [project()] }),
     trust: fakeTrust(),
-    open: async () => database(),
     runner: async () => ({
       ok: false,
       because: 'refused',
       detail: 'no ingress in this spec',
     }),
-    watch: watcher().watch,
     sessionLog: sessionLog(),
-    ledger: () => LEDGER_URL,
+    following: follows().held,
     ...over,
   });
+}
+
+/** The one watch owner, over a watcher a case can
+ *  speak through. */
+function follows(watch = watcher()): {
+  watch: ReturnType<typeof watcher>;
+  held: Following;
+} {
+  return {
+    watch,
+    held: following({
+      open: async () => database(),
+      watch: watch.watch,
+      ledger: () => LEDGER_URL,
+      unsettled: () => [],
+    }),
+  };
 }
 
 describe('the workflows a person can run', () => {
@@ -247,8 +263,11 @@ describe('starting a run', () => {
 
 describe('following a run', () => {
   it('watches what it started and keeps the row with it', async () => {
-    const watch = watcher();
-    const shown = zone({ runner: echoing().start, watch: watch.watch });
+    const owner = follows();
+    const shown = zone({
+      runner: echoing().start,
+      following: owner.held,
+    });
 
     await shown.runWorkflow('groom_booking', '{}');
 
@@ -256,9 +275,11 @@ describe('following a run', () => {
     // request went, which is what the route starts
     // the run as.
     const workflowId = shown.render().session[0]?.workflowId ?? '';
-    expect(watch.armed.map((held) => held.workflowId)).toEqual([workflowId]);
+    expect(owner.watch.armed.map((one) => one.workflowId)).toEqual([
+      workflowId,
+    ]);
 
-    watch.say(
+    owner.watch.say(
       workflowId,
       liveRun({
         workflowId,
@@ -277,13 +298,13 @@ describe('following a run', () => {
   });
 
   it('names the step that failed, with what the run recorded', async () => {
-    const watch = watcher();
-    const shown = zone({ runner: echoing().start, watch: watch.watch });
+    const owner = follows();
+    const shown = zone({ runner: echoing().start, following: owner.held });
 
     await shown.runWorkflow('groom_booking', '{}');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
-    watch.say(
+    owner.watch.say(
       workflowId,
       liveRun({
         workflowId,
@@ -302,74 +323,30 @@ describe('following a run', () => {
   });
 
   /**
-   * A watch lets go of a run parked on a person and
-   * of one that has gone quiet, and nothing re-arms
-   * it on a timer. A refresh is what does.
+   * The rule that keeps a run somebody is only
+   * looking at off the document they are editing.
+   *
+   * One owner polls every followed run, so a report
+   * arrives here about runs this window never
+   * started. The session log is what says which
+   * ones are this window's, and nothing else is
+   * touched.
    */
-  it('re-watches the runs that are still moving, and no others', () => {
-    const watch = watcher();
-    const log = sessionLog();
-    const outcomes = ['running', 'waiting', 'quiet', 'done', 'failed'] as const;
-
-    for (const outcome of outcomes) {
-      log.record({
-        workflowId: `run_${outcome}`,
-        workflow: 'groom_booking',
-        input: {},
-        startedAt: 1000,
-        outcome,
-        stepCount: 0,
-        recovered: false,
-      });
-    }
-
-    const shown = zone({ watch: watch.watch, sessionLog: log });
-
-    shown.refresh();
-
-    expect(watch.armed.map((held) => held.workflowId).sort()).toEqual([
-      'run_quiet',
-      'run_running',
-      'run_waiting',
-    ]);
-  });
-
-  it('arms one watch per run, however often it is asked', async () => {
-    const watch = watcher();
-    const shown = zone({ runner: echoing().start, watch: watch.watch });
+  it('leaves the document alone for a run this window never started', async () => {
+    const owner = follows();
+    const shown = zone({ runner: echoing().start, following: owner.held });
 
     await shown.runWorkflow('groom_booking', '{}');
-    shown.refresh();
-    shown.refresh();
+    const mine = shown.render().session[0]?.workflowId ?? '';
 
-    expect(watch.armed).toHaveLength(1);
-  });
+    owner.held.arm('wf_somebody_elses');
+    owner.watch.say(
+      'wf_somebody_elses',
+      liveRun({ workflowId: 'wf_somebody_elses', outcome: 'failed' }),
+    );
 
-  /** A project with no connection string is a
-   *  reason not to arm a watch, never a reason to
-   *  say so here. */
-  it('arms nothing where there is no ledger to read', async () => {
-    const watch = watcher();
-    const shown = zone({
-      runner: echoing().start,
-      watch: watch.watch,
-      ledger: () => undefined,
-    });
-
-    await shown.runWorkflow('groom_booking', '{}');
-
-    expect(watch.armed).toEqual([]);
-    expect(shown.render().session).toHaveLength(1);
-  });
-
-  it('stops every watch it armed when disposed', async () => {
-    const watch = watcher();
-    const shown = zone({ runner: echoing().start, watch: watch.watch });
-
-    await shown.runWorkflow('groom_booking', '{}');
-    shown.dispose();
-
-    expect(watch.armed.map((held) => held.stopped)).toEqual([true]);
+    expect(shown.live()?.workflowId).not.toBe('wf_somebody_elses');
+    expect(shown.render().session.map((row) => row.workflowId)).toEqual([mine]);
   });
 });
 
@@ -420,7 +397,7 @@ describe('asking the agent why', () => {
   it('notes the failure and hands it over, naming step and error', async () => {
     const noted: DiagnosticEntry[] = [];
     const asked: string[] = [];
-    const watch = watcher();
+    const owner = follows();
     const shown = zone({
       host: host({
         projects: () => [project()],
@@ -428,13 +405,13 @@ describe('asking the agent why', () => {
         notify: async (text) => void asked.push(text),
       }),
       runner: echoing().start,
-      watch: watch.watch,
+      following: owner.held,
     });
 
     await shown.runWorkflow('groom_booking', '{}');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
-    watch.say(
+    owner.watch.say(
       workflowId,
       liveRun({
         workflowId,

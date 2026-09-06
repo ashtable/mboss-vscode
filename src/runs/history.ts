@@ -8,7 +8,9 @@ import type { RunsInit } from '../webview/protocol.js';
 import type { Database, OpenDatabase, OpenFork } from './db.js';
 import { describeDatabase, systemDatabaseUrl } from './env.js';
 import { detailOf } from './failure.js';
+import type { Following } from './following.js';
 import {
+  FAILED_STATUSES,
   MAX_RUNS,
   countsQuery,
   runQuery,
@@ -66,6 +68,11 @@ export type HistoryDeps = {
   trust: Trust;
   open: OpenDatabase;
   openFork: OpenFork;
+
+  /** The one owner of every watch this window arms.
+   *  This zone listens for the run it is showing;
+   *  it polls nothing itself. */
+  following: Following;
 };
 
 /** What the list draws of the history. */
@@ -78,6 +85,11 @@ export type History = Disposable & {
   /** The connection string, quietly: nothing said
    *  and nothing changed when there is none. */
   ledger(): string | undefined;
+
+  /** The run this zone is showing, when the ledger
+   *  says it has not ended — for whoever composes
+   *  what is worth following. */
+  unsettled(): readonly string[];
 
   /** The list, read again. */
   refresh(): Promise<void>;
@@ -117,6 +129,22 @@ export function runHistory(deps: HistoryDeps): History {
   const changed = changes.fire;
 
   const project = (): string | undefined => deps.host.projects()[0];
+
+  /**
+   * A tick about the run this tab is showing.
+   *
+   * One owner polls every followed run, so reports
+   * about other runs arrive here too and are
+   * ignored — repainting the tab with somebody
+   * else's rows is exactly what the id check
+   * prevents.
+   */
+  const reports = deps.following.onRun((run, read) => {
+    if (selected?.run.workflowId !== run.workflowId) return;
+
+    selected = { ...selected, run: read.run, steps: read.steps };
+    changed();
+  });
 
   /**
    * The connection string, or the reason there is
@@ -310,6 +338,14 @@ export function runHistory(deps: HistoryDeps): History {
       await readRuns();
     },
 
+    unsettled: () => {
+      const showing = selected?.run;
+
+      return showing === undefined || finished(showing)
+        ? []
+        : [showing.workflowId];
+    },
+
     detail: () => selected,
 
     render: () => ({
@@ -324,8 +360,20 @@ export function runHistory(deps: HistoryDeps): History {
     }),
 
     onChanged: changes.on,
-    dispose: () => changes.dispose(),
+    dispose: () => {
+      reports.dispose();
+      changes.dispose();
+    },
   };
+}
+
+/** DBOS's own three, widened so a status read out
+ *  of a row can be compared against them. */
+const ENDED: readonly string[] = ['SUCCESS', ...FAILED_STATUSES];
+
+/** Whether the ledger says this run is over. */
+function finished(run: Run): boolean {
+  return ENDED.includes(run.status);
 }
 
 /**

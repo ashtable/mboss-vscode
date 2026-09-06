@@ -8,6 +8,7 @@ import type { Trust } from '../trust.js';
 import type { RunsInit } from '../webview/protocol.js';
 
 import type { OpenDatabase, OpenFork } from './db.js';
+import { following } from './following.js';
 import { runHistory } from './history.js';
 import type { RunFilter } from './queries.js';
 import type { RunStarter } from './runner.js';
@@ -143,11 +144,32 @@ export type RunsStore = Disposable & {
 };
 
 export function runsStore(deps: RunsDeps): RunsStore {
+  /**
+   * The one owner of every watch this window arms,
+   * built before the zones that use it.
+   *
+   * What is worth following is composed from both
+   * of them — the runs this session started that
+   * have not settled, and the one a person has open
+   * — which is what keeps `following.ts` ignorant
+   * of either. Both closures are called long after
+   * this line, so naming the zones here is safe.
+   */
+  const follow = following({
+    open: deps.open,
+    watch: deps.watch,
+    ledger: () => history.ledger(),
+    unsettled: () => [
+      ...new Set([...testRun.unsettled(), ...history.unsettled()]),
+    ],
+  });
+
   const history = runHistory({
     host: deps.host,
     trust: deps.trust,
     open: deps.open,
     openFork: deps.openFork,
+    following: follow,
   });
   const stack = stackZone({
     host: deps.host,
@@ -157,14 +179,9 @@ export function runsStore(deps: RunsDeps): RunsStore {
   const testRun = testRunZone({
     host: deps.host,
     trust: deps.trust,
-    open: deps.open,
     runner: deps.runner,
-    watch: deps.watch,
     sessionLog: deps.sessionLog,
-    // Whether the ledger can be read is the
-    // history's state; a watch only needs the
-    // answer.
-    ledger: () => history.ledger(),
+    following: follow,
   });
 
   // One signal for the three, since every reader
@@ -206,6 +223,11 @@ export function runsStore(deps: RunsDeps): RunsStore {
       await stack.read();
       testRun.refresh();
       await history.refresh();
+
+      // Last, so that what is worth following is
+      // composed from what the two zones have just
+      // read rather than from what they held before.
+      follow.rewatch();
     },
 
     // Only the list: which tab somebody is on says
@@ -230,6 +252,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
 
     dispose: () => {
       for (const subscription of followed) subscription.dispose();
+      // Before the zones, so nothing is still being
+      // told about a run while it is being taken
+      // apart.
+      follow.dispose();
       history.dispose();
       stack.dispose();
       testRun.dispose();

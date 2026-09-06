@@ -1,9 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { fakeTrust } from '../../test/doubles/trust.js';
-import { database, fork, host, project } from '../test-support/runs.js';
+import {
+  database,
+  fork,
+  host,
+  liveRun,
+  liveStep,
+  project,
+  watcher,
+} from '../test-support/runs.js';
 
 import type { Database, OpenDatabase } from './db.js';
+import { following, type Following } from './following.js';
 import { runHistory, type History, type HistoryDeps } from './history.js';
 
 /**
@@ -22,16 +31,35 @@ function history(over: Partial<HistoryDeps> = {}): History {
     trust: fakeTrust(),
     open: async () => database(),
     openFork: async () => fork(),
+    following: follows().held,
     ...over,
   });
 }
 
+/** The one watch owner, over a watcher a case can
+ *  speak through. */
+function follows(watch = watcher()): {
+  watch: ReturnType<typeof watcher>;
+  held: Following;
+} {
+  return {
+    watch,
+    held: following({
+      open: async () => database(),
+      watch: watch.watch,
+      ledger: () => 'postgres://app@localhost:5432/app',
+      unsettled: () => [],
+    }),
+  };
+}
+
 /** A history over a project, reading that
  *  database. */
-function reading(db: Database): History {
+function reading(db: Database, over: Partial<HistoryDeps> = {}): History {
   return history({
     host: host({ projects: () => [project()] }),
     open: async () => db,
+    ...over,
   });
 }
 
@@ -272,5 +300,46 @@ describe('replaying a step', () => {
     await read.replay(0);
 
     expect(client.destroy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A run somebody has open is polled by the one
+ * watch owner, alongside whatever else this window
+ * is following. So a tick about another run reaches
+ * this zone too, and the tab must not repaint itself
+ * with it.
+ */
+describe('a run somebody is watching go', () => {
+  it('replaces only the rows of the run it is showing', async () => {
+    const owner = follows();
+    const read = reading(database(), { following: owner.held });
+
+    await read.refresh();
+    await read.select('wf_c9d2f3');
+
+    expect(read.detail()?.steps).toHaveLength(1);
+
+    owner.held.arm('wf_c9d2f3');
+    owner.watch.say(
+      'wf_c9d2f3',
+      liveRun({
+        workflowId: 'wf_c9d2f3',
+        steps: [liveStep(), liveStep({ name: 'find_slot', functionId: 1 })],
+      }),
+    );
+
+    expect(read.detail()?.steps.map((step) => step.name)).toEqual([
+      'parse_request',
+      'find_slot',
+    ]);
+
+    owner.held.arm('wf_somebody_elses');
+    owner.watch.say(
+      'wf_somebody_elses',
+      liveRun({ workflowId: 'wf_somebody_elses', steps: [] }),
+    );
+
+    expect(read.detail()?.steps).toHaveLength(2);
   });
 });
