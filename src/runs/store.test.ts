@@ -4,7 +4,7 @@ import { fakeTrust } from '../../test/doubles/trust.js';
 import {
   database,
   echoing,
-  fork,
+  management,
   host,
   project,
   runner,
@@ -35,7 +35,7 @@ function deps(over: Partial<RunsDeps> = {}): RunsDeps {
     host: host({ projects: () => [project()] }),
     trust: fakeTrust(),
     open: async () => database(),
-    openFork: async () => fork(),
+    openManagement: async () => management(),
     stack: stack().controller,
     runner: async () => ({
       ok: false,

@@ -79,7 +79,7 @@ function deps(dir: string): RunsDeps {
     host: runsHost(dir),
     trust: fakeTrust(),
     open: refused('opened a database'),
-    openFork: refused('opened a fork client'),
+    openManagement: refused('opened a fork client'),
     stack: {
       up: refused('brought the stack up'),
       down: refused('brought the stack down'),

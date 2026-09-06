@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { vi } from 'vitest';
 
 import type { Database } from '../runs/db.js';
-import type { ForkClient } from '../runs/replay.js';
+import type { ManagementClient } from '../runs/manage.js';
 import type { RunRequest, RunStart, RunStarter } from '../runs/runner.js';
 import type { StackController, StackStatus } from '../runs/stack.js';
 import type { RunsHost } from '../runs/store.js';
@@ -155,10 +155,14 @@ export function host(over: Partial<RunsHost> = {}): RunsHost {
   };
 }
 
-export function fork(): ForkClient & { destroy: ReturnType<typeof vi.fn> } {
+export function management(): ManagementClient & {
+  destroy: ReturnType<typeof vi.fn>;
+} {
   return {
     getLatestApplicationVersion: async () => ({ versionName: 'v0.4.1' }),
     forkWorkflow: async () => 'wf_fork1',
+    cancelWorkflow: async () => undefined,
+    resumeWorkflow: async () => undefined,
     destroy: vi.fn().mockResolvedValue(undefined),
   };
 }

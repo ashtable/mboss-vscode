@@ -7,7 +7,7 @@ import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
 import type { RunsInit } from '../webview/protocol.js';
 
-import type { OpenDatabase, OpenFork } from './db.js';
+import type { OpenDatabase, OpenManagement } from './db.js';
 import { following } from './following.js';
 import { runHistory } from './history.js';
 import type { RunFilter } from './queries.js';
@@ -73,7 +73,7 @@ export type RunsDeps = {
   host: RunsHost;
   trust: Trust;
   open: OpenDatabase;
-  openFork: OpenFork;
+  openManagement: OpenManagement;
   stack: StackController;
   runner: RunStarter;
   watch: RunWatch;
@@ -168,7 +168,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     host: deps.host,
     trust: deps.trust,
     open: deps.open,
-    openFork: deps.openFork,
+    openManagement: deps.openManagement,
     following: follow,
   });
   const stack = stackZone({

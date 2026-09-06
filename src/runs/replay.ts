@@ -1,4 +1,5 @@
 import { detailOf } from './failure.js';
+import type { ManagementClient } from './manage.js';
 import type { Run } from './rows.js';
 
 /**
@@ -14,23 +15,12 @@ import type { Run } from './rows.js';
  * read path avoids the client for and exactly the
  * kind of thing to use it for.
  *
- * Taken as an interface rather than as the client
- * itself, so the rule below can be stated in a
- * test without a database: DBOS's own client
- * satisfies it structurally, and this module never
- * has to know how one is opened.
+ * The client is taken as the narrow management
+ * type rather than as DBOS's own, so this module
+ * never has to know how one is opened and cannot
+ * reach for anything the extension has decided not
+ * to do.
  */
-export type ForkClient = {
-  getLatestApplicationVersion(): Promise<{ versionName: string }>;
-
-  forkWorkflow(
-    workflowID: string,
-    startStep: number,
-    options?: { applicationVersion?: string },
-  ): Promise<string>;
-
-  destroy(): Promise<void>;
-};
 
 export type Replay =
   | {
@@ -73,7 +63,7 @@ export type Replay =
  * pretending to know.
  */
 export async function replayFrom(
-  client: ForkClient,
+  client: ManagementClient,
   run: Run,
   startStep: number,
 ): Promise<Replay> {

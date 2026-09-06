@@ -5,7 +5,7 @@ import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
 import type { RunsInit } from '../webview/protocol.js';
 
-import type { Database, OpenDatabase, OpenFork } from './db.js';
+import type { Database, OpenDatabase, OpenManagement } from './db.js';
 import { describeDatabase, systemDatabaseUrl } from './env.js';
 import { detailOf } from './failure.js';
 import type { Following } from './following.js';
@@ -18,7 +18,8 @@ import {
   stepsQuery,
   type RunFilter,
 } from './queries.js';
-import { replayFrom, type ForkClient, type Replay } from './replay.js';
+import type { ManagementClient } from './manage.js';
+import { replayFrom, type Replay } from './replay.js';
 import {
   toCounts,
   toRun,
@@ -67,7 +68,7 @@ export type HistoryDeps = {
   host: HistoryHost;
   trust: Trust;
   open: OpenDatabase;
-  openFork: OpenFork;
+  openManagement: OpenManagement;
 
   /** The one owner of every watch this window arms.
    *  This zone listens for the run it is showing;
@@ -388,10 +389,10 @@ async function forkedFrom(
   run: Run,
   functionId: number,
 ): Promise<Replay> {
-  let client: ForkClient;
+  let client: ManagementClient;
 
   try {
-    client = await deps.openFork(url);
+    client = await deps.openManagement(url);
   } catch (cause) {
     return { at: 'refused', detail: detailOf(cause) };
   }

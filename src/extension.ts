@@ -10,7 +10,7 @@ import { newProject, offerVendorRefresh } from './commands/newProject.js';
 import { runWorkflowCommand } from './commands/runWorkflow.js';
 import { isProject } from './core/index.js';
 import { previewStore } from './preview/store.js';
-import { openDatabase, openFork } from './runs/db.js';
+import { openDatabase, openManagement } from './runs/db.js';
 import { projectEnv } from './runs/env.js';
 import { runsHost } from './runs/host.js';
 import { RunsListView, SeePanel } from './runs/panels.js';
@@ -105,7 +105,7 @@ export function activate(context: ExtensionContext): void {
     host: runsHost(panel),
     trust,
     open: openDatabase,
-    openFork,
+    openManagement,
     stack,
     // The runner is handed its collaborators here
     // rather than reaching for them: the store has

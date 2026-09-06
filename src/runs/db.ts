@@ -1,7 +1,7 @@
 import { DBOSClient } from '@dbos-inc/dbos-sdk';
 import pg from 'pg';
 
-import type { ForkClient } from './replay.js';
+import type { ManagementClient } from './manage.js';
 
 /**
  * The two connections this view opens, and nothing
@@ -31,7 +31,7 @@ export type Database = {
 
 export type OpenDatabase = (url: string) => Promise<Database>;
 
-export type OpenFork = (url: string) => Promise<ForkClient>;
+export type OpenManagement = (url: string) => Promise<ManagementClient>;
 
 /**
  * `max: 1` because the statements run one after
@@ -51,7 +51,7 @@ export const openDatabase: OpenDatabase = async (url) => {
 };
 
 /**
- * DBOS's own client, for the one write.
+ * DBOS's own client, for the writes.
  *
  * `DBOSClient.create` needs a connection string and
  * nothing else: no launch, no registered workflows,
@@ -60,5 +60,5 @@ export const openDatabase: OpenDatabase = async (url) => {
  * can do at all — the static `DBOS.forkWorkflow` is
  * only callable from inside a launched process.
  */
-export const openFork: OpenFork = async (url) =>
+export const openManagement: OpenManagement = async (url) =>
   await DBOSClient.create({ systemDatabaseUrl: url });

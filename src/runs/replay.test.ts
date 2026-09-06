@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Run } from './rows.js';
-import { replayFrom, type ForkClient } from './replay.js';
+import type { ManagementClient } from './manage.js';
+import { replayFrom } from './replay.js';
 
 /**
  * Replaying a run from one of its steps.
@@ -40,7 +41,7 @@ const RUN: Run = {
   wasForkedFrom: false,
 };
 
-function client(over: Partial<ForkClient> = {}): ForkClient & {
+function client(over: Partial<ManagementClient> = {}): ManagementClient & {
   destroy: ReturnType<typeof vi.fn>;
   forkWorkflow: ReturnType<typeof vi.fn>;
 } {
@@ -51,7 +52,7 @@ function client(over: Partial<ForkClient> = {}): ForkClient & {
     forkWorkflow: vi.fn().mockResolvedValue('wf_fork1'),
     destroy: vi.fn().mockResolvedValue(undefined),
     ...over,
-  } as ForkClient & {
+  } as ManagementClient & {
     destroy: ReturnType<typeof vi.fn>;
     forkWorkflow: ReturnType<typeof vi.fn>;
   };

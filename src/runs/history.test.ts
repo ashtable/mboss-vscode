@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import {
   database,
-  fork,
+  management,
   host,
   liveRun,
   liveStep,
@@ -30,7 +30,7 @@ function history(over: Partial<HistoryDeps> = {}): History {
     host: host(),
     trust: fakeTrust(),
     open: async () => database(),
-    openFork: async () => fork(),
+    openManagement: async () => management(),
     following: follows().held,
     ...over,
   });
@@ -252,14 +252,14 @@ describe('a database that will not answer', () => {
 
 describe('replaying a step', () => {
   it('forks the run the panel is showing, from the step clicked', async () => {
-    const client = fork();
+    const client = management();
     const said: string[] = [];
     const read = history({
       host: host({
         projects: () => [project()],
         say: (message) => said.push(message),
       }),
-      openFork: async () => client,
+      openManagement: async () => client,
     });
 
     await read.refresh();
@@ -272,10 +272,10 @@ describe('replaying a step', () => {
   });
 
   it('does nothing at all before a run has been picked', async () => {
-    const client = fork();
+    const client = management();
     const read = history({
       host: host({ projects: () => [project()] }),
-      openFork: async () => client,
+      openManagement: async () => client,
     });
 
     await read.refresh();
@@ -290,11 +290,11 @@ describe('replaying a step', () => {
    * same decision trust covers everywhere else.
    */
   it('does nothing in a window nobody has trusted', async () => {
-    const client = fork();
+    const client = management();
     const read = history({
       host: host({ projects: () => [project()] }),
       trust: fakeTrust(false),
-      openFork: async () => client,
+      openManagement: async () => client,
     });
 
     await read.replay(0);
