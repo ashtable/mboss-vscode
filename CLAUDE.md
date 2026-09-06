@@ -281,6 +281,17 @@ none of that.
   file); `watch.ts` polls a started run every 500 ms and goes quiet after 15 s.
   `queries.ts` and `rows.ts` are shared with the browser bundle: no Node
   imports there; `db.ts` is the only file that may import `pg`.
+  **`reading.ts` is the one projection of a run's rows** (`readRun`): every row
+  attributed to its block, the window they are drawn in, and the run's outcome.
+  It takes the clock — `runTimeline` takes one too and neither defaults, because
+  a default is what let three callers answer one page about three moments. Both
+  of its readers go through it: `view.seeRun` for the page and `watchRun` for the
+  live overlay, whose `LiveRun`/`LiveStep` are a rendering of a reading for the
+  wire. What a reader knows about the drawing is three-valued (`Drawing`:
+  the document, `'lost'`, `'unasked'`) because the page and the watch meant
+  opposite things by "no drawing". `operations.ts` groups a reading and reads
+  its decided arms; `timeline.ts` owns the outage inference and has one caller.
+  See `CONTEXT.md` for the vocabulary.
 - **`watchers/`** — per folder: globs for workflow documents, `lib/**` and
   proposals, plus `onDidSaveTextDocument` (a watcher can be silenced by
   `files.watcherExclude`), coalesced by a 300 ms `Debouncer` keyed on the
