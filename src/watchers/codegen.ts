@@ -126,8 +126,56 @@ export async function generate(project: string): Promise<CodegenResult> {
     problems: [
       ...problems,
       ...refusals(compiled.failures, documents, problems),
+      ...collateral(compiled.failures, documents),
     ],
   };
+}
+
+/**
+ * What a refusal cost the documents beside it.
+ *
+ * The compiler refuses a project all or nothing, so
+ * a workflow nobody has touched stops being
+ * regenerated because of something in a document
+ * next to it. Saying nothing about that leaves a
+ * person reading a file whose generated code has
+ * quietly stopped keeping up, with no thread to
+ * pull.
+ *
+ * One diagnostic per document that was not written,
+ * naming one refusal rather than all of them. A
+ * sentence listing three names stops being read,
+ * and every refused document carries its own errors
+ * in the same panel.
+ *
+ * Nothing clears these. The problem sink replaces
+ * the whole set on every publish, so a diagnostic
+ * that is no longer computed is one that is no
+ * longer shown.
+ */
+function collateral(
+  failures: readonly CompileFailure[],
+  documents: readonly Document[],
+): Problem[] {
+  const [first] = failures;
+  if (first === undefined) return [];
+
+  const refused = new Set(failures.map((failure) => failure.name));
+
+  return documents.flatMap((document) =>
+    document.ir === undefined || refused.has(document.ir.name)
+      ? []
+      : [
+          {
+            file: document.file,
+            message: messages.codegenNotRegenerated(
+              document.ir.name,
+              first.name,
+            ),
+            severity: 'error' as const,
+          },
+        ],
+  );
 }
 
 /** A refusal that belongs to the project rather

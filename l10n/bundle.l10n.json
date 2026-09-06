@@ -102,6 +102,7 @@
   "There is no mBoss project in this window to generate code for.": "There is no mBoss project in this window to generate code for.",
   "mBoss regenerated this project in {0} ms.": "mBoss regenerated this project in {0} ms.",
   "Code generation stopped: {0}": "Code generation stopped: {0}",
+  "`{0}` was not regenerated: `{1}` was refused.": "`{0}` was not regenerated: `{1}` was refused.",
   "This file is not a workflow document: {0}": "This file is not a workflow document: {0}",
   "The code-behind could not be read: {0}": "The code-behind could not be read: {0}",
   "This graph changed while you were editing it. Try that again.": "This graph changed while you were editing it. Try that again.",

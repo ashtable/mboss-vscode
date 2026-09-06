@@ -16,6 +16,7 @@ import {
   validateWorkflow,
   type WorkflowIR,
 } from '../core/rules.js';
+import { messages } from '../messages.js';
 import type { Problem } from '../problem.js';
 import type { StatusBar } from '../statusBar.js';
 import {
@@ -231,6 +232,85 @@ describe('a document that will not parse', () => {
     expect(generatedFiles(project)).toContain(
       'src/workflows/groom_booking.workflow.ts',
     );
+  });
+});
+
+/**
+ * The compiler refuses a project all or nothing, so
+ * one bad document costs every other document its
+ * generated code. Until now the panel said only
+ * what was wrong with the bad one, and a person
+ * looking at a workflow that had simply stopped
+ * being regenerated had nothing at all to read.
+ */
+describe('what a refusal costs the documents beside it', () => {
+  it('says which document was not regenerated, and which refused it', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const good = writeWorkflow(project, 'groom_booking');
+    writeMixed(project);
+
+    const result = await generate(project);
+
+    expect(result.ok).toBe(false);
+    expect(result.written).toEqual([]);
+
+    const errors = about(result, good).filter(
+      (problem) => problem.severity === 'error',
+    );
+
+    expect(errors).toEqual([
+      {
+        file: good,
+        message: messages.codegenNotRegenerated('groom_booking', 'mixed'),
+        severity: 'error',
+      },
+    ]);
+  });
+
+  /**
+   * One name, not a list. A sentence naming three
+   * documents stops being read, and any one of them
+   * is enough of a thread to pull — each carries its
+   * own errors in the same panel.
+   */
+  it('names one refusal when several documents refuse at once', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const good = writeWorkflow(project, 'groom_booking');
+    writeMixed(project, 'mixed_one');
+    writeMixed(project, 'mixed_two');
+
+    const result = await generate(project);
+    const said = about(result, good).filter(
+      (problem) => problem.severity === 'error',
+    );
+
+    expect(said).toHaveLength(1);
+    expect([
+      messages.codegenNotRegenerated('groom_booking', 'mixed_one'),
+      messages.codegenNotRegenerated('groom_booking', 'mixed_two'),
+    ]).toContain(said[0]?.message);
+  });
+
+  /**
+   * Nothing clears this: the problem sink replaces
+   * the whole set on every publish, so a diagnostic
+   * that is no longer computed is a diagnostic that
+   * is no longer shown.
+   */
+  it('says nothing once the refused document compiles', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const good = writeWorkflow(project, 'groom_booking');
+    const refused = writeMixed(project);
+
+    await generate(project);
+    rmSync(refused);
+
+    const result = await generate(project);
+
+    expect(result.ok).toBe(true);
+    expect(
+      about(result, good).filter((problem) => problem.severity === 'error'),
+    ).toEqual([]);
   });
 });
 
@@ -587,13 +667,13 @@ async function watching(opts?: {
  * wired with types that do not meet, and no trigger
  * to start any of it.
  */
-function writeMixed(project: string): string {
+function writeMixed(project: string, name = 'mixed'): string {
   const document = JSON.parse(
     readWorkflowFixture('groom_booking'),
   ) as WorkflowIR;
   const ir = {
     ...document,
-    name: 'mixed',
+    name,
     title: 'Mixed',
     nodes: document.nodes.filter((node) =>
       ['parse_request', 'find_slot'].includes(node.id),
@@ -603,7 +683,7 @@ function writeMixed(project: string): string {
       .map((edge) => ({ ...edge, type: 'WebhookEvent' })),
   };
 
-  const path = join(project, '.mboss', 'workflows', 'mixed.workflow.json');
+  const path = join(project, '.mboss', 'workflows', `${name}.workflow.json`);
 
   mkdirSync(join(project, '.mboss', 'workflows'), { recursive: true });
   writeFileSync(path, `${JSON.stringify(ir, null, 2)}\n`, 'utf8');

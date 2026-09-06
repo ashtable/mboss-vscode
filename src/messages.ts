@@ -400,6 +400,26 @@ export const messages = {
   codegenStopped: (detail: string) =>
     l10n.t('Code generation stopped: {0}', detail),
 
+  /**
+   * Said on a document that is fine, about one that
+   * is not.
+   *
+   * The compiler refuses a project all or nothing,
+   * so a workflow nobody has touched stops being
+   * regenerated because of something in a document
+   * beside it. Without this the panel says only
+   * what is wrong with the other one, and the
+   * connection between the two is a thing a person
+   * has to already know.
+   *
+   * One name, not a list: a sentence naming three
+   * documents stops being read, and each refused
+   * document carries its own errors in the same
+   * panel.
+   */
+  codegenNotRegenerated: (name: string, other: string) =>
+    l10n.t('`{0}` was not regenerated: `{1}` was refused.', name, other),
+
   documentUnreadable: (detail: string) =>
     l10n.t('This file is not a workflow document: {0}', detail),
   codeBehindUnreadable: (detail: string) =>
