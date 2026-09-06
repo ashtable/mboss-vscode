@@ -122,12 +122,14 @@ export function database(): Database & {
   closed: number;
   asked: string[];
   rows: unknown[];
+  steps: unknown[];
   fail: string | undefined;
 } {
   const state = {
     closed: 0,
     asked: [] as string[],
     rows: [RUN_ROW] as unknown[],
+    steps: [STEP_ROW] as unknown[],
     fail: undefined as string | undefined,
     query: async <Row>(text: string): Promise<Row[]> => {
       state.asked.push(text);
@@ -141,7 +143,7 @@ export function database(): Database & {
       // `operation_outputs` appear inside a
       // statement that is neither of these.
       if (text.startsWith('SELECT count(*)')) return [COUNTS_ROW] as Row[];
-      if (text.startsWith('SELECT function_id')) return [STEP_ROW] as Row[];
+      if (text.startsWith('SELECT function_id')) return state.steps as Row[];
 
       return state.rows as Row[];
     },

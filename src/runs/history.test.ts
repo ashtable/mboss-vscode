@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import {
   RUN_ROW,
+  STEP_ROW,
   database,
   management,
   host,
@@ -450,6 +451,54 @@ describe('the run somebody has open', () => {
     await read.refreshRun();
 
     expect(owner.watch.armed).toHaveLength(2);
+  });
+
+  /**
+   * Refresh is the same run read again, not a
+   * different question. Pressing it while reading a
+   * group two thirds down a trace with the SDK's
+   * own rows shown must not put somebody back at
+   * the top with those rows hidden.
+   */
+  it('keeps what somebody was reading when the same run is refreshed', async () => {
+    const going = database();
+    going.steps = [
+      STEP_ROW,
+      { ...STEP_ROW, function_id: 1, function_name: 'find_slot' },
+    ];
+
+    const read = reading(going);
+
+    await read.select('wf_c9d2f3');
+    read.selectNode('find_slot');
+    read.showRaw(true);
+
+    await read.refreshRun();
+
+    expect(read.detail()?.selectedNode).toBe('find_slot');
+    expect(read.detail()?.selectedStep).toBe(1);
+    expect(read.detail()?.raw).toBe(true);
+  });
+
+  it('starts a different run at the top, with the DBOS rows hidden', async () => {
+    const going = database();
+    going.steps = [
+      STEP_ROW,
+      { ...STEP_ROW, function_id: 1, function_name: 'find_slot' },
+    ];
+
+    const read = reading(going);
+
+    await read.select('wf_c9d2f3');
+    read.selectNode('find_slot');
+    read.showRaw(true);
+
+    going.rows = [{ ...RUN_ROW, workflow_uuid: 'wf_other' }];
+    await read.select('wf_other');
+
+    expect(read.detail()?.selectedNode).toBeUndefined();
+    expect(read.detail()?.selectedStep).toBe(0);
+    expect(read.detail()?.raw).toBe(false);
   });
 
   it('holds which of the two views is on screen', () => {

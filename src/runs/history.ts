@@ -316,19 +316,26 @@ export function runHistory(deps: HistoryDeps): History {
     });
 
     if (found !== undefined) {
-      // A different run is a different question,
-      // so the note about the last replay and the
-      // step somebody had picked both go.
-      note = undefined;
+      const before = selected?.run.workflowId;
+      const again = before === workflowId;
+
+      // A different run is a different question, so
+      // the note about the last replay, the step
+      // somebody had picked and the rows they had
+      // shown all go. The same run read again is
+      // the same question — Refresh, pressed while
+      // reading a group two thirds down a trace,
+      // must not put somebody back at the top.
+      if (!again) note = undefined;
 
       // And the run being let go of is one this
       // window no longer has a reason to poll.
-      const before = selected?.run.workflowId;
-      if (before !== undefined && before !== workflowId) {
-        deps.following.drop(before);
-      }
+      if (before !== undefined && !again) deps.following.drop(before);
 
-      selected = found === null ? undefined : await shownRun(found);
+      selected =
+        found === null
+          ? undefined
+          : await shownRun(found, again ? selected : undefined);
     }
 
     changed();
@@ -345,11 +352,15 @@ export function runHistory(deps: HistoryDeps): History {
    * says which revision that is. A workflow the
    * project no longer has leaves the trace and
    * drops the picture.
+   *
+   * `reading` is what a person had open when this
+   * is the same run being read again, and nothing
+   * when it is a different one.
    */
-  const shownRun = async (found: {
-    run: Run;
-    steps: Step[];
-  }): Promise<SeeView> => {
+  const shownRun = async (
+    found: { run: Run; steps: Step[] },
+    reading?: SeeView,
+  ): Promise<SeeView> => {
     const dir = project();
     const ir =
       dir === undefined ? undefined : workflowDocument(dir, found.run.name);
@@ -364,10 +375,13 @@ export function runHistory(deps: HistoryDeps): History {
 
     return {
       ...found,
-      selectedStep: firstStep(found.steps),
+      selectedStep: reading?.selectedStep ?? firstStep(found.steps),
       note,
       ...(ir === undefined ? {} : { ir, boxes: await boxesFor(ir) }),
-      raw: false,
+      ...(reading?.selectedNode === undefined
+        ? {}
+        : { selectedNode: reading.selectedNode }),
+      raw: reading?.raw ?? false,
       following: finished(found.run) ? 'quiet' : 'following',
       timing: dir !== undefined && recordsTimings(deps.projectSdk(dir)),
     };
