@@ -20,8 +20,10 @@ import { once } from '../once.js';
  * every selection, change and run tick.
  *
  * Each entry holds a literal, because that is what
- * the extraction tooling reads and what
- * `l10n/bundle.l10n.json` is checked against.
+ * `src/bundle.ts` reads to write
+ * `l10n/bundle.l10n.json`. A call that wraps
+ * anything else stops the generator by name rather
+ * than going quietly untranslated.
  */
 
 /**

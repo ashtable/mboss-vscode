@@ -26,8 +26,10 @@ import type { AgentId } from './acp/registry.js';
  * answers with the active locale's bundle, which
  * is not loaded until the extension activates.
  * Each one holds a literal, because that is what
- * the extraction tooling reads and what
- * `l10n/bundle.l10n.json` is checked against.
+ * `src/bundle.ts` reads to write
+ * `l10n/bundle.l10n.json`. A call that wraps
+ * anything else stops the generator by name rather
+ * than going quietly untranslated.
  */
 export const messages = {
   /**

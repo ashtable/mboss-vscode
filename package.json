@@ -204,6 +204,7 @@
     "build:mcp": "npm --prefix mboss-mcp-server ci && npm --prefix mboss-mcp-server run build:bundle",
     "build": "npm run build:mcp && node src/build.ts",
     "package": "npm run build && vsce package --no-dependencies",
+    "l10n": "node src/bundle.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
