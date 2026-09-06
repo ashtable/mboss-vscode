@@ -295,7 +295,11 @@ function timerWaitAhead(nodeId: string | undefined, view: SeeView): boolean {
 
   const next = ir.nodes.find((node) => node.id === only.to.node);
 
-  return next?.kind === 'durableWait';
+  // Timer-sourced and no other kind: a wait on a
+  // person or an event has a deadline too, but it
+  // is the moment that wait gives up rather than
+  // the moment the run comes back.
+  return next?.kind === 'durableWait' && next.config.source.kind === 'timer';
 }
 
 function qualifierOf(group: TraceGroup): string | undefined {

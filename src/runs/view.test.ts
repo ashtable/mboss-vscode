@@ -684,28 +684,34 @@ describe('one run, as the run page draws it', () => {
  * SDK records the row it is read off.
  */
 describe('when a run wakes', () => {
-  const WAITING = {
-    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
-    version: 1,
-    revision: 2,
-    name: 'expense_claim',
-    nodes: [
-      { id: 'file_it', kind: 'step', title: 'File it', config: {} },
-      {
-        id: 'hold_on',
-        kind: 'durableWait',
-        title: 'Hold on',
-        config: { waitKind: 'timer', seconds: 60 },
-      },
-    ],
-    edges: [
-      {
-        id: 'e1',
-        from: { node: 'file_it', port: 'out' },
-        to: { node: 'hold_on' },
-      },
-    ],
-  } as unknown as WorkflowIR;
+  /** One step, then a wait on whichever source the
+   *  case is about. */
+  function waitingOn(source: unknown): WorkflowIR {
+    return {
+      $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+      version: 1,
+      revision: 2,
+      name: 'expense_claim',
+      nodes: [
+        { id: 'file_it', kind: 'step', title: 'File it', config: {} },
+        {
+          id: 'hold_on',
+          kind: 'durableWait',
+          title: 'Hold on',
+          config: { source, onTimeout: 'abort' },
+        },
+      ],
+      edges: [
+        {
+          id: 'e1',
+          from: { node: 'file_it', port: 'out' },
+          to: { node: 'hold_on' },
+        },
+      ],
+    } as unknown as WorkflowIR;
+  }
+
+  const WAITING = waitingOn({ kind: 'timer', seconds: 60 });
 
   function sleeping(over: Partial<SeeView> = {}): SeeRun {
     const shown = seeInit({
@@ -762,6 +768,25 @@ describe('when a run wakes', () => {
     expect(
       sleeping({ timing: true, ir: forked }).groups[0]?.wakes,
     ).toBeUndefined();
+  });
+
+  /**
+   * `asleep until` is a sentence about a timer. A
+   * wait on a person or an event has a deadline
+   * too, but it is the moment the wait gives up
+   * rather than the moment the run comes back —
+   * somebody answering is what wakes that one, and
+   * no row says when they will.
+   */
+  it('says nothing where the wait ahead is not a timer', () => {
+    for (const source of [
+      { kind: 'form', email: 'file_it' },
+      { kind: 'event', topic: 'x', correlationPath: 'a', correlateWith: 'b' },
+    ]) {
+      expect(
+        sleeping({ timing: true, ir: waitingOn(source) }).groups[0]?.wakes,
+      ).toBeUndefined();
+    }
   });
 
   it('says when a parked block gives up, wherever one is recorded', () => {
