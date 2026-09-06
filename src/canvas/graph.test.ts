@@ -11,6 +11,7 @@ import {
   type NodeKind,
 } from '../core/rules.js';
 import type { LiveOutcome, LiveRun, StepState } from '../runs/watch.js';
+import { liveStep } from '../test-support/runs.js';
 
 import {
   toReactFlow,
@@ -87,9 +88,18 @@ function run(
     workflowId: 'wf_1',
     workflow: ir.name,
     status: outcome === 'running' ? 'PENDING' : 'SUCCESS',
-    steps: steps.map(([nodeId, state]) => ({ name: nodeId, nodeId, state })),
+    steps: steps.map(([nodeId, state], index) =>
+      liveStep({ name: nodeId, nodeId, state, functionId: index }),
+    ),
     recovered: false,
+    recoveryAttempts: 1,
     outcome,
+    applicationVersion: 'v0.1.0',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: undefined,
+    input: undefined,
+    forkedFrom: undefined,
   };
 }
 

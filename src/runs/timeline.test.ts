@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Run, Step } from './rows.js';
-import { runTimeline } from './timeline.js';
+import { endOf, runTimeline } from './timeline.js';
 
 /**
  * The one place the drawing rule lives.
@@ -189,5 +189,63 @@ describe('what the rule cannot answer', () => {
     expect(timeline.steps).toEqual([]);
     expect(timeline.outage).toBeUndefined();
     expect(timeline.to).toBeGreaterThan(timeline.from);
+  });
+
+  /**
+   * A sleeping run records the moment it means to
+   * wake as the sleep row's completion, and that
+   * moment is in the future. Drawn as the right
+   * edge it would push every bar that has actually
+   * happened into a sliver on the left, and say the
+   * run had been going for a day when it had been
+   * going a second.
+   */
+  it('does not stretch an unfinished run to a deadline in the future', () => {
+    const now = 6000;
+    const asleep: Step = {
+      ...step(4, 5000, 90_000),
+      name: 'DBOS.sleep',
+    };
+
+    const going = runTimeline(
+      { ...RUN, status: 'PENDING', completedAt: undefined },
+      [...CRASHED, asleep],
+      now,
+    );
+
+    expect(going.to).toBe(now);
+    expect(
+      endOf(
+        { ...RUN, status: 'PENDING', completedAt: undefined },
+        [...CRASHED, asleep],
+        now,
+      ),
+    ).toBe(now);
+  });
+
+  /**
+   * The wait a person is asked to answer is not an
+   * outage: nothing was down, the run was parked.
+   * The SDK writes a row spanning that wait, so the
+   * hole the rule looks for is already filled by it
+   * — which is why the hole is computed over every
+   * row and not only the ones a block owns.
+   */
+  it('leaves a long wait for a person out of the outage', () => {
+    const waited: Step[] = [
+      step(0, 1000, 1200),
+      { ...step(1, 1200, 1500), name: 'await_reply.register' },
+      { ...step(2, 1500, 80_000), name: 'DBOS.recv' },
+      { ...step(3, 80_000, 80_100), name: 'await_reply.clear' },
+      step(4, 84_000, 84_500),
+    ];
+
+    const timeline = runTimeline(
+      { ...RUN, completedAt: 84_500 },
+      waited,
+      100_000,
+    );
+
+    expect(timeline.outage).toEqual({ from: 80_100, to: 84_000 });
   });
 });

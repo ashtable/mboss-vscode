@@ -58,6 +58,10 @@ const SESSION_MARKS: Record<SessionRow['outcome'], string> = {
   failed: '✕',
   waiting: '◐',
   quiet: '○',
+  // Barred rather than crossed: somebody asked for
+  // this, so it is not the same news as a run that
+  // threw.
+  cancelled: '⊘',
 };
 
 /** The compose service the app runs in, as the

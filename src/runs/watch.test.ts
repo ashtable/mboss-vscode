@@ -3,10 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OpenDatabase } from './db.js';
 import type { OperationOutputRow, WorkflowStatusRow } from './rows.js';
 import {
+  SETTLED,
   WATCH_INTERVAL_MS,
   WATCH_QUIET_MS,
   watchRun,
+  type LedgerRead,
   type LiveRun,
+  type LiveStep,
+  type StepState,
 } from './watch.js';
 
 /**
@@ -113,6 +117,36 @@ function stepRow(step: Recorded, index: number): OperationOutputRow {
   };
 }
 
+/**
+ * One live step, at the values `stepRow` above puts
+ * in the ledger. Spelled once so a widening of the
+ * reading is one edit rather than one per exact
+ * comparison, and so what each case is actually
+ * about stays legible in its own literal.
+ */
+function recordedStep(over: {
+  name: string;
+  nodeId?: string;
+  state?: StepState;
+  functionId?: number;
+}): LiveStep {
+  return {
+    name: over.name,
+    nodeId: over.nodeId ?? over.name,
+    state: over.state ?? 'done',
+    functionId: over.functionId ?? 0,
+    startedAt: 1000,
+    completedAt: 1200,
+    output: '{}',
+    outputCut: false,
+    outputBytes: 2,
+    error: undefined,
+    childWorkflowId: undefined,
+    reused: false,
+    restored: false,
+  };
+}
+
 /** Lets every read the poller started finish, after
  *  moving the clock on. */
 async function settle(ms = 0): Promise<void> {
@@ -144,10 +178,15 @@ describe('watchRun', () => {
         status: 'SUCCESS',
         outcome: 'done',
         recovered: false,
+        recoveryAttempts: 1,
         error: undefined,
-        steps: [
-          { name: 'parse_request', nodeId: 'parse_request', state: 'done' },
-        ],
+        applicationVersion: 'v0.1.0',
+        createdAt: 1000,
+        startedAt: 1000,
+        completedAt: 2000,
+        input: undefined,
+        forkedFrom: undefined,
+        steps: [recordedStep({ name: 'parse_request' })],
       },
     ]);
 
@@ -206,8 +245,13 @@ describe('watchRun', () => {
 
     expect(seen[0]?.outcome).toBe('waiting');
     expect(seen[0]?.steps).toEqual([
-      { name: 'parse_request', nodeId: 'parse_request', state: 'done' },
-      { name: 'await_reply.register', nodeId: 'await_reply', state: 'waiting' },
+      recordedStep({ name: 'parse_request' }),
+      recordedStep({
+        name: 'await_reply.register',
+        nodeId: 'await_reply',
+        state: 'waiting',
+        functionId: 1,
+      }),
     ]);
 
     await settle(WATCH_QUIET_MS * 2);
@@ -270,7 +314,7 @@ describe('watchRun', () => {
     await settle();
 
     expect(seen[0]?.steps).toEqual([
-      { name: 'parse_request', nodeId: 'parse_request', state: 'done' },
+      recordedStep({ name: 'parse_request', functionId: 1 }),
     ]);
   });
 
@@ -415,5 +459,128 @@ describe('watchRun', () => {
 
     expect(seen).toHaveLength(1);
     expect(db.closed).toBe(1);
+  });
+
+  /**
+   * What a widened reading carries, and where it
+   * stops.
+   *
+   * A run page draws far more than a list row does —
+   * what each step returned, what a failure actually
+   * said, which steps came back from the ledger — and
+   * all of it is read on the same tick. So the tick
+   * hands over the rows it read as well as the
+   * reading it made of them, rather than making the
+   * page ask the database a second time for something
+   * that was in hand.
+   */
+  describe('what one tick carries', () => {
+    it('hands the callback the rows the tick read', async () => {
+      const db = ledger(runRow({ status: 'SUCCESS', completed_at: '2000' }));
+      db.steps = [{ name: 'parse_request' }];
+
+      const reads: LedgerRead[] = [];
+      watchRun(db.open, URL, RUN_ID, (_run, read) => reads.push(read));
+
+      await settle();
+
+      expect(reads[0]?.run.workflowId).toBe(RUN_ID);
+      expect(reads[0]?.steps.map((step) => step.name)).toEqual([
+        'parse_request',
+      ]);
+    });
+
+    /**
+     * A step that ran out of retries stores one error
+     * whose message is DBOS's own sentence about the
+     * retries. That sentence is bookkeeping; what
+     * failed is the last attempt, so that is what the
+     * headline says — with every attempt kept
+     * underneath it.
+     */
+    it('reports the last attempt when a step ran out of retries', async () => {
+      const db = ledger();
+      db.steps = [
+        {
+          name: 'find_slot',
+          error: JSON.stringify({
+            json: {
+              name: 'Error',
+              message:
+                'Step find_slot has exceeded its maximum of 2 retries. ' +
+                'Previous errors: Error 1: first. Error 2: second',
+              errors: [
+                { name: 'SlotTaken', message: 'first' },
+                {
+                  name: 'SlotTaken',
+                  message: 'second',
+                  stack:
+                    'SlotTaken: second\n    at findSlot (lib/slots.ts:14:9)',
+                },
+              ],
+            },
+            __dbos_serializer: 'superjson',
+          }),
+        },
+      ];
+
+      const seen: LiveRun[] = [];
+      watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+
+      await settle();
+
+      const failure = seen[0]?.steps[0]?.error;
+
+      expect(failure?.message).toBe('second');
+      expect(failure?.name).toBe('SlotTaken');
+      expect(failure?.retriesExhausted).toBe(true);
+      expect(failure?.errors).toHaveLength(2);
+      expect(failure?.frame).toEqual({
+        file: 'lib/slots.ts',
+        line: 14,
+        column: 9,
+      });
+    });
+
+    /**
+     * Cancelled is one of the three statuses DBOS
+     * calls failed, and it is not a failure a person
+     * needs to look into — somebody asked for it. It
+     * is answered before that set is consulted.
+     */
+    it('lets go of a run somebody cancelled', async () => {
+      const db = ledger(runRow({ status: 'CANCELLED' }));
+
+      const seen: LiveRun[] = [];
+      watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+
+      await settle();
+
+      expect(seen[0]?.outcome).toBe('cancelled');
+
+      await settle(WATCH_INTERVAL_MS * 4);
+
+      expect(seen).toHaveLength(1);
+      expect(db.closed).toBe(1);
+    });
+
+    /**
+     * The three bounds, pinned as numbers rather than
+     * only used as names. They are what keeps an
+     * editor from reading somebody's database all
+     * afternoon, and a change to either is a change
+     * to that promise.
+     */
+    it('reads every half second', () => {
+      expect(WATCH_INTERVAL_MS).toBe(500);
+    });
+
+    it('gives up after fifteen seconds of silence', () => {
+      expect(WATCH_QUIET_MS).toBe(15_000);
+    });
+
+    it('stops on any outcome that is not running', () => {
+      expect([...SETTLED].sort()).toEqual(['cancelled', 'done', 'failed']);
+    });
   });
 });

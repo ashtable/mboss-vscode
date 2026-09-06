@@ -2,13 +2,17 @@ import type { Database, OpenDatabase } from './db.js';
 import { FAILED_STATUSES, runQuery, stepsQuery } from './queries.js';
 import {
   hasRecovered,
+  outputIn,
   toRun,
   toStep,
   type OperationOutputRow,
   type Run,
+  type RunInput,
   type Step,
+  type StoredError,
   type WorkflowStatusRow,
 } from './rows.js';
+import { runTimeline } from './timeline.js';
 
 /**
  * Following one run while it is going.
@@ -41,6 +45,27 @@ import {
  */
 export type StepState = 'done' | 'failed' | 'waiting';
 
+/** Where in the code-behind a failure came from,
+ *  read off the stack the error carried. */
+export type SourceFrame = { file: string; line: number; column: number };
+
+/**
+ * A step's failure, as a person needs it.
+ *
+ * The headline is the stored error's own, except
+ * where DBOS stored a max-retries error — then it
+ * is the last attempt's, because the sentence DBOS
+ * writes about the retries is bookkeeping and the
+ * thing that failed is the attempt. Every attempt
+ * is kept, and `retriesExhausted` is what says
+ * which case this is.
+ */
+export type StepError = StoredError & {
+  retriesExhausted: boolean;
+
+  frame: SourceFrame | undefined;
+};
+
 export type LiveStep = {
   /** The name the ledger recorded, rounds, item
    *  indexes and wait suffixes and all. */
@@ -50,6 +75,38 @@ export type LiveStep = {
   nodeId: string;
 
   state: StepState;
+
+  /** DBOS's own numbering, which is the order the
+   *  steps ran in and the handle a replay takes. */
+  functionId: number;
+
+  startedAt: number | undefined;
+
+  completedAt: number | undefined;
+
+  /** What it returned, cut where it was long. */
+  output: string | undefined;
+
+  outputCut: boolean;
+
+  outputBytes: number;
+
+  error: StepError | undefined;
+
+  childWorkflowId: string | undefined;
+
+  /**
+   * Whether this row came from the run this one was
+   * forked from rather than from this run. A forked
+   * run inherits the rows before the fork point,
+   * timestamps and all, so a row completed before
+   * this run was created is one of them.
+   */
+  reused: boolean;
+
+  /** Whether this row came back from the ledger
+   *  rather than running again after a crash. */
+  restored: boolean;
 };
 
 /**
@@ -63,7 +120,8 @@ export type LiveStep = {
  * is waiting would send them looking for an email
  * that was never sent.
  */
-export type LiveOutcome = 'running' | 'done' | 'failed' | 'waiting' | 'quiet';
+export type LiveOutcome =
+  'running' | 'done' | 'failed' | 'waiting' | 'quiet' | 'cancelled';
 
 export type LiveRun = {
   workflowId: string;
@@ -81,10 +139,37 @@ export type LiveRun = {
    *  picked back up, it stays said. */
   recovered: boolean;
 
+  /** The raw column, which counts dispatches rather
+   *  than crashes. */
+  recoveryAttempts: number;
+
   outcome: LiveOutcome;
 
   error?: string;
+
+  applicationVersion: string | undefined;
+
+  createdAt: number;
+
+  startedAt: number | undefined;
+
+  completedAt: number | undefined;
+
+  /** What the run was started with, printed. */
+  input: string | undefined;
+
+  forkedFrom: string | undefined;
 };
+
+/** The rows one tick read, handed over beside the
+ *  reading made of them so nothing has to ask the
+ *  database again for what is already in hand. */
+export type LedgerRead = { run: Run; steps: Step[] };
+
+/** The outcomes a watch stops on. `waiting` and
+ *  `quiet` stop it too, but they are stopped
+ *  watches over runs that may yet move. */
+export const SETTLED: readonly LiveOutcome[] = ['done', 'failed', 'cancelled'];
 
 export type RunWatcher = { stop(): void };
 
@@ -101,7 +186,7 @@ export type RunWatch = (
   open: OpenDatabase,
   url: string,
   workflowId: string,
-  onChange: (run: LiveRun) => void,
+  onChange: (run: LiveRun, read: LedgerRead) => void,
 ) => RunWatcher;
 
 /**
@@ -125,6 +210,10 @@ export const WATCH_QUIET_MS = 15_000;
 /** The one status that means it worked. */
 const SUCCEEDED = 'SUCCESS';
 
+/** One of the three DBOS calls failed, told apart
+ *  because somebody asked for it. */
+const CANCELLED = 'CANCELLED';
+
 /** DBOS's own three, widened so a status read out
  *  of a row can be compared against them. */
 const FAILED: readonly string[] = FAILED_STATUSES;
@@ -145,7 +234,7 @@ export function watchRun(
   open: OpenDatabase,
   url: string,
   workflowId: string,
-  onChange: (run: LiveRun) => void,
+  onChange: (run: LiveRun, read: LedgerRead) => void,
 ): RunWatcher {
   /**
    * One connection for the life of the watch.
@@ -164,6 +253,7 @@ export function watchRun(
   let stopped = false;
   let recovered = false;
   let last: LiveRun | undefined;
+  let lastRead: LedgerRead | undefined;
   let movedAt = Date.now();
 
   const stop = (): void => {
@@ -178,10 +268,11 @@ export function watchRun(
     void connection?.close().catch(() => undefined);
   };
 
-  const report = (run: LiveRun): void => {
+  const report = (run: LiveRun, read: LedgerRead): void => {
     last = run;
+    lastRead = read;
     movedAt = Date.now();
-    onChange(run);
+    onChange(run, read);
   };
 
   const connect = async (): Promise<Database | undefined> => {
@@ -208,7 +299,9 @@ export function watchRun(
     return held;
   };
 
-  const readRun = async (): Promise<LiveRun | undefined> => {
+  const readRun = async (): Promise<
+    { live: LiveRun; read: LedgerRead } | undefined
+  > => {
     const database = await connect();
     if (database === undefined) return undefined;
 
@@ -233,7 +326,10 @@ export function watchRun(
       const run = toRun(row);
       recovered = recovered || hasRecovered(run);
 
-      return liveRun(run, recorded, recovered);
+      return {
+        live: toLiveRun(run, recorded, recovered),
+        read: { run, steps: recorded },
+      };
     } catch {
       // A read that did not answer is a tick that
       // said nothing. If the database never comes
@@ -246,15 +342,17 @@ export function watchRun(
     const seen = await readRun();
     if (stopped) return;
 
-    if (seen !== undefined && !same(seen, last)) {
-      report(seen);
+    if (seen !== undefined && !same(seen.live, last)) {
+      report(seen.live, seen.read);
 
-      if (seen.outcome !== 'running') return stop();
+      if (seen.live.outcome !== 'running') return stop();
     } else if (Date.now() - movedAt >= WATCH_QUIET_MS) {
       // Nothing to say about a run whose row never
       // appeared — only that nobody is watching it
       // any more.
-      if (last !== undefined) report({ ...last, outcome: 'quiet' });
+      if (last !== undefined && lastRead !== undefined) {
+        report({ ...last, outcome: 'quiet' }, lastRead);
+      }
 
       return stop();
     }
@@ -270,9 +368,33 @@ export function watchRun(
   return { stop };
 }
 
-function liveRun(run: Run, steps: Step[], recovered: boolean): LiveRun {
+/**
+ * One reading of a run, from the rows a tick read.
+ *
+ * `steps` keeps the rows a block owns. Everything
+ * the SDK recorded for itself is still read — the
+ * outage inference and the outcome both need it —
+ * but a canvas has no block to put it on.
+ */
+export function toLiveRun(
+  run: Run,
+  steps: Step[],
+  recovered: boolean,
+): LiveRun {
   const own = steps.filter((step) => !step.name.startsWith(SDK_PREFIX));
-  const live = liveSteps(own);
+
+  // Computed over every row, because a wait the SDK
+  // wrote fills a hole that would otherwise look
+  // like an outage, and then attached to the rows a
+  // block owns by the number DBOS gave them.
+  const restored = new Map(
+    runTimeline(run, steps).steps.map((step) => [
+      step.functionId,
+      step.restored,
+    ]),
+  );
+
+  const live = liveSteps(own, run, restored);
 
   return {
     workflowId: run.workflowId,
@@ -280,23 +402,112 @@ function liveRun(run: Run, steps: Step[], recovered: boolean): LiveRun {
     status: run.status,
     steps: live,
     recovered,
+    recoveryAttempts: run.recoveryAttempts,
     outcome: outcomeOf(run, live),
     error: run.error,
+    applicationVersion: run.applicationVersion,
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    input: printed(run.input),
+    forkedFrom: run.forkedFrom,
   };
 }
 
-function liveSteps(steps: Step[]): LiveStep[] {
+function liveSteps(
+  steps: Step[],
+  run: Run,
+  restored: ReadonlyMap<number, boolean>,
+): LiveStep[] {
   const parked = parkedNodes(steps);
 
   return steps.map((step) => {
     const nodeId = nodeOf(step.name);
+    const output = outputIn(step.output ?? null);
 
     return {
       name: step.name,
       nodeId,
       state: stateOf(step, parked.has(nodeId)),
+      functionId: step.functionId,
+      startedAt: step.startedAt,
+      completedAt: step.completedAt,
+      output: step.output === undefined ? undefined : output.text,
+      outputCut: output.cut,
+      outputBytes: output.bytes,
+      error: stepError(step.failure),
+      childWorkflowId: step.childWorkflowId,
+      reused: reusedFrom(step, run),
+      restored: restored.get(step.functionId) ?? false,
     };
   });
+}
+
+/**
+ * Whether a row belongs to the run this one was
+ * forked from.
+ *
+ * A fork inherits the rows before the fork point
+ * with the timestamps they were first written with,
+ * so a row that finished before this run was even
+ * created never ran here.
+ */
+function reusedFrom(step: Step, run: Run): boolean {
+  return (
+    run.forkedFrom !== undefined &&
+    step.completedAt !== undefined &&
+    step.completedAt < run.createdAt
+  );
+}
+
+/**
+ * The failure a step recorded, with the headline
+ * rule applied.
+ *
+ * Where DBOS stored a max-retries error the
+ * headline is the last attempt's, because the
+ * sentence DBOS writes about the retries names no
+ * cause and the attempt does.
+ */
+function stepError(stored: StoredError | undefined): StepError | undefined {
+  if (stored === undefined) return undefined;
+
+  const attempts = stored.errors;
+  const headline = attempts?.at(-1) ?? stored;
+
+  return {
+    ...(headline.name === undefined ? {} : { name: headline.name }),
+    message: headline.message,
+    ...(headline.stack === undefined ? {} : { stack: headline.stack }),
+    ...(attempts === undefined ? {} : { errors: attempts }),
+    retriesExhausted: attempts !== undefined && attempts.length > 0,
+    frame: frameOf(headline.stack),
+  };
+}
+
+/** The first `file:line:column` in a stack, which
+ *  is where the throw was. */
+const STACK_FRAME = /(?:\(|\s)([^()\s]+):(\d+):(\d+)\)?/;
+
+function frameOf(stack: string | undefined): SourceFrame | undefined {
+  const found = stack === undefined ? null : STACK_FRAME.exec(stack);
+  if (found === null) return undefined;
+
+  return {
+    file: found[1] ?? '',
+    line: Number(found[2]),
+    column: Number(found[3]),
+  };
+}
+
+/** What a run was started with, as text a panel can
+ *  put in a cell. */
+function printed(input: RunInput | undefined): string | undefined {
+  if (input === undefined || input.shape === 'none') return undefined;
+
+  return input.shape === 'payload'
+    ? JSON.stringify(input.value, null, 2)
+    : input.text;
 }
 
 /**
@@ -359,6 +570,11 @@ function nodeOf(name: string): string {
  */
 function outcomeOf(run: Run, steps: LiveStep[]): LiveOutcome {
   if (run.status === SUCCEEDED) return 'done';
+
+  // Before the failed set, which contains it.
+  // Somebody asked for this one; it is not a failure
+  // anybody has to look into.
+  if (run.status === CANCELLED) return 'cancelled';
   if (FAILED.includes(run.status)) return 'failed';
   if (steps.some((step) => step.state === 'waiting')) return 'waiting';
 

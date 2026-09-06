@@ -28,6 +28,7 @@ import {
   type WorkflowNode,
 } from '../../src/core/rules.js';
 import type { LiveOutcome, LiveRun, StepState } from '../../src/runs/watch.js';
+import { liveStep } from '../../src/test-support/runs.js';
 import type { CanvasInit } from '../../src/webview/protocol.js';
 
 import { mount, type ThemeKind } from './harness.js';
@@ -801,9 +802,18 @@ function runOf(
     workflowId: 'wf_1',
     workflow: ir.name,
     status: outcome === 'running' ? 'PENDING' : 'SUCCESS',
-    steps: steps.map(([nodeId, state]) => ({ name: nodeId, nodeId, state })),
+    steps: steps.map(([nodeId, state], index) =>
+      liveStep({ name: nodeId, nodeId, state, functionId: index }),
+    ),
     recovered: false,
+    recoveryAttempts: 1,
     outcome,
+    applicationVersion: 'v0.1.0',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: undefined,
+    input: undefined,
+    forkedFrom: undefined,
   };
 }
 

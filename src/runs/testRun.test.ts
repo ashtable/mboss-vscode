@@ -8,6 +8,7 @@ import {
   echoing,
   host,
   liveRun,
+  liveStep,
   project,
   runner,
   watcher,
@@ -264,8 +265,8 @@ describe('following a run', () => {
         outcome: 'done',
         status: 'SUCCESS',
         steps: [
-          { name: 'parse_request', nodeId: 'parse_request', state: 'done' },
-          { name: 'find_slot', nodeId: 'find_slot', state: 'done' },
+          liveStep(),
+          liveStep({ name: 'find_slot', nodeId: 'find_slot', functionId: 1 }),
         ],
       }),
     );
@@ -289,7 +290,9 @@ describe('following a run', () => {
         outcome: 'failed',
         status: 'ERROR',
         error: 'login failed — CDC_PASS rotated',
-        steps: [{ name: 'find_slot', nodeId: 'find_slot', state: 'failed' }],
+        steps: [
+          liveStep({ name: 'find_slot', nodeId: 'find_slot', state: 'failed' }),
+        ],
       }),
     );
 
@@ -438,7 +441,9 @@ describe('asking the agent why', () => {
         outcome: 'failed',
         status: 'ERROR',
         error: 'login failed — CDC_PASS rotated',
-        steps: [{ name: 'find_slot', nodeId: 'find_slot', state: 'failed' }],
+        steps: [
+          liveStep({ name: 'find_slot', nodeId: 'find_slot', state: 'failed' }),
+        ],
       }),
     );
     await shown.askAgent(workflowId);

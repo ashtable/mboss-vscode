@@ -9,7 +9,7 @@ import type { ForkClient } from '../runs/replay.js';
 import type { RunRequest, RunStart, RunStarter } from '../runs/runner.js';
 import type { StackController, StackStatus } from '../runs/stack.js';
 import type { RunsHost } from '../runs/store.js';
-import type { LiveRun, RunWatch } from '../runs/watch.js';
+import type { LedgerRead, LiveRun, LiveStep, RunWatch } from '../runs/watch.js';
 
 /**
  * The runs panel's collaborators, faked one at a
@@ -246,20 +246,20 @@ export function echoing(): { requests: RunRequest[]; start: RunStarter } {
 
 export function watcher(): {
   armed: { workflowId: string; stopped: boolean }[];
-  say(workflowId: string, run: LiveRun): void;
+  say(workflowId: string, run: LiveRun, read?: LedgerRead): void;
   watch: RunWatch;
 } {
   const armed: {
     workflowId: string;
     stopped: boolean;
-    onChange: (run: LiveRun) => void;
+    onChange: (run: LiveRun, read: LedgerRead) => void;
   }[] = [];
 
   return {
     armed,
-    say: (workflowId, run) => {
+    say: (workflowId, run, read = ledgerRead(run)) => {
       for (const held of armed) {
-        if (held.workflowId === workflowId) held.onChange(run);
+        if (held.workflowId === workflowId) held.onChange(run, read);
       }
     },
     watch: (_open, _url, workflowId, onChange) => {
@@ -280,9 +280,71 @@ export function liveRun(over: Partial<LiveRun> = {}): LiveRun {
     workflowId: 'run_1',
     workflow: 'groom_booking',
     status: 'PENDING',
-    steps: [{ name: 'parse_request', nodeId: 'parse_request', state: 'done' }],
+    steps: [liveStep()],
     recovered: false,
+    recoveryAttempts: 1,
     outcome: 'running',
+    applicationVersion: 'v0.1.0',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: undefined,
+    input: undefined,
+    forkedFrom: undefined,
     ...over,
+  };
+}
+
+/** One step of a reading, with a default for
+ *  everything a caller is not saying anything
+ *  about. */
+export function liveStep(over: Partial<LiveStep> = {}): LiveStep {
+  return {
+    name: 'parse_request',
+    nodeId: 'parse_request',
+    state: 'done',
+    functionId: 0,
+    startedAt: 1000,
+    completedAt: 1100,
+    output: '{}',
+    outputCut: false,
+    outputBytes: 2,
+    error: undefined,
+    childWorkflowId: undefined,
+    reused: false,
+    restored: false,
+    ...over,
+  };
+}
+
+/**
+ * The rows a tick would have read to produce a
+ * reading, for a double that is only pretending to
+ * have read any.
+ */
+function ledgerRead(run: LiveRun): LedgerRead {
+  return {
+    run: {
+      workflowId: run.workflowId,
+      name: run.workflow,
+      status: run.status,
+      recoveryAttempts: run.recoveryAttempts,
+      executorId: 'local-dev',
+      applicationVersion: run.applicationVersion,
+      createdAt: run.createdAt,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      error: run.error,
+      forkedFrom: run.forkedFrom,
+      wasForkedFrom: false,
+    },
+    steps: run.steps.map((step) => ({
+      functionId: step.functionId,
+      name: step.name,
+      startedAt: step.startedAt,
+      completedAt: step.completedAt,
+      output: step.output,
+      error: step.error?.message,
+      childWorkflowId: step.childWorkflowId,
+    })),
   };
 }

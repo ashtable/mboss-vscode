@@ -7,6 +7,8 @@ import type {
   SeeRun,
 } from '../../src/webview/protocol.js';
 
+import { liveStep } from '../../src/test-support/runs.js';
+
 import { mount, type Harness } from './harness.js';
 import { runsWords as runsStrings, seeWords as seeStrings } from './words.js';
 
@@ -490,12 +492,24 @@ test.describe('the run being followed', () => {
     workflow: 'groom_booking',
     status: 'PENDING',
     steps: [
-      { name: 'find_slot', nodeId: 'find_slot', state: 'done' as const },
-      { name: 'book', nodeId: 'book', state: 'waiting' as const },
+      liveStep({ name: 'find_slot', nodeId: 'find_slot' }),
+      liveStep({
+        name: 'book',
+        nodeId: 'book',
+        state: 'waiting',
+        functionId: 1,
+      }),
     ],
     recovered: false,
+    recoveryAttempts: 1,
     outcome: 'running' as const,
     error: undefined,
+    applicationVersion: 'v0.1.0',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: undefined,
+    input: undefined,
+    forkedFrom: undefined,
   };
 
   test('marks each step with what the ledger says about it', async ({

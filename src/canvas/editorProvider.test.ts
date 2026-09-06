@@ -18,6 +18,7 @@ import { makeProject, writeWorkflow } from '../test-support/project.js';
 import { fileExists } from '../test-support/repo.js';
 import { propose, specOf } from '../test-support/proposals.js';
 import type { LiveRun } from '../runs/watch.js';
+import { liveStep } from '../test-support/runs.js';
 import type { Trust } from '../trust.js';
 import type { PickChoice, VsCodeApi } from '../vscodeApi.js';
 import type { CanvasInit } from '../webview/protocol.js';
@@ -237,9 +238,16 @@ function runOf(workflow: string): LiveRun {
     workflowId: 'wf_1',
     workflow,
     status: 'PENDING',
-    steps: [{ name: 'parse_request', nodeId: 'parse_request', state: 'done' }],
+    steps: [liveStep()],
     recovered: false,
+    recoveryAttempts: 1,
     outcome: 'running',
+    applicationVersion: 'v0.1.0',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: undefined,
+    input: undefined,
+    forkedFrom: undefined,
   };
 }
 
