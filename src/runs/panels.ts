@@ -143,7 +143,7 @@ export class SeePanel {
       extensionUri: this.extensionUri,
       view: 'see',
       title: seeWords().heading,
-      init: () => seeInit(this.store.detail()),
+      init: () => seeInit(this.store.detail(), this.store.showing()),
       // Redrawn whenever the store moves, so the
       // panel holds nothing of its own.
       follows: [
@@ -160,6 +160,11 @@ export class SeePanel {
 
         if (message.type === 'replay')
           void this.store.replay(message.functionId);
+
+        if (message.type === 'seeNode') this.store.selectNode(message.nodeId);
+        if (message.type === 'seeShow') this.store.showTab(message.tab);
+        if (message.type === 'seeRaw') this.store.showRaw(message.raw);
+        if (message.type === 'seeRefresh') void this.store.refreshRun();
       },
     });
 

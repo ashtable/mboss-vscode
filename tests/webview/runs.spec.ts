@@ -172,12 +172,24 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     ],
     selectedStep: 2,
     note: undefined,
+    graph: undefined,
+    groups: [],
+    selected: { nodeId: undefined, functionId: 2 },
+    showRaw: false,
+    following: 'quiet',
+    input: undefined,
     ...over,
   };
 }
 
 function seeInit(run: SeeRun = seeRun()): SeeInit {
-  return { type: 'init', view: 'see', strings: seeStrings, run };
+  return {
+    type: 'init',
+    view: 'see',
+    strings: seeStrings,
+    run,
+    showing: 'graph',
+  };
 }
 
 /** Before a run has been picked. A separate helper
@@ -185,7 +197,13 @@ function seeInit(run: SeeRun = seeRun()): SeeInit {
  *  default argument would quietly turn back into a
  *  run. */
 function seeNothing(): SeeInit {
-  return { type: 'init', view: 'see', strings: seeStrings, run: undefined };
+  return {
+    type: 'init',
+    view: 'see',
+    strings: seeStrings,
+    run: undefined,
+    showing: 'graph',
+  };
 }
 
 async function showList(page: Page, init: RunsInit): Promise<Harness> {

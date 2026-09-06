@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import type { WorkflowIR } from '../core/rules.js';
+import type { SeeRun } from '../webview/protocol.js';
+
 import type { Run, Step } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
-import { rowOf, seeInit, sessionRowOf } from './view.js';
+import { rowOf, seeInit, sessionRowOf, type SeeView } from './view.js';
 import type { ProjectWorkflow } from './workflows.js';
 
 /**
@@ -329,9 +332,11 @@ describe('one run in detail', () => {
   });
 
   it('says what the crash cost, out of what the ledger holds', () => {
-    expect(run?.recovered?.heading).toBe('Crash recovered — exactly-once held');
+    expect(run?.recovered?.heading).toBe(
+      'Recovered — completed durable operations were not re-executed',
+    );
     expect(run?.recovered?.body).toContain('6.0 s');
-    expect(run?.recovered?.body).toContain('2 steps');
+    expect(run?.recovered?.body).toContain('2 durable operations');
   });
 
   /**
@@ -526,5 +531,141 @@ describe('a run waiting on a person', () => {
 
   it('has no such moment for a run with no operation of its own', () => {
     expect(rowOf(RUN).stoppedAt).toBeUndefined();
+  });
+});
+
+/**
+ * The run page's own half of the message: the
+ * saved workflow, the trace grouped as it happened,
+ * and what the run was started with.
+ */
+describe('one run, as the run page draws it', () => {
+  const IR = {
+    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+    version: 1,
+    revision: 4,
+    name: 'groom_booking',
+    nodes: [
+      { id: 'parse_request', kind: 'step', title: 'Parse', config: {} },
+      { id: 'find_slot', kind: 'step', title: 'Find a slot', config: {} },
+    ],
+    edges: [],
+  } as unknown as WorkflowIR;
+
+  const BOXES = {
+    parse_request: { x: 0, y: 0, w: 230, h: 64 },
+    find_slot: { x: 0, y: 120, w: 230, h: 64 },
+  };
+
+  function page(over: Partial<SeeView> = {}): SeeRun {
+    const shown = seeInit({
+      run: {
+        ...RUN,
+        input: { shape: 'payload', value: { email: 'ada@example.com' } },
+      },
+      steps: [
+        { ...step(0, 0, 1000), name: 'parse_request' },
+        { ...step(1, 1000, 2000), name: 'find_slot' },
+      ],
+      selectedStep: 1,
+      note: undefined,
+      ir: IR,
+      boxes: BOXES,
+      ...over,
+    }).run;
+
+    if (shown === undefined) throw new Error('no run to draw');
+
+    return shown;
+  }
+
+  it('carries the groups, the graph, the selection and the input', () => {
+    const shown = page({ selectedNode: 'find_slot', following: 'following' });
+
+    expect(shown.graph?.caption).toBe('workflow as saved · revision 4');
+    expect(shown.graph?.ir.name).toBe('groom_booking');
+    expect(shown.groups.map((group) => group.nodeId)).toEqual([
+      'parse_request',
+      'find_slot',
+    ]);
+    expect(shown.selected).toEqual({
+      nodeId: 'find_slot',
+      functionId: 1,
+    });
+    expect(shown.following).toBe('following');
+    expect(shown.input?.text).toContain('ada@example.com');
+  });
+
+  /**
+   * With no document nothing tells one row's block
+   * from another's, so the trace is one flat group
+   * of unattributed rows — which is exactly what a
+   * trace with no picture beside it is.
+   */
+  it('draws no graph for a run whose workflow the project lost', () => {
+    const shown = page({ ir: undefined, boxes: undefined });
+
+    expect(shown.graph).toBeUndefined();
+    expect(shown.groups).toHaveLength(1);
+    expect(shown.groups[0]?.operations).toHaveLength(2);
+    expect(shown.groups[0]?.nodeId).toBeUndefined();
+  });
+
+  it('projects a group of one own row as that row', () => {
+    const [first] = page().groups;
+
+    expect(first?.title).toBe('Parse');
+    expect(first?.qualifier).toBeUndefined();
+    expect(first?.operations).toHaveLength(1);
+    expect(first?.operations[0]?.owner).toBe('node');
+    expect(first?.operations[0]?.at).toMatch(/\.\d{3}$/);
+  });
+
+  /**
+   * Collapsed by default, except where somebody is
+   * most likely to be going: the turn that failed,
+   * and the one holding the block they picked.
+   */
+  it('opens a failed group, and the one holding the selected block', () => {
+    const plain = page();
+    expect(plain.groups.map((group) => group.open)).toEqual([false, false]);
+
+    const picked = page({ selectedNode: 'find_slot' });
+    expect(picked.groups.map((group) => group.open)).toEqual([false, true]);
+
+    const broken = page({
+      steps: [
+        { ...step(0, 0, 1000), name: 'parse_request' },
+        {
+          ...step(1, 1000, 2000),
+          name: 'find_slot',
+          failure: { message: 'no slot' },
+        },
+      ],
+    });
+    expect(broken.groups.map((group) => group.open)).toEqual([false, true]);
+  });
+
+  /**
+   * The banner used to say steps "came back instead
+   * of running again", which reads as though DBOS
+   * decided not to execute something. What happened
+   * is narrower, and the gap is an inference rather
+   * than a moment anything wrote down.
+   */
+  it('says what a recovery cost without claiming code was skipped', () => {
+    const shown = seeInit({
+      run: { ...RUN, recoveryAttempts: 2 },
+      steps: STEPS,
+      selectedStep: undefined,
+      note: undefined,
+    }).run;
+
+    expect(shown?.recovered?.heading).toBe(
+      'Recovered — completed durable operations were not re-executed',
+    );
+    expect(shown?.recovered?.body).toContain('derived from the widest gap');
+    expect(shown?.recovered?.body).toContain('durable operations (derived)');
+    expect(shown?.recovered?.body).not.toContain('instead of running again');
   });
 });

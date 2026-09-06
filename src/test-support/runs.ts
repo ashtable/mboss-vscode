@@ -37,6 +37,10 @@ export const RUN_ROW = {
   completed_at: '9000',
   error: null,
   serialization: null,
+  // Selected only where a single run is being read;
+  // the double answers both statements with this
+  // row, and a run page needs it.
+  inputs: '[{"email":"ada@example.com"}]',
 };
 
 export const STEP_ROW = {

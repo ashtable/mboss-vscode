@@ -148,6 +148,19 @@ export type RunsStore = Disposable & {
   /** Puts a run's id where somebody can paste it. */
   copyRunId(workflowId: string): Promise<void>;
 
+  /** The run page: which block, which view, whether
+   *  the SDK's own rows are shown, and reading it
+   *  again. */
+  selectNode(nodeId: string): void;
+
+  showTab(tab: 'graph' | 'trace'): void;
+
+  showing(): 'graph' | 'trace';
+
+  showRaw(raw: boolean): void;
+
+  refreshRun(): Promise<void>;
+
   onChanged(listener: () => void): Disposable;
 };
 
@@ -256,6 +269,12 @@ export function runsStore(deps: RunsDeps): RunsStore {
     rerun: testRun.rerun,
     askAgent: testRun.askAgent,
     copyRunId: (workflowId) => deps.host.copy(workflowId),
+
+    selectNode: history.selectNode,
+    showTab: history.show,
+    showing: history.showing,
+    showRaw: history.showRaw,
+    refreshRun: history.refreshRun,
 
     onChanged: changes.on,
 

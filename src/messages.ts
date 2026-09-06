@@ -247,6 +247,22 @@ export const messages = {
    * — so the row draws these beside the word that
    * says they were derived.
    */
+  /**
+   * What the run page's graph is a picture of.
+   *
+   * The revision matters: the document may have
+   * moved on since the run, and the picture is of
+   * the document rather than of the run.
+   */
+  runGraphCaption: (revision: number) =>
+    l10n.t('workflow as saved · revision {0}', revision),
+  runGraphMissing: (name: string) =>
+    l10n.t('no saved workflow named {0} · trace only', name),
+
+  /** What tells one turn of a block from another. */
+  runGroupRound: (round: number) => l10n.t('· round {0}', round),
+  runGroupItems: (items: number) => l10n.t('· {0} items', items),
+
   runFailedSummary: (node: string) => l10n.t('failed · {0}', node),
   runWaitingSummary: (node: string, at: string) =>
     l10n.t('waiting · {0} · {1}', node, at),
@@ -278,10 +294,23 @@ export const messages = {
    * again — and never out of a crash time nothing
    * records.
    */
-  runRecoveredHeading: () => l10n.t('Crash recovered — exactly-once held'),
+  /**
+   * What a recovery cost, without claiming code was
+   * skipped.
+   *
+   * The old wording said steps "came back instead of
+   * running again", which reads as though DBOS chose
+   * not to execute something. What actually happened
+   * is narrower and worth saying exactly: completed
+   * durable operations were not re-executed, and the
+   * gap is an inference over the recorded rows
+   * rather than a moment anything wrote down.
+   */
+  runRecoveredHeading: () =>
+    l10n.t('Recovered — completed durable operations were not re-executed'),
   runRecoveredBody: (down: string, restored: number) =>
     l10n.t(
-      'Nothing ran for {0}. DBOS picked this run back up and {1} steps came back from dbos.operation_outputs instead of running again.',
+      'Nothing ran for about {0} — derived from the widest gap between recorded operations. DBOS picked this run back up and {1} durable operations (derived) were reused from dbos.operation_outputs rather than run again.',
       down,
       restored,
     ),

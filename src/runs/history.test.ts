@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { fakeTrust } from '../../test/doubles/trust.js';
 import {
+  RUN_ROW,
   database,
   management,
   host,
@@ -341,5 +342,122 @@ describe('a run somebody is watching go', () => {
     );
 
     expect(read.detail()?.steps).toHaveLength(2);
+  });
+});
+
+/**
+ * The run page's own half: the workflow the run was
+ * a run of, laid out, and a watch armed only where
+ * there is something left to watch.
+ */
+describe('the run somebody has open', () => {
+  it('reads what a run was started with', async () => {
+    const read = reading(database());
+
+    await read.refresh();
+    await read.select('wf_c9d2f3');
+
+    expect(read.detail()?.run.input).toBeDefined();
+  });
+
+  it('carries the saved workflow when it reads, and nothing when it does not', async () => {
+    const withDocument = reading(database(), {
+      host: host({ projects: () => [project()] }),
+    });
+
+    await withDocument.select('wf_c9d2f3');
+
+    expect(withDocument.detail()?.ir?.name).toBe('groom_booking');
+    expect(Object.keys(withDocument.detail()?.boxes ?? {})).not.toHaveLength(0);
+
+    const withoutDocument = reading(database(), {
+      host: host({ projects: () => [project({ workflows: [] })] }),
+    });
+
+    await withoutDocument.select('wf_c9d2f3');
+
+    expect(withoutDocument.detail()?.ir).toBeUndefined();
+    expect(withoutDocument.detail()?.boxes).toBeUndefined();
+  });
+
+  /**
+   * A run that has ended will not change however
+   * long anybody watches it, so nothing is armed
+   * for one.
+   */
+  it('follows a run that is still going, and not one that has ended', async () => {
+    const owner = follows();
+    const ended = reading(database(), { following: owner.held });
+
+    await ended.select('wf_c9d2f3');
+    expect(owner.watch.armed).toHaveLength(0);
+
+    const going = database();
+    going.rows = [{ ...RUN_ROW, status: 'PENDING', completed_at: null }];
+
+    const moving = reading(going, { following: owner.held });
+    await moving.select('wf_c9d2f3');
+
+    expect(owner.watch.armed.map((one) => one.workflowId)).toEqual([
+      'wf_c9d2f3',
+    ]);
+  });
+
+  it('lets go of the run it was showing when another is picked', async () => {
+    const owner = follows();
+    const going = database();
+    going.rows = [{ ...RUN_ROW, status: 'PENDING', completed_at: null }];
+
+    const read = reading(going, { following: owner.held });
+
+    going.rows = [
+      {
+        ...RUN_ROW,
+        workflow_uuid: 'wf_one',
+        status: 'PENDING',
+        completed_at: null,
+      },
+    ];
+    await read.select('wf_one');
+
+    going.rows = [
+      {
+        ...RUN_ROW,
+        workflow_uuid: 'wf_two',
+        status: 'PENDING',
+        completed_at: null,
+      },
+    ];
+    await read.select('wf_two');
+
+    const armed = owner.watch.armed;
+    expect(armed.map((one) => one.workflowId)).toEqual(['wf_one', 'wf_two']);
+    expect(armed[0]?.stopped).toBe(true);
+    expect(armed[1]?.stopped).toBe(false);
+  });
+
+  it('re-arms the watch when it is refreshed', async () => {
+    const owner = follows();
+    const going = database();
+    going.rows = [{ ...RUN_ROW, status: 'PENDING', completed_at: null }];
+
+    const read = reading(going, { following: owner.held });
+
+    await read.select('wf_c9d2f3');
+    owner.held.drop('wf_c9d2f3');
+
+    await read.refreshRun();
+
+    expect(owner.watch.armed).toHaveLength(2);
+  });
+
+  it('holds which of the two views is on screen', () => {
+    const read = reading(database());
+
+    expect(read.showing()).toBe('graph');
+
+    read.show('trace');
+
+    expect(read.showing()).toBe('trace');
   });
 });

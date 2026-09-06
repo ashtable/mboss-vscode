@@ -492,6 +492,11 @@ export type SeeInit = {
   strings: SeeStrings;
 
   run: SeeRun | undefined;
+
+  /** Which of the two views of the run is on
+   *  screen. Held by the extension, because a view
+   *  is disposed the moment it is hidden. */
+  showing: 'graph' | 'trace';
 };
 
 export type SeeRun = {
@@ -529,6 +534,123 @@ export type SeeRun = {
 
   /** What the last replay did, or would not do. */
   note: string | undefined;
+
+  /**
+   * The workflow as it is saved, laid out, with what
+   * the run did to each block.
+   *
+   * Absent where the project no longer has a
+   * document of that name — somebody renamed it, or
+   * the run came from an app this folder is not the
+   * source of. The trace still reads; only the
+   * picture is missing.
+   */
+  graph: SeeGraph | undefined;
+
+  /** The trace, in the turns each block took. */
+  groups: TraceGroupView[];
+
+  /** The block and the operation a person picked,
+   *  shared by both views of the run. */
+  selected: { nodeId: string | undefined; functionId: number | undefined };
+
+  /** Whether the rows DBOS wrote for itself are
+   *  shown. `raw` above is the table itself. */
+  showRaw: boolean;
+
+  /** Whether a watch is still reading this run, and
+   *  what it would take to find out if not. */
+  following: 'following' | 'waiting' | 'quiet';
+
+  /** What the run was started with, as recorded. */
+  input: { text: string; cut: boolean } | undefined;
+};
+
+/**
+ * The saved workflow, ready to draw.
+ *
+ * A plain object rather than the map core hands
+ * back, and a record rather than a `Map` for
+ * `decided`, because this crosses `postMessage` and
+ * what crosses has to survive being JSON.
+ */
+export type SeeGraph = {
+  ir: WorkflowIR;
+
+  boxes: Record<string, NodeBox>;
+
+  labels: Record<NodeKind, string>;
+
+  /** The word after the kind of a block that runs
+   *  code nobody has named yet. */
+  unassigned: string;
+
+  /** `workflow as saved · revision 3`, or the
+   *  sentence that says there is no document. */
+  caption: string;
+
+  /** Which way out each decided block took. */
+  decided: Record<string, string>;
+};
+
+/** One block's turn, with whatever the SDK wrote
+ *  while it was taking it. */
+export type TraceGroupView = {
+  /** The block it belongs to, where the saved
+   *  document still has one. */
+  nodeId: string | undefined;
+
+  /** What to call it: the block's title, or the
+   *  recorded name where nothing owns it. */
+  title: string;
+
+  /** `· round 2`, `· 12 items`, or nothing. */
+  qualifier: string | undefined;
+
+  /** Whether it is open when the page is drawn. */
+  open: boolean;
+
+  failed: boolean;
+
+  operations: TraceOpView[];
+};
+
+/** One recorded row, as the trace draws it. */
+export type TraceOpView = {
+  functionId: number;
+
+  /** The name the ledger recorded. */
+  name: string;
+
+  owner: 'node' | 'sdk' | 'unmapped';
+
+  state: 'done' | 'failed' | 'waiting';
+
+  /** `14:02:19.240`, or nothing where DBOS did not
+   *  time it. */
+  at: string | undefined;
+
+  /** What it returned, cut where it was long. */
+  output: string | undefined;
+
+  outputCut: boolean;
+
+  /** What it failed with. */
+  error: string | undefined;
+
+  /** Whether it came back from the ledger rather
+   *  than running again. */
+  restored: boolean;
+
+  /** Whether a replay may start here, and why not
+   *  when it may not. */
+  replayable: boolean;
+
+  because: string | undefined;
+
+  /** The run a fan-out item started, where it
+   *  started one. */
+  childWorkflowId: string | undefined;
 };
 
 export type SeeChip = {

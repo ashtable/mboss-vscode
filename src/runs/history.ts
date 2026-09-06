@@ -1,5 +1,7 @@
 import type { Disposable } from 'vscode';
 
+import { boxesFor } from '../core/index.js';
+import { ownerOf } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
@@ -32,6 +34,7 @@ import {
   type WorkflowStatusRow,
 } from './rows.js';
 import { rowOf, type SeeView } from './view.js';
+import { workflowDocument } from './workflows.js';
 
 /**
  * A project's run history, as the window holds it.
@@ -103,6 +106,27 @@ export type History = Disposable & {
    *  would fork from. */
   selectStep(functionId: number): void;
 
+  /** Which block on the run's graph a person
+   *  picked. */
+  selectNode(nodeId: string): void;
+
+  /** Which of the two views of the run is on
+   *  screen. */
+  show(tab: 'graph' | 'trace'): void;
+
+  /** Whether the rows DBOS wrote for itself are
+   *  shown. */
+  showRaw(raw: boolean): void;
+
+  /** Reads the shown run again and follows it if it
+   *  is still going. One of the few things that
+   *  arms a watch. */
+  refreshRun(): Promise<void>;
+
+  /** Which of the two views of the run is on
+   *  screen, for the message the panel sends. */
+  showing(): 'graph' | 'trace';
+
   replay(functionId: number): Promise<void>;
 
   /** The run somebody picked, with its steps. */
@@ -126,6 +150,7 @@ export function runHistory(deps: HistoryDeps): History {
   let counts: RunCounts = EMPTY;
   let selected: SeeView | undefined;
   let note: string | undefined;
+  let showing: 'graph' | 'trace' = 'graph';
 
   const changed = changes.fire;
 
@@ -143,7 +168,17 @@ export function runHistory(deps: HistoryDeps): History {
   const reports = deps.following.onRun((run, read) => {
     if (selected?.run.workflowId !== run.workflowId) return;
 
-    selected = { ...selected, run: read.run, steps: read.steps };
+    selected = {
+      ...selected,
+      run: read.run,
+      steps: read.steps,
+      following:
+        run.outcome === 'running'
+          ? 'following'
+          : run.outcome === 'waiting'
+            ? 'waiting'
+            : 'quiet',
+    };
     changed();
   });
 
@@ -248,6 +283,89 @@ export function runHistory(deps: HistoryDeps): History {
     changed();
   };
 
+  const select = async (workflowId: string): Promise<void> => {
+    const url = connection();
+    if (url === undefined) return void changed();
+
+    // `null` for a run that is not there, against
+    // `undefined` for a read that did not happen:
+    // a row somebody deleted has to clear what the
+    // tab is showing, where a database that went
+    // away must not, or the tab would go blank on
+    // a hiccup.
+    const found = await read(url, async (db) => {
+      const one = runQuery(workflowId);
+      const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
+      const found = rows[0];
+      if (found === undefined) return null;
+
+      const steps = stepsQuery(workflowId);
+
+      return {
+        run: toRun(found),
+        steps: (
+          await db.query<OperationOutputRow>(steps.text, steps.values)
+        ).map(toStep),
+      };
+    });
+
+    if (found !== undefined) {
+      // A different run is a different question,
+      // so the note about the last replay and the
+      // step somebody had picked both go.
+      note = undefined;
+
+      // And the run being let go of is one this
+      // window no longer has a reason to poll.
+      const before = selected?.run.workflowId;
+      if (before !== undefined && before !== workflowId) {
+        deps.following.drop(before);
+      }
+
+      selected = found === null ? undefined : await shownRun(found);
+    }
+
+    changed();
+  };
+
+  /**
+   * A run, with the workflow it was a run of laid
+   * out beside it — and followed, if it is still
+   * going.
+   *
+   * The document is read off disk rather than
+   * reconstructed from the run: the graph is a
+   * picture of what is saved now, and the caption
+   * says which revision that is. A workflow the
+   * project no longer has leaves the trace and
+   * drops the picture.
+   */
+  const shownRun = async (found: {
+    run: Run;
+    steps: Step[];
+  }): Promise<SeeView> => {
+    const dir = project();
+    const ir =
+      dir === undefined ? undefined : workflowDocument(dir, found.run.name);
+
+    // Only a run that is still going is worth
+    // polling. One that has ended will not change
+    // however long anybody watches it.
+    // The row's own id rather than the one asked
+    // for: they are the same in production, and the
+    // row is the thing being followed.
+    if (!finished(found.run)) deps.following.arm(found.run.workflowId);
+
+    return {
+      ...found,
+      selectedStep: firstStep(found.steps),
+      note,
+      ...(ir === undefined ? {} : { ir, boxes: await boxesFor(ir) }),
+      raw: false,
+      following: finished(found.run) ? 'quiet' : 'following',
+    };
+  };
+
   return {
     ledger,
     refresh: readRuns,
@@ -257,51 +375,54 @@ export function runHistory(deps: HistoryDeps): History {
       await readRuns();
     },
 
-    select: async (workflowId) => {
-      const url = connection();
-      if (url === undefined) return void changed();
-
-      // `null` for a run that is not there, against
-      // `undefined` for a read that did not happen:
-      // a row somebody deleted has to clear what the
-      // tab is showing, where a database that went
-      // away must not, or the tab would go blank on
-      // a hiccup.
-      const found = await read(url, async (db) => {
-        const one = runQuery(workflowId);
-        const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
-        const found = rows[0];
-        if (found === undefined) return null;
-
-        const steps = stepsQuery(workflowId);
-
-        return {
-          run: toRun(found),
-          steps: (
-            await db.query<OperationOutputRow>(steps.text, steps.values)
-          ).map(toStep),
-        };
-      });
-
-      if (found !== undefined) {
-        // A different run is a different question,
-        // so the note about the last replay and the
-        // step somebody had picked both go.
-        note = undefined;
-        selected =
-          found === null
-            ? undefined
-            : { ...found, selectedStep: firstStep(found.steps), note };
-      }
-
-      changed();
-    },
+    select,
 
     selectStep: (functionId) => {
       if (selected === undefined) return;
 
       selected = { ...selected, selectedStep: functionId };
       changed();
+    },
+
+    selectNode: (nodeId) => {
+      if (selected === undefined) return;
+
+      // The two views of a run share one selection,
+      // so picking a block also picks the first
+      // operation that block recorded.
+      const first = selected.steps.find((step) => {
+        const owner = ownerOf(step.name);
+
+        return owner.kind === 'node' && owner.nodeId === nodeId;
+      });
+
+      selected = {
+        ...selected,
+        selectedNode: nodeId,
+        ...(first === undefined ? {} : { selectedStep: first.functionId }),
+      };
+      changed();
+    },
+
+    show: (tab) => {
+      showing = tab;
+      changed();
+    },
+
+    showing: () => showing,
+
+    showRaw: (raw) => {
+      if (selected === undefined) return;
+
+      selected = { ...selected, raw };
+      changed();
+    },
+
+    refreshRun: async () => {
+      const showingId = selected?.run.workflowId;
+      if (showingId === undefined) return;
+
+      await select(showingId);
     },
 
     replay: async (functionId) => {

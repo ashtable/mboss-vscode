@@ -1,19 +1,31 @@
-import { ownerOf } from '../core/rules.js';
+import { paletteLabels, canvasWords } from '../canvas/words.js';
+import { ownerOf, type NodeBox, type WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
+import { fine } from '../webview/time.js';
 import type {
   RunRow,
   RunSeverity,
   SeeBar,
   SeeChip,
+  SeeGraph,
   SeeInit,
   SeeOutage,
   SeeRawRow,
   SeeRun,
   SeeTimeline,
   SessionRow,
+  TraceGroupView,
+  TraceOpView,
 } from '../webview/protocol.js';
 
 import { seeWords } from './words.js';
+import {
+  decidedArms,
+  groupsOf,
+  operationsOf,
+  type Operation,
+  type TraceGroup,
+} from './operations.js';
 import { hasRecovered, recoveriesOf, type Run, type Step } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
 import { runTimeline, type Timeline } from './timeline.js';
@@ -73,6 +85,25 @@ export type SeeView = {
 
   /** What the last replay did. */
   note: string | undefined;
+
+  /** The workflow as it is saved, where the project
+   *  still has one of that name. */
+  ir?: WorkflowIR;
+
+  /** Where each of its blocks goes, from core's own
+   *  layout. */
+  boxes?: Record<string, NodeBox>;
+
+  /** The block a person picked, shared by both
+   *  views of the run. */
+  selectedNode?: string;
+
+  /** Whether the rows DBOS wrote for itself are
+   *  shown. */
+  raw?: boolean;
+
+  /** Whether a watch is still reading this run. */
+  following?: 'following' | 'waiting' | 'quiet';
 };
 
 /**
@@ -110,18 +141,23 @@ function sessionWhen(run: SessionRun): string {
     : `${at} · ${duration(run.durationMs)}`;
 }
 
-export function seeInit(view: SeeView | undefined): SeeInit {
+export function seeInit(
+  view: SeeView | undefined,
+  showing: 'graph' | 'trace' = 'graph',
+): SeeInit {
   return {
     type: 'init',
     view: 'see',
     strings: seeWords(),
     run: view === undefined ? undefined : seeRun(view),
+    showing,
   };
 }
 
 function seeRun(view: SeeView): SeeRun {
   const { run, steps } = view;
   const timeline = runTimeline(run, steps);
+  const operations = operationsOf(run, steps, view.ir);
 
   return {
     workflowId: run.workflowId,
@@ -143,7 +179,109 @@ function seeRun(view: SeeView): SeeRun {
     rail: railOf(run),
     selectedStep: view.selectedStep,
     note: view.note,
+    graph: graphOf(view, operations),
+    groups: groupsOf(operations).map((group) => groupOf(group, view)),
+    selected: {
+      nodeId: view.selectedNode,
+      functionId: view.selectedStep,
+    },
+    showRaw: view.raw ?? false,
+    following: view.following ?? 'quiet',
+    input: inputOf(run),
   };
+}
+
+/**
+ * The saved workflow, laid out, with the arms the
+ * run is known to have taken.
+ *
+ * Absent where the project no longer has a document
+ * of that name. The caption says which of the two
+ * it is, because a page drawing no graph and saying
+ * nothing about why looks broken.
+ */
+function graphOf(
+  view: SeeView,
+  operations: readonly Operation[],
+): SeeGraph | undefined {
+  const { ir, boxes } = view;
+  if (ir === undefined || boxes === undefined) return undefined;
+
+  return {
+    ir,
+    boxes,
+    labels: paletteLabels(),
+    unassigned: canvasWords().unassigned,
+    caption: messages.runGraphCaption(ir.revision),
+    // A record rather than a map: this crosses
+    // `postMessage`, and a map does not survive
+    // being JSON.
+    decided: Object.fromEntries(decidedArms(operations, ir)),
+  };
+}
+
+/** One block's turn, in the words the page draws. */
+function groupOf(group: TraceGroup, view: SeeView): TraceGroupView {
+  const node = view.ir?.nodes.find((one) => one.id === group.nodeId);
+  const failed = group.operations.some((one) => one.state === 'failed');
+  const [first] = group.operations;
+
+  return {
+    nodeId: group.nodeId,
+    title: node?.title ?? first?.name ?? '',
+    qualifier: qualifierOf(group),
+    // Closed by default, and open where a person is
+    // most likely to be going: the turn that failed,
+    // and the one holding the block they picked.
+    open:
+      failed ||
+      (group.nodeId !== undefined && group.nodeId === view.selectedNode),
+    failed,
+    operations: group.operations.map(opOf),
+  };
+}
+
+function qualifierOf(group: TraceGroup): string | undefined {
+  if (group.items !== undefined) return messages.runGroupItems(group.items);
+
+  return group.round === undefined
+    ? undefined
+    : messages.runGroupRound(group.round);
+}
+
+function opOf(operation: Operation): TraceOpView {
+  return {
+    functionId: operation.functionId,
+    name: operation.name,
+    owner: operation.owner,
+    state: operation.state,
+    at:
+      operation.completedAt === undefined
+        ? undefined
+        : fine(operation.completedAt),
+    output: operation.output === undefined ? undefined : cut(operation.output),
+    outputCut: operation.outputCut,
+    error: operation.error?.message,
+    restored: operation.restored,
+    // Every row is replayable until something says
+    // otherwise, which nothing does yet.
+    replayable: true,
+    because: undefined,
+    childWorkflowId: operation.childWorkflowId,
+  };
+}
+
+/** What the run was started with, cut like a cell. */
+function inputOf(run: Run): { text: string; cut: boolean } | undefined {
+  const input = run.input;
+  if (input === undefined || input.shape === 'none') return undefined;
+
+  const text =
+    input.shape === 'payload'
+      ? JSON.stringify(input.value, null, 2)
+      : input.text;
+
+  return { text: cut(text), cut: text.length > OUTPUT_CELL };
 }
 
 export function rowOf(run: Run): RunRow {
