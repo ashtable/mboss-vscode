@@ -437,6 +437,15 @@ describe('a run history, read from a real dbos schema', () => {
     expect(Number.isFinite(deadline)).toBe(true);
     expect(deadline).toBeGreaterThanOrEqual(startedAt);
     expect(Number(row.completed_at_epoch_ms)).toBe(deadline);
+
+    // The bytes themselves, because this is the one
+    // step output the application does not
+    // serialize: the SDK writes its own deadline
+    // with the portable serializer whatever the app
+    // configured, and the reader takes the column at
+    // its word rather than looking for an envelope.
+    expect(Number(row.output)).toBe(deadline);
+    expect(row.serialization).toBe('portable_json');
   });
 
   /**
@@ -461,6 +470,8 @@ describe('a run history, read from a real dbos schema', () => {
     expect(Number.isFinite(Number(JSON.parse(marker.output ?? 'null')))).toBe(
       true,
     );
+    expect(Number.isFinite(Number(marker.output))).toBe(true);
+    expect(marker.serialization).toBe('portable_json');
   });
 
   /**
