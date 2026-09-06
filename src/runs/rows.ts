@@ -499,6 +499,58 @@ export function outputIn(stored: string | null): {
 }
 
 /**
+ * The marker DBOS's richer serializer stamps on its
+ * own envelope, and the value it stamps.
+ *
+ * Named rather than written inline because the pair
+ * is the SDK's published contract for telling its
+ * wrapper apart from data that merely looks like
+ * one, and a reader that guessed instead would hand
+ * back half of what a step returned.
+ */
+const SERIALIZER_MARKER = '__dbos_serializer';
+
+const SERIALIZER_MARKED = 'superjson';
+
+/**
+ * What a step returned, out of the bytes the column
+ * holds.
+ *
+ * The richer serializer wraps every value it writes
+ * — `{"json":<value>,"__dbos_serializer":"superjson"}`
+ * — while the portable one writes the value itself,
+ * so a reader that only parsed would be looking at
+ * an envelope half the time and find nothing inside
+ * whatever it was asked for.
+ *
+ * The marker decides, and nothing else: the
+ * `serialization` column is not consulted, for the
+ * same reason `errorIn` does not consult it, and a
+ * step that returns a `json` field of its own keeps
+ * it. Anything that will not parse is nothing rather
+ * than a guess.
+ */
+export function valueIn(stored: string | undefined): unknown {
+  if (stored === undefined) return undefined;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stored);
+  } catch {
+    return undefined;
+  }
+
+  return enveloped(parsed) ? fieldOf(parsed, 'json') : parsed;
+}
+
+function enveloped(value: unknown): boolean {
+  return (
+    fieldOf(value, SERIALIZER_MARKER) === SERIALIZER_MARKED &&
+    fieldOf(value, 'json') !== undefined
+  );
+}
+
+/**
  * The sentence inside a stored error, or the
  * stored bytes.
  *

@@ -71,6 +71,17 @@ function ledger(...names: (string | Partial<Step>)[]): Step[] {
 }
 
 /**
+ * A return value as the SDK's own serializer stores
+ * it: the value under `json`, beside the marker the
+ * serializer stamps so a reader can tell its
+ * envelope from an object that merely has a `json`
+ * field.
+ */
+function serialized(value: unknown): string {
+  return JSON.stringify({ json: value, __dbos_serializer: 'superjson' });
+}
+
+/**
  * A claim that asks a person, then branches on how
  * much it was for.
  */
@@ -380,7 +391,7 @@ describe('which arm a decision took', () => {
           step({
             functionId: 1,
             name: 'how_big.r1',
-            output: '{"amount":900}',
+            output: serialized({ amount: 900 }),
           }),
         ],
         IR,
@@ -395,7 +406,7 @@ describe('which arm a decision took', () => {
     const arms = decidedArms(
       operationsOf(
         RUN,
-        [step({ name: 'how_big', output: '{"amount":12}' })],
+        [step({ name: 'how_big', output: serialized({ amount: 12 }) })],
         IR,
       ),
       IR,
@@ -404,13 +415,35 @@ describe('which arm a decision took', () => {
     expect(arms.get('how_big')).toBe('small');
   });
 
+  /**
+   * A project may configure the portable serializer,
+   * or register one this build has never seen, and
+   * either writes the value with nothing around it.
+   */
+  it('reads the arm from a value stored with no envelope', () => {
+    const arms = decidedArms(
+      operationsOf(
+        RUN,
+        [step({ name: 'how_big', output: '{"amount":900}' })],
+        IR,
+      ),
+      IR,
+    );
+
+    expect(arms.get('how_big')).toBe('large');
+  });
+
   it('reads the arm a person approved', () => {
     const arms = decidedArms(
       operationsOf(
         RUN,
         [
           step({ functionId: 0, name: 'manager_ok.register' }),
-          step({ functionId: 1, name: 'DBOS.recv', output: '[true]' }),
+          step({
+            functionId: 1,
+            name: 'DBOS.recv',
+            output: serialized([true]),
+          }),
           step({ functionId: 2, name: 'manager_ok.clear' }),
         ],
         IR,
@@ -435,12 +468,12 @@ describe('which arm a decision took', () => {
           step({
             functionId: 0,
             name: 'charge_each.r1',
-            output: '{"ok":true}',
+            output: serialized({ ok: true }),
           }),
           step({
             functionId: 1,
             name: 'how_big.r1',
-            output: '{"amount":900}',
+            output: serialized({ amount: 900 }),
           }),
           step({ functionId: 2, name: 'charge_each.r2' }),
         ],

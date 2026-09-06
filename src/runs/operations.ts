@@ -6,7 +6,7 @@ import {
   type WorkflowNode,
 } from '../core/rules.js';
 
-import { outputIn, stepError, type Run, type Step } from './rows.js';
+import { outputIn, stepError, valueIn, type Run, type Step } from './rows.js';
 import { runTimeline } from './timeline.js';
 import type { LiveStep } from './watch.js';
 
@@ -234,6 +234,13 @@ const SLEEP = 'DBOS.sleep';
  * somebody answers, and only then. Both carry the
  * same number in `output`, and the width is what
  * says which of the two it is.
+ *
+ * Read as the bytes rather than through `valueIn`,
+ * because this one row is not the project's to
+ * serialize: the SDK writes its own deadline with
+ * the portable serializer whatever the application
+ * configured, so the column holds the number and
+ * nothing around it.
  */
 function wakesIn(group: TraceGroup): TraceGroup['wakesAt'] {
   const row = group.operations.find(
@@ -330,7 +337,7 @@ function branchArm(
   if (node.kind !== 'branch') return undefined;
 
   const recorded = thisRound(operations, node.id, round).at(-1);
-  const value = parsed(recorded?.output);
+  const value = valueIn(recorded?.output);
   if (value === undefined) return undefined;
 
   const taken = node.config.cases.find((one) => holds(one.when, value));
@@ -365,7 +372,7 @@ function approvalArm(
     (one) => one.owner === 'sdk' && one.functionId > registered.functionId,
   );
 
-  const answer = approvedIn(parsed(reply?.output));
+  const answer = approvedIn(valueIn(reply?.output));
 
   return answer === undefined ? undefined : answer ? 'approved' : 'rejected';
 }
@@ -448,16 +455,6 @@ function approvedIn(value: unknown): boolean | undefined {
   const approved = (held as { approved?: unknown }).approved;
 
   return typeof approved === 'boolean' ? approved : undefined;
-}
-
-function parsed(output: string | undefined): unknown {
-  if (output === undefined) return undefined;
-
-  try {
-    return JSON.parse(output);
-  } catch {
-    return undefined;
-  }
 }
 
 function ownerFor(
