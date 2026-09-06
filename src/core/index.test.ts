@@ -249,6 +249,44 @@ describe('the boundary', () => {
   });
 
   /**
+   * The client that can write to somebody's run
+   * history is opened in one place, so that what
+   * this extension may do to a database it does not
+   * own is a question with one answer rather than
+   * one per caller.
+   */
+  it('opens a DBOS client in exactly one place', () => {
+    // The import and the identifier, rather than the
+    // package's name anywhere: the skew gate names
+    // the package as a key into a lockfile, which is
+    // a fact about somebody else's project rather
+    // than a way into this one.
+    expect(importing(/from '@dbos-inc\/dbos-sdk'|\bDBOSClient\b/)).toEqual([
+      'src/runs/db.ts',
+    ]);
+  });
+
+  /**
+   * And what it may do stops short of starting a
+   * run. A run goes through the app's own ingress,
+   * so the app's own code decides what a run is;
+   * a client that could start one from an editor
+   * would be a second door with none of that behind
+   * it.
+   */
+  it('starts no run through the client', () => {
+    for (const call of [/startWorkflow\(/, /enqueue\(/, /listWorkflows\(/]) {
+      expect(
+        importing(call).filter((path) => path.startsWith('src/runs/')),
+      ).toEqual([]);
+    }
+  });
+
+  it('starts a run through the app own ingress', () => {
+    expect(importing(/\/runs\/\$\{/)).toEqual(['src/runs/runner.ts']);
+  });
+
+  /**
    * The wrapper wraps most of core and forwards the
    * rest, and forwarding is only worth anything if
    * what arrives is the same function. A local
