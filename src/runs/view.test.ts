@@ -601,6 +601,14 @@ describe('one run, as the run page draws it', () => {
    * from another's, so the trace is one flat group
    * of unattributed rows — which is exactly what a
    * trace with no picture beside it is.
+   *
+   * And that group is nameless. Only the document
+   * says what a block is called, so a group with no
+   * block behind it has nothing to be called: naming
+   * it after whichever row came first would tell
+   * somebody a group of fifty rows was
+   * `parse_request`. The badge beside it says what
+   * it is instead.
    */
   it('draws no graph for a run whose workflow the project lost', () => {
     const shown = page({ ir: undefined, boxes: undefined });
@@ -609,6 +617,7 @@ describe('one run, as the run page draws it', () => {
     expect(shown.groups).toHaveLength(1);
     expect(shown.groups[0]?.operations).toHaveLength(2);
     expect(shown.groups[0]?.nodeId).toBeUndefined();
+    expect(shown.groups[0]?.title).toBe('');
   });
 
   it('projects a group of one own row as that row', () => {

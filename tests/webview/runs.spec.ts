@@ -1679,7 +1679,7 @@ const GROUPS: TraceGroupView[] = [
   },
   {
     nodeId: undefined,
-    title: 'gone_away',
+    title: '',
     qualifier: undefined,
     wakes: undefined,
     open: false,

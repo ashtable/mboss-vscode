@@ -229,15 +229,26 @@ function graphOf(
   };
 }
 
-/** One block's turn, in the words the page draws. */
+/**
+ * One block's turn, in the words the page draws.
+ *
+ * Only the document says what a block is called, so
+ * a group with no block behind it is drawn nameless
+ * and the `not a block in the saved workflow` badge
+ * carries it. Naming such a group after its first
+ * row would be a guess with nothing behind it: rows
+ * with no block merge into one group whatever they
+ * name, so a run whose document is gone would draw
+ * as a single collapsible called after whatever
+ * happened to run first.
+ */
 function groupOf(group: TraceGroup, view: SeeView): TraceGroupView {
   const node = view.ir?.nodes.find((one) => one.id === group.nodeId);
   const failed = group.operations.some((one) => one.state === 'failed');
-  const [first] = group.operations;
 
   return {
     nodeId: group.nodeId,
-    title: node?.title ?? first?.name ?? '',
+    title: node?.title ?? '',
     qualifier: qualifierOf(group),
     wakes: wakesOf(group, view),
     // Closed by default, and open where a person is
