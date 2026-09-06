@@ -348,11 +348,17 @@ export function watchRun(
  * the SDK recorded for itself is still read — the
  * outage inference and the outcome both need it —
  * but a canvas has no block to put it on.
+ *
+ * `now` is taken once and passed down, the way
+ * `runTimeline` takes one, so that a bar's end and
+ * whether a timer has run out are answered about
+ * the same moment.
  */
 export function toLiveRun(
   run: Run,
   steps: Step[],
   recovered: boolean,
+  now = Date.now(),
 ): LiveRun {
   const own = steps.filter((step) => ownerOf(step.name).kind !== 'sdk');
 
@@ -361,7 +367,7 @@ export function toLiveRun(
   // like an outage, and then attached to the rows a
   // block owns by the number DBOS gave them.
   const restored = new Map(
-    runTimeline(run, steps).steps.map((step) => [
+    runTimeline(run, steps, now).steps.map((step) => [
       step.functionId,
       step.restored,
     ]),
@@ -376,7 +382,7 @@ export function toLiveRun(
     steps: live,
     recovered,
     recoveryAttempts: run.recoveryAttempts,
-    outcome: outcomeOf(run, live, steps),
+    outcome: outcomeOf(run, live, steps, now),
     error: run.error,
     applicationVersion: run.applicationVersion,
     createdAt: run.createdAt,
@@ -461,6 +467,7 @@ function outcomeOf(
   run: Run,
   steps: LiveStep[],
   all: readonly Step[],
+  now: number,
 ): LiveOutcome {
   if (run.status === SUCCEEDED) return 'done';
 
@@ -471,18 +478,26 @@ function outcomeOf(
   if (FAILED.includes(run.status)) return 'failed';
   if (steps.some((step) => step.state === 'waiting')) return 'waiting';
 
-  return asleep(all) ? 'waiting' : 'running';
+  return asleep(all, now) ? 'waiting' : 'running';
 }
 
 /**
- * Whether the run is sitting out a timer.
+ * Whether the run is sitting out a timer *now*.
  *
  * A sleep row records the wake deadline as its
- * completion, so a row whose completion is later
- * than its start is a run that has not woken yet —
- * and nothing is happening in it, so the watch may
- * let go rather than reading somebody's database
- * every half second for a day.
+ * completion and is written once, before the wait,
+ * and never rewritten — so a deadline later than the
+ * row's own start says the run slept, not that it is
+ * still sleeping. Asked against the clock instead:
+ * a run whose deadline has passed has woken and may
+ * well be working, and answering `waiting` for it
+ * would stop the watch and send somebody looking for
+ * an email that was never sent.
+ *
+ * A deadline still ahead is the case worth stopping
+ * for. Nothing is happening in that run, so the
+ * watch may let go rather than reading somebody's
+ * database every half second for a day.
  *
  * Ungated on purpose. An older SDK does not write a
  * row of this shape at all, so the rule is simply
@@ -491,13 +506,12 @@ function outcomeOf(
  * gated, and those are drawn where a lockfile can be
  * read.
  */
-function asleep(steps: readonly Step[]): boolean {
+function asleep(steps: readonly Step[], now: number): boolean {
   return steps.some(
     (step) =>
       step.name === 'DBOS.sleep' &&
-      step.startedAt !== undefined &&
       step.completedAt !== undefined &&
-      step.completedAt > step.startedAt,
+      step.completedAt > now,
   );
 }
 

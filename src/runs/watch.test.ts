@@ -32,9 +32,15 @@ const URL = 'postgres://app@localhost:5432/sys';
 
 const RUN_ID = 'run_1700000000000_a1b2c3d4';
 
-/** One row of `dbos.operation_outputs`, in the two
- *  fields these specs care about. */
-type Recorded = { name: string; error?: string };
+/** One row of `dbos.operation_outputs`, in the
+ *  fields these specs care about. The timings are
+ *  the fixture's unless a case is about them. */
+type Recorded = {
+  name: string;
+  error?: string;
+  startedAt?: number;
+  completedAt?: number;
+};
 
 type Ledger = {
   open: OpenDatabase;
@@ -108,8 +114,8 @@ function stepRow(step: Recorded, index: number): OperationOutputRow {
   return {
     function_id: index,
     function_name: step.name,
-    started_at_epoch_ms: '1000',
-    completed_at_epoch_ms: '1200',
+    started_at_epoch_ms: String(step.startedAt ?? 1000),
+    completed_at_epoch_ms: String(step.completedAt ?? 1200),
     output: '{}',
     error: step.error ?? null,
     child_workflow_id: null,
@@ -298,6 +304,53 @@ describe('watchRun', () => {
     await settle(WATCH_INTERVAL_MS);
 
     expect(seen[1]?.outcome).toBe('done');
+  });
+
+  /**
+   * A sleep row is written once, before the wait,
+   * with the wake deadline as its completion, and is
+   * never rewritten. So a run that has woken carries
+   * exactly the row a run still asleep carries, and
+   * the only thing that tells them apart is the
+   * clock.
+   */
+  it('lets go of a run sitting out a timer', async () => {
+    const db = ledger();
+    const started = Date.now();
+    db.steps = [
+      { name: 'before_wait' },
+      {
+        name: 'DBOS.sleep',
+        startedAt: started,
+        completedAt: started + 120_000,
+      },
+    ];
+
+    const seen: LiveRun[] = [];
+    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+
+    await settle();
+
+    expect(seen[0]?.outcome).toBe('waiting');
+    expect(db.closed).toBe(1);
+  });
+
+  it('keeps watching a run whose timer has run out', async () => {
+    const db = ledger();
+    const woke = Date.now() - 1000;
+    db.steps = [
+      { name: 'before_wait' },
+      { name: 'DBOS.sleep', startedAt: woke - 120_000, completedAt: woke },
+      { name: 'after_wait' },
+    ];
+
+    const seen: LiveRun[] = [];
+    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+
+    await settle();
+
+    expect(seen[0]?.outcome).toBe('running');
+    expect(db.closed).toBe(0);
   });
 
   it("leaves out the SDK's own bookkeeping", async () => {
