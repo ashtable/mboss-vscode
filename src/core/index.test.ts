@@ -5,7 +5,14 @@ import { join } from 'node:path';
 import { applySpec } from '@mboss/core';
 import { describe, expect, it } from 'vitest';
 
-import { NODE_PALETTE, WorkflowIRSchema } from './rules.js';
+import {
+  DEFAULT_RETRY,
+  NODE_PALETTE,
+  RetrySchema,
+  SDK_OPERATIONS,
+  WorkflowIRSchema,
+  ownerOf,
+} from './rules.js';
 import { nextDocument, readWorkflow } from './index.js';
 import { paletteLabels } from '../canvas/words.js';
 import { CORE_ROOT, sourceFiles } from '../test-support/repo.js';
@@ -123,6 +130,36 @@ describe('the palette labels', () => {
     for (const entry of NODE_PALETTE) {
       expect(paletteLabels()[entry.kind]).toBe(entry.label);
     }
+  });
+});
+
+/**
+ * What a webview needs of core beyond the drawing
+ * rules: how to read a ledger row back to the
+ * block that wrote it, and what a block that
+ * configured nothing will actually do when it
+ * fails. Both are arithmetic over data a frame
+ * already holds, so they belong on the browser-safe
+ * side rather than behind a message.
+ */
+describe('the browser-safe slice', () => {
+  it('reads a recorded step name back to the block that owns it', () => {
+    expect(ownerOf('await_reply.register')).toEqual({
+      kind: 'node',
+      nodeId: 'await_reply',
+      segments: [{ kind: 'register' }],
+    });
+    expect(ownerOf('DBOS.sleep').kind).toBe('sdk');
+    expect(SDK_OPERATIONS.has('getStatus')).toBe(true);
+  });
+
+  it('carries the retry policy an unconfigured block runs under', () => {
+    expect(DEFAULT_RETRY).toEqual(RetrySchema.parse({}));
+    expect(DEFAULT_RETRY).toEqual({
+      maxAttempts: 3,
+      intervalSeconds: 1,
+      backoffRate: 2,
+    });
   });
 });
 

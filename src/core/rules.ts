@@ -12,8 +12,9 @@
  *
  * What a webview does need is the meaning of a
  * workflow: what a node may be, which ports it
- * has, how big it is drawn, and whether a wire is
- * legal. Those are zod schemas and arithmetic, and
+ * has, how big it is drawn, whether a wire is
+ * legal, and which block a recorded row belongs
+ * to. Those are zod schemas and arithmetic, and
  * they are what this file re-exports.
  *
  * The paths are relative rather than through the
@@ -26,11 +27,13 @@
  */
 
 export {
+  DEFAULT_RETRY,
   EdgeSchema,
   NODE_PALETTE,
   NodeKindSchema,
   NodeSchema,
   PositionSchema,
+  RetrySchema,
   WorkflowIRSchema,
   carryPositions,
   deleteNode,
@@ -89,3 +92,16 @@ export type {
   LibFunction,
   LibManifest,
 } from '../../mboss-core/src/manifest/index.js';
+
+// From `compile/names`, not `compile` — the barrel
+// beside it is the whole code generator. This one
+// module imports nothing at all, which is what
+// lets a frame drawing a run parse the names off
+// the ledger itself instead of asking the host
+// about every row.
+export { SDK_OPERATIONS, ownerOf } from '../../mboss-core/src/compile/names.js';
+
+export type {
+  Owner,
+  RecordedSegment,
+} from '../../mboss-core/src/compile/names.js';
