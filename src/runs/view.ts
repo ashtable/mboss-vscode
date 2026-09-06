@@ -190,7 +190,13 @@ function seeRun(view: SeeView): SeeRun {
             run.status,
             duration(run.completedAt - run.createdAt),
           ),
-    severity: severityOf(run),
+    // The page holds every row, so it asks the
+    // reading whether a block is parked rather than
+    // the list's question about one recorded name.
+    severity: severityOf(
+      run,
+      reading.steps.some((step) => step.state === 'waiting'),
+    ),
     span: spanOf(run),
     recovered: recoveredBanner(run, reading),
     chips: drawn.map(chipOf),
@@ -364,7 +370,7 @@ function inputOf(run: Run): { text: string; cut: boolean } | undefined {
 }
 
 export function rowOf(run: Run): RunRow {
-  const severity = severityOf(run);
+  const severity = severityOf(run, parked(run.lastOperation));
 
   return {
     workflowId: run.workflowId,
@@ -435,18 +441,28 @@ function summaryOf(run: Run, severity: RunSeverity): string | undefined {
  * restarting is something that will keep happening
  * until somebody breaks the loop, and no mockup
  * draws that state for this to copy.
+ *
+ * Whether the run is parked arrives as an answer,
+ * because the two readers hold different evidence.
+ * The list has one recorded name per run and no rows
+ * at all; the page has every row it wrote. Asking
+ * the list's question of the page is what used to
+ * make the page unable to say `waiting`: it reads
+ * one run through a query that never selected the
+ * column that question is asked of.
  */
-function severityOf(run: Run): RunSeverity {
+function severityOf(run: Run, parked: boolean): RunSeverity {
   if (run.status === 'MAX_RECOVERY_ATTEMPTS_EXCEEDED') return 'exhausted';
   if (run.status === 'ERROR' || run.status === 'CANCELLED') return 'failed';
   if (!IN_FLIGHT.has(run.status)) return 'ok';
 
-  return parked(run.lastOperation) ? 'waiting' : 'running';
+  return parked ? 'waiting' : 'running';
 }
 
 /**
  * Whether the run's last operation says it is parked
- * on somebody.
+ * on somebody — the list's evidence, which is one
+ * name.
  *
  * The status column cannot say: a run is `PENDING`
  * whether it is executing a step or sitting in

@@ -574,6 +574,44 @@ describe('a run waiting on a person', () => {
   it('has no such moment for a run with no operation of its own', () => {
     expect(rowOf(RUN).stoppedAt).toBeUndefined();
   });
+
+  /**
+   * The two readers hold different evidence and ask
+   * the question of what they have. The list has one
+   * recorded name per run; the page has every row the
+   * run wrote, read through a query that does not
+   * select that column at all — so a page that asked
+   * the list's question could only ever answer
+   * `running`, however long the run had been sitting
+   * in somebody's inbox.
+   */
+  it('says a parked run is waiting on the page as well as in the list', () => {
+    const parked = {
+      run: { ...RUN, status: 'PENDING', completedAt: undefined },
+      steps: [
+        { ...step(0, 0, 1000), name: 'parse_request' },
+        { ...step(1, 1000, 2000), name: 'find_slot.register' },
+      ],
+      selectedStep: undefined,
+      note: undefined,
+    };
+
+    expect(seeInit(parked).run?.severity).toBe('waiting');
+  });
+
+  it('says a run whose blocks all cleared is running', () => {
+    const woken = {
+      run: { ...RUN, status: 'PENDING', completedAt: undefined },
+      steps: [
+        { ...step(0, 0, 1000), name: 'find_slot.register' },
+        { ...step(1, 1000, 2000), name: 'find_slot.clear' },
+      ],
+      selectedStep: undefined,
+      note: undefined,
+    };
+
+    expect(seeInit(woken).run?.severity).toBe('running');
+  });
 });
 
 /**
