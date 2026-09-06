@@ -632,7 +632,15 @@ describe('watchRun', () => {
       expect(WATCH_QUIET_MS).toBe(15_000);
     });
 
-    it('stops on any outcome that is not running', () => {
+    /**
+     * A different question from when the watch lets
+     * go, which the two cases above it are about.
+     * This is the list a session row consults, and
+     * an outcome missing from it is a row that
+     * never gets a duration and is re-armed by
+     * every refresh for ever.
+     */
+    it('counts done, failed and cancelled as finished', () => {
       expect([...SETTLED].sort()).toEqual(['cancelled', 'done', 'failed']);
     });
   });

@@ -151,9 +151,16 @@ export type LiveRun = {
  *  database again for what is already in hand. */
 export type LedgerRead = { run: Run; steps: Step[] };
 
-/** The outcomes a watch stops on. `waiting` and
- *  `quiet` stop it too, but they are stopped
- *  watches over runs that may yet move. */
+/**
+ * The outcomes a run will not move on from.
+ *
+ * Not the question of when a watch lets go, which
+ * is any outcome but `running` — `waiting` and
+ * `quiet` stop one too, over runs that may yet
+ * move. This is what a session row asks before it
+ * stamps how long the run took and stops being
+ * re-armed.
+ */
 export const SETTLED: readonly LiveOutcome[] = ['done', 'failed', 'cancelled'];
 
 export type RunWatcher = { stop(): void };

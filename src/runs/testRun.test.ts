@@ -323,6 +323,27 @@ describe('following a run', () => {
   });
 
   /**
+   * A run somebody cancelled will not move again, so
+   * the row it left is finished: it says how long it
+   * took, and no refresh puts a watch back on it.
+   */
+  it('settles the row of a run somebody cancelled', async () => {
+    const owner = follows();
+    const shown = zone({ runner: echoing().start, following: owner.held });
+
+    await shown.runWorkflow('groom_booking', '{}');
+    const workflowId = shown.render().session[0]?.workflowId ?? '';
+
+    owner.watch.say(
+      workflowId,
+      liveRun({ workflowId, outcome: 'cancelled', status: 'CANCELLED' }),
+    );
+
+    expect(shown.render().session[0]?.when).toContain('·');
+    expect(shown.unsettled()).toEqual([]);
+  });
+
+  /**
    * The rule that keeps a run somebody is only
    * looking at off the document they are editing.
    *

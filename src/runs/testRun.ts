@@ -14,7 +14,7 @@ import {
   type SessionRun,
 } from './sessionLog.js';
 import { sessionRowOf, type TestRunProblem } from './view.js';
-import type { LiveRun } from './watch.js';
+import { SETTLED, type LiveRun } from './watch.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 
 /**
@@ -112,10 +112,6 @@ export type TestRun = Disposable & {
 
   onChanged(listener: () => void): Disposable;
 };
-
-/** Outcomes a watch has nothing left to say
- *  about. */
-const SETTLED: readonly LiveRun['outcome'][] = ['done', 'failed'];
 
 export function testRunZone(deps: TestRunDeps): TestRun {
   const changes = emitter();
