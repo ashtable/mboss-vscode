@@ -252,6 +252,13 @@ const RunSelect = z.object({
   workflowId: z.string(),
 });
 
+/** Somebody wants a run's id where they can paste
+ *  it. A webview has no clipboard of its own. */
+const CopyRunId = z.object({
+  type: z.literal('copyRunId'),
+  workflowId: z.string(),
+});
+
 /**
  * The local stack, being driven.
  *
@@ -374,6 +381,7 @@ const SCHEMAS = {
     Rerun,
     AskAgent,
     OpenRun,
+    CopyRunId,
   ]),
   see: z.discriminatedUnion('type', [Ready, StepSelect, Replay]),
 };

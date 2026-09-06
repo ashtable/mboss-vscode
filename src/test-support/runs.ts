@@ -151,6 +151,7 @@ export function host(over: Partial<RunsHost> = {}): RunsHost {
     setContext: () => undefined,
     note: () => undefined,
     notify: async () => undefined,
+    copy: async () => undefined,
     ...over,
   };
 }

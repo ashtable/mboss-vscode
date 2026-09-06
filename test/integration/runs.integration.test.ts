@@ -213,6 +213,7 @@ describe('a run history, read from a real dbos schema', () => {
         setContext: () => undefined,
         note: () => undefined,
         notify: async () => undefined,
+        copy: async () => undefined,
       },
       trust: fakeTrust(),
       open: openDatabase,

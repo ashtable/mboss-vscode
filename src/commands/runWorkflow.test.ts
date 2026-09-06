@@ -57,6 +57,7 @@ function runsHost(dir: string): RunsHost {
     setContext: () => undefined,
     note: () => undefined,
     notify: async () => undefined,
+    copy: async () => undefined,
   };
 }
 

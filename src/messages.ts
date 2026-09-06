@@ -237,6 +237,22 @@ export const messages = {
    *  happened to the run and the tick after it read
    *  as a second opinion about the outcome. */
   runsRecoveredTag: () => l10n.t('↻ recovered'),
+
+  /**
+   * Where a run got to, in one line under its row.
+   *
+   * Every form of it is worked out from the last
+   * operation the run recorded of its own — nothing
+   * in the ledger marks a run as being *at* a block
+   * — so the row draws these beside the word that
+   * says they were derived.
+   */
+  runFailedSummary: (node: string) => l10n.t('failed · {0}', node),
+  runWaitingSummary: (node: string, at: string) =>
+    l10n.t('waiting · {0} · {1}', node, at),
+  runRunningSummary: (node: string) => l10n.t('running · after {0}', node),
+  runDoneSummary: (count: number) =>
+    l10n.t('done · {0} durable operations', count),
   /**
    * How many crashes, not what the column says: the
    * column counts dispatches, so a run that never

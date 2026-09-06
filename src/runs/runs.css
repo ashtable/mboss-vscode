@@ -458,6 +458,48 @@ body {
   flex: 1;
 }
 
+/* The row and the one control beside it. The row
+   is a button, so the copy control cannot be inside
+   it — a button inside a button is neither valid
+   nor clickable. */
+.run-item {
+  position: relative;
+}
+
+.run-copy {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  border: none;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-faint);
+  font: inherit;
+  line-height: 1;
+  padding: 2px 4px;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.run-item:hover .run-copy,
+.run-copy:focus-visible {
+  opacity: 1;
+}
+
+.run-copy:hover {
+  color: var(--ink);
+  background: var(--surface-2);
+}
+
+/* Derived, and drawn as derived: the dashes say
+   nobody wrote this down. */
+.run-summary {
+  align-self: flex-start;
+  border-bottom: 1px dashed var(--hairline-strong);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
 .run-row {
   display: flex;
   flex-direction: column;

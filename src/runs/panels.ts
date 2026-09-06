@@ -85,6 +85,10 @@ export class RunsListView implements WebviewViewProvider {
         if (message.type === 'askAgent') {
           void this.store.askAgent(message.workflowId);
         }
+
+        if (message.type === 'copyRunId') {
+          void this.store.copyRunId(message.workflowId);
+        }
       },
     });
 

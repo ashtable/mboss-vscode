@@ -180,3 +180,21 @@ describe('one door for three zones', () => {
     expect(watch.armed.map((held) => held.stopped)).toEqual([true]);
   });
 });
+
+describe('a run id somebody wanted', () => {
+  /**
+   * The clipboard is the window's, so the store
+   * hands the id over rather than reaching for one
+   * — which is what lets this be driven at all.
+   */
+  it('writes a run id out through the window', async () => {
+    const copied: string[] = [];
+    const store = runsStore(
+      deps({ host: host({ copy: async (text) => void copied.push(text) }) }),
+    );
+
+    await store.copyRunId('wf_c9d2f3');
+
+    expect(copied).toEqual(['wf_c9d2f3']);
+  });
+});

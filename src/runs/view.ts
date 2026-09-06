@@ -1,3 +1,4 @@
+import { ownerOf } from '../core/rules.js';
 import { messages } from '../messages.js';
 import type {
   RunRow,
@@ -146,11 +147,13 @@ function seeRun(view: SeeView): SeeRun {
 }
 
 export function rowOf(run: Run): RunRow {
+  const severity = severityOf(run);
+
   return {
     workflowId: run.workflowId,
     name: run.name,
     status: run.status,
-    severity: severityOf(run),
+    severity,
     when: whenOf(run),
     recovered: hasRecovered(run),
     // Only past the first: the tag beside it
@@ -162,7 +165,47 @@ export function rowOf(run: Run): RunRow {
         ? messages.runsRecoveredNote(recoveriesOf(run))
         : undefined,
     error: run.error,
+    summary: summaryOf(run, severity),
+    stoppedAt:
+      run.lastOperationAt === undefined
+        ? undefined
+        : clock(run.lastOperationAt),
+    operations: run.operationCount,
   };
+}
+
+/**
+ * Where the run got to, in one line.
+ *
+ * Every form of it is worked out from the last
+ * operation the run recorded of its own, because
+ * nothing in the ledger marks a run as being *at* a
+ * block. A run that has recorded nothing gets no
+ * line: a projection over no rows is not a fact
+ * worth drawing.
+ */
+function summaryOf(run: Run, severity: RunSeverity): string | undefined {
+  if (severity === 'ok') {
+    return run.operationCount === undefined
+      ? undefined
+      : messages.runDoneSummary(run.operationCount);
+  }
+
+  const at = run.lastOperation;
+  if (at === undefined) return undefined;
+
+  const owner = ownerOf(at);
+  const nodeId = owner.kind === 'node' ? owner.nodeId : at;
+
+  if (severity === 'waiting') {
+    return run.lastOperationAt === undefined
+      ? undefined
+      : messages.runWaitingSummary(nodeId, clock(run.lastOperationAt));
+  }
+
+  return severity === 'running'
+    ? messages.runRunningSummary(nodeId)
+    : messages.runFailedSummary(nodeId);
 }
 
 /**
@@ -179,8 +222,33 @@ export function rowOf(run: Run): RunRow {
 function severityOf(run: Run): RunSeverity {
   if (run.status === 'MAX_RECOVERY_ATTEMPTS_EXCEEDED') return 'exhausted';
   if (run.status === 'ERROR' || run.status === 'CANCELLED') return 'failed';
+  if (!IN_FLIGHT.has(run.status)) return 'ok';
 
-  return IN_FLIGHT.has(run.status) ? 'running' : 'ok';
+  return parked(run.lastOperation) ? 'waiting' : 'running';
+}
+
+/**
+ * Whether the run's last operation says it is parked
+ * on somebody.
+ *
+ * The status column cannot say: a run is `PENDING`
+ * whether it is executing a step or sitting in
+ * somebody's inbox, and telling those apart is the
+ * whole reason the list reads the other table. The
+ * two shapes a wait leaves are the row that says
+ * which run is parked, and a reminder counted after
+ * it — the row that clears the registration means
+ * the run woke up.
+ */
+function parked(lastOperation: string | undefined): boolean {
+  if (lastOperation === undefined) return false;
+
+  const owner = ownerOf(lastOperation);
+  if (owner.kind !== 'node') return false;
+
+  const last = owner.segments.at(-1)?.kind;
+
+  return last === 'register' || last === 'resend';
 }
 
 function whenOf(run: Run): string {

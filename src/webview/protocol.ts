@@ -442,6 +442,25 @@ export type RunRow = {
   /** What it failed with, shown on the row itself
    *  rather than behind a click. */
   error: string | undefined;
+
+  /**
+   * Where the run got to, worked out from the last
+   * operation it recorded of its own.
+   *
+   * Nothing in the ledger marks a run as being *at*
+   * a block, so this is derived and the row says so
+   * beside it. Absent for a run that has recorded
+   * nothing of its own — a projection over no rows
+   * is not a fact.
+   */
+  summary: string | undefined;
+
+  /** When that operation landed, for a row to put
+   *  where a reader can check it. */
+  stoppedAt: string | undefined;
+
+  /** How many durable operations it recorded. */
+  operations: number | undefined;
 };
 
 /**
@@ -456,7 +475,7 @@ export type RunRow = {
  * many times as DBOS allows is a loop somebody has
  * to break.
  */
-export type RunSeverity = 'ok' | 'running' | 'failed' | 'exhausted';
+export type RunSeverity = 'ok' | 'running' | 'waiting' | 'failed' | 'exhausted';
 
 export type RunsStrings = ReturnType<typeof runsWords>;
 

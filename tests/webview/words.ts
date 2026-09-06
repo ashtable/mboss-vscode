@@ -233,11 +233,15 @@ export const runsWords: RunsStrings = {
   heading: 'Runs',
   filters: { all: 'All', failed: 'Failed', recovered: 'Recovered' },
   recoveredTag: '↻ recovered',
+  derivedTitle: 'derived from the last recorded operation',
+  copyRunId: 'Copy run id',
   untrusted:
     'Reading a run history opens a database this folder names, so it waits until you trust this window.',
   noProject: 'Open an mBoss project to see how its runs went.',
   empty: 'No runs recorded yet. Start the app and set a workflow going.',
   scope: "Local runs only. Deployed apps are DBOS Conductor's.",
+  projection:
+    'local only · projected from the local DBOS ledger: dbos.workflow_status + dbos.operation_outputs',
   sessionScope:
     'held in the extension host for this session · durable truth stays in postgres: dbos.workflow_status',
 
@@ -265,7 +269,7 @@ export const runsWords: RunsStrings = {
   thisSession: 'This Session',
   rerunSameInput: 'Rerun with same input',
   resendEvent: 'Send the event again',
-  openFlightRecorder: 'Open flight recorder',
+  openRun: 'Open run',
   askAgentWhy: 'Ask agent why',
 };
 

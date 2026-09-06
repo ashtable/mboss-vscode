@@ -67,6 +67,11 @@ export type RunsHost = {
 
   /** Hands the agent something to answer. */
   notify(text: string): Promise<void>;
+
+  /** Puts text on the clipboard. The clipboard is
+   *  the window's, so the store hands text over
+   *  rather than reaching for one. */
+  copy(text: string): Promise<void>;
 };
 
 export type RunsDeps = {
@@ -139,6 +144,9 @@ export type RunsStore = Disposable & {
 
   /** Hands a failed run to the agent. */
   askAgent(workflowId: string): Promise<void>;
+
+  /** Puts a run's id where somebody can paste it. */
+  copyRunId(workflowId: string): Promise<void>;
 
   onChanged(listener: () => void): Disposable;
 };
@@ -247,6 +255,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     runWorkflow: testRun.runWorkflow,
     rerun: testRun.rerun,
     askAgent: testRun.askAgent,
+    copyRunId: (workflowId) => deps.host.copy(workflowId),
 
     onChanged: changes.on,
 

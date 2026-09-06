@@ -38,6 +38,9 @@ const ROWS: RunRow[] = [
     recovered: true,
     recoveredNote: undefined,
     error: undefined,
+    summary: undefined,
+    stoppedAt: undefined,
+    operations: undefined,
   },
   {
     workflowId: 'wf_a1b4e7',
@@ -48,6 +51,9 @@ const ROWS: RunRow[] = [
     recovered: false,
     recoveredNote: undefined,
     error: undefined,
+    summary: undefined,
+    stoppedAt: undefined,
+    operations: undefined,
   },
   {
     workflowId: 'wf_77c101',
@@ -58,6 +64,9 @@ const ROWS: RunRow[] = [
     recovered: false,
     recoveredNote: undefined,
     error: 'login failed — CDC_PASS rotated',
+    summary: 'failed · sync_rows',
+    stoppedAt: '13:41',
+    operations: 3,
   },
   {
     workflowId: 'wf_ff0912',
@@ -68,6 +77,9 @@ const ROWS: RunRow[] = [
     recovered: true,
     recoveredNote: 'recovered from 3 crashes',
     error: 'gave up after 3 attempts',
+    summary: undefined,
+    stoppedAt: undefined,
+    operations: undefined,
   },
 ];
 
@@ -694,6 +706,9 @@ test.describe('this session', () => {
             recovered: false,
             recoveredNote: undefined,
             error: undefined,
+            summary: undefined,
+            stoppedAt: undefined,
+            operations: undefined,
           },
         ],
         session: [
@@ -782,6 +797,74 @@ test.describe('the run list', () => {
     const failed = page.locator('[data-run="wf_77c101"]');
     await expect(failed).toHaveAttribute('data-severity', 'failed');
     await expect(failed).toContainText('login failed — CDC_PASS rotated');
+  });
+
+  /**
+   * A run parked on somebody is `PENDING` in the
+   * status column, exactly like one that is
+   * executing a step. What tells them apart is the
+   * shape of the last operation, and the row says
+   * which block and since when.
+   */
+  test('marks a run waiting on a person, and says since when', async ({
+    page,
+  }) => {
+    await showList(
+      page,
+      runsInit({
+        rows: [
+          {
+            workflowId: 'wf_parked',
+            name: 'expense_claim',
+            status: 'PENDING',
+            severity: 'waiting',
+            when: '14:06',
+            recovered: false,
+            recoveredNote: undefined,
+            error: undefined,
+            summary: 'waiting · manager_ok · 10:31',
+            stoppedAt: '10:31',
+            operations: 4,
+          },
+        ],
+      }),
+    );
+
+    const row = page.locator('[data-run="wf_parked"]');
+
+    await expect(row.locator('.run-mark')).toHaveText('◐');
+
+    const summary = row.locator('.run-summary');
+    await expect(summary).toHaveText('waiting · manager_ok · 10:31');
+    await expect(summary).toHaveAttribute('data-stopped-at', '10:31');
+    await expect(summary).toHaveAttribute('data-derived', 'true');
+    await expect(summary).toHaveAttribute('title', runsStrings.derivedTitle);
+  });
+
+  test('hands the id of a row to the window', async ({ page }) => {
+    const harness = await showList(page, runsInit());
+
+    await page.locator('[data-copy-run-id="wf_c9d2f3"]').click();
+
+    expect(await harness.postedOfType('copyRunId')).toEqual([
+      { type: 'copyRunId', workflowId: 'wf_c9d2f3' },
+    ]);
+  });
+
+  /**
+   * Nothing on this panel is a service somewhere.
+   * The footer names the two tables the list is
+   * projected from, in the project's own database.
+   */
+  test('says the list is a projection of the local ledger', async ({
+    page,
+  }) => {
+    await showList(page, runsInit());
+
+    await expect(page.locator('.runs-foot')).toContainText(
+      'local only · projected from the local DBOS ledger: ' +
+        'dbos.workflow_status + dbos.operation_outputs',
+    );
   });
 
   /**

@@ -36,6 +36,9 @@ import './runs.css';
 const MARKS: Record<RunRow['severity'], string> = {
   ok: '✓',
   running: '●',
+  // Half filled: something is true of this run and
+  // nothing is happening in it.
+  waiting: '◐',
   failed: '✕',
   exhausted: '⊘',
 };
@@ -105,6 +108,7 @@ function Runs(state: RunsInit) {
       )}
 
       <footer className="runs-foot">
+        <p>{strings.projection}</p>
         {state.source === undefined ? null : (
           <p className="mono">{state.source}</p>
         )}
@@ -383,7 +387,7 @@ function Session({
                   postToHost({ type: 'openRun', workflowId: row.workflowId })
                 }
               >
-                {strings.openFlightRecorder}
+                {strings.openRun}
               </button>
               <button
                 type="button"
@@ -458,12 +462,29 @@ function List({ state }: { state: RunsInit }) {
   return (
     <ol className="run-rows">
       {rows.map((row) => (
-        <li key={row.workflowId}>
+        <li key={row.workflowId} className="run-item">
           <Row
             row={row}
             strings={state.strings}
             selected={row.workflowId === state.selected}
           />
+
+          {/* Beside the row rather than inside it:
+              the row is itself a button, and a
+              button inside a button is neither
+              valid nor clickable. */}
+          <button
+            type="button"
+            className="run-copy"
+            data-copy-run-id={row.workflowId}
+            title={state.strings.copyRunId}
+            aria-label={state.strings.copyRunId}
+            onClick={() =>
+              postToHost({ type: 'copyRunId', workflowId: row.workflowId })
+            }
+          >
+            ⧉
+          </button>
         </li>
       ))}
     </ol>
@@ -509,6 +530,21 @@ function Row({
         {row.when}
         {row.recoveredNote === undefined ? null : ` · ${row.recoveredNote}`}
       </span>
+
+      {/* Worked out from the last operation the run
+          recorded, never read off a column — so it
+          says so, and carries the moment it was
+          worked out from. */}
+      {row.summary === undefined ? null : (
+        <span
+          className="run-summary"
+          data-derived
+          data-stopped-at={row.stoppedAt}
+          title={strings.derivedTitle}
+        >
+          {row.summary}
+        </span>
+      )}
 
       {row.error === undefined ? null : (
         <span className="run-error">{row.error}</span>

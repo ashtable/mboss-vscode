@@ -405,3 +405,122 @@ describe('one run in detail', () => {
     expect(empty.strings.nothingSelected).toBeTypeOf('string');
   });
 });
+
+/**
+ * What a row says about where a run got to.
+ *
+ * Worked out from the last operation the run
+ * recorded of its own, which is the only thing the
+ * ledger holds about where a run is — nothing marks
+ * a run as "at" a block. So the line says so:
+ * everything here is derived, and the row wears
+ * that word.
+ */
+describe('the line under a run', () => {
+  it('says which block a failure stopped at', () => {
+    const row = rowOf({
+      ...RUN,
+      status: 'ERROR',
+      lastOperation: 'charge_card.r2',
+      lastOperationAt: 1000,
+    });
+
+    expect(row.severity).toBe('failed');
+    expect(row.summary).toBe('failed · charge_card');
+  });
+
+  it('says which block a run is waiting on, and since when', () => {
+    const row = rowOf({
+      ...RUN,
+      status: 'PENDING',
+      completedAt: undefined,
+      lastOperation: 'await_reply.register',
+      lastOperationAt: 1000,
+    });
+
+    expect(row.severity).toBe('waiting');
+    expect(row.summary).toContain('waiting · await_reply · ');
+    expect(row.stoppedAt).toBeDefined();
+    expect(row.summary).toContain(row.stoppedAt ?? 'no time');
+  });
+
+  it('says which block a running run got past', () => {
+    const row = rowOf({
+      ...RUN,
+      status: 'PENDING',
+      completedAt: undefined,
+      lastOperation: 'find_slot',
+      lastOperationAt: 1000,
+    });
+
+    expect(row.severity).toBe('running');
+    expect(row.summary).toBe('running · after find_slot');
+  });
+
+  it('counts the durable operations a finished run recorded', () => {
+    const row = rowOf({ ...RUN, operationCount: 7 });
+
+    expect(row.severity).toBe('ok');
+    expect(row.summary).toBe('done · 7 durable operations');
+  });
+
+  it('says nothing about a run that recorded nothing of its own', () => {
+    const row = rowOf({ ...RUN, status: 'PENDING', completedAt: undefined });
+
+    expect(row.summary).toBeUndefined();
+    expect(row.stoppedAt).toBeUndefined();
+  });
+});
+
+describe('a run waiting on a person', () => {
+  /**
+   * Only the shape of the last operation says so.
+   * A run is `PENDING` whether it is executing a
+   * step or parked on somebody's inbox, and telling
+   * those apart is the whole reason the list reads
+   * the other table at all.
+   */
+  it('calls a run waiting only when its last operation says so', () => {
+    const inFlight = {
+      ...RUN,
+      status: 'PENDING',
+      completedAt: undefined,
+      lastOperationAt: 1000,
+    };
+
+    expect(rowOf({ ...inFlight, lastOperation: 'x.register' }).severity).toBe(
+      'waiting',
+    );
+    expect(rowOf({ ...inFlight, lastOperation: 'x.resend.2' }).severity).toBe(
+      'waiting',
+    );
+    expect(rowOf({ ...inFlight, lastOperation: 'x.clear' }).severity).toBe(
+      'running',
+    );
+    expect(rowOf({ ...inFlight, lastOperation: 'find_slot' }).severity).toBe(
+      'running',
+    );
+
+    // A run that has ended is not waiting for
+    // anybody, whatever its last row was.
+    expect(
+      rowOf({ ...RUN, lastOperation: 'x.register', lastOperationAt: 1000 })
+        .severity,
+    ).toBe('ok');
+  });
+
+  it('takes the moment a run last recorded something', () => {
+    const row = rowOf({ ...RUN, lastOperationAt: 1_739_880_139_200 });
+
+    expect(row.stoppedAt).toBe(
+      new Date(1_739_880_139_200).toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    );
+  });
+
+  it('has no such moment for a run with no operation of its own', () => {
+    expect(rowOf(RUN).stoppedAt).toBeUndefined();
+  });
+});

@@ -1,4 +1,4 @@
-import { commands, window, workspace } from 'vscode';
+import { commands, env, window, workspace } from 'vscode';
 
 import type { AgentPanel } from '../acp/agent.js';
 import { isProject } from '../core/index.js';
@@ -30,6 +30,8 @@ export function runsHost(panel: AgentPanel): RunsHost {
         .filter(isProject),
 
     say: (message) => void window.showInformationMessage(message),
+
+    copy: (text) => Promise.resolve(env.clipboard.writeText(text)),
 
     setContext: (key, value) =>
       void commands.executeCommand('setContext', key, value),

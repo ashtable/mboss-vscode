@@ -42,10 +42,23 @@ export const runsWords = once(() => ({
 
   recoveredTag: messages.runsRecoveredTag(),
 
+  /** Said on every line the panel worked out rather
+   *  than read, so nobody mistakes one for a column. */
+  derivedTitle: l10n.t('derived from the last recorded operation'),
+
+  copyRunId: l10n.t('Copy run id'),
+
   untrusted: messages.runsNeedTrust(),
   noProject: messages.runsNoProject(),
   empty: messages.runsEmpty(),
   scope: messages.runsScope(),
+
+  /** What the list is: a projection over two tables
+   *  in the project's own database, named so nobody
+   *  reads it as a service somewhere. */
+  projection: l10n.t(
+    'local only · projected from the local DBOS ledger: dbos.workflow_status + dbos.operation_outputs',
+  ),
   sessionScope: l10n.t(
     'held in the extension host for this session · durable truth stays in postgres: dbos.workflow_status',
   ),
@@ -74,7 +87,7 @@ export const runsWords = once(() => ({
   thisSession: l10n.t('This Session'),
   rerunSameInput: l10n.t('Rerun with same input'),
   resendEvent: l10n.t('Send the event again'),
-  openFlightRecorder: l10n.t('Open flight recorder'),
+  openRun: l10n.t('Open run'),
   askAgentWhy: l10n.t('Ask agent why'),
 }));
 

@@ -131,4 +131,11 @@ describe('what each view may say', () => {
       false,
     );
   });
+
+  it('takes a run id the list wants copied', () => {
+    const said = { type: 'copyRunId', workflowId: 'wf_c9d2f3' };
+
+    expect(messageSchemaFor('runs').safeParse(said).success).toBe(true);
+    expect(messageSchemaFor('see').safeParse(said).success).toBe(false);
+  });
 });
