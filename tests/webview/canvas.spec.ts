@@ -935,7 +935,7 @@ test.describe('the state a block is in', () => {
     // lit and still raised.
     await expect(block).toHaveCSS(
       'box-shadow',
-      'rgb(83, 103, 255) 0px 0px 0px 1.5px, color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 5px, rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
+      'rgb(83, 103, 255) 0px 0px 0px 1.5px, color(srgb 0.32549 0.403922 1 / 0.18) 0px 0px 0px 5px, rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
     );
     await expect(block).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, -1)');
   });
@@ -981,7 +981,7 @@ test.describe('the state a block is in', () => {
     await expect(block).toHaveCSS('border-top-style', 'solid');
     await expect(block).toHaveCSS(
       'box-shadow',
-      'rgb(83, 103, 255) 0px 0px 0px 1.5px, color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 5px, rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
+      'rgb(83, 103, 255) 0px 0px 0px 1.5px, color(srgb 0.32549 0.403922 1 / 0.18) 0px 0px 0px 5px, rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
     );
   });
 
@@ -1260,7 +1260,10 @@ test.describe('the colour a wire is drawn in', () => {
 });
 
 /** Tint and ink per tone, as the browser resolves
- *  the mixes over this harness' light surface. */
+ *  the mixes over this harness' light surface. The
+ *  brand tile is the one that reads the deeper of
+ *  the two brand tints, because it is the only tone
+ *  whose glyph is drawn in the source colour. */
 const TONE_COLOURS = [
   {
     tone: 'neutral',
@@ -1269,7 +1272,7 @@ const TONE_COLOURS = [
   },
   {
     tone: 'brand',
-    tint: 'color(srgb 0.907843 0.915686 0.975294)',
+    tint: 'color(srgb 0.881961 0.892941 0.976392)',
     ink: 'rgb(83, 103, 255)',
   },
   {
@@ -2306,7 +2309,7 @@ test.describe('the function picker', () => {
     await expect(chosen).toHaveAttribute('data-state', 'assigned');
     await expect(chosen).toHaveCSS(
       'box-shadow',
-      'color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 1px inset',
+      'color(srgb 0.32549 0.403922 1 / 0.45) 0px 0px 0px 1px inset',
     );
     expect(
       await chosen.evaluate((row) => getComputedStyle(row, '::after').content),
@@ -2789,13 +2792,13 @@ const BRAND = 'rgb(83, 103, 255)';
 
 /** The system's one "this is the match" ring, at the
  *  geometry a block wears it. */
-const MATCHED = 'color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 2px';
+const MATCHED = 'color(srgb 0.32549 0.403922 1 / 0.45) 0px 0px 0px 2px';
 
 /** The ring, the softer ring around it, and the two
  *  the block was already sitting on. */
 const SELECTED =
   'rgb(83, 103, 255) 0px 0px 0px 1.5px, ' +
-  'color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 5px, ' +
+  'color(srgb 0.32549 0.403922 1 / 0.18) 0px 0px 0px 5px, ' +
   'rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, ' +
   'rgba(23, 26, 35, 0.07) 0px 4px 12px 0px';
 
@@ -3430,6 +3433,146 @@ test.describe('every theme', () => {
       await expect(page.locator('[data-caption="graph"]')).toBeVisible();
     });
   }
+
+  /**
+   * The three roles the shared classes are built
+   * out of. Each is mixed against a ground the
+   * theme chose, so what is asserted is that the
+   * mix resolves at all — a token that does not is
+   * an empty string, and every rule reading it
+   * silently falls back to the initial value.
+   */
+  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+    test(`mixes the shared roles against the ${theme} ground`, async ({
+      page,
+    }) => {
+      await openCanvas(page, theme);
+
+      const roles = await page.evaluate(() => {
+        const style = getComputedStyle(document.body);
+
+        return {
+          tint: style.getPropertyValue('--brand-tint-2').trim(),
+          soft: style.getPropertyValue('--ink-soft').trim(),
+          tracking: style.getPropertyValue('--label-tracking').trim(),
+        };
+      });
+
+      expect(roles.tint).not.toBe('');
+      expect(roles.soft).not.toBe('');
+      expect(roles.tracking).not.toBe('');
+    });
+  }
+});
+
+/**
+ * Two views draw the same tab strip and the same
+ * provenance chip, so both live in the token layer
+ * rather than twice in two sheets. These mount a
+ * view and put the bare markup on the page: what is
+ * being checked is the rule, not the component that
+ * will eventually carry it.
+ */
+test.describe('the controls two views share', () => {
+  test('keeps the focus ring on a control that unsets everything', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    await page.evaluate(() => {
+      const tab = document.createElement('button');
+      tab.className = 'tab';
+      tab.setAttribute('role', 'tab');
+      tab.textContent = 'Graph';
+      document.body.prepend(tab);
+    });
+
+    await page.keyboard.press('Tab');
+
+    const tab = page.locator('button.tab');
+    await expect(tab).toBeFocused();
+
+    // `all: unset` takes the outline with it, which
+    // would leave a keyboard user with no idea
+    // where they are.
+    await expect(tab).not.toHaveCSS('outline-style', 'none');
+
+    // And the half that fails before the rule
+    // exists: a bare button already wears the
+    // global focus ring, so the outline alone would
+    // pass against nothing.
+    const tracking = await page.evaluate(() => {
+      const control = document.querySelector('button.tab') as HTMLElement;
+      const probe = document.createElement('span');
+
+      probe.style.letterSpacing =
+        getComputedStyle(control).getPropertyValue('--label-tracking');
+      control.append(probe);
+
+      const read = {
+        control: getComputedStyle(control).letterSpacing,
+        system: getComputedStyle(probe).letterSpacing,
+      };
+
+      probe.remove();
+
+      return read;
+    });
+
+    expect(tracking.system).not.toBe('normal');
+    expect(tracking.control).toBe(tracking.system);
+  });
+
+  test('draws a derived chip dashed, in the strong hairline', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    await page.evaluate(() => {
+      const row = document.createElement('div');
+      row.id = 'told-row';
+      row.style.background = 'var(--surface-2)';
+      row.style.padding = '10px 14px';
+      row.style.width = 'max-content';
+      row.innerHTML =
+        '<span class="mono">await_reply</span>' +
+        '<span class="provenance" data-provenance="derived">derived</span>';
+      document.body.prepend(row);
+    });
+
+    const chip = page.locator('.provenance[data-provenance="derived"]');
+
+    await expect(chip).toHaveCSS('border-top-style', 'dashed');
+
+    const border = await page.evaluate(() => {
+      const probe = document.createElement('span');
+      probe.style.border = '1px solid var(--hairline-strong)';
+      document.body.append(probe);
+
+      const read = {
+        chip: getComputedStyle(
+          document.querySelector('.provenance') as HTMLElement,
+        ).borderTopColor,
+        strong: getComputedStyle(probe).borderTopColor,
+      };
+
+      probe.remove();
+
+      return read;
+    });
+
+    expect(border.chip).toBe(border.strong);
+
+    // The dash has to read as a dash at the size it
+    // is actually drawn, which is a thing only an
+    // eye can answer. The scratch directory is
+    // outside the repository on purpose: a
+    // screenshot committed here becomes a golden
+    // nobody maintains.
+    await page
+      .locator('#told-row')
+      .screenshot({ path: '../scratch/provenance-chip.png' });
+  });
 });
 
 /**

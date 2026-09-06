@@ -553,7 +553,7 @@ button.lib-fn {
   --glow-tone: var(--ok);
   border-color: transparent;
   box-shadow: var(--glow-ok);
-  animation: sig-breathe var(--dur-slow) var(--ease-out) infinite alternate;
+  animation: sig-breathe var(--dur-slow) var(--ease-in-out) infinite alternate;
 }
 .node[data-state='waiting'] {
   border-color: transparent;
@@ -581,7 +581,7 @@ button.lib-fn {
   height: 15px;
 }
 .node-icon[data-tone='brand'] {
-  background: var(--brand-tint);
+  background: var(--brand-tint-2);
   color: var(--brand);
 }
 .node-icon[data-tone='agent'] {
