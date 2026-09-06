@@ -335,14 +335,51 @@ const Replay = z.object({
 });
 
 /**
+ * Which of the two views of one run is on screen.
+ *
+ * Held by the extension rather than by the frame,
+ * because a view docked in the side bar is disposed
+ * the moment it is hidden — a tab a person chose
+ * has to survive that, and nothing a webview holds
+ * does.
+ */
+const SeeShow = z.object({
+  type: z.literal('seeShow'),
+  tab: z.enum(['graph', 'trace']),
+});
+
+/** Somebody picked a block on the run's graph. */
+const SeeNode = z.object({
+  type: z.literal('seeNode'),
+  nodeId: z.string(),
+});
+
+/** Whether the rows DBOS wrote for itself are
+ *  shown. */
+const SeeRaw = z.object({
+  type: z.literal('seeRaw'),
+  raw: z.boolean(),
+});
+
+/**
+ * Somebody asked the run page to look again.
+ *
+ * A watch lets go of a run that parked or went
+ * quiet and nothing re-arms it on a timer, so this
+ * is one of the few things that starts one.
+ */
+const SeeRefresh = z.object({ type: z.literal('seeRefresh') });
+
+/**
  * What each view may say, `ready` included.
  *
  * One union per view rather than one for all four,
  * so that a provider's `heard` is typed to the
  * messages its own frame can send and has no branch
- * for the twenty-odd it cannot. The four are
- * disjoint by construction: a kind belongs to the
- * view whose bundle posts it.
+ * for the thirty-odd it cannot. Mostly they are
+ * disjoint, but they need not be: a schema is
+ * listed on every view whose bundle posts it, and
+ * two frames can post the same kind.
  */
 const SCHEMAS = {
   canvas: z.discriminatedUnion('type', [
@@ -383,7 +420,15 @@ const SCHEMAS = {
     OpenRun,
     CopyRunId,
   ]),
-  see: z.discriminatedUnion('type', [Ready, StepSelect, Replay]),
+  see: z.discriminatedUnion('type', [
+    Ready,
+    StepSelect,
+    Replay,
+    SeeShow,
+    SeeNode,
+    SeeRaw,
+    SeeRefresh,
+  ]),
 };
 
 /** What one view may say. */
