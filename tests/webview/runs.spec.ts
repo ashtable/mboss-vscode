@@ -3,11 +3,15 @@ import { expect, test, type Page } from '@playwright/test';
 import type {
   RunRow,
   RunsInit,
+  SeeGraph,
   SeeInit,
   SeeRun,
+  TraceGroupView,
 } from '../../src/webview/protocol.js';
 
-import { liveStep } from '../../src/test-support/runs.js';
+import { liveRun, liveStep } from '../../src/test-support/runs.js';
+
+import { paletteLabels } from './words.js';
 
 import { mount, type Harness } from './harness.js';
 import { runsWords as runsStrings, seeWords as seeStrings } from './words.js';
@@ -173,6 +177,21 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     selectedStep: 2,
     note: undefined,
     graph: undefined,
+    live: liveRun({
+      workflowId: 'wf_c9d2f3',
+      workflow: 'groom_booking',
+      status: 'ERROR',
+      outcome: 'failed',
+      steps: [
+        liveStep({ name: 'parse_request', nodeId: 'parse_request' }),
+        liveStep({
+          name: 'find_slot',
+          nodeId: 'find_slot',
+          state: 'failed',
+          functionId: 1,
+        }),
+      ],
+    }),
     groups: [],
     selected: { nodeId: undefined, functionId: 2 },
     showRaw: false,
@@ -182,14 +201,14 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
   };
 }
 
-function seeInit(run: SeeRun = seeRun()): SeeInit {
-  return {
-    type: 'init',
-    view: 'see',
-    strings: seeStrings,
-    run,
-    showing: 'graph',
-  };
+/** The trace by default: most of what this page
+ *  draws is on that side, and the graph cases say
+ *  so for themselves. */
+function seeInit(
+  run: SeeRun = seeRun(),
+  showing: 'graph' | 'trace' = 'trace',
+): SeeInit {
+  return { type: 'init', view: 'see', strings: seeStrings, run, showing };
 }
 
 /** Before a run has been picked. A separate helper
@@ -1315,3 +1334,377 @@ test.describe('in every theme', () => {
     });
   }
 });
+
+/**
+ * The saved workflow, and the run drawn onto it.
+ *
+ * The graph is a picture of the document as it is
+ * saved now, which may have moved on since the run
+ * — so the caption says which revision is drawn.
+ */
+test.describe('one run, as a graph', () => {
+  /**
+   * A person who panned and zoomed to look at
+   * something has to still be looking at it after
+   * they check the trace and come back. The inactive
+   * pane keeps its layout box and is hidden with
+   * `visibility`, never with `display`: the graph
+   * library measures its own pane, and a pane with
+   * no box comes back zero by zero and re-frames
+   * itself.
+   */
+  test('keeps the graph where it was left when the tabs change', async ({
+    page,
+  }) => {
+    const harness = await showRun(
+      page,
+      seeInit(seeRun({ graph: GRAPH }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    const pane = page.locator('.run-flow');
+    const box = await pane.boundingBox();
+    if (box === null) throw new Error('the graph pane has no box');
+
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 - 60, box.y + 40);
+    await page.mouse.up();
+    await page.mouse.wheel(0, -120);
+
+    await graphAtRest(page);
+    const before = await transformOf(page);
+
+    // The host answers a tab press with a fresh
+    // init, the way the extension does. One mount
+    // throughout: a second would be a new page
+    // rather than a tab change.
+    for (let round = 0; round < 2; round += 1) {
+      await page.locator('[data-see-tab="trace"]').click();
+      await harness.show(seeInit(seeRun({ graph: GRAPH }), 'trace'));
+      await page.locator('[data-see-tab="graph"]').click();
+      await harness.show(seeInit(seeRun({ graph: GRAPH }), 'graph'));
+    }
+
+    await graphAtRest(page);
+
+    expect(await transformOf(page)).toBe(before);
+  });
+
+  test('draws the saved workflow, with what the run did to each block', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH }), 'graph'));
+    await graphAtRest(page);
+
+    await expect(page.locator('[data-run-node]')).toHaveCount(2);
+    await expect(
+      page.locator('[data-run-node="parse_request"]'),
+    ).toHaveAttribute('data-state', 'done');
+    await expect(page.locator('[data-run-node="find_slot"]')).toHaveAttribute(
+      'data-state',
+      'failed',
+    );
+    await expect(page.locator('[data-graph-caption]')).toHaveText(
+      'workflow as saved · revision 4',
+    );
+  });
+
+  test('says a run whose workflow the project lost has no picture', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ graph: undefined }), 'graph'));
+
+    await expect(page.locator('[data-run-node]')).toHaveCount(0);
+    await expect(page.locator('[data-graph-caption]')).toHaveText(
+      seeStrings.unattributed,
+    );
+  });
+
+  test('hands the block somebody clicked to the extension', async ({
+    page,
+  }) => {
+    const harness = await showRun(
+      page,
+      seeInit(seeRun({ graph: GRAPH }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    await page.locator('[data-run-node="find_slot"]').click();
+
+    expect(await harness.postedOfType('seeNode')).toEqual([
+      { type: 'seeNode', nodeId: 'find_slot' },
+    ]);
+  });
+});
+
+test.describe('one run, as a trace', () => {
+  test('keeps a group closed until it is opened', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    const closed = page.locator('[data-trace-group="parse_request"]');
+    await expect(closed).not.toHaveAttribute('open', '');
+
+    await closed.locator('.trace-head').click();
+
+    await expect(closed).toHaveAttribute('open', '');
+  });
+
+  test('opens the group that failed', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    await expect(
+      page.locator('[data-trace-group="find_slot"]'),
+    ).toHaveAttribute('open', '');
+  });
+
+  test('shows the SDK own rows only when they are asked for', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    await expect(page.locator('[data-owner="sdk"]')).toHaveCount(0);
+
+    const harness = await showRun(
+      page,
+      seeInit(seeRun({ groups: GROUPS, showRaw: true })),
+    );
+
+    const sdk = page.locator('[data-owner="sdk"]');
+    await expect(sdk).toHaveCount(1);
+    await expect(sdk).toHaveAttribute('title', seeStrings.dbosOwned);
+
+    await page.locator('[data-raw-toggle]').click();
+
+    expect(await harness.postedOfType('seeRaw')).toEqual([
+      { type: 'seeRaw', raw: false },
+    ]);
+  });
+
+  test('says a group belongs to no block in the saved workflow', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    await expect(
+      page.locator('[data-trace-group=""] [data-unattributed]'),
+    ).toHaveText(seeStrings.unattributed);
+  });
+
+  test('marks the row a block belongs to', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          groups: GROUPS,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+      ),
+    );
+
+    await expect(
+      page.locator('[data-trace-group="find_slot"]'),
+    ).toHaveAttribute('aria-current', 'true');
+    await expect(page.locator('[data-trace-op="1"]')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+});
+
+test.describe('what the run page says about itself', () => {
+  for (const [state, said] of [
+    ['following', seeStrings.following.following],
+    ['waiting', seeStrings.following.waiting],
+    ['quiet', seeStrings.following.quiet],
+  ] as const) {
+    test(`says it is ${state}`, async ({ page }) => {
+      await showRun(page, seeInit(seeRun({ following: state })));
+
+      await expect(page.locator('[data-following]')).toContainText(said);
+    });
+  }
+
+  /**
+   * The trace's own disclosure control under
+   * `all: unset`, which is the second half of the
+   * question the token layer's `.tab` answered.
+   */
+  test('keeps the focus ring on the control that opens a group', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    const head = page.locator('[data-trace-group="parse_request"] .trace-head');
+    await head.focus();
+
+    await expect(head).not.toHaveCSS('outline-style', 'none');
+    await expect(head).toHaveCSS('letter-spacing', 'normal');
+  });
+
+  test('offers a way to look again', async ({ page }) => {
+    const harness = await showRun(page, seeInit());
+
+    await page.locator('[data-see-refresh]').click();
+
+    expect(await harness.postedOfType('seeRefresh')).toEqual([
+      { type: 'seeRefresh' },
+    ]);
+  });
+
+  test('draws what the run was started with', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          input: { text: '{\n  "email": "ada@example.com"\n}', cut: false },
+        }),
+      ),
+    );
+
+    const shown = page.locator('[data-workflow-input]');
+    await expect(shown).toContainText('ada@example.com');
+    await expect(shown).toContainText(seeStrings.asRecorded);
+  });
+});
+
+/** The two blocks the graph fixture draws, laid out
+ *  the way core would lay them out. */
+const GRAPH: SeeGraph = {
+  ir: {
+    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+    version: 1,
+    revision: 4,
+    name: 'groom_booking',
+    nodes: [
+      { id: 'parse_request', kind: 'step', title: 'Parse', config: {} },
+      { id: 'find_slot', kind: 'step', title: 'Find a slot', config: {} },
+    ],
+    edges: [
+      {
+        id: 'e1',
+        from: { node: 'parse_request', port: 'out' },
+        to: { node: 'find_slot' },
+      },
+    ],
+  } as unknown as SeeGraph['ir'],
+  boxes: {
+    parse_request: { x: 0, y: 0, w: 230, h: 64 },
+    find_slot: { x: 0, y: 160, w: 230, h: 64 },
+  },
+  labels: paletteLabels,
+  unassigned: 'unassigned',
+  caption: 'workflow as saved · revision 4',
+  decided: {},
+};
+
+const GROUPS: TraceGroupView[] = [
+  {
+    nodeId: 'parse_request',
+    title: 'Parse',
+    qualifier: undefined,
+    open: false,
+    failed: false,
+    operations: [
+      {
+        functionId: 0,
+        name: 'parse_request',
+        owner: 'node',
+        state: 'done',
+        at: '14:02:11.100',
+        output: '{}',
+        outputCut: false,
+        error: undefined,
+        restored: false,
+        replayable: true,
+        because: undefined,
+        childWorkflowId: undefined,
+      },
+    ],
+  },
+  {
+    nodeId: 'find_slot',
+    title: 'Find a slot',
+    qualifier: '· round 2',
+    open: true,
+    failed: true,
+    operations: [
+      {
+        functionId: 1,
+        name: 'find_slot.r2',
+        owner: 'node',
+        state: 'failed',
+        at: '14:02:14.900',
+        output: undefined,
+        outputCut: false,
+        error: 'no slot left',
+        restored: false,
+        replayable: true,
+        because: undefined,
+        childWorkflowId: undefined,
+      },
+      {
+        functionId: 2,
+        name: 'DBOS.sleep',
+        owner: 'sdk',
+        state: 'done',
+        at: '14:02:15.000',
+        output: '1739880139200',
+        outputCut: false,
+        error: undefined,
+        restored: false,
+        replayable: true,
+        because: undefined,
+        childWorkflowId: undefined,
+      },
+    ],
+  },
+  {
+    nodeId: undefined,
+    title: 'gone_away',
+    qualifier: undefined,
+    open: false,
+    failed: false,
+    operations: [
+      {
+        functionId: 3,
+        name: 'gone_away',
+        owner: 'unmapped',
+        state: 'done',
+        at: '14:02:16.000',
+        output: '{}',
+        outputCut: false,
+        error: undefined,
+        restored: true,
+        replayable: true,
+        because: undefined,
+        childWorkflowId: undefined,
+      },
+    ],
+  },
+];
+
+/** The graph's viewport transform, once nothing is
+ *  moving. A spec against the built bundle has no
+ *  `useReactFlow`, so the DOM string is the only
+ *  way to read it. */
+async function graphAtRest(page: Page): Promise<void> {
+  let last = await transformOf(page);
+
+  await expect
+    .poll(async () => {
+      const now = await transformOf(page);
+      const still = now !== '' && now === last;
+
+      last = now;
+
+      return still;
+    })
+    .toBe(true);
+}
+
+function transformOf(page: Page): Promise<string> {
+  return page
+    .locator('.react-flow__viewport')
+    .evaluate((viewport) => (viewport as HTMLElement).style.transform);
+}

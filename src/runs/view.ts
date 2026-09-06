@@ -29,6 +29,7 @@ import {
 import { hasRecovered, recoveriesOf, type Run, type Step } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
 import { runTimeline, type Timeline } from './timeline.js';
+import { toLiveRun } from './watch.js';
 import type { ProjectWorkflow } from './workflows.js';
 
 /**
@@ -180,6 +181,7 @@ function seeRun(view: SeeView): SeeRun {
     selectedStep: view.selectedStep,
     note: view.note,
     graph: graphOf(view, operations),
+    live: toLiveRun(run, steps, hasRecovered(run)),
     groups: groupsOf(operations).map((group) => groupOf(group, view)),
     selected: {
       nodeId: view.selectedNode,

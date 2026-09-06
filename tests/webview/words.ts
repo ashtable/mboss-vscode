@@ -290,4 +290,18 @@ export const seeWords: SeeStrings = {
     committedAt: 'committed',
   },
   replay: '⟲ Replay from this step',
+  tabs: { graph: 'Graph', trace: 'Trace' },
+  refresh: 'Refresh',
+  following: {
+    following: 'following · every 0.5 s · stops on its own',
+    waiting: 'waiting · refresh to check',
+    quiet: 'quiet · refresh to check',
+  },
+  recoveredTag: '↻ recovered',
+  derived: 'derived',
+  showRaw: 'Show DBOS-owned rows',
+  dbosOwned: 'DBOS-owned · shown in raw view · grouped by position',
+  unattributed: 'not a block in the saved workflow',
+  workflowInput: 'WORKFLOW INPUT',
+  asRecorded: 'as recorded',
 };

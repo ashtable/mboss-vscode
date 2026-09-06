@@ -115,4 +115,46 @@ export const seeWords = once(() => ({
   // and the mark is what says it is a repeat
   // rather than a new run.
   replay: l10n.t('⟲ Replay from this step'),
+
+  /** The two views of one run. */
+  tabs: {
+    graph: l10n.t('Graph'),
+    trace: l10n.t('Trace'),
+  },
+
+  refresh: l10n.t('Refresh'),
+
+  /**
+   * Whether anything is still reading this run, and
+   * what it would take to find out if not.
+   *
+   * Said in full rather than as one word, because
+   * "waiting" and "quiet" are both stopped watches
+   * and the difference is what a person does next.
+   */
+  following: {
+    following: l10n.t('following · every 0.5 s · stops on its own'),
+    waiting: l10n.t('waiting · refresh to check'),
+    quiet: l10n.t('quiet · refresh to check'),
+  },
+
+  recoveredTag: messages.runsRecoveredTag(),
+
+  /** Said on anything the page worked out rather
+   *  than read off a row. */
+  derived: l10n.t('derived'),
+
+  /** The rows DBOS wrote for its own bookkeeping,
+   *  and what it means that they are here. */
+  showRaw: l10n.t('Show DBOS-owned rows'),
+  dbosOwned: l10n.t('DBOS-owned · shown in raw view · grouped by position'),
+
+  /** A group of rows naming a block the saved
+   *  document does not have. */
+  unattributed: l10n.t('not a block in the saved workflow'),
+
+  /** What the run was started with, and where that
+   *  came from. */
+  workflowInput: l10n.t('WORKFLOW INPUT'),
+  asRecorded: l10n.t('as recorded'),
 }));

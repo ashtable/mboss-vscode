@@ -547,6 +547,12 @@ export type SeeRun = {
    */
   graph: SeeGraph | undefined;
 
+  /** The run itself, as the canvas reads one: what
+   *  state each block is in, and where the frontier
+   *  is. The graph is the document; this is the run
+   *  drawn onto it. */
+  live: LiveRun | undefined;
+
   /** The trace, in the turns each block took. */
   groups: TraceGroupView[];
 

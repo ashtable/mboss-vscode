@@ -1,15 +1,54 @@
+import {
+  ReactFlow,
+  ReactFlowProvider,
+  type EdgeTypes,
+  type NodeTypes,
+} from '@xyflow/react';
+import { useMemo } from 'react';
+
+import { RunNode } from '../canvas/RunNode.js';
+import { Wire, WireMarkers } from '../canvas/Wire.js';
+import { toReactFlow } from '../canvas/graph.js';
 import { postToHost } from '../webview/client.js';
 import { mountView } from '../webview/mount.js';
 import type {
   SeeBar,
   SeeChip,
+  SeeGraph,
   SeeInit,
   SeeRun,
   SeeStrings,
   SeeTimeline,
+  TraceGroupView,
+  TraceOpView,
 } from '../webview/protocol.js';
 
 import './see.css';
+
+/** Defined once. React Flow remounts every node
+ *  when this object changes identity. */
+const nodeTypes: NodeTypes = {
+  trigger: RunNode,
+  step: RunNode,
+  transaction: RunNode,
+  apiCall: RunNode,
+  branch: RunNode,
+  loop: RunNode,
+  durableWait: RunNode,
+  approval: RunNode,
+  emailSend: RunNode,
+  codeStep: RunNode,
+};
+
+const edgeTypes: EdgeTypes = { wire: Wire };
+
+/** One mark per follow state, in place of an icon
+ *  set the extension would have to ship. */
+const FOLLOW_MARK: Record<SeeRun['following'], string> = {
+  following: '●',
+  waiting: '◐',
+  quiet: '○',
+};
 
 /**
  * One run, as Postgres holds it.
@@ -33,10 +72,20 @@ function See(state: SeeInit) {
     );
   }
 
-  return <Run run={state.run} strings={state.strings} />;
+  return (
+    <Run run={state.run} strings={state.strings} showing={state.showing} />
+  );
 }
 
-function Run({ run, strings }: { run: SeeRun; strings: SeeStrings }) {
+function Run({
+  run,
+  strings,
+  showing,
+}: {
+  run: SeeRun;
+  strings: SeeStrings;
+  showing: 'graph' | 'trace';
+}) {
   return (
     <div className="see" data-run={run.workflowId}>
       <main className="see-main">
@@ -45,7 +94,47 @@ function Run({ run, strings }: { run: SeeRun; strings: SeeStrings }) {
           <p className="title" data-severity={run.severity}>
             {run.headline}
           </p>
+
+          {run.recovered === undefined ? null : (
+            <p className="run-tag">{strings.recoveredTag}</p>
+          )}
+
+          <p className="run-status" data-following={run.following}>
+            <span className="glyph" aria-hidden="true">
+              {FOLLOW_MARK[run.following]}
+            </span>
+            {strings.following[run.following]}
+          </p>
+
+          <button
+            type="button"
+            className="btn secondary"
+            data-see-refresh
+            onClick={() => postToHost({ type: 'seeRefresh' })}
+          >
+            {strings.refresh}
+          </button>
         </header>
+
+        {/* Both views of one run. Which one is on
+            screen is the extension's: a view is
+            disposed the moment it is hidden, and a
+            tab a person chose has to survive that. */}
+        <div className="tabs" role="tablist">
+          {(['graph', 'trace'] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              className="tab"
+              role="tab"
+              data-see-tab={tab}
+              aria-selected={showing === tab}
+              onClick={() => postToHost({ type: 'seeShow', tab })}
+            >
+              {strings.tabs[tab]}
+            </button>
+          ))}
+        </div>
 
         {run.recovered === undefined ? null : (
           <section className="card recovered" data-recovered-banner>
@@ -54,59 +143,96 @@ function Run({ run, strings }: { run: SeeRun; strings: SeeStrings }) {
           </section>
         )}
 
-        <section className="chips-block">
-          <p className="eyebrow">{strings.steps}</p>
-          <ol className="chips">
-            {run.chips.map((chip) => (
-              <li key={chip.functionId}>
-                <Chip
-                  chip={chip}
-                  strings={strings}
-                  selected={chip.functionId === run.selectedStep}
-                />
-              </li>
-            ))}
-          </ol>
-        </section>
+        {/* Both panes keep their layout box, and
+            the one not being read is hidden with
+            `visibility` rather than `display`. The
+            graph library measures its own pane: with
+            no box it comes back zero by zero and
+            re-frames itself, so what a person panned
+            to would be lost every time the tab
+            changed. */}
+        <div className="tab-panes">
+          <section
+            className="tab-pane"
+            data-pane="graph"
+            data-showing={String(showing === 'graph')}
+          >
+            <RunGraph graph={run.graph} run={run} strings={strings} />
+          </section>
 
-        <section className="chart-block">
-          <p className="eyebrow">{strings.timeline}</p>
-          <p className="legend">
-            {run.span} · <span className="hatch-key" /> {strings.hatched}
-          </p>
-          <Chart timeline={run.timeline} selected={run.selectedStep} />
-        </section>
+          <section
+            className="tab-pane"
+            data-pane="trace"
+            data-showing={String(showing === 'trace')}
+          >
+            <Trace run={run} strings={strings} />
 
-        <section className="raw-block">
-          <p className="eyebrow mono">{strings.raw}</p>
-          <table className="raw">
-            <thead>
-              <tr>
-                <th>{strings.columns.stepId}</th>
-                <th>{strings.columns.fn}</th>
-                <th>{strings.columns.output}</th>
-                <th>{strings.columns.committedAt}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {run.raw.map((row) => (
-                <tr
-                  key={row.stepId}
-                  data-raw-row={row.stepId}
-                  aria-current={row.stepId === run.selectedStep}
-                >
-                  <td>{row.stepId}</td>
-                  <td>{row.fn}</td>
-                  <td className="output">{row.output}</td>
-                  <td>{row.committedAt}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
+            <section className="chips-block">
+              <p className="eyebrow">{strings.steps}</p>
+              <ol className="chips">
+                {run.chips.map((chip) => (
+                  <li key={chip.functionId}>
+                    <Chip
+                      chip={chip}
+                      strings={strings}
+                      selected={chip.functionId === run.selectedStep}
+                    />
+                  </li>
+                ))}
+              </ol>
+            </section>
+
+            <section className="chart-block">
+              <p className="eyebrow">{strings.timeline}</p>
+              <p className="legend">
+                {run.span} · <span className="hatch-key" /> {strings.hatched}
+              </p>
+              <Chart timeline={run.timeline} selected={run.selectedStep} />
+            </section>
+
+            <section className="raw-block">
+              <p className="eyebrow mono">{strings.raw}</p>
+              <table className="raw">
+                <thead>
+                  <tr>
+                    <th>{strings.columns.stepId}</th>
+                    <th>{strings.columns.fn}</th>
+                    <th>{strings.columns.output}</th>
+                    <th>{strings.columns.committedAt}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {run.raw.map((row) => (
+                    <tr
+                      key={row.stepId}
+                      data-raw-row={row.stepId}
+                      aria-current={row.stepId === run.selectedStep}
+                    >
+                      <td>{row.stepId}</td>
+                      <td>{row.fn}</td>
+                      <td className="output">{row.output}</td>
+                      <td>{row.committedAt}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          </section>
+        </div>
       </main>
 
       <aside className="rail">
+        {run.input === undefined ? null : (
+          <section className="card" data-workflow-input>
+            <p className="eyebrow mono">{strings.workflowInput}</p>
+            <pre className="mono raw-input">{run.input.text}</pre>
+            <p className="hint">
+              {strings.asRecorded}
+              {run.input.cut ? ' · …' : ''}
+            </p>
+          </section>
+        )}
+
         <section className="card">
           <p className="eyebrow mono">{strings.status}</p>
           <dl className="ledger">
@@ -128,7 +254,7 @@ function Run({ run, strings }: { run: SeeRun; strings: SeeStrings }) {
 
         <button
           type="button"
-          className="primary"
+          className="btn primary"
           data-replay
           disabled={run.selectedStep === undefined}
           onClick={() => {
@@ -298,6 +424,220 @@ function percent(fraction: number): string {
  *  be findable, so a bar is never nothing wide. */
 function wide(fraction: number): string {
   return `${Math.max(fraction * 100, 0.4)}%`;
+}
+
+/**
+ * The workflow the run was a run of, with what the
+ * run did to each block.
+ *
+ * Read-only: nothing here is dragged, wired or
+ * deleted. A run page offering to change a document
+ * would be offering to change the thing it is a
+ * record of.
+ *
+ * The caption says which revision is drawn, because
+ * the document may have moved on since the run —
+ * and where the project has no document of that
+ * name it says that instead, rather than leaving a
+ * blank pane that reads as broken.
+ */
+function RunGraph({
+  graph,
+  run,
+  strings,
+}: {
+  graph: SeeGraph | undefined;
+  run: SeeRun;
+  strings: SeeStrings;
+}) {
+  const drawn = useMemo(
+    () =>
+      graph === undefined
+        ? undefined
+        : toReactFlow(graph.ir, graph.boxes, {
+            labels: graph.labels,
+            unassigned: graph.unassigned,
+            runningDerived: strings.derived,
+            selected: run.selected.nodeId,
+            run: run.live,
+            decided: new Map(Object.entries(graph.decided)),
+          }),
+    [graph, run.live, run.selected.nodeId, strings.derived],
+  );
+
+  if (graph === undefined || drawn === undefined) {
+    return (
+      <p className="state" data-graph-caption>
+        {strings.unattributed}
+      </p>
+    );
+  }
+
+  return (
+    <>
+      <p className="legend" data-graph-caption>
+        {graph.caption}
+      </p>
+
+      <div className="run-flow canvas-grid">
+        <WireMarkers />
+
+        <ReactFlowProvider>
+          <ReactFlow
+            nodes={drawn.nodes}
+            edges={drawn.edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            // Selectable, because picking a block is
+            // how somebody says which one they are
+            // reading about — and the graph library
+            // turns pointer events off on every node
+            // when nothing is selectable, which would
+            // leave the clicks nowhere to land.
+            // Nothing here edits the document.
+            elementsSelectable
+            fitView
+            // Never zoomed past its natural size: a
+            // run of two blocks blown up to twice
+            // scale is a graph with one block on
+            // screen.
+            fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+            proOptions={{ hideAttribution: true }}
+          />
+        </ReactFlowProvider>
+      </div>
+    </>
+  );
+}
+
+/**
+ * The ledger, in the turns each block took.
+ *
+ * Collapsed by default: a run of a hundred rows
+ * opened flat is a wall nobody reads. What is open
+ * is what somebody is most likely to be going to —
+ * the turn that failed, and the one holding the
+ * block they picked.
+ */
+function Trace({ run, strings }: { run: SeeRun; strings: SeeStrings }) {
+  return (
+    <section className="trace-block">
+      <label className="hint raw-toggle">
+        <input
+          type="checkbox"
+          data-raw-toggle
+          checked={run.showRaw}
+          onChange={(event) =>
+            postToHost({ type: 'seeRaw', raw: event.target.checked })
+          }
+        />
+        {strings.showRaw}
+      </label>
+
+      <ol className="trace">
+        {run.groups.map((group, index) => (
+          <li key={`${group.nodeId ?? 'none'}-${index}`}>
+            <Group group={group} run={run} strings={strings} />
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function Group({
+  group,
+  run,
+  strings,
+}: {
+  group: TraceGroupView;
+  run: SeeRun;
+  strings: SeeStrings;
+}) {
+  const shown = group.operations.filter(
+    (operation) => run.showRaw || operation.owner !== 'sdk',
+  );
+
+  return (
+    <details
+      className="trace-group"
+      data-trace-group={group.nodeId ?? ''}
+      data-failed={String(group.failed)}
+      open={group.open}
+      aria-current={
+        group.nodeId !== undefined && group.nodeId === run.selected.nodeId
+      }
+    >
+      <summary
+        className="trace-head"
+        onClick={() => {
+          if (group.nodeId !== undefined) {
+            postToHost({ type: 'seeNode', nodeId: group.nodeId });
+          }
+        }}
+      >
+        <span className="trace-title">{group.title}</span>
+        {group.qualifier === undefined ? null : (
+          <span className="hint">{group.qualifier}</span>
+        )}
+        {group.nodeId === undefined ? (
+          <span className="hint" data-unattributed>
+            {strings.unattributed}
+          </span>
+        ) : null}
+        <span className="tab-count">{group.operations.length}</span>
+      </summary>
+
+      <ol className="trace-ops">
+        {shown.map((operation) => (
+          <li key={operation.functionId}>
+            <Operation operation={operation} run={run} strings={strings} />
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
+
+function Operation({
+  operation,
+  run,
+  strings,
+}: {
+  operation: TraceOpView;
+  run: SeeRun;
+  strings: SeeStrings;
+}) {
+  return (
+    <button
+      type="button"
+      className="trace-op"
+      data-trace-op={operation.functionId}
+      data-owner={operation.owner}
+      data-replayable={String(operation.replayable)}
+      data-state={operation.state}
+      aria-current={operation.functionId === run.selected.functionId}
+      title={operation.owner === 'sdk' ? strings.dbosOwned : operation.because}
+      onClick={() =>
+        postToHost({ type: 'stepSelect', functionId: operation.functionId })
+      }
+    >
+      <span className="mono trace-name">{operation.name}</span>
+      {operation.restored ? (
+        <span className="provenance" data-provenance="derived">
+          {strings.restored}
+        </span>
+      ) : null}
+      {operation.at === undefined ? null : (
+        <span className="mono hint">{operation.at}</span>
+      )}
+      {operation.error === undefined ? null : (
+        <span className="trace-error">{operation.error}</span>
+      )}
+    </button>
+  );
 }
 
 mountView('see', See);

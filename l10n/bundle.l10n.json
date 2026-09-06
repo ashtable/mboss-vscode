@@ -318,5 +318,15 @@
   "Which way out does this wire leave by?": "Which way out does this wire leave by?",
   "anything else": "anything else",
   "{0} → {1} ✓ · release to connect": "{0} → {1} ✓ · release to connect",
-  "Put a block here": "Put a block here"
+  "Put a block here": "Put a block here",
+  "Graph": "Graph",
+  "Trace": "Trace",
+  "Refresh": "Refresh",
+  "following · every 0.5 s · stops on its own": "following · every 0.5 s · stops on its own",
+  "derived": "derived",
+  "Show DBOS-owned rows": "Show DBOS-owned rows",
+  "DBOS-owned · shown in raw view · grouped by position": "DBOS-owned · shown in raw view · grouped by position",
+  "not a block in the saved workflow": "not a block in the saved workflow",
+  "WORKFLOW INPUT": "WORKFLOW INPUT",
+  "as recorded": "as recorded"
 }
