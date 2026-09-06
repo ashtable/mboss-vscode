@@ -66,7 +66,12 @@ export const WORKFLOWS: Record<string, unknown> = {
   nightly_sync: { mode: 'schedule', cron: '0 2 * * *' },
 };
 
-export function workflowDocument(name: string, trigger: unknown): string {
+/** A saved workflow document, as a fixture. Named
+ *  for what it builds rather than for what it is,
+ *  because the production reader of a saved document
+ *  is called `workflowDocument` and two different
+ *  things must not share one name. */
+export function savedWorkflow(name: string, trigger: unknown): string {
   return JSON.stringify({
     $schema: 'https://mboss.dev/schemas/workflow-v1.json',
     version: 1,
@@ -98,7 +103,7 @@ export function project(
   for (const name of over.workflows ?? Object.keys(WORKFLOWS)) {
     writeFileSync(
       join(workflows, `${name}.workflow.json`),
-      workflowDocument(name, WORKFLOWS[name]),
+      savedWorkflow(name, WORKFLOWS[name]),
       'utf8',
     );
   }

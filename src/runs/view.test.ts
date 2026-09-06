@@ -52,11 +52,13 @@ const WORKFLOWS: ProjectWorkflow[] = [
     name: 'groom_booking',
     title: 'Groom booking',
     trigger: { mode: 'manual' },
+    path: `/tmp/.mboss/workflows/groom_booking.workflow.json`,
   },
   {
     name: 'expense_claim',
     title: 'Expense claim',
     trigger: { mode: 'event', topic: 'expense.filed', keyPath: 'claimId' },
+    path: `/tmp/.mboss/workflows/expense_claim.workflow.json`,
   },
   // An event workflow that names no key: every
   // send of it is a run of its own.
@@ -64,6 +66,7 @@ const WORKFLOWS: ProjectWorkflow[] = [
     name: 'door_opened',
     title: 'Door opened',
     trigger: { mode: 'event', topic: 'door.opened' },
+    path: `/tmp/.mboss/workflows/door_opened.workflow.json`,
   },
   // Listed so a person can see it exists; not
   // started by hand.
@@ -71,6 +74,7 @@ const WORKFLOWS: ProjectWorkflow[] = [
     name: 'nightly_sweep',
     title: 'Nightly sweep',
     trigger: { mode: 'schedule' },
+    path: `/tmp/.mboss/workflows/nightly_sweep.workflow.json`,
   },
 ];
 

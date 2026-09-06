@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 import { readWorkflow, workflowFiles } from '../core/index.js';
+import type { WorkflowIR } from '../core/rules.js';
 
 /**
  * Which workflows a project has, and how each one
@@ -40,6 +41,10 @@ export type ProjectWorkflow = {
   title: string;
 
   trigger: WorkflowTrigger;
+
+  /** Where the document is, so whoever needs the
+   *  graph can read the same file again. */
+  path: string;
 };
 
 /**
@@ -63,6 +68,43 @@ export function projectWorkflows(project: string): ProjectWorkflow[] {
 }
 
 function read(path: string): ProjectWorkflow | undefined {
+  const found = document(path);
+  if (found === undefined) return undefined;
+
+  const trigger = triggerOf(found.nodes);
+  if (trigger === undefined) return undefined;
+
+  return {
+    name: found.name,
+    title: found.title ?? found.name,
+    trigger,
+    path,
+  };
+}
+
+/**
+ * The document a run was a run of, whole.
+ *
+ * Nothing rather than a refusal for a workflow the
+ * project no longer has — somebody renamed it, or
+ * deleted it, or the run came from an app this
+ * folder is not the source of. The run still
+ * happened and its trace still reads; only the
+ * picture is missing, and saying so is the page's
+ * job rather than this one's.
+ */
+export function workflowDocument(
+  project: string,
+  name: string,
+): WorkflowIR | undefined {
+  return document(
+    workflowFiles(project).find((path) =>
+      path.endsWith(`/${name}.workflow.json`),
+    ) ?? '',
+  );
+}
+
+function document(path: string): WorkflowIR | undefined {
   let text: string;
   try {
     text = readFileSync(path, 'utf8');
@@ -71,16 +113,8 @@ function read(path: string): ProjectWorkflow | undefined {
   }
 
   const found = readWorkflow(text);
-  if (!found.ok) return undefined;
 
-  const trigger = triggerOf(found.ir.nodes);
-  if (trigger === undefined) return undefined;
-
-  return {
-    name: found.ir.name,
-    title: found.ir.title ?? found.ir.name,
-    trigger,
-  };
+  return found.ok ? found.ir : undefined;
 }
 
 /**
