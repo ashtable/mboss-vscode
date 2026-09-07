@@ -218,7 +218,12 @@ behaviour modules take the editor as an argument:
   disposed, and returns a `Mount` (`repaint`, `dispose`). The browser half is
   `mountView` in `src/webview/mount.tsx`.
 - Host → webview is trusted and is always one whole `init` (the `HostMessage`
-  union in `protocol.ts`), re-sent on every change. Views render from the last
+  union in `protocol.ts`), re-sent on every change. `protocol.ts` is a
+  declaration file rather than a module — four near-disjoint regions, one per
+  view, plus the union and `isHostMessageFor` — and it imports **only leaves**:
+  a type it needs must come from a module that does not import it back, which
+  is why `StackAction` lives in `runs/stack.ts` beside the commands it names
+  rather than beside the zone that tracks one. Views render from the last
   message and **hold nothing**: an activity-bar view is disposed the moment it
   is hidden, so all state lives in stores constructed once in `extension.ts`
   (`agentPanel`, `previewStore`, `runsStore`, `SeePanel`). Stores publish
@@ -452,8 +457,10 @@ value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
 - **Add a webview**: name in `WebviewName` and `WEBVIEW_ENTRIES`; its message
   union in `SCHEMAS` in `webview/host.ts`; `src/<name>/index.tsx` calling
   `mountView` + `<name>.css`; `<Name>Init` + `<Name>Strings` in the
-  `HostMessage` union; a `messages.<name>Strings()` builder; a host caller of
-  `mountWebview`; `build.test.ts` / `vsix.test.ts` expect one js+css per entry.
+  `HostMessage` union in `webview/protocol.ts`, whose region is that view's
+  and imports only what that view draws; a `<name>Words()` builder beside the
+  view; a host caller of `mountWebview`; `build.test.ts` / `vsix.test.ts`
+  expect one js+css per entry.
 - **Add a string**: a host sentence is one `messages.ts` entry; a word a
   webview shows is one line in that view's `words.ts`. Then `npm run strings`,
   which rewrites `l10n/bundle.l10n.json` and `tests/webview/words.json` — never
