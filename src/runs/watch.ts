@@ -327,6 +327,7 @@ function liveStepOf(operation: Operation): LiveStep {
     error: operation.error,
     childWorkflowId: operation.childWorkflowId,
     restored: operation.restored,
+    reused: operation.reused,
   };
 }
 

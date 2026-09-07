@@ -586,6 +586,23 @@ function Row({
       {row.error === undefined ? null : (
         <span className="run-error">{row.error}</span>
       )}
+
+      {/* Where the run came from and what came out
+          of it. Both are read off a column every row
+          already selects, and the child line is
+          drawn only for a run that is on this page —
+          so neither costs a read. */}
+      {row.replayOf === undefined ? null : (
+        <span className="mono run-lineage" data-replay-of>
+          {row.replayOf}
+        </span>
+      )}
+
+      {row.forks.map((fork) => (
+        <span className="mono run-lineage" key={fork} data-run-fork>
+          {fork}
+        </span>
+      ))}
     </button>
   );
 }

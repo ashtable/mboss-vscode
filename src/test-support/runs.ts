@@ -123,6 +123,7 @@ export function database(): Database & {
   asked: string[];
   rows: unknown[];
   steps: unknown[];
+  forks: unknown[];
   fail: string | undefined;
 } {
   const state = {
@@ -130,8 +131,9 @@ export function database(): Database & {
     asked: [] as string[],
     rows: [RUN_ROW] as unknown[],
     steps: [STEP_ROW] as unknown[],
+    forks: [] as unknown[],
     fail: undefined as string | undefined,
-    query: async <Row>(text: string): Promise<Row[]> => {
+    query: async <Row>(text: string, values: unknown[]): Promise<Row[]> => {
       state.asked.push(text);
 
       if (state.fail !== undefined) throw new Error(state.fail);
@@ -144,6 +146,17 @@ export function database(): Database & {
       // statement that is neither of these.
       if (text.startsWith('SELECT count(*)')) return [COUNTS_ROW] as Row[];
       if (text.startsWith('SELECT function_id')) return state.steps as Row[];
+      if (text.includes('AS last_reused')) return state.forks as Row[];
+
+      // A read of one run answers with that run's
+      // row and no other. The run page reads a
+      // second run by id — the one a replay came out
+      // of — so a double that answered every by-id
+      // read with the same row would say every run
+      // was replayed from itself.
+      if (text.includes('WHERE workflow_uuid = $1')) {
+        return state.rows.filter((row) => idOf(row) === values[0]) as Row[];
+      }
 
       return state.rows as Row[];
     },
@@ -153,6 +166,12 @@ export function database(): Database & {
   };
 
   return state;
+}
+
+/** The id on a row a case set up, whatever else it
+ *  put there. */
+function idOf(row: unknown): unknown {
+  return (row as { workflow_uuid?: unknown }).workflow_uuid;
 }
 
 export function host(over: Partial<RunsHost> = {}): RunsHost {
@@ -333,6 +352,7 @@ export function liveStep(over: Partial<LiveStep> = {}): LiveStep {
     error: undefined,
     childWorkflowId: undefined,
     restored: false,
+    reused: false,
     ...over,
   };
 }

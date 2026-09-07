@@ -235,7 +235,7 @@ export function runHistory(deps: HistoryDeps): History {
         database === undefined ? undefined : messages.runsSource(database),
       filter,
       counts,
-      rows: runs.map(rowOf),
+      rows: runs.map((run) => rowOf(run, runs)),
     }),
 
     onChanged: changes.on,

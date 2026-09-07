@@ -108,6 +108,7 @@
     "waitingSince": "waiting since {0}",
     "decidedInCode": "decided in generated code · no durable operation",
     "restored": "restored",
+    "recorded": "↺ recorded",
     "run": "run",
     "span": "started {0} · finished {1}",
     "spanRunning": "started {0}",
@@ -339,6 +340,8 @@
       "quiet": "quiet · refresh to check"
     },
     "recoveredTag": "↻ recovered",
+    "recorded": "↺ recorded",
+    "bothRemain": "both remain in dbos.workflow_status",
     "derived": "derived",
     "showRaw": "Show DBOS-owned rows",
     "dbosOwned": "DBOS-owned · shown in raw view · grouped by position",

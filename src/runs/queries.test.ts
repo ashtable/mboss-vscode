@@ -9,6 +9,7 @@ import {
   RUN_COLUMNS,
   RUN_FILTERS,
   countsQuery,
+  forksQuery,
   latestRunQuery,
   runQuery,
   runsQuery,
@@ -285,5 +286,30 @@ describe('one run', () => {
     for (const column of ['forked_from', 'was_forked_from']) {
       expect(RUN_COLUMNS).toContain(column);
     }
+  });
+});
+
+describe('the runs replayed from one run', () => {
+  /**
+   * Listed among the statements, so the rules that
+   * hold of all of them — read-only, DBOS's own
+   * schema, every value bound — are asked of this
+   * one too.
+   *
+   * How much of the run a fork kept is a correlated
+   * scalar over the other table rather than a second
+   * read per fork: a run somebody replayed a dozen
+   * times would otherwise be a dozen round trips for
+   * one small tree.
+   */
+  it('lists forksQuery among the queries', () => {
+    const query = forksQuery('wf_c9d2f3');
+
+    expect(ALL_QUERIES.map((one) => one.text)).toContain(query.text);
+    expect(query.values).toEqual(['wf_c9d2f3']);
+    expect(query.text).toContain('dbos.workflow_status');
+    expect(query.text).toContain('dbos.operation_outputs');
+    expect(query.text).toContain('AS last_reused');
+    expect(query.text).toContain('WHERE f.forked_from = $1');
   });
 });

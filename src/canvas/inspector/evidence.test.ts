@@ -180,3 +180,30 @@ describe('what a run recorded about one block', () => {
     });
   });
 });
+
+/**
+ * A row a replay carried over.
+ *
+ * The card marks it `↺ recorded` rather than
+ * drawing the block differently: what the earlier
+ * run recorded is this run's evidence too, and the
+ * block did what it did.
+ */
+describe('a row a replay carried over', () => {
+  it('carries whether the row was reused', () => {
+    const replayed = liveRun({
+      forkedFrom: 'wf_a1b4e7',
+      steps: [
+        liveStep({
+          name: 'parse_request',
+          nodeId: 'parse_request',
+          reused: true,
+        }),
+        liveStep({ name: 'find_slot', nodeId: 'find_slot', functionId: 1 }),
+      ],
+    });
+
+    expect(evidenceOf(replayed, 'parse_request').headline?.reused).toBe(true);
+    expect(evidenceOf(replayed, 'find_slot').headline?.reused).toBe(false);
+  });
+});

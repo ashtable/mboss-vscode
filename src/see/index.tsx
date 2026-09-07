@@ -12,10 +12,12 @@ import { toReactFlow } from '../canvas/graph.js';
 import { postToHost } from '../webview/client.js';
 import { mountView } from '../webview/mount.js';
 import type {
+  RunSeverity,
   SeeBar,
   SeeChip,
   SeeGraph,
   SeeInit,
+  SeeLineageRun,
   SeeRun,
   SeeStrings,
   SeeTimeline,
@@ -41,6 +43,16 @@ const nodeTypes: NodeTypes = {
 };
 
 const edgeTypes: EdgeTypes = { wire: Wire };
+
+/** One mark per severity, the same four the run
+ *  list draws its rows with. */
+const SEVERITY_MARK: Record<RunSeverity, string> = {
+  ok: '✓',
+  running: '●',
+  waiting: '◐',
+  failed: '✕',
+  exhausted: '⊘',
+};
 
 /** One mark per follow state, in place of an icon
  *  set the extension would have to ship. */
@@ -262,6 +274,17 @@ function Run({
           <p className="ledger-note">{strings.ledger}</p>
         </section>
 
+        {run.lineage === undefined ? null : (
+          <section className="card" data-lineage>
+            <ol className="lineage">
+              <LineageRow run={run.lineage} strings={strings} />
+            </ol>
+            <p className="ledger-note" data-lineage-note>
+              {strings.bothRemain}
+            </p>
+          </section>
+        )}
+
         {run.note === undefined ? null : (
           <p className="replay-note" data-replay-note>
             {run.note}
@@ -287,6 +310,73 @@ function Run({
         </button>
       </aside>
     </div>
+  );
+}
+
+/**
+ * One run of the lineage tree, and what came out of
+ * it.
+ *
+ * An indented list rather than a graph: a fork chain
+ * is a line, and a line drawn as a graph is a graph
+ * nobody can read in a rail. Every id is a way to
+ * that run, because the whole claim being made is
+ * that both of them are still there to be opened.
+ *
+ * Recursive because the shape is: the run this one
+ * came out of holds this one, which holds the runs
+ * that came out of it.
+ */
+function LineageRow({
+  run,
+  strings,
+}: {
+  run: SeeLineageRun;
+  strings: SeeStrings;
+}) {
+  return (
+    <li>
+      {/* Above the run rather than beside it: it
+          names the edge, and the edge is what the
+          rule down the side of the list draws. */}
+      {run.from === undefined ? null : (
+        <p className="lineage-from" data-lineage-from={run.workflowId}>
+          {run.from}
+          <span className="provenance" data-provenance="derived">
+            {strings.derived}
+          </span>
+        </p>
+      )}
+
+      <p
+        className="lineage-run"
+        data-lineage-run={run.workflowId}
+        aria-current={run.here}
+      >
+        <button
+          type="button"
+          className="lineage-id"
+          data-lineage-id={run.workflowId}
+          onClick={() =>
+            postToHost({ type: 'runSelect', workflowId: run.workflowId })
+          }
+        >
+          {run.workflowId}
+        </button>
+        <span className="glyph" aria-hidden="true">
+          {SEVERITY_MARK[run.severity]}
+        </span>
+        <span className="hint">{run.status}</span>
+      </p>
+
+      {run.forks.length === 0 ? null : (
+        <ol className="lineage-child lineage-edge">
+          {run.forks.map((fork) => (
+            <LineageRow key={fork.workflowId} run={fork} strings={strings} />
+          ))}
+        </ol>
+      )}
+    </li>
   );
 }
 
@@ -647,6 +737,7 @@ function Operation({
       data-trace-op={operation.functionId}
       data-owner={operation.owner}
       data-replayable={String(operation.replayable)}
+      data-reuse={operation.reused ? 'recorded' : 'own'}
       data-state={operation.state}
       aria-current={operation.functionId === run.selected.functionId}
       title={operation.owner === 'sdk' ? strings.dbosOwned : operation.because}
@@ -658,6 +749,15 @@ function Operation({
       {operation.restored ? (
         <span className="provenance" data-provenance="derived">
           {strings.restored}
+        </span>
+      ) : null}
+      {/* A different claim from `restored`, and both
+          can be true of one row: that one is about a
+          crash inside this run, this one is about the
+          run this one was replayed from. */}
+      {operation.reused ? (
+        <span className="provenance" data-provenance="derived">
+          {strings.recorded}
         </span>
       ) : null}
       {operation.at === undefined ? null : (

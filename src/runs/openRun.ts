@@ -1,13 +1,13 @@
 import type { Disposable } from 'vscode';
 
 import { boxesFor } from '../core/index.js';
-import { ownerOf } from '../core/rules.js';
+import { ownerOf, type WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import type { SeeInit } from '../webview/protocol.js';
 
 import type { Database } from './db.js';
 import type { Following } from './following.js';
-import { runQuery, stepsQuery } from './queries.js';
+import { forksQuery, runQuery, stepsQuery } from './queries.js';
 import {
   toRun,
   toStep,
@@ -16,7 +16,7 @@ import {
   type Step,
   type WorkflowStatusRow,
 } from './rows.js';
-import { finished } from './reading.js';
+import { finished, reusedRow } from './reading.js';
 import type { ProjectSdk } from './sdk.js';
 import { seeInit, type SeeView } from './view.js';
 import { workflowDocument } from './workflows.js';
@@ -66,6 +66,44 @@ export type LedgerAccess = {
     url: string,
     take: (db: Database) => Promise<Value>,
   ): Promise<Value | undefined>;
+};
+
+/**
+ * Where the run came from and what came out of it.
+ *
+ * A replay is a fork: a second run beside the first
+ * rather than a repair of it, and both stay in
+ * `dbos.workflow_status`. `forked_from` and
+ * `was_forked_from` are the two columns that say so,
+ * and this is them read.
+ */
+export type Lineage = {
+  /** The run it was replayed from, where the column
+   *  names one that is still there. */
+  parent: LineageRun | undefined;
+
+  /** The runs replayed from it, oldest first. */
+  forks: LineageRun[];
+};
+
+/**
+ * One run beside this one, and the fork point
+ * between them.
+ *
+ * The step and the block belong to the edge rather
+ * than to either run — they say where the replay
+ * took over — and they are attached to the far end
+ * because that is the row the tree draws them above.
+ */
+export type LineageRun = {
+  run: Run;
+
+  /** The first step the replay ran for itself. */
+  startStep: number;
+
+  /** The block that step belongs to, where the saved
+   *  document still has one. */
+  boundary: string | undefined;
 };
 
 export type OpenRunDeps = {
@@ -199,12 +237,13 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
    * when it is a different one.
    */
   const readingOf = async (
-    found: { run: Run; steps: Step[] },
+    found: Found,
     reading?: SeeView,
   ): Promise<SeeView> => {
     const dir = deps.project();
     const ir =
       dir === undefined ? undefined : workflowDocument(dir, found.run.name);
+    const lineage = lineageOf(found, ir);
 
     // Only a run that is still going is worth
     // polling. One that has ended will not change
@@ -215,9 +254,11 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
     if (!finished(found.run)) deps.following.arm(found.run.workflowId);
 
     return {
-      ...found,
+      run: found.run,
+      steps: found.steps,
       selectedStep: reading?.selectedStep ?? firstStep(found.steps),
       note,
+      ...(lineage === undefined ? {} : { lineage }),
       ...(ir === undefined ? {} : { ir, boxes: await boxesFor(ir) }),
       ...(reading?.selectedNode === undefined
         ? {}
@@ -239,18 +280,20 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
     // away must not, or the page would go blank on
     // a hiccup.
     const found = await deps.ledger.read(url, async (db) => {
-      const one = runQuery(workflowId);
-      const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
-      const row = rows[0];
-      if (row === undefined) return null;
+      const run = await oneRun(db, workflowId);
+      if (run === undefined) return null;
 
       const steps = stepsQuery(workflowId);
 
       return {
-        run: toRun(row),
+        run,
         steps: (
           await db.query<OperationOutputRow>(steps.text, steps.values)
         ).map(toStep),
+        // Read on the connection that is already
+        // open: both questions are asked of the very
+        // table the run itself just came out of.
+        ...(await relatedTo(db, run)),
       };
     });
 
@@ -356,6 +399,128 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
       changes.dispose();
     },
   };
+}
+
+/** What one visit to the ledger brought back about
+ *  a run. */
+type Found = {
+  run: Run;
+
+  steps: Step[];
+
+  parent: Run | undefined;
+
+  forks: Run[];
+};
+
+async function oneRun(
+  db: Database,
+  workflowId: string,
+): Promise<Run | undefined> {
+  const one = runQuery(workflowId);
+  const row = (await db.query<WorkflowStatusRow>(one.text, one.values))[0];
+
+  return row === undefined ? undefined : toRun(row);
+}
+
+/**
+ * The runs either side of this one, where its own
+ * columns say there are any.
+ *
+ * Asked only when they do. A run nobody replayed and
+ * that came from nowhere is the ordinary case, and
+ * it costs no statement at all.
+ */
+async function relatedTo(
+  db: Database,
+  run: Run,
+): Promise<{ parent: Run | undefined; forks: Run[] }> {
+  const parent =
+    run.forkedFrom === undefined ? undefined : await oneRun(db, run.forkedFrom);
+
+  if (!run.wasForkedFrom) return { parent, forks: [] };
+
+  const forks = forksQuery(run.workflowId);
+
+  return {
+    parent,
+    forks: (await db.query<WorkflowStatusRow>(forks.text, forks.values)).map(
+      toRun,
+    ),
+  };
+}
+
+/**
+ * Where the run came from and what came out of it,
+ * with each fork point named.
+ *
+ * Named from the rows this page has already read
+ * and from no further query. A fork copies the rows
+ * below where it started and records the rest under
+ * the names the same workflow gives them, so the row
+ * at the boundary carries the same name on both
+ * sides of it — which is what lets a run somebody
+ * replayed a dozen times cost one round trip.
+ */
+function lineageOf(
+  found: Found,
+  ir: WorkflowIR | undefined,
+): Lineage | undefined {
+  if (found.parent === undefined && found.forks.length === 0) return undefined;
+
+  const own = startStepOf(found.steps, found.run.createdAt);
+
+  return {
+    parent:
+      found.parent === undefined
+        ? undefined
+        : {
+            run: found.parent,
+            startStep: own,
+            boundary: boundaryOf(found.steps, own, ir),
+          },
+    forks: found.forks.map((fork) => {
+      const startStep = fork.startStep ?? 0;
+
+      return {
+        run: fork,
+        startStep,
+        boundary: boundaryOf(found.steps, startStep, ir),
+      };
+    }),
+  };
+}
+
+/**
+ * The first step this run ran for itself.
+ *
+ * The same rule the fork statement runs in the
+ * database, asked here of the rows already in hand:
+ * a fork carries over every operation the run it
+ * came from had finished, so the step above the last
+ * of those is where the replay began.
+ */
+function startStepOf(steps: readonly Step[], createdAt: number): number {
+  const carried = steps.filter((step) => reusedRow(step, createdAt));
+
+  return Math.max(-1, ...carried.map((step) => step.functionId)) + 1;
+}
+
+/** What to call the block a replay took over at, or
+ *  nothing where the row at that step names no block
+ *  the saved document still has. */
+function boundaryOf(
+  steps: readonly Step[],
+  startStep: number,
+  ir: WorkflowIR | undefined,
+): string | undefined {
+  const at = steps.find((step) => step.functionId === startStep);
+  if (at === undefined || ir === undefined) return undefined;
+
+  const owner = ownerOf(at.name);
+  if (owner.kind !== 'node') return undefined;
+
+  return ir.nodes.find((node) => node.id === owner.nodeId)?.title;
 }
 
 /**

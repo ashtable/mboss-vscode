@@ -172,6 +172,35 @@ describe('a row of the run history', () => {
       expect(rowOf({ ...RUN, status }).severity).toBe('running');
     }
   });
+
+  it('names what a run is a replay of', () => {
+    const row = rowOf({ ...RUN, forkedFrom: 'wf_a1b4e7' });
+
+    expect(row.replayOf).toBe('replay of wf_a1b4e7');
+    expect(rowOf(RUN).replayOf).toBeUndefined();
+  });
+
+  /**
+   * Out of the runs the page already holds and out
+   * of nothing else. `forked_from` is a column every
+   * row selects, so a child that is on screen is a
+   * line the list can draw for free — and a child
+   * that is not is a query nobody asked for.
+   */
+  it('names the runs replayed from it that are on this page', () => {
+    const parent = { ...RUN, wasForkedFrom: true };
+    const child = {
+      ...RUN,
+      workflowId: 'wf_fork1',
+      status: 'ERROR',
+      forkedFrom: 'wf_c9d2f3',
+    };
+
+    expect(rowOf(parent, [parent, child]).forks).toEqual([
+      '└ replay → wf_fork1 · ERROR',
+    ]);
+    expect(rowOf(parent, [parent]).forks).toEqual([]);
+  });
 });
 
 describe('a row of what this window set going', () => {
@@ -675,6 +704,15 @@ describe('one run, as the run page draws it', () => {
     find_slot: { x: 0, y: 120, w: 230, h: 64 },
   };
 
+  /** The same run, created after its first step had
+   *  already finished — which is what a fork looks
+   *  like from inside. */
+  const REPLAY: Run = {
+    ...RUN,
+    createdAt: 1500,
+    forkedFrom: 'wf_a1b4e7',
+  };
+
   function page(over: Partial<SeeView> = {}): SeeRun {
     const shown = seeInit({
       run: {
@@ -743,6 +781,35 @@ describe('one run, as the run page draws it', () => {
 
     expect(rows.map((one) => one.replayable)).toEqual([false, false]);
     expect(rows[0]?.because).toBe(messages.replayNotOffered());
+  });
+
+  /**
+   * A fork carries over every operation the run it
+   * came from had already finished, timestamps and
+   * all — so a row that completed before its own
+   * run was created is one of those. Nothing in the
+   * schema marks a row as copied, and this is the
+   * only evidence there is.
+   */
+  it('marks a reused row recorded', () => {
+    const shown = page({ run: REPLAY });
+
+    expect(
+      shown.groups
+        .flatMap((group) => group.operations)
+        .map((one) => [one.name, one.reused]),
+    ).toEqual([
+      ['parse_request', true],
+      ['find_slot', false],
+    ]);
+    expect(seeInit(undefined).strings.recorded).toBe('↺ recorded');
+  });
+
+  it('marks a reused chip and bar reused, and an own row not', () => {
+    const shown = page({ run: REPLAY });
+
+    expect(shown.chips.map((chip) => chip.reused)).toEqual([true, false]);
+    expect(shown.timeline.bars.map((bar) => bar.reused)).toEqual([true, false]);
   });
 
   it('carries the groups, the graph, the selection and the input', () => {

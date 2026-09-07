@@ -126,7 +126,31 @@ export type Operation = {
   /** Whether this row came back from the ledger
    *  rather than running again after a crash. */
   restored: boolean;
+
+  /** Whether it was carried over from the run this
+   *  one was replayed from. See `reusedRow`. */
+  reused: boolean;
 };
+
+/**
+ * Whether a row came over from the run this one was
+ * replayed from.
+ *
+ * A fact about timestamps and nothing else. A fork
+ * copies every operation the run it came from had
+ * already finished, keeping the moments they were
+ * first written with, so a row that completed
+ * before its own run was created is one of the
+ * copied ones. Nothing in the schema marks a row as
+ * copied, and this is the same comparison the fork
+ * query makes in the database.
+ *
+ * Not the same as `restored`, which is about a
+ * crash inside one run. This is about two runs.
+ */
+export function reusedRow(step: Step, createdAt: number): boolean {
+  return step.completedAt !== undefined && step.completedAt < createdAt;
+}
 
 /**
  * One run, read.
@@ -211,7 +235,13 @@ export function readRun(
   );
 
   const operations = steps.map((step) =>
-    attributed(step, known, parked, restored.get(step.functionId) ?? false),
+    attributed(
+      step,
+      known,
+      parked,
+      restored.get(step.functionId) ?? false,
+      run.createdAt,
+    ),
   );
 
   return {
@@ -257,6 +287,7 @@ function attributed(
   known: ReadonlySet<string> | undefined,
   parked: ReadonlySet<string>,
   restored: boolean,
+  createdAt: number,
 ): Operation {
   const owner = ownerOf(step.name);
   const output = outputIn(step.output ?? null);
@@ -289,6 +320,7 @@ function attributed(
     error: failure,
     childWorkflowId: step.childWorkflowId,
     restored,
+    reused: reusedRow(step, createdAt),
   };
 }
 

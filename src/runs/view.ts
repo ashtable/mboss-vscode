@@ -10,6 +10,7 @@ import type {
   SeeChip,
   SeeGraph,
   SeeInit,
+  SeeLineageRun,
   SeeOutage,
   SeeRawRow,
   SeeRun,
@@ -19,6 +20,7 @@ import type {
   TraceOpView,
 } from '../webview/protocol.js';
 
+import type { Lineage, LineageRun } from './openRun.js';
 import { seeWords } from './words.js';
 import { decidedArms, groupsOf, type TraceGroup } from './operations.js';
 import { replayRowReason } from './replayZone.js';
@@ -67,6 +69,10 @@ export type SeeView = {
 
   /** What the last replay did. */
   note: string | undefined;
+
+  /** Where the run came from and what came out of
+   *  it, where either is anything. */
+  lineage?: Lineage;
 
   /** The workflow as it is saved, where the project
    *  still has one of that name. */
@@ -216,7 +222,73 @@ function seeRun(view: SeeView): SeeRun {
     showRaw: view.raw ?? false,
     following: view.following ?? 'quiet',
     input: inputOf(run),
+    lineage: lineageOf(view),
   };
+}
+
+/**
+ * The lineage tree, from its top.
+ *
+ * Drawn from whichever end of a fork the page is
+ * showing, so the run it came from is the root when
+ * there is one and this run is the root when there
+ * is not. The fork point is worded onto the run
+ * below it, which is the run that started there.
+ */
+function lineageOf(view: SeeView): SeeLineageRun | undefined {
+  const found = view.lineage;
+  if (found === undefined) return undefined;
+
+  const here: SeeLineageRun = {
+    ...lineageRunOf(view.run),
+    startStep: found.parent?.startStep,
+    from: found.parent === undefined ? undefined : replayFrom(found.parent),
+    here: true,
+    forks: found.forks.map((fork) => ({
+      ...lineageRunOf(fork.run),
+      startStep: fork.startStep,
+      from: replayFrom(fork),
+      here: false,
+      forks: [],
+    })),
+  };
+
+  if (found.parent === undefined) return here;
+
+  return {
+    ...lineageRunOf(found.parent.run),
+    // Nothing was read about what the parent itself
+    // came out of, so the top of the tree says
+    // nothing about it rather than guessing.
+    startStep: undefined,
+    from: undefined,
+    here: false,
+    forks: [here],
+  };
+}
+
+/**
+ * One run of the tree, in the words a row draws.
+ *
+ * `severity` is the list's own question asked with
+ * the evidence this read has, which is no recorded
+ * name for the other run — so nothing here can say
+ * it is parked, and it does not.
+ */
+function lineageRunOf(
+  run: Run,
+): Pick<SeeLineageRun, 'workflowId' | 'status' | 'severity'> {
+  return {
+    workflowId: run.workflowId,
+    status: run.status,
+    severity: severityOf(run, false),
+  };
+}
+
+function replayFrom(entry: LineageRun): string {
+  return entry.boundary === undefined
+    ? messages.runReplayFromStep(entry.startStep)
+    : messages.runReplayFrom(entry.boundary);
 }
 
 /**
@@ -347,6 +419,7 @@ function opOf(operation: Operation, points: ReplayPoints): TraceOpView {
     outputCut: operation.outputCut,
     error: operation.error?.message,
     restored: operation.restored,
+    reused: operation.reused,
     ...offerOf(points, operation.functionId),
     childWorkflowId: operation.childWorkflowId,
   };
@@ -424,7 +497,20 @@ function inputOf(run: Run): { text: string; cut: boolean } | undefined {
   return { text: cut(text), cut: text.length > OUTPUT_CELL };
 }
 
-export function rowOf(run: Run): RunRow {
+/**
+ * One run of the history, in the words the list
+ * draws.
+ *
+ * `page` is the rest of what the list is holding,
+ * and it is the only place a fork line comes from:
+ * `forked_from` is a column every row already
+ * selects, so a child on screen is a line drawn for
+ * free and a child that is not on screen is a query
+ * nobody asked for. An empty page is therefore a row
+ * drawn on its own, which is what a caller with no
+ * others means.
+ */
+export function rowOf(run: Run, page: readonly Run[] = []): RunRow {
   const severity = severityOf(run, parked(run.lastOperation));
 
   return {
@@ -449,6 +535,13 @@ export function rowOf(run: Run): RunRow {
         ? undefined
         : clock(run.lastOperationAt),
     operations: run.operationCount,
+    replayOf:
+      run.forkedFrom === undefined
+        ? undefined
+        : messages.runsReplayOf(run.forkedFrom),
+    forks: page
+      .filter((one) => one.forkedFrom === run.workflowId)
+      .map((one) => messages.runsReplayInto(one.workflowId, one.status)),
   };
 }
 
@@ -598,6 +691,7 @@ function chipOf(step: Operation, points: ReplayPoints): SeeChip {
     functionId: step.functionId,
     name: step.name,
     restored: step.restored,
+    reused: step.reused,
     failed: step.error !== undefined,
     ...offerOf(points, step.functionId),
   };
@@ -631,6 +725,7 @@ function chartOf(reading: Reading, drawn: readonly Operation[]): SeeTimeline {
             width: round((step.completedAt - step.startedAt) / span),
           },
     restored: step.restored,
+    reused: step.reused,
     failed: step.error !== undefined,
   }));
 

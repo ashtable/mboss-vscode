@@ -72,6 +72,12 @@ export type WorkflowStatusRow = {
   last_operation_at?: BigIntColumn | null;
 
   operation_count?: BigIntColumn | null;
+
+  /** Selected only by the read that lists the runs
+   *  forked from another: the highest operation this
+   *  one carried over. `null` where it carried
+   *  none. */
+  last_reused?: BigIntColumn | null;
 };
 
 /** A row of `dbos.operation_outputs`, as selected. */
@@ -176,6 +182,14 @@ export type Run = {
   lastOperationAt?: number;
 
   operationCount?: number;
+
+  /**
+   * Filled by the read that lists the runs forked
+   * from another: the first step this one ran for
+   * itself, which is the step above the last row it
+   * carried over.
+   */
+  startStep?: number;
 };
 
 /** One step of a run. */
@@ -273,7 +287,23 @@ export function toRun(row: WorkflowStatusRow): Run {
     ...(row.operation_count === undefined || row.operation_count === null
       ? {}
       : { operationCount: Number(row.operation_count) }),
+    ...(row.last_reused === undefined
+      ? {}
+      : { startStep: startStepIn(row.last_reused) }),
   };
+}
+
+/**
+ * The first step a fork ran for itself.
+ *
+ * One past the last row it carried over — and zero
+ * where it carried none, which is a replay from the
+ * very beginning. `null` is that case rather than a
+ * missing column: the column is a `max` over no
+ * rows.
+ */
+function startStepIn(last: BigIntColumn | null): number {
+  return last === null ? 0 : Number(last) + 1;
 }
 
 export function toStep(row: OperationOutputRow): Step {

@@ -589,6 +589,16 @@ body {
   color: color-mix(in srgb, var(--ink) 55%, transparent);
 }
 
+/* Where the run came from and what came out of it.
+   Set quieter than the row's own lines and in the
+   mono face the ids are written in, because they
+   name a run other than the one the row is about. */
+.run-lineage {
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
 /* The failure says what it was on the row, because
    the reason somebody opened this panel is to find
    that out. */

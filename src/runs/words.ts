@@ -152,6 +152,28 @@ export const seeWords = once(() => ({
 
   recoveredTag: messages.runsRecoveredTag(),
 
+  /**
+   * On a row a replay carried over from the run it
+   * came from.
+   *
+   * The glyph is fixed and is part of the word: it
+   * is the same mark Replay wears, and what it says
+   * here is that the row is the earlier run's,
+   * copied rather than run a second time.
+   */
+  recorded: l10n.t('↺ recorded'),
+
+  /**
+   * Under the lineage tree.
+   *
+   * The whole point of drawing the tree: a replay
+   * forks a second execution and the run it came
+   * from stays exactly where it was, so neither of
+   * them is a version of the other and both are
+   * still there to be read.
+   */
+  bothRemain: l10n.t('both remain in dbos.workflow_status'),
+
   /** Said on anything the page worked out rather
    *  than read off a row. */
   derived: l10n.t('derived'),

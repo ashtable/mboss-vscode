@@ -357,6 +357,13 @@ export const inspectorWords = once(() => ({
   // rather than from running the code again.
   restored: l10n.t('restored'),
 
+  // On a row a replay carried over from the run it
+  // came from. The glyph is part of the word: it is
+  // the mark Replay wears, and what it says here is
+  // that the row is the earlier run's rather than
+  // work this one did.
+  recorded: l10n.t('↺ recorded'),
+
   /* — the run itself — */
 
   run: l10n.t('run'),

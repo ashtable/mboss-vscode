@@ -175,7 +175,7 @@ describe('what each view may say', () => {
 
     runFilter: ['runs'],
     runRefresh: ['runs'],
-    runSelect: ['runs'],
+    runSelect: ['runs', 'see'],
     copyRunId: ['runs'],
     stackUp: ['runs'],
     stackDown: ['runs'],

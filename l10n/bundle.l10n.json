@@ -229,6 +229,7 @@
   "attempts": "attempts",
   "backoff, times": "backoff, times",
   "body": "body",
+  "both remain in dbos.workflow_status": "both remain in dbos.workflow_status",
   "built {0} ago": "built {0} ago",
   "by hand": "by hand",
   "calls {0} at line {1}, needs a step": "calls {0} at line {1}, needs a step",
@@ -344,6 +345,9 @@
   "recovered {0}×": "recovered {0}×",
   "recovery": "recovery",
   "repeat": "repeat",
+  "replay from step {0}": "replay from step {0}",
+  "replay from {0}": "replay from {0}",
+  "replay of {0}": "replay of {0}",
   "requester email path": "requester email path",
   "required": "required",
   "resolves to the durable operation's DBOS function id · available while the structure before this point is unchanged — structural edits need a new run": "resolves to the durable operation's DBOS function id · available while the structure before this point is unchanged — structural edits need a new run",
@@ -430,5 +434,7 @@
   "· {0} items": "· {0} items",
   "… {0} more proposed nodes": "… {0} more proposed nodes",
   "↺ Replay From Here": "↺ Replay From Here",
-  "↻ recovered": "↻ recovered"
+  "↺ recorded": "↺ recorded",
+  "↻ recovered": "↻ recovered",
+  "└ replay → {0} · {1}": "└ replay → {0} · {1}"
 }

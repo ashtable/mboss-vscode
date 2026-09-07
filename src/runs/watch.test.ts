@@ -148,6 +148,7 @@ function recordedStep(over: {
     error: undefined,
     childWorkflowId: undefined,
     restored: false,
+    reused: false,
   };
 }
 

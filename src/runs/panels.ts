@@ -194,6 +194,14 @@ export class SeePanel {
           }
         }
 
+        // An id in the lineage tree. The same verb
+        // the list's rows use, because it is the
+        // same thing to have asked for — this panel
+        // is already the one that would show it.
+        if (message.type === 'runSelect') {
+          void this.store.select(message.workflowId);
+        }
+
         if (message.type === 'seeNode') this.store.selectNode(message.nodeId);
         if (message.type === 'seeShow') this.store.showTab(message.tab);
         if (message.type === 'seeRaw') this.store.showRaw(message.raw);

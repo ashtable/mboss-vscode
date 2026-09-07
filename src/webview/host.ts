@@ -331,7 +331,8 @@ const RunFilterPicked = z.object({
 /** Somebody wants the list read again. */
 const RunRefresh = z.object({ type: z.literal('runRefresh') });
 
-/** Somebody opened a run. */
+/** Somebody opened a run — from a row of the list,
+ *  or from an id in the run page's lineage tree. */
 const RunSelect = z.object({
   type: z.literal('runSelect'),
   workflowId: z.string(),
@@ -585,6 +586,7 @@ const SCHEMAS = {
   see: z.discriminatedUnion('type', [
     Ready,
     StepSelect,
+    RunSelect,
     OpenFunction,
     OpenErrorLocation,
     OpenOutput,

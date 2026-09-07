@@ -500,6 +500,30 @@ export const messages = {
     l10n.t('mBoss › runs › {0} › {1}', workflow, id),
 
   /**
+   * Where a replay took over.
+   *
+   * Named by the block wherever the row at the fork
+   * point still belongs to one, and by DBOS's own
+   * step number otherwise — a workflow edited since
+   * the run has rows naming blocks that are gone,
+   * and the number is the fact that is left.
+   */
+  runReplayFrom: (block: string) => l10n.t('replay from {0}', block),
+  runReplayFromStep: (step: number) => l10n.t('replay from step {0}', step),
+
+  /**
+   * The same fork, from the list.
+   *
+   * The child line is drawn only for a run already
+   * on the page, so neither of these costs a query:
+   * `forked_from` is a column every row already
+   * selects.
+   */
+  runsReplayOf: (id: string) => l10n.t('replay of {0}', id),
+  runsReplayInto: (id: string, status: string) =>
+    l10n.t('└ replay → {0} · {1}', id, status),
+
+  /**
    * Seconds with one decimal, because a local run
    * is measured in them and the design's own
    * examples are `8.2 s` and `2.9 s`. Anything

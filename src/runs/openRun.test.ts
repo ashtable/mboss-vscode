@@ -426,3 +426,115 @@ describe('whether a project records when a run wakes', () => {
     }
   });
 });
+
+/**
+ * Where a run came from and what came out of it.
+ *
+ * Both are `dbos.workflow_status` columns, read in
+ * the same visit the run itself is read in — and
+ * the block a replay took over at is named from the
+ * rows this page already holds, so a run somebody
+ * replayed a dozen times still costs one round trip.
+ */
+describe('where a run came from and what came out of it', () => {
+  /** The fork's own row, with the highest operation
+   *  it carried over from this run. */
+  function forkRow(lastReused: string | null): Record<string, unknown> {
+    return {
+      ...RUN_ROW,
+      workflow_uuid: 'wf_fork1',
+      forked_from: 'wf_c9d2f3',
+      last_reused: lastReused,
+    };
+  }
+
+  /**
+   * A run somebody replayed once.
+   *
+   * Its second row is named after the one block the
+   * saved workflow has, so a boundary landing there
+   * has a title to be named by and a boundary
+   * landing on the first does not.
+   */
+  function replayed(lastReused: string | null = '0'): Fake {
+    const db = database();
+
+    db.rows = [{ ...RUN_ROW, was_forked_from: true }];
+    db.forks = [forkRow(lastReused)];
+    db.steps = [
+      STEP_ROW,
+      { ...STEP_ROW, function_id: 1, function_name: 'started' },
+    ];
+
+    return db;
+  }
+
+  it('loads the runs forked from this one', async () => {
+    const { open } = page(replayed());
+
+    await open.open('wf_c9d2f3');
+
+    const tree = open.see().run?.lineage;
+    expect(tree?.workflowId).toBe('wf_c9d2f3');
+    expect(tree?.here).toBe(true);
+    expect(tree?.forks.map((one) => one.workflowId)).toEqual(['wf_fork1']);
+  });
+
+  /** The tree is drawn from its top, so the run this
+   *  one came out of is the root and this run hangs
+   *  under it. */
+  it('loads the run this one was forked from', async () => {
+    const db = database();
+    db.rows = [
+      { ...RUN_ROW, forked_from: 'wf_parent' },
+      { ...RUN_ROW, workflow_uuid: 'wf_parent', status: 'ERROR' },
+    ];
+
+    const { open } = page(db);
+    await open.open('wf_c9d2f3');
+
+    const tree = open.see().run?.lineage;
+    expect(tree?.workflowId).toBe('wf_parent');
+    expect(tree?.status).toBe('ERROR');
+    expect(tree?.here).toBe(false);
+    expect(tree?.forks.map((one) => one.workflowId)).toEqual(['wf_c9d2f3']);
+  });
+
+  it('counts the start step from the last reused row', async () => {
+    const { open } = page(replayed('3'));
+
+    await open.open('wf_c9d2f3');
+
+    expect(open.see().run?.lineage?.forks[0]?.startStep).toBe(4);
+  });
+
+  it('names the boundary from rows it already loaded', async () => {
+    const { open } = page(replayed('0'));
+
+    await open.open('wf_c9d2f3');
+
+    expect(open.see().run?.lineage?.forks[0]?.from).toBe('replay from Started');
+  });
+
+  /**
+   * A workflow edited since the run has rows naming
+   * blocks that are gone. DBOS's own step number is
+   * the fact that is left, and it is said instead of
+   * guessing at a name.
+   */
+  it('leaves the boundary unnamed when that row maps to no block', async () => {
+    const { open } = page(replayed(null));
+
+    await open.open('wf_c9d2f3');
+
+    expect(open.see().run?.lineage?.forks[0]?.from).toBe('replay from step 0');
+  });
+
+  it('says nothing about a run with no replay either side of it', async () => {
+    const { open } = page(database());
+
+    await open.open('wf_c9d2f3');
+
+    expect(open.see().run?.lineage).toBeUndefined();
+  });
+});

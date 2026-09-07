@@ -5,6 +5,7 @@ import type {
   RunsInit,
   SeeGraph,
   SeeInit,
+  SeeLineageRun,
   SeeRun,
   TraceGroupView,
 } from '../../src/webview/protocol.js';
@@ -45,6 +46,8 @@ const ROWS: RunRow[] = [
     summary: undefined,
     stoppedAt: undefined,
     operations: undefined,
+    replayOf: undefined,
+    forks: [],
   },
   {
     workflowId: 'wf_a1b4e7',
@@ -58,6 +61,8 @@ const ROWS: RunRow[] = [
     summary: undefined,
     stoppedAt: undefined,
     operations: undefined,
+    replayOf: undefined,
+    forks: [],
   },
   {
     workflowId: 'wf_77c101',
@@ -71,6 +76,8 @@ const ROWS: RunRow[] = [
     summary: 'failed · sync_rows',
     stoppedAt: '13:41',
     operations: 3,
+    replayOf: undefined,
+    forks: [],
   },
   {
     workflowId: 'wf_ff0912',
@@ -84,6 +91,8 @@ const ROWS: RunRow[] = [
     summary: undefined,
     stoppedAt: undefined,
     operations: undefined,
+    replayOf: undefined,
+    forks: [],
   },
 ];
 
@@ -150,6 +159,7 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
       functionId: index,
       name,
       restored: index < 2,
+      reused: false,
       failed: false,
       replayable: true,
       because: undefined,
@@ -160,6 +170,7 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
         name,
         at: { from: index * 0.1, width: 0.08 },
         restored: index < 2,
+        reused: false,
         failed: false,
       })),
       outage: {
@@ -214,6 +225,7 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     showRaw: false,
     following: 'quiet',
     input: undefined,
+    lineage: undefined,
     ...over,
   };
 }
@@ -801,6 +813,8 @@ test.describe('this session', () => {
             summary: undefined,
             stoppedAt: undefined,
             operations: undefined,
+            replayOf: undefined,
+            forks: [],
           },
         ],
         session: [
@@ -944,6 +958,8 @@ test.describe('the run list', () => {
             summary: 'waiting · manager_ok · 10:31',
             stoppedAt: '10:31',
             operations: 4,
+            replayOf: undefined,
+            forks: [],
           },
         ],
       }),
@@ -975,6 +991,64 @@ test.describe('the run list', () => {
    * The footer names the two tables the list is
    * projected from, in the project's own database.
    */
+  /**
+   * Both lines come off `forked_from`, which every
+   * row already selects — so the child is drawn only
+   * because it happens to be on this page, and no
+   * row costs a query of its own.
+   */
+  test('says which run a row is a replay of, and what came out of it', async ({
+    page,
+  }) => {
+    await showList(
+      page,
+      runsInit({
+        rows: [
+          {
+            workflowId: 'wf_c9d2f3',
+            name: 'groom_booking',
+            status: 'ERROR',
+            severity: 'failed',
+            when: '14:02 · 8.2 s',
+            recovered: false,
+            recoveredNote: undefined,
+            error: undefined,
+            summary: undefined,
+            stoppedAt: undefined,
+            operations: undefined,
+            replayOf: undefined,
+            forks: ['└ replay → wf_fork1 · SUCCESS'],
+          },
+          {
+            workflowId: 'wf_fork1',
+            name: 'groom_booking',
+            status: 'SUCCESS',
+            severity: 'ok',
+            when: '14:09 · 3.1 s',
+            recovered: false,
+            recoveredNote: undefined,
+            error: undefined,
+            summary: undefined,
+            stoppedAt: undefined,
+            operations: undefined,
+            replayOf: 'replay of wf_c9d2f3',
+            forks: [],
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      page.locator('[data-run="wf_c9d2f3"] [data-run-fork]'),
+    ).toHaveText('└ replay → wf_fork1 · SUCCESS');
+    await expect(
+      page.locator('[data-run="wf_fork1"] [data-replay-of]'),
+    ).toHaveText('replay of wf_c9d2f3');
+    await expect(
+      page.locator('[data-run="wf_c9d2f3"] [data-replay-of]'),
+    ).toHaveCount(0);
+  });
+
   test('says the list is a projection of the local ledger', async ({
     page,
   }) => {
@@ -1314,6 +1388,7 @@ test.describe('one run in detail', () => {
               name: 'send_confirmation',
               at: undefined,
               restored: false,
+              reused: false,
               failed: false,
             },
           ],
@@ -1403,6 +1478,7 @@ test.describe('one run in detail', () => {
               functionId: 0,
               name: 'parse_request',
               restored: false,
+              reused: false,
               failed: false,
               replayable: true,
               because: undefined,
@@ -1411,6 +1487,7 @@ test.describe('one run in detail', () => {
               functionId: 1,
               name: 'find_slot',
               restored: false,
+              reused: false,
               failed: false,
               replayable: false,
               because: 'The run is sitting here now.',
@@ -1489,6 +1566,45 @@ test.describe('one run in detail', () => {
     await showRun(page, seeInit(seeRun({ selectedStep: undefined })));
 
     await expect(page.locator('[data-replay]')).toBeDisabled();
+  });
+
+  /**
+   * A replay forks a new execution and the run it
+   * came from stays exactly where it was, so the
+   * tree is drawn from the top whichever end of the
+   * fork the page is showing — and the line under it
+   * says both runs are still there.
+   */
+  test('draws the lineage tree', async ({ page }) => {
+    const harness = await showRun(page, seeInit(seeRun({ lineage: LINEAGE })));
+    const tree = page.locator('[data-lineage]');
+
+    await expect(tree.locator('[data-lineage-run="wf_a1b4e7"]')).toContainText(
+      'ERROR',
+    );
+    await expect(tree.locator('[data-lineage-from="wf_c9d2f3"]')).toContainText(
+      'replay from Refund payment',
+    );
+    await expect(
+      tree.locator('[data-lineage-run="wf_c9d2f3"]'),
+    ).toHaveAttribute('aria-current', 'true');
+    await expect(tree.locator('[data-lineage-note]')).toHaveText(
+      seeStrings.bothRemain,
+    );
+
+    await tree.locator('[data-lineage-id="wf_a1b4e7"]').click();
+
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: 'wf_a1b4e7' },
+    ]);
+  });
+
+  test('draws no lineage for a run with no replay either side', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun()));
+
+    await expect(page.locator('[data-lineage]')).toHaveCount(0);
   });
 
   test('has nothing to draw before a run is picked', async ({ page }) => {
@@ -1787,6 +1903,24 @@ test.describe('one run, as a trace', () => {
     ).toHaveText(seeStrings.unattributed);
   });
 
+  /**
+   * A row a replay carried over is the earlier run's
+   * work, kept: `↺ recorded` says so, and the block
+   * it belongs to still draws what it did.
+   */
+  test('marks a reused row recorded', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ groups: REPLAYED })));
+
+    const carried = page.locator('[data-trace-op="0"]');
+    await expect(carried).toHaveAttribute('data-reuse', 'recorded');
+    await expect(carried).toContainText(seeStrings.recorded);
+
+    await expect(page.locator('[data-trace-op="1"]')).toHaveAttribute(
+      'data-reuse',
+      'own',
+    );
+  });
+
   test('marks the row a block belongs to', async ({ page }) => {
     await showRun(
       page,
@@ -2025,6 +2159,7 @@ const GROUPS: TraceGroupView[] = [
         outputCut: false,
         error: undefined,
         restored: false,
+        reused: false,
         replayable: true,
         because: undefined,
         childWorkflowId: undefined,
@@ -2049,6 +2184,7 @@ const GROUPS: TraceGroupView[] = [
         outputCut: false,
         error: 'no slot left',
         restored: false,
+        reused: false,
         replayable: true,
         because: undefined,
         childWorkflowId: undefined,
@@ -2063,6 +2199,7 @@ const GROUPS: TraceGroupView[] = [
         outputCut: false,
         error: undefined,
         restored: false,
+        reused: false,
         replayable: false,
         because:
           'DBOS wrote this row for itself. A replay starts from a step ' +
@@ -2089,6 +2226,7 @@ const GROUPS: TraceGroupView[] = [
         outputCut: false,
         error: undefined,
         restored: true,
+        reused: false,
         replayable: false,
         because: 'The run is sitting here now.',
         childWorkflowId: undefined,
@@ -2121,3 +2259,42 @@ function transformOf(page: Page): Promise<string> {
     .locator('.react-flow__viewport')
     .evaluate((viewport) => (viewport as HTMLElement).style.transform);
 }
+
+/**
+ * The same trace, after a replay: the first row was
+ * carried over from the run this one came out of,
+ * and every later row is this run's own work.
+ */
+const REPLAYED: TraceGroupView[] = GROUPS.map((group, at) => ({
+  ...group,
+  open: true,
+  operations: group.operations.map((one, index) => ({
+    ...one,
+    reused: at === 0 && index === 0,
+  })),
+}));
+
+/**
+ * A run that came out of another, drawn from the top
+ * of the tree: the run that failed, the fork point,
+ * and the replay under it.
+ */
+const LINEAGE: SeeLineageRun = {
+  workflowId: 'wf_a1b4e7',
+  status: 'ERROR',
+  severity: 'failed',
+  startStep: undefined,
+  from: undefined,
+  here: false,
+  forks: [
+    {
+      workflowId: 'wf_c9d2f3',
+      status: 'SUCCESS',
+      severity: 'ok',
+      startStep: 3,
+      from: 'replay from Refund payment',
+      here: true,
+      forks: [],
+    },
+  ],
+};

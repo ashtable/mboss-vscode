@@ -519,6 +519,27 @@ export type RunRow = {
 
   /** How many durable operations it recorded. */
   operations: number | undefined;
+
+  /**
+   * `replay of wf_a1b4e7`, where the run came out of
+   * another one.
+   *
+   * Read off `forked_from`, which every row already
+   * selects — a replay is a second run beside the
+   * first rather than a repair of it, and both are
+   * on this list.
+   */
+  replayOf: string | undefined;
+
+  /**
+   * `└ replay → wf_fork1 · ERROR`, one per run that
+   * came out of this one **and is on this page**.
+   *
+   * Never a query of its own: the list draws what it
+   * is already holding, so a fork further down the
+   * history is simply not drawn here.
+   */
+  forks: string[];
 };
 
 /**
@@ -659,6 +680,56 @@ export type SeeRun = {
 
   /** What the run was started with, as recorded. */
   input: { text: string; cut: boolean } | undefined;
+
+  /**
+   * The lineage tree, from its top: the run this one
+   * was replayed from where there is one, this run
+   * otherwise.
+   *
+   * Absent where nothing was replayed either side of
+   * it, which is most runs. A tree rather than the
+   * two columns it is read from, because the page
+   * draws one picture whichever end of the fork it
+   * is showing.
+   */
+  lineage: SeeLineageRun | undefined;
+};
+
+/**
+ * One run in the lineage tree.
+ *
+ * A replay forks a new execution and the run it came
+ * from stays exactly where it was, so this is a tree
+ * of runs that all still exist rather than a history
+ * of one that changed.
+ */
+export type SeeLineageRun = {
+  workflowId: string;
+
+  /** DBOS's own word, passed through as everywhere
+   *  else; `severity` is what it is drawn by. */
+  status: string;
+
+  severity: RunSeverity;
+
+  /**
+   * The first step this run ran for itself, and
+   * `replay from Refund payment` — or
+   * `replay from step 4` where the row at that step
+   * names no block the saved document still has.
+   *
+   * Both absent at the top of the tree, which
+   * nothing here is known to have come out of.
+   */
+  startStep: number | undefined;
+
+  from: string | undefined;
+
+  /** Whether this is the run the page is showing. */
+  here: boolean;
+
+  /** The runs replayed from it. */
+  forks: SeeLineageRun[];
 };
 
 /**
@@ -746,6 +817,17 @@ export type TraceOpView = {
    *  than running again. */
   restored: boolean;
 
+  /**
+   * Whether it was carried over from the run this
+   * one was replayed from.
+   *
+   * About the operation and never about the block:
+   * a block on either graph keeps drawing what it
+   * did, and a replay that reused three rows did
+   * not skip three blocks.
+   */
+  reused: boolean;
+
   /** Whether a replay may start here, and why not
    *  when it may not. */
   replayable: boolean;
@@ -765,6 +847,10 @@ export type SeeChip = {
   /** Whether its output came back from Postgres
    *  rather than from running the code again. */
   restored: boolean;
+
+  /** Whether it was carried over from the run this
+   *  one was replayed from. */
+  reused: boolean;
 
   failed: boolean;
 
@@ -804,6 +890,10 @@ export type SeeBar = {
   at: { from: number; width: number } | undefined;
 
   restored: boolean;
+
+  /** Whether it was carried over from the run this
+   *  one was replayed from. */
+  reused: boolean;
 
   failed: boolean;
 };

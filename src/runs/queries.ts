@@ -234,6 +234,37 @@ export function latestRunQuery(workflow: string, since: number): Query {
 }
 
 /**
+ * The runs somebody replayed from this one, and how
+ * much of each one it did not have to run again.
+ *
+ * `last_reused` is the highest row a fork carried
+ * over. A fork copies every operation the run it
+ * came from had already finished, timestamps and
+ * all, so the rows completed before the fork was
+ * created are exactly the copied ones — and the
+ * step above the last of them is where the replay
+ * actually began.
+ *
+ * A correlated scalar rather than a read per fork,
+ * for the reason the list's summary columns are
+ * one: a run somebody replayed a dozen times would
+ * otherwise be a dozen round trips for one small
+ * tree.
+ */
+export function forksQuery(workflowId: string): Query {
+  return {
+    text:
+      `SELECT ${RUN_COLUMNS.join(', ')}, ` +
+      '(SELECT max(o.function_id) FROM dbos.operation_outputs o ' +
+      'WHERE o.workflow_uuid = f.workflow_uuid ' +
+      'AND o.completed_at_epoch_ms < f.created_at) AS last_reused ' +
+      'FROM dbos.workflow_status f ' +
+      'WHERE f.forked_from = $1 ORDER BY f.created_at',
+    values: [workflowId],
+  };
+}
+
+/**
  * One run's steps, in the order DBOS numbered
  * them, which is the order they ran in.
  *
@@ -291,6 +322,7 @@ export const ALL_QUERIES: readonly Query[] = [
   ...RUN_FILTERS.map((filter) => runsQuery(filter, MAX_RUNS)),
   countsQuery(),
   runQuery('wf_c9d2f3'),
+  forksQuery('wf_c9d2f3'),
   stepsQuery('wf_c9d2f3'),
   latestRunQuery('groom_booking', 0),
 ];

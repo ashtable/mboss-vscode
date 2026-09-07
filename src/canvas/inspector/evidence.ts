@@ -74,6 +74,10 @@ export type EvidenceRow = {
   /** Whether the output came back from Postgres
    *  rather than from running the code again. */
   restored: boolean;
+
+  /** Whether the row was carried over from the run
+   *  this one was replayed from. */
+  reused: boolean;
 };
 
 /** What one run recorded about one block. */
@@ -191,6 +195,7 @@ function rowOf(step: LiveStep, nodeId: string): EvidenceRow {
     outputCut: step.outputCut,
     error: step.error,
     restored: step.restored,
+    reused: step.reused,
   };
 }
 

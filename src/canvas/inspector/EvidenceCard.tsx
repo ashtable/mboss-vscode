@@ -363,6 +363,17 @@ function Recorded({
         </p>
       ) : null}
 
+      {/* A different claim from `restored`, and both
+          can be true: that one is about a crash
+          inside this run, this one is about the run
+          it was replayed from. */}
+      {row.reused ? (
+        <p className="hint" data-evidence-field="reused">
+          {strings.recorded}
+          <Chip word={strings.derived} />
+        </p>
+      ) : null}
+
       {timed ? null : (
         <p className="hint" data-evidence-field="notTimed">
           {strings.notTimed}
