@@ -115,6 +115,7 @@ export function sessionRowOf(
     recovered: run.recovered,
     error: run.failedStep?.error ?? run.error,
     keyed: trigger?.mode === 'event' && trigger.keyPath !== undefined,
+    via: run.via,
   };
 }
 

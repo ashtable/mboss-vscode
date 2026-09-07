@@ -372,6 +372,100 @@ describe('following a run', () => {
   });
 });
 
+/**
+ * A fork and a resume are runs nobody typed an
+ * input for: they exist because somebody pressed a
+ * button about a run that already ran. The id is
+ * minted before either request goes out, so the
+ * row is on screen the whole time the request is
+ * in flight — and a refusal lands on something a
+ * person can already see.
+ */
+describe('following a run this window did not start itself', () => {
+  it('records the row before the request goes out', () => {
+    const log = sessionLog();
+    const owner = follows();
+    const ingress = echoing();
+    const shown = zone({
+      runner: ingress.start,
+      sessionLog: log,
+      following: owner.held,
+    });
+
+    shown.follow('wf_fork1', 'groom_booking', { via: 'replay' });
+
+    expect(log.find('wf_fork1')?.outcome).toBe('running');
+    expect(shown.render().session[0]?.workflowId).toBe('wf_fork1');
+    expect(owner.watch.armed.map((one) => one.workflowId)).toEqual([
+      'wf_fork1',
+    ]);
+
+    // Nothing has been asked of anything yet. The
+    // row and its watch are what the caller puts up
+    // first; the fork or the resume is what it does
+    // next, under the id already on screen.
+    expect(ingress.requests).toEqual([]);
+  });
+
+  it('records how it was started', () => {
+    const log = sessionLog();
+    const shown = zone({ sessionLog: log, following: follows().held });
+
+    shown.follow('wf_fork1', 'groom_booking', {
+      via: 'replay',
+      replayOf: { workflowId: 'wf_c9d2f3', functionId: 4 },
+    });
+    shown.follow('wf_c9d2f3', 'groom_booking', { via: 'resume' });
+
+    expect(log.find('wf_fork1')?.via).toBe('replay');
+    expect(log.find('wf_fork1')?.replayOf).toEqual({
+      workflowId: 'wf_c9d2f3',
+      functionId: 4,
+    });
+    expect(log.find('wf_c9d2f3')?.via).toBe('resume');
+
+    // No input was typed for either, and a row that
+    // claimed one would offer to send it again.
+    expect(log.find('wf_fork1')?.input).toBeUndefined();
+  });
+
+  it('marks a refused fork failed', () => {
+    const owner = follows();
+    const shown = zone({ following: owner.held });
+
+    shown.follow('wf_fork1', 'groom_booking', { via: 'replay' });
+    shown.refused('wf_fork1', 'the database would not answer');
+
+    const row = shown.render().session[0];
+    expect(row?.outcome).toBe('failed');
+    expect(row?.error).toBe('the database would not answer');
+
+    // There will never be a run under that id, so
+    // the watch lets go now rather than reading
+    // somebody's database until it gives up.
+    expect(owner.watch.armed[0]?.stopped).toBe(true);
+    expect(shown.unsettled()).toEqual([]);
+  });
+
+  /**
+   * Rerun sends the input the row was started with,
+   * and a forked or resumed row has none — its
+   * input belongs to the run it came from and lives
+   * in the ledger. Sending nothing would be a
+   * different run wearing the same name.
+   */
+  it('does nothing when asked to rerun a row it did not start', async () => {
+    const ingress = echoing();
+    const shown = zone({ runner: ingress.start, following: follows().held });
+
+    shown.follow('wf_fork1', 'groom_booking', { via: 'replay' });
+    await shown.rerun('wf_fork1');
+
+    expect(ingress.requests).toEqual([]);
+    expect(shown.render().session).toHaveLength(1);
+  });
+});
+
 describe('running it again', () => {
   it('sends the input the row was started with', async () => {
     const ingress = echoing();

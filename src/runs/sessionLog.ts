@@ -19,6 +19,19 @@ import type { LiveOutcome } from './reading.js';
  * only here.
  */
 
+/**
+ * How a run this window is watching came to be.
+ *
+ * `start` is somebody pressing Run with an input
+ * they typed. The other two are runs that already
+ * existed: a fork from one of a run's steps, and a
+ * run DBOS was told to pick back up. Only the
+ * first has an input this side knows, which is why
+ * the difference is worth carrying rather than
+ * inferring.
+ */
+export type SessionVia = 'start' | 'resume' | 'replay';
+
 /** One run somebody started from this window. */
 export type SessionRun = {
   workflowId: string;
@@ -27,7 +40,10 @@ export type SessionRun = {
   workflow: string;
 
   /** What it was started with, kept so that
-   *  running it again needs nothing typed. */
+   *  running it again needs nothing typed.
+   *  `undefined` where this window never held it —
+   *  a fork carries the original's input, which
+   *  only the ledger has. */
   input: unknown;
 
   startedAt: number;
@@ -49,6 +65,15 @@ export type SessionRun = {
   /** Sticky: once a run recovered, it keeps saying
    *  so even after it finishes. */
   recovered: boolean;
+
+  /** What put it here. */
+  via: SessionVia;
+
+  /** The run and the step a replay forked from.
+   *  The ledger's own column names the run but not
+   *  the step somebody picked, so this is the only
+   *  record of that half. */
+  replayOf?: { workflowId: string; functionId: number };
 };
 
 /**
@@ -58,6 +83,12 @@ export type SessionRun = {
  * memory nothing ever hands back and a window left
  * open for a week is the ordinary case. The ledger
  * has all of them.
+ *
+ * The cap and the not-writing are one decision,
+ * not two: an unbounded list would have to be
+ * spilled somewhere, and anything spilled becomes
+ * a second record of a run that the ledger is
+ * already the record of.
  */
 export const SESSION_LOG_LIMIT = 100;
 

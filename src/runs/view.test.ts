@@ -90,6 +90,7 @@ const SESSION: SessionRun = {
   durationMs: 8200,
   stepCount: 3,
   recovered: false,
+  via: 'start',
 };
 
 describe('a row of the run history', () => {
@@ -199,6 +200,42 @@ describe('a row of what this window set going', () => {
     expect(
       sessionRowOf({ ...SESSION, workflow: 'door_opened' }, WORKFLOWS).keyed,
     ).toBe(false);
+  });
+
+  /**
+   * Both actions on a session row send the input
+   * the row was started with, and a row this window
+   * did not start has none — a fork carries the
+   * input of the run it came from, which lives in
+   * the ledger. So how the run got here is what the
+   * panel draws the actions from, and the only one
+   * left on such a row is the one that opens it.
+   */
+  it('offers only Open run on a replayed session row', () => {
+    const row = sessionRowOf(
+      {
+        ...SESSION,
+        workflow: 'expense_claim',
+        input: undefined,
+        via: 'replay',
+      },
+      WORKFLOWS,
+    );
+
+    // `keyed` is a fact about the workflow's trigger
+    // and stays true for a fork of one, so `via` is
+    // the only thing that can keep Send the event
+    // again off this row.
+    expect(row.keyed).toBe(true);
+    expect(row.via).toBe('replay');
+  });
+
+  it('offers only Open run on a resumed session row', () => {
+    expect(
+      sessionRowOf({ ...SESSION, input: undefined, via: 'resume' }, WORKFLOWS)
+        .via,
+    ).toBe('resume');
+    expect(sessionRowOf(SESSION, WORKFLOWS).via).toBe('start');
   });
 
   /** One field, whether a step threw or the

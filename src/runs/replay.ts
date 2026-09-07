@@ -34,6 +34,17 @@ export type Replay =
       applicationVersion: string;
 
       /**
+       * The step it starts executing at.
+       *
+       * Nothing in the new run's own rows says
+       * this: every step before it is copied in and
+       * reads exactly like one that ran. Whoever
+       * asked for the fork is the only witness, so
+       * the answer carries it back.
+       */
+      startStep: number;
+
+      /**
        * The version the original ran under, when
        * that is not the same one — which means the
        * replay is running code that has been
@@ -61,23 +72,34 @@ export type Replay =
  * whether a worker is alive, so the panel says
  * which version the fork is waiting for instead of
  * pretending to know.
+ *
+ * The id is named on every fork too, and by the
+ * caller rather than here. Left to itself DBOS
+ * mints one and hands it back, which means the run
+ * exists for a moment before anything on screen
+ * knows its name — and a fork the database then
+ * refuses has no row anywhere to say so. Minting
+ * it first turns that round.
  */
 export async function replayFrom(
   client: ManagementClient,
   run: Run,
   startStep: number,
+  options: { newWorkflowID: string },
 ): Promise<Replay> {
   try {
     const latest = await client.getLatestApplicationVersion();
 
     const workflowId = await client.forkWorkflow(run.workflowId, startStep, {
       applicationVersion: latest.versionName,
+      newWorkflowID: options.newWorkflowID,
     });
 
     return {
       at: 'forked',
       workflowId,
       applicationVersion: latest.versionName,
+      startStep,
       movedFrom:
         run.applicationVersion !== undefined &&
         run.applicationVersion !== latest.versionName

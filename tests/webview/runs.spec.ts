@@ -630,6 +630,7 @@ test.describe('this session', () => {
             recovered: false,
             error: undefined,
             keyed: false,
+            via: 'start',
           },
         ],
       }),
@@ -671,6 +672,7 @@ test.describe('this session', () => {
             recovered: false,
             error: undefined,
             keyed: true,
+            via: 'start',
           },
         ],
       }),
@@ -679,6 +681,40 @@ test.describe('this session', () => {
     await expect(
       page.locator('[data-session-row="run_2"] [data-rerun]'),
     ).toHaveText('Send the event again');
+  });
+
+  /**
+   * A fork was never handed an input in this
+   * window: it carries the input of the run it came
+   * from, and that lives in the ledger. There is
+   * nothing here to send again, so the row does not
+   * offer to — not even for a workflow whose events
+   * are keyed, where the label would otherwise read
+   * as sending the same one twice.
+   */
+  test('offers no Rerun on a replayed row', async ({ page }) => {
+    await showList(
+      page,
+      runsInit({
+        session: [
+          {
+            workflowId: 'run_9',
+            workflow: 'expense_claim',
+            outcome: 'running',
+            when: '14:11',
+            stepCount: 1,
+            recovered: false,
+            error: undefined,
+            keyed: true,
+            via: 'replay',
+          },
+        ],
+      }),
+    );
+
+    const row = page.locator('[data-session-row="run_9"]');
+    await expect(row.locator('[data-open-run]')).toHaveCount(1);
+    await expect(row.locator('[data-rerun]')).toHaveCount(0);
   });
 
   test('asks the agent why, only where there is a failure to ask about', async ({
@@ -697,6 +733,7 @@ test.describe('this session', () => {
             recovered: false,
             error: 'CDC_PASS rotated',
             keyed: false,
+            via: 'start',
           },
         ],
       }),
@@ -727,6 +764,7 @@ test.describe('this session', () => {
             recovered: false,
             error: undefined,
             keyed: false,
+            via: 'start',
           },
         ],
       }),
@@ -773,6 +811,7 @@ test.describe('this session', () => {
             recovered: false,
             error: undefined,
             keyed: false,
+            via: 'start',
           },
         ],
       }),

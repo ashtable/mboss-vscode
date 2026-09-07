@@ -530,6 +530,7 @@ describe('a run the ingress refused', () => {
       stepCount: 0,
       error: 'the app refused the request: 401',
       recovered: false,
+      via: 'start',
     };
 
     expect(refusedRunEvidence(refused)).toEqual({

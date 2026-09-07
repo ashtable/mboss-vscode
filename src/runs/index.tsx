@@ -363,6 +363,11 @@ function RunningNow({
  * fits it — sending an event again reads differently
  * from rerunning a manual workflow, because only one
  * of them is honestly the same run.
+ *
+ * A row this window forked or picked back up gets
+ * neither. Both actions send the input the row was
+ * started with, and that run's input belongs to the
+ * run it came from.
  */
 function Session({
   session,
@@ -402,15 +407,17 @@ function Session({
               >
                 {strings.openRun}
               </button>
-              <button
-                type="button"
-                data-rerun
-                onClick={() =>
-                  postToHost({ type: 'rerun', workflowId: row.workflowId })
-                }
-              >
-                {row.keyed ? strings.resendEvent : strings.rerunSameInput}
-              </button>
+              {row.via !== 'start' ? null : (
+                <button
+                  type="button"
+                  data-rerun
+                  onClick={() =>
+                    postToHost({ type: 'rerun', workflowId: row.workflowId })
+                  }
+                >
+                  {row.keyed ? strings.resendEvent : strings.rerunSameInput}
+                </button>
+              )}
               {row.error === undefined ? null : (
                 <button
                   type="button"

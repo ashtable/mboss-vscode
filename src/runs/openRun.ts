@@ -13,6 +13,7 @@ import type { Following } from './following.js';
 import type { ManagementClient } from './manage.js';
 import { runQuery, stepsQuery } from './queries.js';
 import { replayFrom, type Replay } from './replay.js';
+import { newRunId } from './runner.js';
 import {
   toRun,
   toStep,
@@ -349,7 +350,18 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
         return false;
       }
 
-      const outcome = await forkedFrom(deps, url, reading.run, functionId);
+      // Named here rather than left to DBOS, which
+      // mints one and hands it back only once the
+      // run exists. An id in hand before the call
+      // is what lets a run be on screen while the
+      // fork is still in flight.
+      const outcome = await forkedFrom(
+        deps,
+        url,
+        reading.run,
+        functionId,
+        newRunId(),
+      );
 
       note =
         outcome.at === 'refused'
@@ -438,6 +450,7 @@ async function forkedFrom(
   url: string,
   run: Run,
   functionId: number,
+  workflowId: string,
 ): Promise<Replay> {
   let client: ManagementClient;
 
@@ -447,7 +460,9 @@ async function forkedFrom(
     return { at: 'refused', detail: detailOf(cause) };
   }
 
-  return await replayFrom(client, run, functionId);
+  return await replayFrom(client, run, functionId, {
+    newWorkflowID: workflowId,
+  });
 }
 
 /** The step a replay starts from unless somebody

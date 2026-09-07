@@ -19,11 +19,16 @@ import { replayFrom } from './replay.js';
  * call, it is the option. A fork made without an
  * application version inherits the version the
  * original run carried, and a worker dequeues only
- * its own version — so a fork of a run started
- * under code that has since been regenerated sits
+ * its own version — so a fork of a run whose
+ * version the app has since moved past sits
  * `ENQUEUED` for ever, with nothing anywhere
  * saying why. Every fork this extension makes
  * names the latest version, and says so.
+ *
+ * The second option is the id. Handed one, DBOS
+ * forks under it; left to itself it mints one and
+ * tells the caller afterwards — which is a run in
+ * flight that nothing on screen names yet.
  */
 
 const RUN: Run = {
@@ -41,6 +46,11 @@ const RUN: Run = {
   wasForkedFrom: false,
 };
 
+/** The id the caller minted before it asked for
+ *  the fork, which is what a session row is already
+ *  on screen under. */
+const FORK_ID = 'run_9_e5f6';
+
 function client(over: Partial<ManagementClient> = {}): ManagementClient & {
   destroy: ReturnType<typeof vi.fn>;
   forkWorkflow: ReturnType<typeof vi.fn>;
@@ -49,7 +59,7 @@ function client(over: Partial<ManagementClient> = {}): ManagementClient & {
     getLatestApplicationVersion: vi
       .fn()
       .mockResolvedValue({ versionName: 'v0.4.1' }),
-    forkWorkflow: vi.fn().mockResolvedValue('wf_fork1'),
+    forkWorkflow: vi.fn().mockResolvedValue(FORK_ID),
     destroy: vi.fn().mockResolvedValue(undefined),
     ...over,
   } as ManagementClient & {
@@ -62,17 +72,60 @@ describe('a replay', () => {
   it('forks the run from the step it was asked about', async () => {
     const dbos = client();
 
-    const outcome = await replayFrom(dbos, RUN, 3);
+    const outcome = await replayFrom(dbos, RUN, 3, {
+      newWorkflowID: FORK_ID,
+    });
 
     expect(dbos.forkWorkflow).toHaveBeenCalledWith('wf_c9d2f3', 3, {
       applicationVersion: 'v0.4.1',
+      newWorkflowID: FORK_ID,
     });
     expect(outcome).toEqual({
       at: 'forked',
-      workflowId: 'wf_fork1',
+      workflowId: FORK_ID,
       applicationVersion: 'v0.4.1',
+      startStep: 3,
       movedFrom: undefined,
     });
+  });
+
+  /**
+   * DBOS mints an id for a fork when it is not
+   * given one, and the caller then learns it only
+   * on the way back. That is a run in flight that
+   * nothing on screen names. Handing the id in
+   * turns it round: the row goes up first and the
+   * fork adopts it.
+   */
+  it('forks under the id it was handed', async () => {
+    const dbos = client();
+
+    const outcome = await replayFrom(dbos, RUN, 3, {
+      newWorkflowID: FORK_ID,
+    });
+
+    const options = dbos.forkWorkflow.mock.calls[0]?.[2] as {
+      newWorkflowID?: string;
+    };
+    expect(options.newWorkflowID).toBe(FORK_ID);
+    expect(outcome.at === 'forked' && outcome.workflowId).toBe(FORK_ID);
+  });
+
+  /**
+   * Which step it started from is not something the
+   * new run's own rows say: every step before it is
+   * copied in and looks exactly like one that ran.
+   * Whoever asked for the fork is the only witness,
+   * so the answer carries it back.
+   */
+  it('says which step it started from', async () => {
+    const dbos = client();
+
+    const outcome = await replayFrom(dbos, RUN, 7, {
+      newWorkflowID: FORK_ID,
+    });
+
+    expect(outcome.at === 'forked' && outcome.startStep).toBe(7);
   });
 
   /**
@@ -85,7 +138,7 @@ describe('a replay', () => {
   it('always names a version, never leaves it to the default', async () => {
     const dbos = client();
 
-    await replayFrom(dbos, RUN, 0);
+    await replayFrom(dbos, RUN, 0, { newWorkflowID: FORK_ID });
 
     const options = dbos.forkWorkflow.mock.calls[0]?.[2] as {
       applicationVersion?: string;
@@ -94,12 +147,14 @@ describe('a replay', () => {
   });
 
   /**
-   * Regeneration rewrites the generated workflow
-   * source, and DBOS derives a version from a hash
-   * of it — so an edit since this run started means
-   * the replay executes different code than the run
-   * did. That is usually the point, and it is
-   * always worth being told.
+   * A scaffolded app pins its own version through
+   * `APP_VERSION`, so regenerating the workflow
+   * source does not move it — somebody bumping that
+   * value does, deliberately, to stop a new
+   * generation adopting the old runs. When the
+   * latest is not the one this run carried, that is
+   * the decision the replay is about to cross, and
+   * it is always worth being told.
    */
   it('says so when the replay will run under newer code', async () => {
     const dbos = client({
@@ -108,12 +163,15 @@ describe('a replay', () => {
         .mockResolvedValue({ versionName: 'v0.5.0' }),
     });
 
-    const outcome = await replayFrom(dbos, RUN, 3);
+    const outcome = await replayFrom(dbos, RUN, 3, {
+      newWorkflowID: FORK_ID,
+    });
 
     expect(outcome).toEqual({
       at: 'forked',
-      workflowId: 'wf_fork1',
+      workflowId: FORK_ID,
       applicationVersion: 'v0.5.0',
+      startStep: 3,
       movedFrom: 'v0.4.1',
     });
   });
@@ -134,6 +192,7 @@ describe('a replay', () => {
       dbos,
       { ...RUN, applicationVersion: undefined },
       3,
+      { newWorkflowID: FORK_ID },
     );
 
     expect(outcome.at === 'forked' && outcome.movedFrom).toBeUndefined();
@@ -142,7 +201,7 @@ describe('a replay', () => {
   it('closes the connection it opened', async () => {
     const dbos = client();
 
-    await replayFrom(dbos, RUN, 3);
+    await replayFrom(dbos, RUN, 3, { newWorkflowID: FORK_ID });
 
     expect(dbos.destroy).toHaveBeenCalledTimes(1);
   });
@@ -159,7 +218,9 @@ describe('a replay', () => {
       forkWorkflow: vi.fn().mockRejectedValue(new Error('connection refused')),
     });
 
-    const outcome = await replayFrom(dbos, RUN, 3);
+    const outcome = await replayFrom(dbos, RUN, 3, {
+      newWorkflowID: FORK_ID,
+    });
 
     expect(outcome).toEqual({ at: 'refused', detail: 'connection refused' });
     expect(dbos.destroy).toHaveBeenCalledTimes(1);
@@ -172,7 +233,9 @@ describe('a replay', () => {
         .mockRejectedValue(new Error('no versions recorded')),
     });
 
-    const outcome = await replayFrom(dbos, RUN, 3);
+    const outcome = await replayFrom(dbos, RUN, 3, {
+      newWorkflowID: FORK_ID,
+    });
 
     expect(outcome.at).toBe('refused');
     expect(dbos.destroy).toHaveBeenCalledTimes(1);

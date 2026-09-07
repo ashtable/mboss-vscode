@@ -13,6 +13,7 @@ import type { RunFilter } from '../runs/queries.js';
 import type { RunCounts } from '../runs/rows.js';
 import type { ServiceHealth, StackAction } from '../runs/stack.js';
 import type { LiveOutcome } from '../runs/reading.js';
+import type { SessionVia } from '../runs/sessionLog.js';
 import type { LiveRun } from '../runs/watch.js';
 import type { runsWords, seeWords } from '../runs/words.js';
 import type { WorkflowTrigger } from '../runs/workflows.js';
@@ -436,6 +437,19 @@ export type SessionRow = {
   /** Whether sending the same input again is the
    *  same run, by the route's own idempotency. */
   keyed: boolean;
+
+  /**
+   * How the run got here.
+   *
+   * Both of the row's send-it-again actions use the
+   * input the row was started with, and only a run
+   * somebody typed an input for has one — a fork or
+   * a resume carries the input of the run it came
+   * from, which lives in the ledger and never
+   * passed through this window. So anything but
+   * `start` draws the row with Open run alone.
+   */
+  via: SessionVia;
 };
 
 /**

@@ -61,6 +61,13 @@ export type TestRunDeps = {
 /** What the list draws of this session. */
 export type TestRunZone = Pick<RunsInit, 'testRun' | 'live' | 'session'>;
 
+/**
+ * Why a run this window is watching exists, where
+ * a button rather than a typed input is what made
+ * it.
+ */
+export type RunOrigin = Pick<SessionRun, 'via' | 'replayOf'>;
+
 export type TestRun = Disposable & {
   /** Reads the saved workflows again, quietly: the
    *  panel is drawn again by whoever asked, and
@@ -90,6 +97,21 @@ export type TestRun = Disposable & {
   /** Starts a run of the same workflow with the
    *  same input. */
   rerun(workflowId: string): Promise<void>;
+
+  /**
+   * Puts a run this window is about to ask for on
+   * screen, and follows it.
+   *
+   * Called with the id the request will carry and
+   * before that request goes out, so a fork or a
+   * resume somebody's database refuses lands on a
+   * row already in the list rather than on nothing.
+   */
+  follow(workflowId: string, workflow: string, origin: RunOrigin): void;
+
+  /** Says the request that was going to create one
+   *  of those runs did not. */
+  refused(workflowId: string, detail: string): void;
 
   /** Hands a failed run to the agent. */
   askAgent(workflowId: string): Promise<void>;
@@ -203,6 +225,9 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     outcome: 'running',
     stepCount: 0,
     recovered: false,
+    // Pressing Run is the ordinary way a row gets
+    // here; the other two say so.
+    via: 'start',
     ...over,
   });
 
@@ -343,10 +368,44 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       const previous = deps.sessionLog.find(workflowId);
       if (previous === undefined) return;
 
+      // Only a run somebody typed an input for can
+      // be sent again with it. A fork or a resume
+      // carries the input of the run it came from,
+      // which lives in the ledger and never passed
+      // through here — so there is nothing to send.
+      if (previous.via !== 'start') return;
+
       const flow = workflows.find((one) => one.name === previous.workflow);
       if (flow === undefined) return;
 
       await start(flow, previous.input);
+    },
+
+    follow: (workflowId, workflow, origin) => {
+      // The watch goes on with the row rather than
+      // after it: a report about a run the session
+      // log has never heard of is dropped, so the
+      // row has to exist for the watch to be worth
+      // anything.
+      if (deps.sessionLog.find(workflowId) === undefined) {
+        deps.sessionLog.record(row(workflowId, workflow, undefined, origin));
+      }
+
+      deps.following.arm(workflowId);
+      changed();
+    },
+
+    refused: (workflowId, detail) => {
+      if (deps.sessionLog.find(workflowId) === undefined) return;
+
+      deps.sessionLog.update(workflowId, { outcome: 'failed', error: detail });
+
+      // Nothing will ever be written under that id,
+      // so the watch lets go now instead of reading
+      // somebody's database until the quiet bound
+      // ends it.
+      deps.following.drop(workflowId);
+      changed();
     },
 
     askAgent: async (workflowId) => {
