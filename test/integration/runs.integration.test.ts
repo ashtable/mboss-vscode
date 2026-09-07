@@ -7,6 +7,7 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { openDatabase, openManagement } from '../../src/runs/db.js';
+import { forksQuery } from '../../src/runs/queries.js';
 import { replayFrom } from '../../src/runs/replay.js';
 import type {
   ReplayAnswer,
@@ -611,6 +612,18 @@ describe('a run history, read from a real dbos schema', () => {
    * yes needs a scaffolded project with generated
    * code — which is the compose-backed harness in
    * `stack.integration.test.ts`, not this one.
+   *
+   * What the fork copies is asserted here as well,
+   * and it is the load-bearing half. `reused`, the
+   * step a replay actually began at, the lineage
+   * boundary and every `↺ recorded` mark rest on
+   * one undocumented SDK behaviour: a fork copies
+   * the rows the parent had already finished and
+   * keeps the parent's timestamps on them. Nothing
+   * in the schema marks a copied row, every unit
+   * spec drives a double whose rows a case sets by
+   * hand, and so nothing else in this repository
+   * would notice the day that changed.
    */
   it('forks a run through the real management client', async () => {
     await store.refresh();
@@ -640,6 +653,55 @@ describe('a run history, read from a real dbos schema', () => {
       expect(rows.map((row) => row.workflow_uuid)).toEqual([
         `${FAILED_RUN}_fork`,
       ]);
+
+      // The parent is marked, which is the column
+      // the run page branches on before it goes
+      // looking for forks at all.
+      const parent = await forked.query<{ was_forked_from: boolean }>(
+        'SELECT was_forked_from FROM dbos.workflow_status ' +
+          'WHERE workflow_uuid = $1',
+        [FAILED_RUN],
+      );
+
+      expect(parent[0]?.was_forked_from).toBe(true);
+
+      // The one row this fork carried over — it
+      // started at step 1, so step 0 is copied —
+      // still carries the moment the parent
+      // finished it, which is before the fork
+      // existed. Every reading of a replay is that
+      // comparison.
+      const copied = await forked.query<{
+        function_id: number;
+        completed_at_epoch_ms: string | null;
+      }>(
+        'SELECT function_id, completed_at_epoch_ms ' +
+          'FROM dbos.operation_outputs WHERE workflow_uuid = $1 ' +
+          'ORDER BY function_id',
+        [`${FAILED_RUN}_fork`],
+      );
+      const child = await forked.query<{ created_at: string }>(
+        'SELECT created_at FROM dbos.workflow_status ' +
+          'WHERE workflow_uuid = $1',
+        [`${FAILED_RUN}_fork`],
+      );
+
+      expect(copied.map((row) => row.function_id)).toEqual([0]);
+      expect(copied[0]?.completed_at_epoch_ms).not.toBeNull();
+      expect(Number(copied[0]?.completed_at_epoch_ms)).toBeLessThan(
+        Number(child[0]?.created_at),
+      );
+
+      // Which is the whole of what the tree's own
+      // query asks: the highest row the fork did
+      // not have to run again.
+      const asks = forksQuery(FAILED_RUN);
+      const answered = await forked.query<{ last_reused: number | null }>(
+        asks.text,
+        asks.values,
+      );
+
+      expect(answered[0]?.last_reused).toBe(0);
     } finally {
       await forked.close();
     }
