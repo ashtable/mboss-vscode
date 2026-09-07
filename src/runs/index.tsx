@@ -42,6 +42,10 @@ const MARKS: Record<RunRow['severity'], string> = {
   waiting: '◐',
   failed: '✕',
   exhausted: '⊘',
+  // Barred rather than crossed: somebody asked for
+  // this, so it is not the same news as a run that
+  // threw.
+  cancelled: '■',
 };
 
 /** One glyph per step, read off the ledger. There is
@@ -62,11 +66,25 @@ const SESSION_MARKS: Record<SessionRow['outcome'], string> = {
   failed: '✕',
   waiting: '◐',
   quiet: '○',
-  // Barred rather than crossed: somebody asked for
-  // this, so it is not the same news as a run that
-  // threw.
-  cancelled: '⊘',
+  // The same mark the ledger's own rows carry, so a
+  // run somebody stopped reads the same in both
+  // lists.
+  cancelled: '■',
 };
+
+/**
+ * The outcomes a run can still be stopped from.
+ *
+ * `quiet` is on the list because a quiet run is one
+ * the watch let go of rather than one that ended —
+ * DBOS still has it going, and it can still be
+ * stopped.
+ */
+const STOPPABLE: readonly LiveRun['outcome'][] = [
+  'running',
+  'waiting',
+  'quiet',
+];
 
 /** The compose service the app runs in, as the
  *  scaffold's own compose file names it. Rebuild
@@ -353,6 +371,32 @@ function RunningNow({
           </li>
         ))}
       </ol>
+
+      <div className="zone-actions">
+        {STOPPABLE.includes(live.outcome) ? (
+          <button
+            type="button"
+            data-cancel-run
+            onClick={() =>
+              postToHost({ type: 'cancelRun', workflowId: live.workflowId })
+            }
+          >
+            {strings.cancelRun}
+          </button>
+        ) : null}
+
+        {live.outcome === 'cancelled' ? (
+          <button
+            type="button"
+            data-resume-run
+            onClick={() =>
+              postToHost({ type: 'resumeRun', workflowId: live.workflowId })
+            }
+          >
+            {strings.resumeRun}
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -368,6 +412,13 @@ function RunningNow({
  * neither. Both actions send the input the row was
  * started with, and that run's input belongs to the
  * run it came from.
+ *
+ * A cancelled row gets a third thing instead: its
+ * whole recorded history is sitting in the ledger,
+ * so carrying on from there is what somebody means
+ * rather than a second run from the top. And no Ask
+ * agent — nobody has to look into a run somebody
+ * stopped on purpose.
  */
 function Session({
   session,
@@ -407,7 +458,21 @@ function Session({
               >
                 {strings.openRun}
               </button>
-              {row.via !== 'start' ? null : (
+              {row.outcome === 'cancelled' ? (
+                <button
+                  type="button"
+                  data-resume-run
+                  onClick={() =>
+                    postToHost({
+                      type: 'resumeRun',
+                      workflowId: row.workflowId,
+                    })
+                  }
+                >
+                  {strings.resumeRun}
+                </button>
+              ) : null}
+              {row.outcome === 'cancelled' || row.via !== 'start' ? null : (
                 <button
                   type="button"
                   data-rerun
@@ -418,7 +483,7 @@ function Session({
                   {row.keyed ? strings.resendEvent : strings.rerunSameInput}
                 </button>
               )}
-              {row.error === undefined ? null : (
+              {row.outcome === 'cancelled' || row.error === undefined ? null : (
                 <button
                   type="button"
                   data-ask-agent

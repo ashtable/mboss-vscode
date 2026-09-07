@@ -9,6 +9,7 @@ import {
   host,
   liveRun,
   liveStep,
+  management,
   project,
   watcher,
 } from '../test-support/runs.js';
@@ -63,13 +64,22 @@ function page(
   const editor = over.host ?? host({ projects: () => [project()] });
   const trust = over.trust ?? fakeTrust();
 
-  const list = runHistory({ host: editor, trust, open: async () => db });
+  const list = runHistory({
+    host: editor,
+    trust,
+    open: async () => db,
+    openManagement: async () => management(),
+    projectSdk: () => ({ ok: true, version: '4.27.6' }),
+  });
 
   const open = openRunZone({
     projectSdk: () => ({ ok: true, version: '4.27.6' }),
     following: follows().held,
     project: () => editor.projects()[0],
     ledger: list,
+    // Nothing in this window has cancelled anything
+    // unless a case says otherwise.
+    cancelledHere: () => false,
     ...over,
   });
 

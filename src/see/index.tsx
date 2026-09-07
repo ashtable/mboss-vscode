@@ -44,7 +44,7 @@ const nodeTypes: NodeTypes = {
 
 const edgeTypes: EdgeTypes = { wire: Wire };
 
-/** One mark per severity, the same four the run
+/** One mark per severity, the same ones the run
  *  list draws its rows with. */
 const SEVERITY_MARK: Record<RunSeverity, string> = {
   ok: '✓',
@@ -52,6 +52,7 @@ const SEVERITY_MARK: Record<RunSeverity, string> = {
   waiting: '◐',
   failed: '✕',
   exhausted: '⊘',
+  cancelled: '■',
 };
 
 /** One mark per follow state, in place of an icon

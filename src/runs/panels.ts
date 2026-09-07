@@ -115,6 +115,17 @@ export class RunsListView implements WebviewViewProvider {
           void this.store.replayRun(message.workflowId);
         }
 
+        // By id, because the row that sent this may
+        // be Running Now or one of this session's
+        // and neither is the run page's run.
+        if (message.type === 'cancelRun') {
+          void this.store.cancel(message.workflowId);
+        }
+
+        if (message.type === 'resumeRun') {
+          void this.store.resume(message.workflowId);
+        }
+
         if (message.type === 'openProduction') {
           void this.store.openProduction();
         }
@@ -216,6 +227,17 @@ export class SeePanel {
 
         if (message.type === 'openWorkflow') {
           void this.store.openWorkflow(message.workflowId);
+        }
+
+        // The run travels with the click here too:
+        // this panel may be drawing a run the
+        // extension has since moved past.
+        if (message.type === 'cancelRun') {
+          void this.store.cancel(message.workflowId);
+        }
+
+        if (message.type === 'resumeRun') {
+          void this.store.resume(message.workflowId);
         }
 
         // The block travels and the run does not: a

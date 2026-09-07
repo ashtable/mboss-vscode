@@ -49,9 +49,18 @@ function zone(over: Partial<TestRunDeps> = {}): TestRun {
   });
 }
 
-/** The one watch owner, over a watcher a case can
- *  speak through. */
-function follows(watch = watcher()): {
+/**
+ * The one watch owner, over a watcher a case can
+ * speak through.
+ *
+ * `unsettled` is what a re-arm is composed from, and
+ * a case that cares what a re-arm does hands in the
+ * zone's own answer.
+ */
+function follows(
+  watch = watcher(),
+  unsettled: () => readonly string[] = () => [],
+): {
   watch: ReturnType<typeof watcher>;
   held: Following;
 } {
@@ -61,7 +70,7 @@ function follows(watch = watcher()): {
       open: async () => database(),
       watch: watch.watch,
       ledger: () => LEDGER_URL,
-      unsettled: () => [],
+      unsettled,
     }),
   };
 }
@@ -353,6 +362,34 @@ describe('following a run', () => {
   });
 
   /**
+   * And a re-arm composed from what is unsettled
+   * passes it over. A watch stops itself when the
+   * run stops, so a row that came back on the list
+   * would be a second watcher polling somebody's
+   * database about a run that will not move again.
+   */
+  it('does not watch a cancelled row again', async () => {
+    // The closure is called long after this line,
+    // so naming the zone here is safe — and it is
+    // the zone's own answer a re-arm is composed
+    // from.
+    const owner = follows(watcher(), () => shown.unsettled());
+    const shown = zone({ runner: echoing().start, following: owner.held });
+
+    await shown.runWorkflow('groom_booking', '{}');
+    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    expect(owner.watch.armed).toHaveLength(1);
+
+    owner.watch.say(
+      workflowId,
+      liveRun({ workflowId, outcome: 'cancelled', status: 'CANCELLED' }),
+    );
+    owner.held.rewatch();
+
+    expect(owner.watch.armed).toHaveLength(1);
+  });
+
+  /**
    * The rule that keeps a run somebody is only
    * looking at off the document they are editing.
    *
@@ -514,6 +551,23 @@ describe('running it again', () => {
     await shown.rerun('wf_nothing');
 
     expect(ingress.requests).toEqual([]);
+  });
+
+  /**
+   * A run picked back up carries on with the input
+   * the run in the ledger was started with, and that
+   * never passed through this window. There is
+   * nothing here to send again.
+   */
+  it('does nothing when asked to rerun a resumed row', async () => {
+    const ingress = echoing();
+    const shown = zone({ runner: ingress.start });
+
+    shown.follow('wf_resumed', 'groom_booking', { via: 'resume' });
+    await shown.rerun('wf_resumed');
+
+    expect(ingress.requests).toEqual([]);
+    expect(shown.render().session[0]?.via).toBe('resume');
   });
 });
 

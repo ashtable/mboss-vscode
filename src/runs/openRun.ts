@@ -120,6 +120,17 @@ export type OpenRunDeps = {
   project(): string | undefined;
 
   ledger: LedgerAccess;
+
+  /**
+   * Whether this window is what cancelled a run.
+   *
+   * Asked of the list, which is where both controls
+   * live and where the ids they were asked about are
+   * remembered. No column records who cancelled a
+   * run, so this is the whole of the evidence for
+   * "by you".
+   */
+  cancelledHere(workflowId: string): boolean;
 };
 
 export type OpenRun = Disposable & {
@@ -380,7 +391,20 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
       changed();
     },
 
-    see: () => seeInit(shown, showing),
+    // "by you" is asked as the page is drawn rather
+    // than carried from the read, so a run cancelled
+    // from here while it is open says so without
+    // waiting for a refresh.
+    see: () =>
+      seeInit(
+        shown === undefined
+          ? undefined
+          : {
+              ...shown,
+              cancelledHere: deps.cancelledHere(shown.run.workflowId),
+            },
+        showing,
+      ),
 
     reading: () => shown,
 

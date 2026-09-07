@@ -75,6 +75,11 @@ const BOOKED_RUN = 'itest_booked';
 const SLEEPING_RUN = 'itest_sleeping';
 const PARKED_RUN = 'itest_parked';
 
+/** The one the two controls are pointed at, put
+ *  back to `PENDING` by hand so there is a run in
+ *  flight to stop. */
+const CONTROLLED_RUN = 'itest_controlled';
+
 /** What the ingress a generated project ships
  *  hands a workflow: one object, positionally. */
 const BOOKING = { email: 'ada@example.com', slot: '09:00' };
@@ -224,6 +229,31 @@ async function onMaintenanceServer(sql: string): Promise<void> {
   }
 }
 
+/** One run's own row, as the two controls leave
+ *  it. */
+type Status = {
+  status: string;
+  completed_at: string | null;
+  recovery_attempts: string | number;
+  queue_name: string | null;
+};
+
+async function statusOf(workflowId: string): Promise<Status | undefined> {
+  const client = new pg.Client({ connectionString: SYSTEM_DATABASE_URL });
+  await client.connect();
+  try {
+    const { rows } = await client.query<Status>(
+      'SELECT status, completed_at, recovery_attempts, queue_name ' +
+        'FROM dbos.workflow_status WHERE workflow_uuid = $1',
+      [workflowId],
+    );
+
+    return rows[0];
+  } finally {
+    await client.end();
+  }
+}
+
 async function onTestDatabase(sql: string, values: unknown[]): Promise<void> {
   const client = new pg.Client({ connectionString: SYSTEM_DATABASE_URL });
   await client.connect();
@@ -274,6 +304,7 @@ describe('a run history, read from a real dbos schema', () => {
 
     await DBOS.withNextWorkflowID(OK_RUN, async () => greet('world'));
     await DBOS.withNextWorkflowID(RECOVERED_RUN, async () => greet('again'));
+    await DBOS.withNextWorkflowID(CONTROLLED_RUN, async () => greet('stop'));
     await expect(
       DBOS.withNextWorkflowID(FAILED_RUN, async () => stumble()),
     ).rejects.toThrow();
@@ -300,6 +331,18 @@ describe('a run history, read from a real dbos schema', () => {
       'UPDATE dbos.workflow_status SET recovery_attempts = $1 ' +
         'WHERE workflow_uuid = $2',
       [3, RECOVERED_RUN],
+    );
+
+    // And the second: a run in flight for the two
+    // controls to be pointed at. Stopping one that
+    // is genuinely executing would mean keeping a
+    // worker alive here, and what the `UPDATE`
+    // behind each control does to the row is the
+    // same either way.
+    await onTestDatabase(
+      "UPDATE dbos.workflow_status SET status = 'PENDING', " +
+        'completed_at = NULL WHERE workflow_uuid = $1',
+      [CONTROLLED_RUN],
     );
 
     // The extension never runs inside a DBOS
@@ -374,13 +417,14 @@ describe('a run history, read from a real dbos schema', () => {
     expect(list.state).toBe('ok');
     expect(list.rows.map((row) => row.workflowId).sort()).toEqual([
       BOOKED_RUN,
+      CONTROLLED_RUN,
       FAILED_RUN,
       OK_RUN,
       PARKED_RUN,
       RECOVERED_RUN,
       SLEEPING_RUN,
     ]);
-    expect(list.counts).toEqual({ all: 6, failed: 2, recovered: 1 });
+    expect(list.counts).toEqual({ all: 7, failed: 2, recovered: 1 });
   });
 
   /**
@@ -520,7 +564,7 @@ describe('a run history, read from a real dbos schema', () => {
     ]);
 
     await store.setFilter('all');
-    expect(store.list().rows).toHaveLength(6);
+    expect(store.list().rows).toHaveLength(7);
   });
 
   /**
@@ -598,5 +642,56 @@ describe('a run history, read from a real dbos schema', () => {
     } finally {
       await forked.close();
     }
+  });
+
+  /**
+   * The two controls against the real client, which
+   * is the only place their claims can be checked:
+   * both are one `UPDATE` inside DBOS's own code and
+   * what those statements write is the whole of what
+   * the extension is relying on.
+   */
+  it('cancels a run in flight, and the row says so', async () => {
+    await store.refresh();
+    await store.cancel(CONTROLLED_RUN);
+
+    const row = await statusOf(CONTROLLED_RUN);
+
+    expect(row?.status).toBe('CANCELLED');
+    expect(row?.completed_at).not.toBeNull();
+    expect(said.at(-1)).toContain(CONTROLLED_RUN);
+  });
+
+  /**
+   * And resume puts it back on DBOS's own internal
+   * queue with the recovery count wound back, which
+   * is what makes a worker pick it up again.
+   */
+  it('picks the cancelled run back up onto the internal queue', async () => {
+    await store.resume(CONTROLLED_RUN);
+
+    const row = await statusOf(CONTROLLED_RUN);
+
+    expect(row?.status).toBe('ENQUEUED');
+    expect(Number(row?.recovery_attempts)).toBe(0);
+    expect(row?.queue_name).toBe('_dbos_internal_queue');
+  });
+
+  /**
+   * The reason the two adapters answer `over`
+   * themselves. DBOS's statement ends in
+   * `status NOT IN ('SUCCESS','ERROR')` and never
+   * reads how many rows it changed, so asking it
+   * about a finished run resolves having done
+   * nothing at all.
+   */
+  it('leaves a finished run alone and says it was already over', async () => {
+    said.length = 0;
+    await store.cancel(OK_RUN);
+
+    const row = await statusOf(OK_RUN);
+
+    expect(row?.status).toBe('SUCCESS');
+    expect(said.at(-1)).toContain('SUCCESS');
   });
 });

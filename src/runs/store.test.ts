@@ -17,6 +17,7 @@ import {
   runner,
   stack,
   watcher,
+  RUN_ROW,
   STEP_ROW,
 } from '../test-support/runs.js';
 
@@ -466,6 +467,53 @@ describe('the doors a replay comes through', () => {
     await store.replayRun('wf_c9d2f3');
 
     expect(asked).toEqual([]);
+  });
+});
+
+/**
+ * The two controls, composed.
+ *
+ * The decision and the sentence are the list's, and
+ * the zone spec beside it is where those are
+ * checked. What is checked here is what the store
+ * does afterwards: a resumed run goes onto the
+ * screen under its own id and onto the one watch
+ * this window owns.
+ */
+describe('a run picked back up', () => {
+  it('puts it on screen as a row that cannot be rerun', async () => {
+    const db = database();
+    db.rows = [
+      { ...RUN_ROW, workflow_uuid: 'wf_stopped', status: 'CANCELLED' },
+    ];
+
+    const store = runsStore(
+      deps({
+        host: host({ projects: () => [project()] }),
+        open: async () => db,
+        openManagement: async () => management(),
+      }),
+    );
+
+    await store.resume('wf_stopped');
+
+    // The input it carries on with belongs to the
+    // run in the ledger, which never passed through
+    // this window — so the row offers Open run and
+    // nothing else.
+    expect(store.list().session).toEqual([
+      expect.objectContaining({ workflowId: 'wf_stopped', via: 'resume' }),
+    ]);
+  });
+
+  it('leaves the session alone when the ledger has no such run', async () => {
+    const store = runsStore(
+      deps({ host: host({ projects: () => [project()] }) }),
+    );
+
+    await store.resume('wf_nothing');
+
+    expect(store.list().session).toEqual([]);
   });
 });
 

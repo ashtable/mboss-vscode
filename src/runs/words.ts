@@ -90,6 +90,18 @@ export const runsWords = once(() => ({
   waitingRefresh: l10n.t('waiting · refresh to check'),
   quietRefresh: l10n.t('quiet · refresh to check'),
 
+  /**
+   * The two controls over a run, and never both.
+   *
+   * "Cancel run" rather than "Cancel", because a
+   * panel with a Stop above it for the stack and a
+   * Cancel below it for a run is two words for two
+   * unrelated things. "Resume" stands on its own:
+   * only a run that stopped is ever offered it.
+   */
+  cancelRun: l10n.t('Cancel run'),
+  resumeRun: l10n.t('Resume'),
+
   thisSession: l10n.t('This Session'),
   rerunSameInput: l10n.t('Rerun with same input'),
   resendEvent: l10n.t('Send the event again'),

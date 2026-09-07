@@ -223,6 +223,19 @@ export type RunsStore = Disposable & {
    *  began. */
   replayRun(workflowId: string): Promise<void>;
 
+  /**
+   * Stops a run, and picks a stopped one back up.
+   *
+   * By id, because three surfaces reach these and
+   * none of them is necessarily the run page:
+   * Running Now names the run this window is
+   * watching, a session row names one it started,
+   * and the page names the one it has open.
+   */
+  cancel(workflowId: string): Promise<void>;
+
+  resume(workflowId: string): Promise<void>;
+
   stackUp(): Promise<void>;
   stackDown(): Promise<void>;
   stackRebuild(): Promise<void>;
@@ -339,6 +352,8 @@ export function runsStore(deps: RunsDeps): RunsStore {
     host: deps.host,
     trust: deps.trust,
     open: deps.open,
+    openManagement: deps.openManagement,
+    projectSdk: deps.projectSdk,
   });
 
   // The run page reads the same ledger, and borrows
@@ -350,6 +365,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
     following: follow,
     project: () => deps.host.projects()[0],
     ledger: history,
+    // Asked as the page is drawn rather than as the
+    // run is read, so a run cancelled from here
+    // while it is open says so without a re-read.
+    cancelledHere: (workflowId) => history.cancelledHere().has(workflowId),
   });
   const stack = stackZone({
     host: deps.host,
@@ -409,32 +428,6 @@ export function runsStore(deps: RunsDeps): RunsStore {
   const stacking = async (command: () => Promise<void>): Promise<void> => {
     testRun.clearProblem();
     await command();
-  };
-
-  /**
-   * One run, read again by id rather than taken
-   * from whatever the page is showing: what a
-   * caller names is a run, and which workflow that
-   * run was a run of is the ledger's answer.
-   *
-   * A database that would not answer and a run
-   * nobody has come back the same way, because they
-   * come to the same thing for every caller here:
-   * there is nothing to open. Why is the list's to
-   * say, and the list says it the next time it is
-   * drawn.
-   */
-  const runById = async (workflowId: string): Promise<Run | undefined> => {
-    const url = history.connection();
-    if (url === undefined) return undefined;
-
-    return await history.read(url, async (db) => {
-      const one = runQuery(workflowId);
-      const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
-      const row = rows[0];
-
-      return row === undefined ? undefined : toRun(row);
-    });
   };
 
   /**
@@ -591,6 +584,34 @@ export function runsStore(deps: RunsDeps): RunsStore {
     replay,
     replayRun: (workflowId) => replay(workflowId),
 
+    /**
+     * Cancelling changes what is worth following:
+     * the run's next tick reads `CANCELLED` and the
+     * watch settles the row it left. Re-armed rather
+     * than started, because a run already being
+     * watched is one watch and stays one.
+     */
+    cancel: async (workflowId) => {
+      await history.cancel(workflowId);
+      follow.rewatch();
+    },
+
+    /**
+     * And resuming puts the run back on screen under
+     * its own id, with a watch whose first tick
+     * reads `ENQUEUED`.
+     *
+     * A session row that cannot be rerun: the input
+     * it carries on with belongs to the run in the
+     * ledger and never passed through this window.
+     */
+    resume: async (workflowId) => {
+      const done = await history.resume(workflowId);
+      if (done.at !== 'asked') return;
+
+      testRun.follow(done.run.workflowId, done.run.name, { via: 'resume' });
+    },
+
     stackUp: () => stacking(stack.up),
     stackDown: () => stacking(stack.down),
     stackRebuild: () => stacking(stack.rebuild),
@@ -605,7 +626,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
       const dir = project();
       if (dir === undefined) return;
 
-      const found = await runById(workflowId);
+      const found = await history.runOf(workflowId);
       if (found === undefined) return;
 
       const saved = projectWorkflows(dir).find(
@@ -643,7 +664,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
       // that happens to come first.
       if (!deps.trust.isTrusted()) return;
 
-      const found = await runById(workflowId);
+      const found = await history.runOf(workflowId);
       if (found === undefined) return;
 
       const document = workflowDocument(dir, found.name);

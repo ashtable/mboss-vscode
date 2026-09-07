@@ -78,6 +78,12 @@ body {
   color: var(--warn);
 }
 
+/* Not the failure colour: a run somebody stopped is
+   not a bug anybody has to read. */
+.see-head > .title[data-severity='cancelled'] {
+  color: var(--ink-muted);
+}
+
 /* — the banner — */
 
 .recovered {

@@ -188,6 +188,11 @@ describe('what each view may say', () => {
     openProduction: ['runs'],
     replayRun: ['runs'],
 
+    // Distinct from `cancel`, which is the side
+    // bar's own kind for stopping an agent's turn.
+    cancelRun: ['runs', 'see'],
+    resumeRun: ['runs', 'see'],
+
     stepSelect: ['see'],
     replayFrom: ['canvas', 'see'],
     seeShow: ['see'],
@@ -250,6 +255,8 @@ describe('what each view may say', () => {
     openRun: { workflowId: 'wf_c9d2f3' },
     openProduction: {},
     replayRun: { workflowId: 'wf_c9d2f3' },
+    cancelRun: { workflowId: 'wf_c9d2f3' },
+    resumeRun: { workflowId: 'wf_c9d2f3' },
 
     stepSelect: { functionId: 2 },
     replayFrom: { workflowId: 'wf_c9d2f3', functionId: 2 },

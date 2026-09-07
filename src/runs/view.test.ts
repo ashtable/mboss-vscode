@@ -167,6 +167,22 @@ describe('a row of the run history', () => {
     expect(row.status).toBe('MAX_RECOVERY_ATTEMPTS_EXCEEDED');
   });
 
+  /**
+   * And a run somebody stopped is not news about the
+   * code at all. It stays under Failed, because that
+   * filter is DBOS's own partial index and the
+   * status word on the row says which of the three it
+   * was — but it is drawn as its own thing, since
+   * nobody has to go and look into it.
+   */
+  it('tells a run somebody cancelled apart from one that failed', () => {
+    const row = rowOf({ ...RUN, status: 'CANCELLED' });
+
+    expect(row.severity).toBe('cancelled');
+    expect(row.status).toBe('CANCELLED');
+    expect(rowOf({ ...RUN, status: 'ERROR' }).severity).toBe('failed');
+  });
+
   it('draws a run that has not finished as still going', () => {
     for (const status of ['PENDING', 'ENQUEUED', 'DELAYED']) {
       expect(rowOf({ ...RUN, status }).severity).toBe('running');
@@ -521,6 +537,124 @@ describe('one run in detail', () => {
 
     expect(empty.run).toBeUndefined();
     expect(empty.strings.nothingSelected).toBeTypeOf('string');
+  });
+});
+
+/**
+ * The two controls a person has over a run.
+ *
+ * Which of them is on offer is the status column's
+ * answer and nothing else's: DBOS's own statements
+ * leave `SUCCESS` and `ERROR` alone, cancel is
+ * meaningless once a run has stopped, and resume is
+ * meaningless while one is still going. So the page
+ * offers at most one of them, ever.
+ *
+ * "by you" is this window's own memory of having
+ * asked. Nothing is written down anywhere, and the
+ * page says it only when it is told to.
+ */
+describe('the two controls over one run', () => {
+  function controls(
+    over: Partial<Run>,
+    view: Partial<SeeView> = {},
+  ): SeeRun['controls'] {
+    const shown = seeInit({
+      run: { ...RUN, ...over },
+      steps: STEPS,
+      selectedStep: undefined,
+      note: undefined,
+      ...view,
+    });
+
+    // Every case here builds a run, so the page is
+    // never the empty one.
+    return shown.run?.controls as SeeRun['controls'];
+  }
+
+  const IN_FLIGHT = ['PENDING', 'ENQUEUED', 'DELAYED'];
+  const RESUMABLE = ['CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED'];
+  const OVER = ['SUCCESS', 'ERROR'];
+
+  it('offers Cancel while a run is pending, enqueued or delayed', () => {
+    for (const status of IN_FLIGHT) {
+      expect({
+        status,
+        ...controls({ status, completedAt: undefined }),
+      }).toMatchObject({ status, cancel: true });
+    }
+
+    for (const status of [...RESUMABLE, ...OVER]) {
+      expect({ status, ...controls({ status }) }).toMatchObject({
+        status,
+        cancel: false,
+      });
+    }
+  });
+
+  /**
+   * A run DBOS gave up recovering is the other run
+   * resume is for: its statement leaves only
+   * `SUCCESS` and `ERROR` alone, and picking one of
+   * those back up would be offering to restart a
+   * run that is over.
+   */
+  it('offers Resume only on a cancelled or exhausted run', () => {
+    for (const status of RESUMABLE) {
+      expect({ status, ...controls({ status }) }).toMatchObject({
+        status,
+        resume: true,
+      });
+    }
+
+    for (const status of [...IN_FLIGHT, ...OVER]) {
+      expect({ status, ...controls({ status }) }).toMatchObject({
+        status,
+        resume: false,
+      });
+    }
+  });
+
+  it('never offers both', () => {
+    for (const status of [...IN_FLIGHT, ...RESUMABLE, ...OVER]) {
+      const offered = controls({ status });
+
+      expect(offered.cancel && offered.resume).toBe(false);
+    }
+  });
+
+  /**
+   * Window memory, and it says so. Nothing is
+   * persisted: a run this window cancelled is
+   * "by you" until the window closes, and a run
+   * cancelled from a terminal or by somebody else
+   * carries the time alone however it got that way.
+   */
+  it('says "by you" only when told', () => {
+    const mine = controls({ status: 'CANCELLED' }, { cancelledHere: true });
+    const theirs = controls({ status: 'CANCELLED' });
+
+    expect(mine.cancelled).toContain('by you');
+    expect(theirs.cancelled).not.toContain('by you');
+    expect(theirs.cancelled).toBeTypeOf('string');
+  });
+
+  it('says nothing about a cancellation on a run nobody cancelled', () => {
+    expect(controls({ status: 'ERROR' }).cancelled).toBeUndefined();
+  });
+
+  /**
+   * What the run got as far as, so somebody deciding
+   * whether to pick it back up can see where it
+   * would carry on from.
+   */
+  it('names the last durable operation the run recorded', () => {
+    expect(controls({ status: 'CANCELLED' }).lastRecorded).toBe(
+      'step_2 · step 2',
+    );
+    expect(
+      controls({ status: 'CANCELLED' }, { steps: [] }).lastRecorded,
+    ).toBeUndefined();
   });
 });
 

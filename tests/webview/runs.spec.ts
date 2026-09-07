@@ -198,6 +198,12 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
       { label: 'recovery_attempts', value: '2' },
       { label: 'executor_id', value: 'local-dev' },
     ],
+    controls: {
+      cancel: false,
+      resume: false,
+      cancelled: undefined,
+      lastRecorded: 'book_appointment · step 2',
+    },
     selectedStep: 2,
     note: undefined,
     graph: undefined,
@@ -627,6 +633,48 @@ test.describe('the run being followed', () => {
 
     await expect(page.locator('[data-zone="running-now"]')).toHaveCount(0);
   });
+
+  /**
+   * A quiet run is one the watch let go of, not one
+   * that ended: DBOS still has it `PENDING` and it
+   * can still be stopped. So all three of the
+   * stopped-and-not-stopped states offer it.
+   */
+  test('offers Cancel while a run is running, waiting or quiet', async ({
+    page,
+  }) => {
+    for (const outcome of ['running', 'waiting', 'quiet'] as const) {
+      const harness = await showList(
+        page,
+        runsInit({ live: { ...LIVE, outcome } }),
+      );
+
+      const zone = page.locator('[data-zone="running-now"]');
+      await expect(zone.locator('[data-resume-run]')).toHaveCount(0);
+      await zone.locator('[data-cancel-run]').click();
+
+      expect(await harness.postedOfType('cancelRun')).toEqual([
+        { type: 'cancelRun', workflowId: 'run_1_a1b2' },
+      ]);
+    }
+  });
+
+  test('offers Resume once it is cancelled', async ({ page }) => {
+    const harness = await showList(
+      page,
+      runsInit({
+        live: { ...LIVE, outcome: 'cancelled', status: 'CANCELLED' },
+      }),
+    );
+
+    const zone = page.locator('[data-zone="running-now"]');
+    await expect(zone.locator('[data-cancel-run]')).toHaveCount(0);
+    await zone.locator('[data-resume-run]').click();
+
+    expect(await harness.postedOfType('resumeRun')).toEqual([
+      { type: 'resumeRun', workflowId: 'run_1_a1b2' },
+    ]);
+  });
 });
 
 test.describe('this session', () => {
@@ -837,6 +885,74 @@ test.describe('this session', () => {
     await expect(page.locator('.run-rows [data-run="wf_c9d2f3"]')).toHaveCount(
       0,
     );
+  });
+
+  /**
+   * The one row where sending the run again is not
+   * what somebody means. A cancelled run has its
+   * whole recorded history sitting in the ledger,
+   * and picking it back up carries on from there —
+   * so the row offers that instead of a second run
+   * from the top.
+   */
+  test('offers Resume in place of Rerun on a cancelled row', async ({
+    page,
+  }) => {
+    const harness = await showList(
+      page,
+      runsInit({
+        session: [
+          {
+            workflowId: 'run_5',
+            workflow: 'groom_booking',
+            outcome: 'cancelled',
+            when: '14:14 · 3.1 s',
+            stepCount: 2,
+            recovered: false,
+            error: undefined,
+            keyed: false,
+            via: 'start',
+          },
+        ],
+      }),
+    );
+
+    const row = page.locator('[data-session-row="run_5"]');
+    await expect(row).toHaveAttribute('data-outcome', 'cancelled');
+    await expect(row.locator('[data-rerun]')).toHaveCount(0);
+
+    await row.locator('[data-resume-run]').click();
+    expect(await harness.postedOfType('resumeRun')).toEqual([
+      { type: 'resumeRun', workflowId: 'run_5' },
+    ]);
+  });
+
+  /** Nobody has to look into a run somebody stopped
+   *  on purpose: there is no error, and no question
+   *  to hand over. */
+  test('offers no Ask agent on a cancelled row', async ({ page }) => {
+    await showList(
+      page,
+      runsInit({
+        session: [
+          {
+            workflowId: 'run_6',
+            workflow: 'groom_booking',
+            outcome: 'cancelled',
+            when: '14:14 · 3.1 s',
+            stepCount: 2,
+            recovered: false,
+            error: 'cancelled at find_slot',
+            keyed: false,
+            via: 'start',
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      page.locator('[data-session-row="run_6"] [data-ask-agent]'),
+    ).toHaveCount(0);
   });
 });
 

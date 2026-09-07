@@ -575,6 +575,13 @@ body {
   color: var(--warn);
 }
 
+/* Somebody asked for this one, so it is neither the
+   failure colour nor the one that says a run is
+   fine. */
+.run-row[data-severity='cancelled'] .run-mark {
+  color: var(--ink-muted);
+}
+
 .run-tag {
   font-weight: 600;
   font-size: var(--text-xs);

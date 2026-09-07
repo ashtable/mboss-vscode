@@ -865,6 +865,109 @@ export const messages = {
   replayRowParkedHere: () => l10n.t('The run is sitting here now.'),
 
   /**
+   * The two controls a person has over a run, said
+   * out loud.
+   *
+   * Both are one `UPDATE` inside DBOS's client and
+   * neither reports what it did, so every sentence
+   * here is chosen from the row read *after* the
+   * call rather than from the call's own answer.
+   * That is why cancelling has two of them: a run
+   * that has already stopped at a durable operation
+   * comes back `CANCELLED`, and one still working
+   * comes back exactly as it was and will notice at
+   * its next one.
+   */
+  runNotFound: (id: string) =>
+    l10n.t('This project’s ledger has no run {0}.', id),
+
+  runCancelled: (id: string) =>
+    l10n.t(
+      'Run {0} is cancelled. Everything it had already recorded stays in the ledger.',
+      id,
+    ),
+  runCancelPending: (id: string) =>
+    l10n.t(
+      'Asked DBOS to cancel {0}. Cancelling is not an interrupt — the run stops at its next durable operation.',
+      id,
+    ),
+  runCancelOver: (id: string, status: string) =>
+    l10n.t(
+      'Run {0} had already finished as {1}, so there was nothing to cancel.',
+      id,
+      status,
+    ),
+  runCancelRefused: (detail: string) =>
+    l10n.t('That run was not cancelled: {0}', detail),
+
+  /**
+   * Resuming leaves the run's own
+   * `application_version` exactly where it was, and
+   * a worker dequeues only its own version — so a
+   * run picked back up under a version the app has
+   * moved past sits `ENQUEUED` and nothing says why.
+   * The second form is that case, and it points at
+   * the one thing that does run under the current
+   * version.
+   */
+  runResumeStarted: (id: string, version: string) =>
+    l10n.t(
+      'Resuming {0} from its recorded history. It starts when your app is running under version {1}.',
+      id,
+      version,
+    ),
+  runResumeStartedOlder: (id: string, version: string, latest: string) =>
+    l10n.t(
+      'Resuming {0} under version {1}, and your app is running {2}. Replay From Here forks it under the current version instead.',
+      id,
+      version,
+      latest,
+    ),
+  runResumeOver: (id: string, status: string) =>
+    l10n.t(
+      'Run {0} had already finished as {1}, so there was nothing to resume.',
+      id,
+      status,
+    ),
+  runResumeRefused: (detail: string) =>
+    l10n.t('That run was not resumed: {0}', detail),
+
+  /**
+   * The same skew gate a replay goes through, said
+   * about the two controls instead.
+   *
+   * Both of them write into somebody's ledger
+   * through a client this extension ships, and a
+   * client newer than the project's own SDK asks for
+   * members the project never wrote.
+   */
+  runControlSdkNewer: (extension: string, project: string) =>
+    l10n.t(
+      'This extension writes DBOS {0} and the project runs {1}. Update the project before cancelling or resuming a run.',
+      extension,
+      project,
+    ),
+  runControlSdkMajor: (extension: string, project: string) =>
+    l10n.t(
+      'This extension writes DBOS {0} and the project runs {1}, which is a different major version. Cancel and Resume are not offered.',
+      extension,
+      project,
+    ),
+
+  /**
+   * The two lines the run page draws above its
+   * controls.
+   *
+   * "by you" is this window's own memory of having
+   * asked — no column anywhere records who cancelled
+   * a run — so it is said only where the window
+   * remembers doing it.
+   */
+  runCancelledByYou: (at: string) => l10n.t('{0} · by you', at),
+  runLastRecorded: (name: string, step: number) =>
+    l10n.t('{0} · step {1}', name, step),
+
+  /**
    * `mBoss: Run Workflow…`'s two questions: which
    * one, then what to send it. The picker offers
    * only what can be started this way — a scheduled

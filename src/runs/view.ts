@@ -57,6 +57,18 @@ import type { ProjectWorkflow } from './workflows.js';
 const IN_FLIGHT = new Set(['PENDING', 'ENQUEUED', 'DELAYED']);
 
 /**
+ * Statuses a run can be picked back up from.
+ *
+ * DBOS's own resume statement leaves `SUCCESS` and
+ * `ERROR` alone, so those two are out; a run still
+ * going has nothing to resume. What is left is the
+ * run somebody stopped and the run DBOS gave up
+ * recovering, which is exactly what the verb is
+ * for.
+ */
+const RESUMABLE = new Set(['CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED']);
+
+/**
  * How much of an output one cell carries.
  *
  * The raw panel is a table, and a step that
@@ -103,6 +115,18 @@ export type SeeView = {
    *  wake and timeout lines are read off. The host
    *  answers this; nothing browser-side can. */
   timing?: boolean;
+
+  /**
+   * Whether this window is what cancelled the run.
+   *
+   * Handed in rather than derived, because no column
+   * anywhere records who cancelled a run. The list
+   * remembers the ids this window asked about, for
+   * as long as the window is open, and that
+   * remembering is the whole of the evidence there
+   * is for "by you".
+   */
+  cancelledHere?: boolean;
 };
 
 /**
@@ -210,6 +234,7 @@ function seeRun(view: SeeView): SeeRun {
     timeline: chartOf(reading, drawn),
     raw: steps.map(rawRowOf),
     rail: railOf(run),
+    controls: controlsOf(run, drawn, view.cancelledHere ?? false),
     selectedStep: view.selectedStep,
     note: view.note,
     graph,
@@ -607,7 +632,11 @@ function summaryOf(run: Run, severity: RunSeverity): string | undefined {
  */
 function severityOf(run: Run, parked: boolean): RunSeverity {
   if (run.status === 'MAX_RECOVERY_ATTEMPTS_EXCEEDED') return 'exhausted';
-  if (run.status === 'ERROR' || run.status === 'CANCELLED') return 'failed';
+  // Before the failed set, which holds it: somebody
+  // asked for this one, so it is not a failure
+  // anybody has to look into.
+  if (run.status === 'CANCELLED') return 'cancelled';
+  if (run.status === 'ERROR') return 'failed';
   if (!IN_FLIGHT.has(run.status)) return 'ok';
 
   return parked ? 'waiting' : 'running';
@@ -808,6 +837,57 @@ function railOf(run: Run): { label: string; value: string }[] {
         ...rows,
         { label: 'application_version', value: run.applicationVersion },
       ];
+}
+
+/**
+ * Which of the two controls the run is open to, and
+ * what it already carries.
+ *
+ * Both answers come off the status column and
+ * nothing else, because that is the column DBOS's
+ * own statements are conditioned on: cancel and
+ * resume both end in `status NOT IN
+ * ('SUCCESS','ERROR')`. Offering either where the
+ * statement would change nothing is offering a
+ * button that does nothing and says so afterwards.
+ *
+ * Never both, and the two sets cannot overlap: a run
+ * is either still going or it has stopped.
+ */
+function controlsOf(
+  run: Run,
+  drawn: readonly Operation[],
+  cancelledHere: boolean,
+): SeeRun['controls'] {
+  const last = drawn.at(-1);
+
+  return {
+    cancel: IN_FLIGHT.has(run.status),
+    resume: RESUMABLE.has(run.status),
+    cancelled: cancelledAt(run, cancelledHere),
+    lastRecorded:
+      last === undefined
+        ? undefined
+        : messages.runLastRecorded(last.name, last.functionId),
+  };
+}
+
+/**
+ * When the run was cancelled, and whether this
+ * window is what did it.
+ *
+ * `completed_at` is what cancelling writes, so it is
+ * the moment to show. A cancelled run with no
+ * completion recorded is a row this extension did
+ * not write and cannot date, and it says the plain
+ * status instead of guessing at a time.
+ */
+function cancelledAt(run: Run, cancelledHere: boolean): string | undefined {
+  if (run.status !== 'CANCELLED') return undefined;
+
+  const at = precise(run.completedAt ?? run.createdAt);
+
+  return cancelledHere ? messages.runCancelledByYou(at) : at;
 }
 
 /** Seconds with one decimal, the way the design

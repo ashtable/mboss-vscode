@@ -468,6 +468,32 @@ const ReplayRun = z.object({
 });
 
 /**
+ * Somebody asked for a run to be stopped, or for a
+ * stopped one to be picked back up.
+ *
+ * By id, because three surfaces send these and none
+ * of them is necessarily showing the run: Running
+ * Now names the run this window is watching, a
+ * session row names one this window started, and
+ * the run page names the one it has open.
+ *
+ * `cancelRun` rather than `cancel`, which is the
+ * side bar's own kind for stopping an agent's turn.
+ * Two frames can post the same kind, so a name that
+ * meant both would be one message with two
+ * unrelated meanings.
+ */
+const CancelRun = z.object({
+  type: z.literal('cancelRun'),
+  workflowId: z.string(),
+});
+
+const ResumeRun = z.object({
+  type: z.literal('resumeRun'),
+  workflowId: z.string(),
+});
+
+/**
  * Which of the two views of one run is on screen.
  *
  * Held by the extension rather than by the frame,
@@ -596,6 +622,8 @@ const SCHEMAS = {
     OpenProduction,
     CopyRunId,
     ReplayRun,
+    CancelRun,
+    ResumeRun,
   ]),
   see: z.discriminatedUnion('type', [
     Ready,
@@ -611,6 +639,8 @@ const SCHEMAS = {
     SeeRaw,
     SeeRefresh,
     OpenWorkflow,
+    CancelRun,
+    ResumeRun,
   ]),
   gallery: z.discriminatedUnion('type', [Ready, UsePattern, StartBlank]),
 };

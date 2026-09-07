@@ -553,8 +553,15 @@ export type RunRow = {
  * a run that failed *after* being restarted as
  * many times as DBOS allows is a loop somebody has
  * to break.
+ *
+ * `cancelled` is its own for the opposite reason:
+ * somebody asked for it, so it is not news anybody
+ * has to look into. The run still appears under the
+ * Failed filter, which is DBOS's own partial index
+ * rather than anything this panel decides.
  */
-export type RunSeverity = 'ok' | 'running' | 'waiting' | 'failed' | 'exhausted';
+export type RunSeverity =
+  'ok' | 'running' | 'waiting' | 'failed' | 'exhausted' | 'cancelled';
 
 export type RunsStrings = ReturnType<typeof runsWords>;
 
@@ -626,6 +633,37 @@ export type SeeRun = {
 
   /** `dbos.workflow_status`, as the rail draws it. */
   rail: { label: string; value: string }[];
+
+  /**
+   * The two controls, and what a run already
+   * carrying one of them says.
+   *
+   * Never both: cancel is meaningless once a run has
+   * stopped and resume is meaningless while one is
+   * still going, so the status column answers each
+   * of them and the answers cannot both be yes.
+   */
+  controls: {
+    cancel: boolean;
+
+    resume: boolean;
+
+    /**
+     * `10:58:22`, or `10:58:22 · by you` where this
+     * window is what asked.
+     *
+     * "by you" is window memory and nothing else —
+     * no column records who cancelled a run — so it
+     * goes when the window closes and is never
+     * claimed for a run cancelled anywhere else.
+     */
+    cancelled: string | undefined;
+
+    /** `charge_card · step 3`: how far the run got,
+     *  which is where resuming would carry on
+     *  from. */
+    lastRecorded: string | undefined;
+  };
 
   /** Which step the replay button would fork
    *  from. */
