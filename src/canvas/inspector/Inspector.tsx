@@ -167,6 +167,7 @@ export function Inspector({
                 }
           }
           runState={runState}
+          onRunPage={false}
         />
       )}
     </div>

@@ -74,6 +74,11 @@ export type EvidenceProps = {
    *  about a run that has got as far as here and
    *  written nothing yet. */
   runState: RunState | undefined;
+
+  /** Whether this card is drawn on the run page.
+   *  `Open run` is the way there, and a way to where
+   *  somebody is standing is not an offer. */
+  onRunPage: boolean;
 };
 
 /** One mark per state, the same four the run list
@@ -107,12 +112,18 @@ const RETRIES: ReadonlySet<NodeKind> = new Set<NodeKind>([
   'branch',
 ]);
 
-export function Evidence({ strings, run, block, runState }: EvidenceProps) {
+export function Evidence({
+  strings,
+  run,
+  block,
+  runState,
+  onRunPage,
+}: EvidenceProps) {
   // A trigger is the run starting, and nothing
   // selected is the run itself. Both are the same
   // question, so both get the same card.
   return block === undefined || block.kind === 'trigger' ? (
-    <RunCard strings={strings} run={run} />
+    <RunCard strings={strings} run={run} onRunPage={onRunPage} />
   ) : (
     <BlockCard strings={strings} run={run} block={block} runState={runState} />
   );
@@ -466,9 +477,11 @@ function Recorded({
 function RunCard({
   strings,
   run,
+  onRunPage,
 }: {
   strings: InspectorStrings;
   run: LiveRun;
+  onRunPage: boolean;
 }) {
   const card = runCardOf(run);
 
@@ -522,18 +535,20 @@ function RunCard({
         />
       )}
 
-      <div className="evidence-actions">
-        <button
-          type="button"
-          className="btn brand"
-          data-evidence-action="openRun"
-          onClick={() =>
-            postToHost({ type: 'openRun', workflowId: card.workflowId })
-          }
-        >
-          {strings.openRun}
-        </button>
-      </div>
+      {onRunPage ? null : (
+        <div className="evidence-actions">
+          <button
+            type="button"
+            className="btn brand"
+            data-evidence-action="openRun"
+            onClick={() =>
+              postToHost({ type: 'openRun', workflowId: card.workflowId })
+            }
+          >
+            {strings.openRun}
+          </button>
+        </div>
+      )}
     </section>
   );
 }

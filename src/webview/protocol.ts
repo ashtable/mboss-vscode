@@ -577,6 +577,19 @@ export type SeeInit = {
   view: 'see';
   strings: SeeStrings;
 
+  /**
+   * The Inspector's words, because the rail draws
+   * the Inspector's own card about whichever block
+   * is selected.
+   *
+   * A second bag rather than the card's words folded
+   * into this view's: the card is one component and
+   * two surfaces draw it, and a copy of its words
+   * per surface is how two surfaces come to word one
+   * card differently.
+   */
+  inspector: InspectorStrings;
+
   run: SeeRun | undefined;
 
   /** Which of the two views of the run is on

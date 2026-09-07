@@ -397,6 +397,33 @@ body {
   padding-left: var(--space-2);
 }
 
+/* How far the run got, and the one control left
+   over it. A column rather than the ledger's
+   label/value grid: a recorded name and a clock are
+   each as long as they are, and a rail somebody
+   narrowed has no second column to give them. */
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.control-line {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.control-name {
+  font-size: var(--text-xs);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
 /* The page's one action wears the shared button.
    The rule that used to live here was the other
    half of a shape two views spelled twice. */

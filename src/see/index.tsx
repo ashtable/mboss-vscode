@@ -8,10 +8,15 @@ import { useMemo } from 'react';
 
 import { RunNode } from '../canvas/RunNode.js';
 import { Wire, WireMarkers } from '../canvas/Wire.js';
-import { toReactFlow } from '../canvas/graph.js';
+import { toReactFlow, runStateOf } from '../canvas/graph.js';
+import {
+  Evidence,
+  type EvidenceBlock,
+} from '../canvas/inspector/EvidenceCard.js';
 import { postToHost } from '../webview/client.js';
 import { mountView } from '../webview/mount.js';
 import type {
+  InspectorStrings,
   RunSeverity,
   SeeBar,
   SeeChip,
@@ -86,17 +91,24 @@ function See(state: SeeInit) {
   }
 
   return (
-    <Run run={state.run} strings={state.strings} showing={state.showing} />
+    <Run
+      run={state.run}
+      strings={state.strings}
+      inspector={state.inspector}
+      showing={state.showing}
+    />
   );
 }
 
 function Run({
   run,
   strings,
+  inspector,
   showing,
 }: {
   run: SeeRun;
   strings: SeeStrings;
+  inspector: InspectorStrings;
   showing: 'graph' | 'trace';
 }) {
   return (
@@ -250,68 +262,272 @@ function Run({
         </div>
       </main>
 
-      <aside className="rail">
-        {run.input === undefined ? null : (
-          <section className="card" data-workflow-input>
-            <p className="eyebrow mono">{strings.workflowInput}</p>
-            <pre className="mono raw-input">{run.input.text}</pre>
-            <p className="hint">
-              {strings.asRecorded}
-              {run.input.cut ? ' · …' : ''}
-            </p>
-          </section>
-        )}
-
-        <section className="card">
-          <p className="eyebrow mono">{strings.status}</p>
-          <dl className="ledger">
-            {run.rail.map((row) => (
-              <div key={row.label} data-rail={row.label}>
-                <dt className="mono">{row.label}</dt>
-                <dd className="mono">{row.value}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="ledger-note">{strings.ledger}</p>
-        </section>
-
-        {run.lineage === undefined ? null : (
-          <section className="card" data-lineage>
-            <ol className="lineage">
-              <LineageRow run={run.lineage} strings={strings} />
-            </ol>
-            <p className="ledger-note" data-lineage-note>
-              {strings.bothRemain}
-            </p>
-          </section>
-        )}
-
-        {run.note === undefined ? null : (
-          <p className="replay-note" data-replay-note>
-            {run.note}
-          </p>
-        )}
-
-        <button
-          type="button"
-          className="btn primary"
-          data-replay
-          disabled={run.selectedStep === undefined}
-          onClick={() => {
-            if (run.selectedStep !== undefined) {
-              postToHost({
-                type: 'replayFrom',
-                workflowId: run.workflowId,
-                functionId: run.selectedStep,
-              });
-            }
-          }}
-        >
-          {strings.replay}
-        </button>
-      </aside>
+      <Rail run={run} strings={strings} inspector={inspector} />
     </div>
   );
+}
+
+/**
+ * What the run recorded, and the ways on from it.
+ *
+ * Read top to bottom as one argument: this is the
+ * block you picked and what the ledger has about it,
+ * this is where the run came from and what came out
+ * of it, this is how far it got — and only then the
+ * three things a person can do about any of that.
+ * The actions are last because every one of them
+ * writes somewhere, and the evidence for doing them
+ * is above.
+ *
+ * There is no Configure face here. Configuration is
+ * set on the document and the document is the
+ * editor's; a run page offering to change the thing
+ * it is a record of would be offering to change the
+ * past.
+ */
+function Rail({
+  run,
+  strings,
+  inspector,
+}: {
+  run: SeeRun;
+  strings: SeeStrings;
+  inspector: InspectorStrings;
+}) {
+  const graph = run.graph;
+  const nodeId = run.selected.nodeId;
+  const live = run.live;
+
+  // The block's identity and its policy, never its
+  // config: the card reads what a run recorded, and
+  // one that could reach `config` would drift into
+  // being the form the run page does not have.
+  const block = useMemo(
+    () =>
+      graph === undefined || nodeId === undefined
+        ? undefined
+        : blockOf(graph, nodeId),
+    [graph, nodeId],
+  );
+
+  // Asked of the function that tones every other
+  // block rather than worked out again here, so the
+  // card and the graph beside it cannot disagree
+  // about a run that has got as far as this block
+  // and written nothing yet.
+  const runState = useMemo(
+    () =>
+      graph === undefined || nodeId === undefined || live === undefined
+        ? undefined
+        : runStateOf(
+            graph.ir,
+            live,
+            nodeId,
+            new Map(Object.entries(graph.decided)),
+          ),
+    [graph, nodeId, live],
+  );
+
+  return (
+    <aside className="rail">
+      {live === undefined ? null : (
+        <section className="card">
+          <Evidence
+            strings={inspector}
+            run={live}
+            block={block}
+            runState={runState}
+            onRunPage
+          />
+        </section>
+      )}
+
+      {run.input === undefined ? null : (
+        <section className="card" data-workflow-input>
+          <p className="eyebrow mono">{strings.workflowInput}</p>
+          <pre className="mono raw-input">{run.input.text}</pre>
+          <p className="hint">
+            {strings.asRecorded}
+            {run.input.cut ? ' · …' : ''}
+          </p>
+        </section>
+      )}
+
+      <section className="card">
+        <p className="eyebrow mono">{strings.status}</p>
+        <dl className="ledger">
+          {run.rail.map((row) => (
+            <div key={row.label} data-rail={row.label}>
+              <dt className="mono">{row.label}</dt>
+              <dd className="mono">{row.value}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="ledger-note">{strings.ledger}</p>
+      </section>
+
+      {run.lineage === undefined ? null : (
+        <section className="card" data-lineage>
+          <ol className="lineage">
+            <LineageRow run={run.lineage} strings={strings} />
+          </ol>
+          <p className="ledger-note" data-lineage-note>
+            {strings.bothRemain}
+          </p>
+        </section>
+      )}
+
+      <Controls run={run} strings={strings} />
+
+      {run.note === undefined ? null : (
+        <p className="replay-note" data-replay-note>
+          {run.note}
+        </p>
+      )}
+
+      {/* Primary only while there is nothing to
+          resume. A stopped run is picked back up
+          rather than forked — and a rail with two
+          filled buttons on it is a rail asking for
+          two things at once. */}
+      <button
+        type="button"
+        className={run.controls.resume ? 'btn secondary' : 'btn primary'}
+        data-replay
+        disabled={run.selectedStep === undefined}
+        onClick={() => {
+          if (run.selectedStep !== undefined) {
+            postToHost({
+              type: 'replayFrom',
+              workflowId: run.workflowId,
+              functionId: run.selectedStep,
+            });
+          }
+        }}
+      >
+        {strings.replay}
+      </button>
+
+      {/* Quiet: the way back to Build is a door
+          rather than something the page is asking
+          for, and it opens the document without
+          projecting anything onto it. */}
+      <button
+        type="button"
+        className="btn quiet"
+        data-edit-workflow
+        onClick={() =>
+          postToHost({ type: 'openWorkflow', workflowId: run.workflowId })
+        }
+      >
+        {strings.editWorkflow}
+      </button>
+    </aside>
+  );
+}
+
+/**
+ * How far the run got, and the one thing left to do
+ * about it.
+ *
+ * Never both buttons: cancel is meaningless once a
+ * run has stopped and resume is meaningless while
+ * one is still going, so the status column answers
+ * each and the answers cannot both be yes. Resume is
+ * the primary one because picking a stopped run back
+ * up is the thing to do with it — Replay under it
+ * forks a second run, and this one is still there to
+ * be finished.
+ */
+function Controls({ run, strings }: { run: SeeRun; strings: SeeStrings }) {
+  const { cancel, resume, cancelled, lastRecorded } = run.controls;
+
+  // A finished run that recorded nothing of its own
+  // has nothing here at all, and an empty framed box
+  // reads as something that failed to load.
+  const empty =
+    !cancel && !resume && cancelled === undefined && lastRecorded === undefined;
+
+  if (empty) return null;
+
+  return (
+    <section className="card controls">
+      {lastRecorded === undefined ? null : (
+        <p className="control-line" data-last-recorded>
+          <span className="control-name">{strings.lastRecorded}</span>
+          <span className="mono">{lastRecorded}</span>
+        </p>
+      )}
+
+      {cancelled === undefined ? null : (
+        <p className="control-line" data-cancelled>
+          <span className="control-name">{strings.cancelledAt}</span>
+          <span className="mono">{cancelled}</span>
+        </p>
+      )}
+
+      {cancel ? (
+        <button
+          type="button"
+          className="btn secondary"
+          data-cancel
+          onClick={() =>
+            postToHost({ type: 'cancelRun', workflowId: run.workflowId })
+          }
+        >
+          {strings.cancel}
+        </button>
+      ) : null}
+
+      {resume ? (
+        <>
+          <button
+            type="button"
+            className="btn primary"
+            data-resume
+            onClick={() =>
+              postToHost({ type: 'resumeRun', workflowId: run.workflowId })
+            }
+          >
+            {strings.resume}
+          </button>
+
+          {/* Said beside the button rather than above
+              the pair: it explains what Resume does,
+              and a sentence about a button that is
+              not on offer explains nothing. */}
+          <p className="hint" data-resume-hint>
+            {strings.resumeHint}
+          </p>
+
+          {/* Only over the run DBOS gave up on. It is
+              the one run whose give-up clock starts
+              again, and somebody picking one back up
+              is entitled to know that. */}
+          {run.severity === 'exhausted' ? (
+            <p className="hint" data-attempts-reset>
+              {strings.resumeResetsAttempts}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </section>
+  );
+}
+
+/** The block a card is about, out of the document
+ *  the run page is drawing beside it. */
+function blockOf(graph: SeeGraph, nodeId: string): EvidenceBlock | undefined {
+  const node = graph.ir.nodes.find((one) => one.id === nodeId);
+  if (node === undefined) return undefined;
+
+  return {
+    id: node.id,
+    kind: node.kind,
+    title: node.title,
+    handler: node.handler?.export,
+    retry: node.retry,
+  };
 }
 
 /**

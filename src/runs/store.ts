@@ -104,6 +104,18 @@ export type RunsHost = {
   openFile(path: string, at?: { line: number; column?: number }): Promise<void>;
 
   /**
+   * Puts some text in front of somebody, in an
+   * editor tab of its own.
+   *
+   * Untitled and unsaved, which is the point: what
+   * goes through here is a copy of something a run
+   * recorded, and a buffer with nowhere to be saved
+   * to cannot be written back over the ledger it
+   * came from.
+   */
+  showText(content: string, language: string): Promise<void>;
+
+  /**
    * The DBOS Conductor console this project is
    * deployed to, or the empty string for the
    * windows that have none.
@@ -302,6 +314,17 @@ export type RunsStore = Disposable & {
    * opening says everything there is to say.
    */
   openErrorLocation(workflowId: string, functionId: number): Promise<void>;
+
+  /**
+   * Opens the whole of what one row recorded.
+   *
+   * Every surface that draws a value cuts it — the
+   * card to what a column can hold, the raw table to
+   * what a cell can — so the only place the bytes
+   * exist whole is the row the page already read,
+   * and this is the way to it.
+   */
+  openOutput(workflowId: string, functionId: number): Promise<void>;
 
   /**
    * Opens the Conductor console for what this
@@ -711,6 +734,28 @@ export function runsStore(deps: RunsDeps): RunsStore {
       if (gone !== undefined) {
         deps.host.say(messages.errorLocationGone(gone));
       }
+    },
+
+    /**
+     * Off the rows the page is already holding, for
+     * the same reason: the value arrived with
+     * everything else the card is drawn from, and
+     * asking the database again for a column already
+     * in hand is how one page comes to show two
+     * answers.
+     *
+     * A row the ledger recorded no value for has
+     * nothing to open, and opening an empty tab over
+     * it would say there was something there.
+     */
+    openOutput: async (workflowId, functionId) => {
+      const shown = openRun.reading();
+      if (shown === undefined || shown.run.workflowId !== workflowId) return;
+
+      const row = shown.steps.find((one) => one.functionId === functionId);
+      if (row?.output === undefined) return;
+
+      await deps.host.showText(row.output, 'json');
     },
 
     // Whatever the setting holds, unchanged: it is

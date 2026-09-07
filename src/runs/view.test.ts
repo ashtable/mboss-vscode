@@ -538,6 +538,54 @@ describe('one run in detail', () => {
     expect(empty.run).toBeUndefined();
     expect(empty.strings.nothingSelected).toBeTypeOf('string');
   });
+
+  /**
+   * The rail is composed of both, so both have to
+   * survive the trip: the controls decide which of
+   * the two buttons is offered, and the lineage is
+   * the tree drawn above them.
+   */
+  it('carries the controls and the lineage in seeInit', () => {
+    const stopped = seeInit({
+      run: { ...RUN, status: 'CANCELLED' },
+      steps: STEPS,
+      selectedStep: undefined,
+      note: undefined,
+      cancelledHere: true,
+      lineage: {
+        parent: undefined,
+        forks: [
+          {
+            run: { ...RUN, workflowId: 'wf_fork1' },
+            startStep: 1,
+            boundary: 'Find a slot',
+          },
+        ],
+      },
+    });
+
+    expect(stopped.run?.controls).toMatchObject({
+      cancel: false,
+      resume: true,
+      lastRecorded: messages.runLastRecorded('step_2', 2),
+    });
+    expect(stopped.run?.controls.cancelled).toContain('by you');
+    expect(stopped.run?.lineage?.here).toBe(true);
+    expect(stopped.run?.lineage?.forks.map((one) => one.workflowId)).toEqual([
+      'wf_fork1',
+    ]);
+  });
+
+  /**
+   * The card the rail draws about a block is the
+   * Inspector's own component, and a webview
+   * resolves no word of its own — so the Inspector's
+   * bag rides on the run page's init too.
+   */
+  it("carries the words the run page's evidence card reads", () => {
+    expect(init.inspector.runStates.failed).toBeTypeOf('string');
+    expect(init.inspector.kinds.step).toBeTypeOf('string');
+  });
 });
 
 /**

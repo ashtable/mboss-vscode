@@ -350,6 +350,12 @@
     "unattributed": "not a block in the saved workflow",
     "workflowInput": "WORKFLOW INPUT",
     "asRecorded": "as recorded",
+    "cancel": "Cancel run",
+    "resume": "Resume",
+    "lastRecorded": "last recorded",
+    "cancelledAt": "cancelled",
+    "resumeHint": "Resume continues from the recorded history · completed durable operations are not re-executed",
+    "resumeResetsAttempts": "recovery_attempts starts again from 0",
     "editWorkflow": "Edit workflow"
   },
   "galleryWords": {

@@ -266,6 +266,15 @@ export class SeePanel {
             );
           }
         }
+
+        // The run travels on this one: the card that
+        // draws a recorded value is the canvas's
+        // component and it names the run it read.
+        // The store checks that against the run it
+        // is showing.
+        if (message.type === 'openOutput') {
+          void this.store.openOutput(message.workflowId, message.functionId);
+        }
       },
     });
 

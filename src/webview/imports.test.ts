@@ -29,6 +29,11 @@ const SEE_MAY_IMPORT = new Set([
   '../canvas/Wire.js',
   '../canvas/graph.js',
   '../canvas/Node.js',
+  // What a run recorded about one block reads the
+  // same wherever somebody is standing when they
+  // ask, so the rail draws the Inspector's card
+  // rather than a second one of its own.
+  '../canvas/inspector/EvidenceCard.js',
 ]);
 
 const CANVAS_IMPORT = /from\s+'(\.\.\/canvas\/[^']+)'/g;

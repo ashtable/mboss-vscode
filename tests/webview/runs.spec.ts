@@ -15,7 +15,11 @@ import { liveRun, liveStep } from '../../src/test-support/runs.js';
 import { paletteLabels } from './words.js';
 
 import { mount, type Harness } from './harness.js';
-import { runsWords as runsStrings, seeWords as seeStrings } from './words.js';
+import {
+  inspectorWords as inspectorStrings,
+  runsWords as runsStrings,
+  seeWords as seeStrings,
+} from './words.js';
 
 /**
  * A run history, on screen.
@@ -243,7 +247,14 @@ function seeInit(
   run: SeeRun = seeRun(),
   showing: 'graph' | 'trace' = 'trace',
 ): SeeInit {
-  return { type: 'init', view: 'see', strings: seeStrings, run, showing };
+  return {
+    type: 'init',
+    view: 'see',
+    strings: seeStrings,
+    inspector: inspectorStrings,
+    run,
+    showing,
+  };
 }
 
 /** Before a run has been picked. A separate helper
@@ -255,6 +266,7 @@ function seeNothing(): SeeInit {
     type: 'init',
     view: 'see',
     strings: seeStrings,
+    inspector: inspectorStrings,
     run: undefined,
     showing: 'graph',
   };
@@ -1729,6 +1741,275 @@ test.describe('one run in detail', () => {
     await expect(page.locator('.state')).toHaveText(
       'Pick a run to see what it did.',
     );
+  });
+
+  /**
+   * The rail is one card about whatever is selected,
+   * then the ways on from it.
+   *
+   * The card is the Inspector's own — the same
+   * component the editor canvas draws — so what a
+   * run recorded about a block reads the same
+   * wherever somebody is standing when they ask.
+   */
+  test('shows the Evidence card for the block that is selected', async ({
+    page,
+  }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: GRAPH,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+      ),
+    );
+
+    const card = page.locator('.rail [data-evidence="block"]');
+
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('.evidence-title')).toHaveText('Find a slot');
+    await expect(card.locator('.run-status')).toContainText(
+      inspectorStrings.runStates.failed,
+    );
+  });
+
+  test('shows the run-level card with nothing selected', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH })));
+
+    const card = page.locator('.rail [data-evidence="run"]');
+
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('.evidence-title')).toContainText('wf_c9d2f3');
+  });
+
+  /** The button is a way to the run page, and this
+   *  rail is the run page. */
+  test('omits Open run on the run page', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH })));
+
+    await expect(page.locator('[data-evidence-action="openRun"]')).toHaveCount(
+      0,
+    );
+  });
+
+  /**
+   * Cancel is meaningless once a run has stopped and
+   * Resume is meaningless while one is still going,
+   * so the two can never be offered together.
+   */
+  test('offers Cancel or Resume, never both', async ({ page }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          controls: {
+            cancel: true,
+            resume: false,
+            cancelled: undefined,
+            lastRecorded: 'book_appointment · step 2',
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-cancel]')).toHaveText('Cancel run');
+    await expect(page.locator('[data-resume]')).toHaveCount(0);
+
+    await page.locator('[data-cancel]').click();
+
+    expect(await harness.postedOfType('cancelRun')).toEqual([
+      { type: 'cancelRun', workflowId: 'wf_c9d2f3' },
+    ]);
+
+    await harness.show(
+      seeInit(
+        seeRun({
+          severity: 'cancelled',
+          controls: {
+            cancel: false,
+            resume: true,
+            cancelled: '10:58:22 · by you',
+            lastRecorded: 'book_appointment · step 2',
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-cancel]')).toHaveCount(0);
+    await expect(page.locator('[data-resume]')).toHaveText('Resume');
+    await expect(page.locator('[data-cancelled]')).toContainText('by you');
+    await expect(page.locator('[data-last-recorded]')).toContainText(
+      'book_appointment · step 2',
+    );
+
+    await page.locator('[data-resume]').click();
+
+    expect(await harness.postedOfType('resumeRun')).toEqual([
+      { type: 'resumeRun', workflowId: 'wf_c9d2f3' },
+    ]);
+  });
+
+  /**
+   * Picking a stopped run back up is the thing to do
+   * with it, and Replay below it is not: a replay
+   * forks a second run, and this one is still there
+   * to be finished.
+   */
+  test('makes Resume the primary action', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          severity: 'cancelled',
+          controls: {
+            cancel: false,
+            resume: true,
+            cancelled: '10:58:22',
+            lastRecorded: 'book_appointment · step 2',
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-resume]')).toHaveClass(/primary/);
+    await expect(page.locator('[data-replay]')).not.toHaveClass(/primary/);
+    await expect(page.locator('[data-resume-hint]')).toHaveText(
+      'Resume continues from the recorded history · completed durable ' +
+        'operations are not re-executed',
+    );
+  });
+
+  /** A finished run that recorded nothing of its own
+   *  has neither control on offer and nothing to say
+   *  about how far it got, and an empty framed box
+   *  under the ledger would read as something that
+   *  failed to load. */
+  test('draws no controls block with nothing to say and nothing to do', async ({
+    page,
+  }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          controls: {
+            cancel: false,
+            resume: false,
+            cancelled: undefined,
+            lastRecorded: undefined,
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('.controls')).toHaveCount(0);
+  });
+
+  /** And it takes the weight back the moment there
+   *  is no run to pick up. */
+  test('makes Replay the primary action with nothing to resume', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit());
+
+    await expect(page.locator('[data-replay]')).toHaveClass(/primary/);
+  });
+
+  /**
+   * Said only where it is true. DBOS puts the count
+   * back to nothing when it picks a dead-lettered
+   * run up again, and a person resuming one is
+   * entitled to know the give-up clock restarts.
+   */
+  test('says recovery_attempts starts again from 0 on an exhausted run', async ({
+    page,
+  }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          severity: 'exhausted',
+          controls: {
+            cancel: false,
+            resume: true,
+            cancelled: undefined,
+            lastRecorded: 'book_appointment · step 2',
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-attempts-reset]')).toHaveText(
+      'recovery_attempts starts again from 0',
+    );
+
+    await harness.show(
+      seeInit(
+        seeRun({
+          severity: 'cancelled',
+          controls: {
+            cancel: false,
+            resume: true,
+            cancelled: '10:58:22',
+            lastRecorded: 'book_appointment · step 2',
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-attempts-reset]')).toHaveCount(0);
+  });
+
+  /** The way back to Build. It opens the document
+   *  and projects nothing onto it. */
+  test('posts openWorkflow from Edit workflow', async ({ page }) => {
+    const harness = await showRun(page, seeInit());
+
+    await expect(page.locator('[data-edit-workflow]')).toHaveText(
+      seeStrings.editWorkflow,
+    );
+
+    await page.locator('[data-edit-workflow]').click();
+
+    expect(await harness.postedOfType('openWorkflow')).toEqual([
+      { type: 'openWorkflow', workflowId: 'wf_c9d2f3' },
+    ]);
+  });
+
+  /** One button, and it acts on the step both views
+   *  of the run are marking. */
+  test('posts replayFrom with the shared selection', async ({ page }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: GRAPH,
+          selectedStep: 1,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-replay]')).toHaveCount(1);
+    await page.locator('[data-replay]').click();
+
+    expect(await harness.postedOfType('replayFrom')).toEqual([
+      { type: 'replayFrom', workflowId: 'wf_c9d2f3', functionId: 1 },
+    ]);
+  });
+
+  /**
+   * The rail only ever shows what the run recorded.
+   * Configuration is set on the document, and the
+   * document is the editor's.
+   */
+  test('has no Configure tab', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH })));
+
+    await expect(page.locator('.rail [role="tab"]')).toHaveCount(0);
+    await expect(
+      page.getByText(inspectorStrings.tabs.configure, { exact: true }),
+    ).toHaveCount(0);
   });
 });
 

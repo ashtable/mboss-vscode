@@ -78,6 +78,14 @@ export function runsHost(): RunsHost {
       });
     },
 
+    // Untitled, so the copy of what a run recorded
+    // has nowhere to be saved back to.
+    showText: async (content, language) => {
+      const document = await workspace.openTextDocument({ content, language });
+
+      await window.showTextDocument(document, { preview: false });
+    },
+
     // Trimmed here, at the seam where the raw
     // setting is read, so that everything downstream
     // has one thing to check: an address, or

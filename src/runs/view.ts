@@ -1,4 +1,4 @@
-import { paletteLabels, canvasWords } from '../canvas/words.js';
+import { paletteLabels, canvasWords, inspectorWords } from '../canvas/words.js';
 import { replayBoundaries, type Unoffered } from '../core/index.js';
 import { ownerOf, type NodeBox, type WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
@@ -173,6 +173,10 @@ export function seeInit(
     type: 'init',
     view: 'see',
     strings: seeWords(),
+    // The card the rail draws about a block is the
+    // Inspector's, so its words travel with the run
+    // rather than being written a second time here.
+    inspector: inspectorWords(),
     run: view === undefined ? undefined : seeRun(view),
     showing,
   };

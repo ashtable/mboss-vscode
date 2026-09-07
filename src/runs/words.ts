@@ -204,6 +204,38 @@ export const seeWords = once(() => ({
   workflowInput: l10n.t('WORKFLOW INPUT'),
   asRecorded: l10n.t('as recorded'),
 
+  /**
+   * The two controls over the run on the page, and
+   * the two things the page can already say about
+   * one.
+   *
+   * "Cancel run" rather than "Cancel", because the
+   * rail also carries Replay and Edit workflow and a
+   * bare verb among them names nothing. The labels
+   * are sentence case and the rail sets them in
+   * small caps, so a language whose caps mean
+   * something else is not handed shouting.
+   */
+  cancel: l10n.t('Cancel run'),
+  resume: l10n.t('Resume'),
+  lastRecorded: l10n.t('last recorded'),
+  cancelledAt: l10n.t('cancelled'),
+
+  /**
+   * What resuming a run actually does.
+   *
+   * The point worth making is the durable one: a
+   * resumed run reads its recorded history back
+   * rather than running those operations again. The
+   * second sentence is said only over a run DBOS
+   * gave up on, because that is the only run whose
+   * give-up count starts over.
+   */
+  resumeHint: l10n.t(
+    'Resume continues from the recorded history · completed durable operations are not re-executed',
+  ),
+  resumeResetsAttempts: l10n.t('recovery_attempts starts again from 0'),
+
   /** The way back to Build. It opens the document
    *  and projects nothing onto it: the canvas keeps
    *  drawing whatever run the window is following. */

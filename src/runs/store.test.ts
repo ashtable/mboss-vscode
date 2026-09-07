@@ -355,6 +355,7 @@ async function exercise(store: RunsStore): Promise<void> {
   await store.select('wf_c9d2f3');
   await store.openWorkflow('wf_c9d2f3');
   await store.openFunction('wf_c9d2f3', 'find_slot');
+  await store.openOutput('wf_c9d2f3', 0);
   await store.runWorkflow('groom_booking', '{}');
   await store.rerun('wf_c9d2f3');
   await store.copyRunId('wf_c9d2f3');
@@ -565,6 +566,7 @@ describe('the way to the code a block runs', () => {
    *  say. */
   type Watched = {
     opened: { path: string; at?: { line: number; column?: number } }[];
+    shown: { content: string; language: string }[];
     said: string[];
     host: RunsHost;
   };
@@ -572,15 +574,19 @@ describe('the way to the code a block runs', () => {
   function watching(dir: string): Watched {
     const opened: { path: string; at?: { line: number; column?: number } }[] =
       [];
+    const shown: { content: string; language: string }[] = [];
     const said: string[] = [];
 
     return {
       opened,
+      shown,
       said,
       host: host({
         projects: () => [dir],
         say: (message) => void said.push(message),
         openFile: async (path, at) => void opened.push({ path, at }),
+        showText: async (content, language) =>
+          void shown.push({ content, language }),
       }),
     };
   }
@@ -712,6 +718,64 @@ describe('the way to the code a block runs', () => {
 
       expect(watched.opened).toEqual([]);
       expect(watched.said).toEqual([]);
+    });
+  });
+
+  /**
+   * The third way out of a card, and the one that
+   * goes nowhere near a file: what a step returned,
+   * whole.
+   *
+   * The card draws as much of it as a column can
+   * hold and the raw table as much as a cell can, so
+   * the only place the untruncated bytes exist is
+   * the row the page already read.
+   */
+  describe('the whole of a value the run recorded', () => {
+    const WHOLE = `{"slot":"${'x'.repeat(4000)}"}`;
+
+    /** The page, showing a run whose one row
+     *  returned more than either surface draws. */
+    async function showing(): Promise<{ store: RunsStore; watched: Watched }> {
+      const dir = await readable();
+      const watched = watching(dir);
+      const ledger = database();
+
+      ledger.steps = [{ ...STEP_ROW, function_id: 4, output: WHOLE }];
+
+      const store = runsStore(
+        deps({ host: watched.host, open: async () => ledger }),
+      );
+
+      await store.select('wf_c9d2f3');
+
+      return { store, watched };
+    }
+
+    it('opens the stored value as JSON', async () => {
+      const { store, watched } = await showing();
+
+      await store.openOutput('wf_c9d2f3', 4);
+
+      expect(watched.shown).toEqual([{ content: WHOLE, language: 'json' }]);
+    });
+
+    it('opens nothing for a run it is not showing', async () => {
+      const { store, watched } = await showing();
+
+      await store.openOutput('wf_somebody_else', 4);
+
+      expect(watched.shown).toEqual([]);
+    });
+
+    /** A step DBOS recorded no value for has nothing
+     *  to open, and says so by doing nothing. */
+    it('opens nothing for a row that returned nothing', async () => {
+      const { store, watched } = await showing();
+
+      await store.openOutput('wf_c9d2f3', 9);
+
+      expect(watched.shown).toEqual([]);
     });
   });
 });
