@@ -271,12 +271,18 @@ none of that.
   and `inspector.selected` is an id: the column reads a block's fields and
   where its outcomes lead off the document. The webview never
   repaints itself: it redraws when `onDocumentChanged` fires `reread` + post
-  (tests simulate this with `livingDocument().saved()`). Layout: core `place()`
-  runs ELK only when no node has a position; `onTheGrid` snaps unplaced boxes;
-  the first hand move pins every position into the document; Arrange writes
-  `withoutPositions`. `layoutKeyOf` (revision + hash of nodes/edges/boxes)
-  decides whether the view keeps the positions it is holding. While a proposal
-  is live the canvas is read-only (`heard()` ignores everything).
+  (tests simulate this with `livingDocument().saved()`).
+  **`canvas/placement.ts` is where a block goes**, browser-safe and read from
+  both sides: `onTheGrid` snaps the boxes the engine placed and leaves alone the
+  ones the document did; `layoutKeyOf` (revision + hash of nodes/edges/boxes)
+  names one picture; `nodesFor` answers what to draw, keeping the positions the
+  view holds when the key is unchanged and taking the host's back when it is
+  not; `landingFor` and `landsAt` say where a carried block hangs and where it
+  lands. Around it: core `place()` runs ELK only when no node has a position,
+  the first hand move pins every position into the document through `edits.pin`,
+  Arrange writes `withoutPositions`, and ReactFlow's own `snapGrid` is a drawing
+  affordance only. While a proposal is live the canvas is read-only (`heard()`
+  ignores everything).
 - **`preview/`** — an agent proposal is a **file** (`.mboss/proposals/*.proposal.json`,
   written by the MCP server through core's `proposeSpec`; core keeps one live
   proposal per workflow). The store reloads on watcher events; approve runs
