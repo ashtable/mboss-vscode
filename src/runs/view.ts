@@ -56,21 +56,6 @@ const IN_FLIGHT = new Set(['PENDING', 'ENQUEUED', 'DELAYED']);
  */
 const OUTPUT_CELL = 120;
 
-/**
- * Why a run did not start.
- *
- * `rebuildToRun` travels apart from the sentence
- * so the panel can offer the same Rebuild action
- * the stack zone's `app` row does, rather than
- * parsing the sentence to find out which problem
- * this was.
- */
-export type TestRunProblem = {
-  detail: string;
-
-  rebuildToRun: boolean;
-};
-
 export type SeeView = {
   run: Run;
 

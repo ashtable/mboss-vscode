@@ -4,7 +4,7 @@ import type { Agent } from '../acp/agent.js';
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
-import type { RunsInit } from '../webview/protocol.js';
+import type { RunsInit, TestRunProblem } from '../webview/protocol.js';
 
 import type { Following } from './following.js';
 import { newRunId, type RunStart, type RunStarter } from './runner.js';
@@ -13,7 +13,7 @@ import {
   type SessionLog,
   type SessionRun,
 } from './sessionLog.js';
-import { sessionRowOf, type TestRunProblem } from './view.js';
+import { sessionRowOf } from './view.js';
 import { SETTLED, type LiveRun } from './watch.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 

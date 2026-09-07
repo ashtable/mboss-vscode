@@ -23,7 +23,7 @@ import type { SeeView } from './view.js';
 import type { LiveRun, RunWatch } from './watch.js';
 import { runsWords } from './words.js';
 
-export type { StackAction } from './stackZone.js';
+export type { StackAction } from './stack.js';
 
 /**
  * What the window knows about a project's runs,

@@ -1,6 +1,5 @@
 import type { PanelStatus } from '../acp/agent.js';
 import type { PermissionPrompt, TranscriptEntry } from '../acp/transcript.js';
-import type { InspectorField } from '../canvas/inspector/forms.js';
 import type { canvasWords, inspectorWords } from '../canvas/words.js';
 import type {
   Diagnostic,
@@ -11,8 +10,7 @@ import type {
 } from '../core/rules.js';
 import type { RunFilter } from '../runs/queries.js';
 import type { RunCounts } from '../runs/rows.js';
-import type { ServiceHealth } from '../runs/stack.js';
-import type { StackAction } from '../runs/store.js';
+import type { ServiceHealth, StackAction } from '../runs/stack.js';
 import type { LiveOutcome } from '../runs/reading.js';
 import type { LiveRun } from '../runs/watch.js';
 import type { runsWords, seeWords } from '../runs/words.js';
@@ -308,7 +306,7 @@ export type RunsInit = {
   stack: StackZone;
 
   /** Starting one run of a saved workflow. */
-  testRun: TestRunZone;
+  testRun: RunByHand;
 
   /** The run being followed, if one is. */
   live: LiveRun | undefined;
@@ -338,7 +336,7 @@ export type StackZone = {
 };
 
 /** Starting one run by hand. */
-export type TestRunZone = {
+export type RunByHand = {
   workflows: RunnableWorkflow[];
 
   selected: string | undefined;
@@ -770,8 +768,6 @@ export type SeeRawRow = {
 };
 
 export type SeeStrings = ReturnType<typeof seeWords>;
-
-export type { InspectorField };
 
 /**
  * Whether a message on a webview's channel is one

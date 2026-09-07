@@ -2,9 +2,9 @@ import type { Disposable } from 'vscode';
 
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
-import type { RunsInit } from '../webview/protocol.js';
+import type { StackZone } from '../webview/protocol.js';
 
-import type { StackController, StackStatus } from './stack.js';
+import type { StackAction, StackController, StackStatus } from './stack.js';
 
 /**
  * The local stack, as the panel shows it.
@@ -36,10 +36,7 @@ export type StackZoneDeps = {
   stack: StackController;
 };
 
-/** Which command the stack is in the middle of. */
-export type StackAction = 'up' | 'down' | 'rebuild';
-
-export type StackZone = Disposable & {
+export type Stack = Disposable & {
   /** What compose says now, read quietly: the
    *  panel is drawn again by whoever asked. */
   read(): Promise<void>;
@@ -48,7 +45,7 @@ export type StackZone = Disposable & {
   down(): Promise<void>;
   rebuild(): Promise<void>;
 
-  render(): RunsInit['stack'];
+  render(): StackZone;
 
   onChanged(listener: () => void): Disposable;
 };
@@ -69,7 +66,7 @@ const NO_STACK: StackStatus = {
  */
 const STACK_UP_KEY = 'mboss.stackUp';
 
-export function stackZone(deps: StackZoneDeps): StackZone {
+export function stackZone(deps: StackZoneDeps): Stack {
   const changes = emitter();
 
   let stack: StackStatus = NO_STACK;

@@ -8,7 +8,7 @@ import type {
   RunsStrings,
   SessionRow,
   StackZone,
-  TestRunZone,
+  RunByHand,
 } from '../webview/protocol.js';
 import { RUN_FILTERS, type RunFilter } from './queries.js';
 import type { StepState } from './reading.js';
@@ -205,7 +205,7 @@ function TestRun({
   testRun,
   strings,
 }: {
-  testRun: TestRunZone;
+  testRun: RunByHand;
   strings: RunsStrings;
 }) {
   const [text, setText] = useState(testRun.input);

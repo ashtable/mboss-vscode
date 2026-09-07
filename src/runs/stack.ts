@@ -5,6 +5,17 @@ import { join } from 'node:path';
 import { messages } from '../messages.js';
 
 /**
+ * Which command the stack is in the middle of.
+ *
+ * Here rather than beside the zone that tracks it,
+ * because the three are this module's own verbs —
+ * and because the init a webview draws names one,
+ * which would otherwise make the contract import the
+ * zone and the zone import the contract.
+ */
+export type StackAction = 'up' | 'down' | 'rebuild';
+
+/**
  * A project's own stack, as the Runs panel drives
  * it.
  *

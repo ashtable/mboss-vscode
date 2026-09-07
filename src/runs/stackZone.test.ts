@@ -9,7 +9,7 @@ import {
   stack,
 } from '../test-support/runs.js';
 
-import { stackZone, type StackZone, type StackZoneDeps } from './stackZone.js';
+import { stackZone, type Stack, type StackZoneDeps } from './stackZone.js';
 
 /**
  * The local stack, as the panel shows it, driven
@@ -17,7 +17,7 @@ import { stackZone, type StackZone, type StackZoneDeps } from './stackZone.js';
  * what it was asked.
  */
 
-function zone(over: Partial<StackZoneDeps> = {}): StackZone {
+function zone(over: Partial<StackZoneDeps> = {}): Stack {
   return stackZone({
     host: host({ projects: () => [project()] }),
     trust: fakeTrust(),
