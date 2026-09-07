@@ -187,7 +187,24 @@ export type CanvasInspector = {
    *  draws for it — its fields, where its outcomes
    *  lead — is read off the document. */
   selected: string | undefined;
+
+  /** Which of the column's two faces is on screen. */
+  mode: InspectorMode;
 };
+
+/**
+ * The two questions the Inspector answers about a
+ * block, and never both at once.
+ *
+ * `configure` is what the block should do, read off
+ * the document and editable. `evidence` is what a
+ * run recorded about it doing that, read off the
+ * ledger and editable by nobody. One long form
+ * holding both would put a field somebody may
+ * change beside a fact they may not, with nothing
+ * saying which is which.
+ */
+export type InspectorMode = 'configure' | 'evidence';
 
 export type InspectorStrings = ReturnType<typeof inspectorWords>;
 

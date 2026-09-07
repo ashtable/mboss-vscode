@@ -37,6 +37,7 @@ import type {
   CanvasDocument,
   CanvasInit,
   CanvasInspector,
+  InspectorMode,
 } from '../webview/protocol.js';
 
 import {
@@ -300,6 +301,20 @@ export class CanvasSession {
    */
   private selected: string | undefined;
 
+  /**
+   * The face somebody picked, while they are still
+   * on the run they picked it for.
+   *
+   * Undefined means nobody has said, which is not
+   * the same as either face: with a run in focus the
+   * column opens on what it recorded, and without
+   * one there is nothing to open on. Held beside the
+   * selection because it is the same kind of fact
+   * about the same column, and it is let go of in
+   * the same place.
+   */
+  private chosenMode: InspectorMode | undefined;
+
   /** The run being followed, when it is a run of
    *  this workflow. */
   private run: LiveRun | undefined;
@@ -360,6 +375,14 @@ export class CanvasSession {
     const here = live?.workflow === this.name ? live : undefined;
 
     if (here === this.run) return false;
+
+    // A face is picked about one run, so it is let
+    // go of when a different run arrives and not
+    // when the same one moves on. The store hands
+    // out a fresh reading whenever the ledger says
+    // anything new, and a face that reset on every
+    // reading would be one nobody could hold.
+    if (here?.workflowId !== this.run?.workflowId) this.chosenMode = undefined;
 
     this.run = here;
 
@@ -457,6 +480,15 @@ export class CanvasSession {
       return false;
     }
 
+    // Which face is showing is not in the document
+    // either, so the panel has to be drawn again for
+    // the same reason a selection does.
+    if (message.type === 'inspectorMode') {
+      this.chosenMode = message.mode;
+
+      return true;
+    }
+
     // Everything else this panel says is an edit, and
     // the compiler is what says so: what is left after
     // those two is `EditMessage` exactly, so a new
@@ -530,7 +562,23 @@ export class CanvasSession {
     return {
       strings: inspectorWords(),
       selected: this.nodeAt(this.selected)?.id,
+      mode: this.mode(),
     };
+  }
+
+  /**
+   * Which face the column shows.
+   *
+   * With no run there is nothing recorded to read,
+   * so the question does not arise. With one, what
+   * it recorded is why somebody is looking — until
+   * they say otherwise, and then that is what they
+   * get for as long as it is the same run.
+   */
+  private mode(): InspectorMode {
+    if (this.run === undefined) return 'configure';
+
+    return this.chosenMode ?? 'evidence';
   }
 
   private select(nodeId: string | null): void {

@@ -30,7 +30,7 @@ import {
 import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
 import type { LiveRun } from '../../src/runs/watch.js';
 import { liveStep } from '../../src/test-support/runs.js';
-import type { CanvasInit } from '../../src/webview/protocol.js';
+import type { CanvasInit, InspectorMode } from '../../src/webview/protocol.js';
 
 import { mount, type ThemeKind } from './harness.js';
 import {
@@ -114,7 +114,11 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
         : undefined,
     diagnostics: validateWorkflow(ir, { manifest }),
     manifest,
-    inspector: { strings: inspectorStrings, selected: undefined },
+    inspector: {
+      strings: inspectorStrings,
+      selected: undefined,
+      mode: 'configure',
+    },
     preview: undefined,
     run: undefined,
     ...over,
@@ -182,6 +186,7 @@ async function openEveryKind(page: Page) {
 function showing(
   nodeId: string,
   over: Partial<WorkflowNode> = {},
+  mode: InspectorMode = 'configure',
 ): Partial<CanvasInit> {
   const nodes = ir.nodes.map((one) =>
     one.id === nodeId ? ({ ...one, ...over } as WorkflowNode) : one,
@@ -189,7 +194,7 @@ function showing(
 
   return {
     document: { ok: true, ir: { ...ir, nodes } },
-    inspector: { strings: inspectorStrings, selected: nodeId },
+    inspector: { strings: inspectorStrings, selected: nodeId, mode },
   };
 }
 
@@ -2048,6 +2053,98 @@ test.describe('the Inspector column', () => {
     );
   });
 
+  /**
+   * The column asks two questions about one block —
+   * what it should do, and what a run recorded about
+   * it doing that — and never both at once. Two
+   * faces rather than one long form.
+   */
+  test('offers two faces', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ ...showing('find_slot') }));
+
+    await expect(page.locator('[data-inspector-mode]')).toHaveAttribute(
+      'data-inspector-mode',
+      'configure',
+    );
+    await expect(page.locator('button[data-inspector-tab]')).toHaveText([
+      inspectorStrings.tabs.configure,
+      inspectorStrings.tabs.evidence,
+    ]);
+    await expect(
+      page.locator('button[data-inspector-tab="configure"]'),
+    ).toHaveAttribute('aria-selected', 'true');
+  });
+
+  /** With no run there is nothing recorded to read,
+   *  and the face says what would give it
+   *  something. */
+  test('disables Run Evidence with no run and says why', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ ...showing('find_slot') }));
+
+    await expect(
+      page.locator('button[data-inspector-tab="evidence"]'),
+    ).toBeDisabled();
+    await expect(page.locator('.inspector .hint')).toHaveText(
+      inspectorStrings.noRun,
+    );
+
+    await harness.show(
+      canvasInit({ ...showing('find_slot'), run: runOf(IN_FLIGHT) }),
+    );
+
+    await expect(
+      page.locator('button[data-inspector-tab="evidence"]'),
+    ).toBeEnabled();
+    await expect(page.locator('.inspector .hint')).toHaveCount(0);
+  });
+
+  /** Two faces, not one long form: a field somebody
+   *  may change never sits beside a fact they may
+   *  not. */
+  test('shows a block’s fields on Configure only', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+
+    await harness.show(
+      canvasInit({ ...showing('find_slot'), run: runOf(IN_FLIGHT) }),
+    );
+
+    await expect(page.locator('[data-field="title"]')).toHaveCount(1);
+
+    await harness.show(
+      canvasInit({
+        ...showing('find_slot', {}, 'evidence'),
+        run: runOf(IN_FLIGHT),
+      }),
+    );
+
+    await expect(page.locator('[data-field]')).toHaveCount(0);
+  });
+
+  /**
+   * And the face is the host's to hold. A panel is
+   * torn down whenever it is hidden, so a tab a
+   * person chose survives only where the selection
+   * does.
+   */
+  test('posts the face a person picked', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+
+    await harness.show(
+      canvasInit({
+        ...showing('find_slot', {}, 'evidence'),
+        run: runOf(IN_FLIGHT),
+      }),
+    );
+
+    await page.locator('button[data-inspector-tab="configure"]').click();
+
+    expect(await harness.postedOfType('inspectorMode')).toEqual([
+      { type: 'inspectorMode', mode: 'configure' },
+    ]);
+  });
+
   test('says so plainly when the canvas itself is clicked', async ({
     page,
   }) => {
@@ -3555,6 +3652,7 @@ test.describe('the controls two views share', () => {
 
     await page.evaluate(() => {
       const tab = document.createElement('button');
+      tab.id = 'bare-tab';
       tab.className = 'tab';
       tab.setAttribute('role', 'tab');
       tab.textContent = 'Graph';
@@ -3563,7 +3661,7 @@ test.describe('the controls two views share', () => {
 
     await page.keyboard.press('Tab');
 
-    const tab = page.locator('button.tab');
+    const tab = page.locator('button#bare-tab');
     await expect(tab).toBeFocused();
 
     // `all: unset` takes the outline with it, which
@@ -3576,7 +3674,7 @@ test.describe('the controls two views share', () => {
     // global focus ring, so the outline alone would
     // pass against nothing.
     const tracking = await page.evaluate(() => {
-      const control = document.querySelector('button.tab') as HTMLElement;
+      const control = document.querySelector('button#bare-tab') as HTMLElement;
       const probe = document.createElement('span');
 
       probe.style.letterSpacing =

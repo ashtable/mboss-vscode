@@ -87,6 +87,11 @@ const PROPOSED = ['twilio_chat', 'await_reply'];
 const inspector: CanvasInspector = {
   strings: inspectorWords,
   selected: undefined,
+
+  // Nothing is being followed on a canvas showing a
+  // proposal, so there is no evidence to read
+  // either.
+  mode: 'configure',
 };
 
 function preview(over: Partial<CanvasPreview> = {}): CanvasPreview {

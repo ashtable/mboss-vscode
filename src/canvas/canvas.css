@@ -663,6 +663,27 @@ button.lib-fn {
   overflow-y: auto;
 }
 
+/* The two faces sit above everything either of
+   them draws, so the column reads as one panel
+   answering one of two questions rather than as two
+   panels stacked. */
+.inspector > .tabs {
+  margin-bottom: var(--space-2);
+}
+
+.inspector > .hint {
+  margin-bottom: var(--space-3);
+}
+
+/* A face with no run behind it refuses rather than
+   opening on an empty panel. Scoped here because
+   this is the only tab strip in the extension that
+   can be empty — a run page always has its run. */
+.inspector .tab:disabled {
+  color: var(--ink-faint);
+  cursor: default;
+}
+
 .inspector > .eyebrow {
   color: var(--brand);
   margin-bottom: var(--space-3);

@@ -232,9 +232,9 @@ function codeSaying(): FakeCode {
 /** One run of a workflow, as far as a canvas reads
  *  one: whose it is, and which blocks it has been
  *  through. */
-function runOf(workflow: string): LiveRun {
+function runOf(workflow: string, workflowId = 'wf_1'): LiveRun {
   return {
-    workflowId: 'wf_1',
+    workflowId,
     workflow,
     status: 'PENDING',
     steps: [liveStep()],
@@ -1273,6 +1273,85 @@ describe('a run of the workflow on screen', () => {
     await settled();
 
     expect(lastCanvasInit().run).toBeUndefined();
+  });
+});
+
+/**
+ * Which of the Inspector's two faces is on screen.
+ *
+ * The column configures a block and it reads what a
+ * run recorded about one, and those are two
+ * different questions about the same block. Which
+ * one is being asked is held here rather than in
+ * the panel, for the reason the selection is: a
+ * hidden panel is torn down and mounted again with
+ * no memory of what was on screen.
+ */
+describe('the face the Inspector is showing', () => {
+  it('shows Configure when no run is in focus', () => {
+    expect(lastCanvasInit().inspector.mode).toBe('configure');
+  });
+
+  it('shows Run Evidence once when a run comes into focus', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    expect(lastCanvasInit().inspector.mode).toBe('evidence');
+  });
+
+  /**
+   * And keeps showing it while the run moves. The
+   * store hands out a fresh reading whenever the
+   * ledger says something new, so a face that reset
+   * on every reading would be a face nobody could
+   * hold on to.
+   */
+  it('keeps the face a person picked', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    panel.send({ type: 'inspectorMode', view: 'canvas', mode: 'configure' });
+    await settled();
+
+    expect(lastCanvasInit().inspector.mode).toBe('configure');
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    expect(lastCanvasInit().inspector.mode).toBe('configure');
+  });
+
+  it('goes back to Run Evidence when a different run comes into focus', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+    panel.send({ type: 'inspectorMode', view: 'canvas', mode: 'configure' });
+    await settled();
+
+    runs.heard(runOf('groom_booking', 'wf_2'));
+    await settled();
+
+    expect(lastCanvasInit().inspector.mode).toBe('evidence');
+  });
+
+  it('goes back to Configure when the run goes away', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+    runs.heard(undefined);
+    await settled();
+
+    expect(lastCanvasInit().inspector.mode).toBe('configure');
   });
 });
 

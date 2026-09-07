@@ -51,6 +51,11 @@
   "inspectorWords": {
     "heading": "Node inspector",
     "nothingSelected": "Pick a block to set what it does.",
+    "tabs": {
+      "configure": "Configure",
+      "evidence": "Run evidence"
+    },
+    "noRun": "start or pick a run to see what it recorded",
     "kinds": {
       "trigger": "Trigger",
       "step": "Step",

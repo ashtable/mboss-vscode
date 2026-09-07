@@ -203,6 +203,20 @@ export const canvasWords = once(() => ({
 export const inspectorWords = once(() => ({
   heading: l10n.t('Node inspector'),
   nothingSelected: l10n.t('Pick a block to set what it does.'),
+
+  // The column's two faces, named for the question
+  // each answers rather than for the panel it draws:
+  // one is what a block should do, the other what a
+  // run recorded about it doing that.
+  tabs: {
+    configure: l10n.t('Configure'),
+    evidence: l10n.t('Run evidence'),
+  },
+
+  // And what would give the second one something to
+  // show.
+  noRun: l10n.t('start or pick a run to see what it recorded'),
+
   kinds: paletteLabels(),
   fields: inspectorFields(),
   options: inspectorOptions(),

@@ -149,6 +149,7 @@ describe('what each view may say', () => {
     ready: ['canvas', 'sidebar', 'runs', 'see', 'gallery'],
 
     select: ['canvas'],
+    inspectorMode: ['canvas'],
     connect: ['canvas'],
     addNode: ['canvas'],
     move: ['canvas'],
@@ -199,6 +200,7 @@ describe('what each view may say', () => {
     ready: {},
 
     select: { nodeId: 'find_slot' },
+    inspectorMode: { mode: 'evidence' },
     connect: {
       baseRevision: 3,
       from: { node: 'find_slot' },

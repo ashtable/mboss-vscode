@@ -324,6 +324,8 @@ function Workspace({
               ? { ir: document.ir, node: selected }
               : undefined
           }
+          mode={init.inspector.mode}
+          run={init.run}
           lib={init.manifest?.functions}
           misfits={init.strings.misfits}
         />

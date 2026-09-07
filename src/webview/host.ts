@@ -52,6 +52,22 @@ const Select = z.object({
 });
 
 /**
+ * Which of the Inspector's two faces somebody
+ * picked.
+ *
+ * Held by the host for the reason the selection is:
+ * a panel is torn down whenever it is hidden, so a
+ * face nobody remembered would come back as
+ * whichever one the run in focus implies. The two
+ * words are `InspectorMode`'s: a third one added
+ * here stops compiling where the canvas assigns it.
+ */
+const InspectorModePicked = z.object({
+  type: z.literal('inspectorMode'),
+  mode: z.enum(['configure', 'evidence']),
+});
+
+/**
  * Somebody drew a wire from one block to another.
  *
  * The source block and no port. A block has one dot
@@ -446,6 +462,7 @@ const SCHEMAS = {
   canvas: z.discriminatedUnion('type', [
     Ready,
     Select,
+    InspectorModePicked,
     Connect,
     AddNode,
     Move,
