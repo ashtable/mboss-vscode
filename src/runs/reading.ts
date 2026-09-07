@@ -170,6 +170,22 @@ const CANCELLED = 'CANCELLED';
  *  a row can be compared against them. */
 const FAILED: readonly string[] = FAILED_STATUSES;
 
+/** DBOS's own three and the one that worked, so a
+ *  status read out of a row can be asked whether the
+ *  run is over at all. */
+const ENDED: readonly string[] = [SUCCEEDED, ...FAILED_STATUSES];
+
+/**
+ * Whether the ledger says this run is over.
+ *
+ * Asked of the status column and nothing else, so it
+ * answers about a run nobody has read the steps of —
+ * which is what deciding whether to poll one needs.
+ */
+export function finished(run: Run): boolean {
+  return ENDED.includes(run.status);
+}
+
 export function readRun(
   run: Run,
   steps: Step[],

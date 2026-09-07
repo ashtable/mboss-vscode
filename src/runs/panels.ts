@@ -11,7 +11,6 @@ import {
 import { mountWebview, type Mount } from '../webview/host.js';
 
 import type { RunsStore } from './store.js';
-import { seeInit } from './view.js';
 import { runsWords, seeWords } from './words.js';
 
 /**
@@ -143,7 +142,7 @@ export class SeePanel {
       extensionUri: this.extensionUri,
       view: 'see',
       title: seeWords().heading,
-      init: () => seeInit(this.store.detail(), this.store.showing()),
+      init: () => this.store.see(),
       // Redrawn whenever the store moves, so the
       // panel holds nothing of its own.
       follows: [
@@ -182,10 +181,10 @@ export class SeePanel {
    *  the one thing about a webview panel an
    *  extension does own. */
   private retitle(): void {
-    const detail = this.store.detail();
+    const shown = this.store.see().run;
 
-    if (this.panel !== undefined && detail !== undefined) {
-      this.panel.title = detail.run.workflowId;
+    if (this.panel !== undefined && shown !== undefined) {
+      this.panel.title = shown.workflowId;
     }
   }
 }

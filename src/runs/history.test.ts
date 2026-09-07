@@ -1,20 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { fakeTrust } from '../../test/doubles/trust.js';
-import {
-  RUN_ROW,
-  STEP_ROW,
-  database,
-  management,
-  host,
-  liveRun,
-  liveStep,
-  project,
-  watcher,
-} from '../test-support/runs.js';
+import { database, host, project } from '../test-support/runs.js';
 
 import type { Database, OpenDatabase } from './db.js';
-import { following, type Following } from './following.js';
 import { runHistory, type History, type HistoryDeps } from './history.js';
 
 /**
@@ -22,9 +11,11 @@ import { runHistory, type History, type HistoryDeps } from './history.js';
  * Postgres.
  *
  * Driven against a database double that answers the
- * three queries the list makes, so what is checked
- * is what the history asks, what it keeps, and what
- * it says when it cannot ask at all.
+ * two queries the list makes, so what is checked is
+ * what the list asks, what it keeps, and what it
+ * says when it cannot ask at all. The run somebody
+ * has open is a second question asked of the same
+ * ledger, and has its own spec beside this one.
  */
 
 function history(over: Partial<HistoryDeps> = {}): History {
@@ -32,28 +23,8 @@ function history(over: Partial<HistoryDeps> = {}): History {
     host: host(),
     trust: fakeTrust(),
     open: async () => database(),
-    openManagement: async () => management(),
-    following: follows().held,
-    projectSdk: () => ({ ok: true, version: '4.27.6' }),
     ...over,
   });
-}
-
-/** The one watch owner, over a watcher a case can
- *  speak through. */
-function follows(watch = watcher()): {
-  watch: ReturnType<typeof watcher>;
-  held: Following;
-} {
-  return {
-    watch,
-    held: following({
-      open: async () => database(),
-      watch: watch.watch,
-      ledger: () => 'postgres://app@localhost:5432/app',
-      unsettled: () => [],
-    }),
-  };
 }
 
 /** A history over a project, reading that
@@ -157,7 +128,7 @@ describe('reading a project run history', () => {
     const read = reading(db);
 
     await read.refresh();
-    await read.select('wf_c9d2f3');
+    await read.setFilter('failed');
 
     expect(db.closed).toBe(2);
   });
@@ -170,53 +141,6 @@ describe('reading a project run history', () => {
 
     expect(read.render().filter).toBe('failed');
     expect(db.asked.some((text) => text.includes('status = ANY'))).toBe(true);
-  });
-
-  it('reads a run and its steps when one is picked', async () => {
-    const read = reading(database());
-
-    await read.refresh();
-    await read.select('wf_c9d2f3');
-    const detail = read.detail();
-
-    expect(detail?.run.workflowId).toBe('wf_c9d2f3');
-    expect(detail?.steps.map((step) => step.name)).toEqual(['parse_request']);
-    expect(read.render().selected).toBe('wf_c9d2f3');
-  });
-
-  /**
-   * A run somebody deleted is not a run to keep
-   * showing, and a database that hiccuped is not a
-   * reason to blank the tab. Two different absences,
-   * told apart.
-   */
-  it('clears the tab for a run that is not there any more', async () => {
-    const db = database();
-    const read = reading(db);
-
-    await read.select('wf_c9d2f3');
-    expect(read.detail()).toBeDefined();
-
-    // The same history, reading again after somebody
-    // dropped the row.
-    db.rows = [];
-    await read.select('wf_c9d2f3');
-
-    expect(read.detail()).toBeUndefined();
-  });
-
-  /** The other absence: the tab keeps what it had
-   *  rather than blanking on a hiccup. */
-  it('keeps the tab when the database stops answering', async () => {
-    const db = database();
-    const read = reading(db);
-
-    await read.select('wf_c9d2f3');
-    db.fail = 'ECONNREFUSED';
-    await read.select('wf_c9d2f3');
-
-    expect(read.detail()?.run.workflowId).toBe('wf_c9d2f3');
-    expect(read.render().state).toBe('unreachable');
   });
 
   it('tells whoever is drawing that something moved', async () => {
@@ -250,290 +174,5 @@ describe('a database that will not answer', () => {
 
     expect(read.render().state).toBe('unreachable');
     expect(read.render().detail).toContain('ECONNREFUSED');
-  });
-});
-
-describe('replaying a step', () => {
-  it('forks the run the panel is showing, from the step clicked', async () => {
-    const client = management();
-    const said: string[] = [];
-    const read = history({
-      host: host({
-        projects: () => [project()],
-        say: (message) => said.push(message),
-      }),
-      openManagement: async () => client,
-    });
-
-    await read.refresh();
-    await read.select('wf_c9d2f3');
-    await read.replay(0);
-
-    expect(said[0]).toContain('wf_fork1');
-    expect(said[0]).toContain('v0.4.1');
-    expect(client.destroy).toHaveBeenCalledTimes(1);
-  });
-
-  it('does nothing at all before a run has been picked', async () => {
-    const client = management();
-    const read = history({
-      host: host({ projects: () => [project()] }),
-      openManagement: async () => client,
-    });
-
-    await read.refresh();
-    await read.replay(0);
-
-    expect(client.destroy).not.toHaveBeenCalled();
-  });
-
-  /**
-   * Forking writes a row into the project's
-   * database and sets code running, which is the
-   * same decision trust covers everywhere else.
-   */
-  it('does nothing in a window nobody has trusted', async () => {
-    const client = management();
-    const read = history({
-      host: host({ projects: () => [project()] }),
-      trust: fakeTrust(false),
-      openManagement: async () => client,
-    });
-
-    await read.replay(0);
-
-    expect(client.destroy).not.toHaveBeenCalled();
-  });
-});
-
-/**
- * A run somebody has open is polled by the one
- * watch owner, alongside whatever else this window
- * is following. So a tick about another run reaches
- * this zone too, and the tab must not repaint itself
- * with it.
- */
-describe('a run somebody is watching go', () => {
-  it('replaces only the rows of the run it is showing', async () => {
-    const owner = follows();
-    const read = reading(database(), { following: owner.held });
-
-    await read.refresh();
-    await read.select('wf_c9d2f3');
-
-    expect(read.detail()?.steps).toHaveLength(1);
-
-    owner.held.arm('wf_c9d2f3');
-    owner.watch.say(
-      'wf_c9d2f3',
-      liveRun({
-        workflowId: 'wf_c9d2f3',
-        steps: [liveStep(), liveStep({ name: 'find_slot', functionId: 1 })],
-      }),
-    );
-
-    expect(read.detail()?.steps.map((step) => step.name)).toEqual([
-      'parse_request',
-      'find_slot',
-    ]);
-
-    owner.held.arm('wf_somebody_elses');
-    owner.watch.say(
-      'wf_somebody_elses',
-      liveRun({ workflowId: 'wf_somebody_elses', steps: [] }),
-    );
-
-    expect(read.detail()?.steps).toHaveLength(2);
-  });
-});
-
-/**
- * The run page's own half: the workflow the run was
- * a run of, laid out, and a watch armed only where
- * there is something left to watch.
- */
-describe('the run somebody has open', () => {
-  it('reads what a run was started with', async () => {
-    const read = reading(database());
-
-    await read.refresh();
-    await read.select('wf_c9d2f3');
-
-    expect(read.detail()?.run.input).toBeDefined();
-  });
-
-  it('carries the saved workflow when it reads, and nothing when it does not', async () => {
-    const withDocument = reading(database(), {
-      host: host({ projects: () => [project()] }),
-    });
-
-    await withDocument.select('wf_c9d2f3');
-
-    expect(withDocument.detail()?.ir?.name).toBe('groom_booking');
-    expect(Object.keys(withDocument.detail()?.boxes ?? {})).not.toHaveLength(0);
-
-    const withoutDocument = reading(database(), {
-      host: host({ projects: () => [project({ workflows: [] })] }),
-    });
-
-    await withoutDocument.select('wf_c9d2f3');
-
-    expect(withoutDocument.detail()?.ir).toBeUndefined();
-    expect(withoutDocument.detail()?.boxes).toBeUndefined();
-  });
-
-  /**
-   * A run that has ended will not change however
-   * long anybody watches it, so nothing is armed
-   * for one.
-   */
-  it('follows a run that is still going, and not one that has ended', async () => {
-    const owner = follows();
-    const ended = reading(database(), { following: owner.held });
-
-    await ended.select('wf_c9d2f3');
-    expect(owner.watch.armed).toHaveLength(0);
-
-    const going = database();
-    going.rows = [{ ...RUN_ROW, status: 'PENDING', completed_at: null }];
-
-    const moving = reading(going, { following: owner.held });
-    await moving.select('wf_c9d2f3');
-
-    expect(owner.watch.armed.map((one) => one.workflowId)).toEqual([
-      'wf_c9d2f3',
-    ]);
-  });
-
-  it('lets go of the run it was showing when another is picked', async () => {
-    const owner = follows();
-    const going = database();
-    going.rows = [{ ...RUN_ROW, status: 'PENDING', completed_at: null }];
-
-    const read = reading(going, { following: owner.held });
-
-    going.rows = [
-      {
-        ...RUN_ROW,
-        workflow_uuid: 'wf_one',
-        status: 'PENDING',
-        completed_at: null,
-      },
-    ];
-    await read.select('wf_one');
-
-    going.rows = [
-      {
-        ...RUN_ROW,
-        workflow_uuid: 'wf_two',
-        status: 'PENDING',
-        completed_at: null,
-      },
-    ];
-    await read.select('wf_two');
-
-    const armed = owner.watch.armed;
-    expect(armed.map((one) => one.workflowId)).toEqual(['wf_one', 'wf_two']);
-    expect(armed[0]?.stopped).toBe(true);
-    expect(armed[1]?.stopped).toBe(false);
-  });
-
-  it('re-arms the watch when it is refreshed', async () => {
-    const owner = follows();
-    const going = database();
-    going.rows = [{ ...RUN_ROW, status: 'PENDING', completed_at: null }];
-
-    const read = reading(going, { following: owner.held });
-
-    await read.select('wf_c9d2f3');
-    owner.held.drop('wf_c9d2f3');
-
-    await read.refreshRun();
-
-    expect(owner.watch.armed).toHaveLength(2);
-  });
-
-  /**
-   * Refresh is the same run read again, not a
-   * different question. Pressing it while reading a
-   * group two thirds down a trace with the SDK's
-   * own rows shown must not put somebody back at
-   * the top with those rows hidden.
-   */
-  it('keeps what somebody was reading when the same run is refreshed', async () => {
-    const going = database();
-    going.steps = [
-      STEP_ROW,
-      { ...STEP_ROW, function_id: 1, function_name: 'find_slot' },
-    ];
-
-    const read = reading(going);
-
-    await read.select('wf_c9d2f3');
-    read.selectNode('find_slot');
-    read.showRaw(true);
-
-    await read.refreshRun();
-
-    expect(read.detail()?.selectedNode).toBe('find_slot');
-    expect(read.detail()?.selectedStep).toBe(1);
-    expect(read.detail()?.raw).toBe(true);
-  });
-
-  it('starts a different run at the top, with the DBOS rows hidden', async () => {
-    const going = database();
-    going.steps = [
-      STEP_ROW,
-      { ...STEP_ROW, function_id: 1, function_name: 'find_slot' },
-    ];
-
-    const read = reading(going);
-
-    await read.select('wf_c9d2f3');
-    read.selectNode('find_slot');
-    read.showRaw(true);
-
-    going.rows = [{ ...RUN_ROW, workflow_uuid: 'wf_other' }];
-    await read.select('wf_other');
-
-    expect(read.detail()?.selectedNode).toBeUndefined();
-    expect(read.detail()?.selectedStep).toBe(0);
-    expect(read.detail()?.raw).toBe(false);
-  });
-
-  it('holds which of the two views is on screen', () => {
-    const read = reading(database());
-
-    expect(read.showing()).toBe('graph');
-
-    read.show('trace');
-
-    expect(read.showing()).toBe('trace');
-  });
-});
-
-/**
- * Whether the run page may draw when a run wakes.
- *
- * The rows those lines are read off are written by
- * an SDK from 4.27.6 on; below that they are simply
- * not there, and a project a version behind is an
- * ordinary state of somebody's folder.
- */
-describe('whether a project records when a run wakes', () => {
-  it('reads timings only where the project runs an SDK that records them', async () => {
-    for (const [sdk, timing] of [
-      [{ ok: true, version: '4.27.6' }, true],
-      [{ ok: true, version: '4.28.0' }, true],
-      [{ ok: true, version: '4.25.14' }, false],
-      [{ ok: false, because: 'not-locked' }, false],
-      [{ ok: false, because: 'no-lockfile' }, false],
-    ] as const) {
-      const read = reading(database(), { projectSdk: () => sdk });
-
-      await read.select('wf_c9d2f3');
-
-      expect({ sdk, timing: read.detail()?.timing }).toEqual({ sdk, timing });
-    }
   });
 });

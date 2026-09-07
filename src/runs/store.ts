@@ -5,12 +5,13 @@ import type { Disposable } from 'vscode';
 import type { Agent } from '../acp/agent.js';
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
-import type { RunsInit } from '../webview/protocol.js';
+import type { RunsInit, SeeInit } from '../webview/protocol.js';
 
 import type { OpenDatabase, OpenManagement } from './db.js';
 import { following } from './following.js';
 import type { ProjectSdk } from './sdk.js';
 import { runHistory } from './history.js';
+import { openRunZone } from './openRun.js';
 import type { RunFilter } from './queries.js';
 import type { RunStarter } from './runner.js';
 import type { SessionLog } from './sessionLog.js';
@@ -18,6 +19,7 @@ import type { StackController } from './stack.js';
 import { stackZone } from './stackZone.js';
 import { testRunZone } from './testRun.js';
 import type { SeeView } from './view.js';
+
 import type { LiveRun, RunWatch } from './watch.js';
 import { runsWords } from './words.js';
 
@@ -91,8 +93,14 @@ export type RunsStore = Disposable & {
    *  nothing stands between them. */
   list(): RunsInit;
 
-  /** What the detail tab draws, when a run has been
-   *  picked. */
+  /** The whole run page, in the words it draws —
+   *  including which of the two views is on screen,
+   *  because the tab belongs beside the run it is a
+   *  view of rather than a member away from it. */
+  see(): SeeInit;
+
+  /** The open run as it was read, decoded but not
+   *  drawn. */
   detail(): SeeView | undefined;
 
   /** The run a canvas draws itself against, when
@@ -155,8 +163,6 @@ export type RunsStore = Disposable & {
 
   showTab(tab: 'graph' | 'trace'): void;
 
-  showing(): 'graph' | 'trace';
-
   showRaw(raw: boolean): void;
 
   refreshRun(): Promise<void>;
@@ -181,7 +187,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     watch: deps.watch,
     ledger: () => history.ledger(),
     unsettled: () => [
-      ...new Set([...testRun.unsettled(), ...history.unsettled()]),
+      ...new Set([...testRun.unsettled(), ...openRun.unsettled()]),
     ],
   });
 
@@ -189,9 +195,20 @@ export function runsStore(deps: RunsDeps): RunsStore {
     host: deps.host,
     trust: deps.trust,
     open: deps.open,
+  });
+
+  // The run page reads the same ledger, and borrows
+  // the connection rather than opening one of its
+  // own — what a read learns about somebody's
+  // database is the list's to say.
+  const openRun = openRunZone({
+    host: deps.host,
+    trust: deps.trust,
     openManagement: deps.openManagement,
-    following: follow,
     projectSdk: deps.projectSdk,
+    following: follow,
+    project: () => deps.host.projects()[0],
+    ledger: history,
   });
   const stack = stackZone({
     host: deps.host,
@@ -210,7 +227,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
   // One signal for the three, since every reader
   // draws all of them at once.
   const changes = emitter();
-  const followed = [history, stack, testRun].map((zone) =>
+  const followed = [history, openRun, stack, testRun].map((zone) =>
     zone.onChanged(changes.fire),
   );
 
@@ -234,12 +251,17 @@ export function runsStore(deps: RunsDeps): RunsStore {
         strings: runsWords(),
         project: dir === undefined ? undefined : basename(dir),
         ...history.render(),
+        // Which row the list marks is the open run's
+        // answer, composed here rather than read by
+        // the zone that draws the rows.
+        selected: openRun.workflowId(),
         stack: stack.render(),
         ...testRun.render(),
       };
     },
 
-    detail: history.detail,
+    see: openRun.see,
+    detail: openRun.reading,
     live: testRun.live,
 
     refresh: async () => {
@@ -257,10 +279,17 @@ export function runsStore(deps: RunsDeps): RunsStore {
     // nothing about the stack, and reading it would
     // shell out to compose on every click.
     setFilter: history.setFilter,
-    select: history.select,
+    select: openRun.open,
     refreshWorkflows: testRun.refreshWorkflows,
-    selectStep: history.selectStep,
-    replay: history.replay,
+    selectStep: openRun.step,
+
+    replay: async (functionId) => {
+      // The list has a run in it now that was not
+      // there a moment ago — which is the list's
+      // business rather than the page's, so the two
+      // are composed here.
+      if (await openRun.replay(functionId)) await history.refresh();
+    },
 
     stackUp: () => stacking(stack.up),
     stackDown: () => stacking(stack.down),
@@ -272,11 +301,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
     askAgent: testRun.askAgent,
     copyRunId: (workflowId) => deps.host.copy(workflowId),
 
-    selectNode: history.selectNode,
-    showTab: history.show,
-    showing: history.showing,
-    showRaw: history.showRaw,
-    refreshRun: history.refreshRun,
+    selectNode: openRun.node,
+    showTab: openRun.tab,
+    showRaw: openRun.raw,
+    refreshRun: openRun.again,
 
     onChanged: changes.on,
 
@@ -287,6 +315,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
       // apart.
       follow.dispose();
       history.dispose();
+      openRun.dispose();
       stack.dispose();
       testRun.dispose();
       changes.dispose();
