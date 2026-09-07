@@ -16,6 +16,11 @@ const noProject = (): Promise<void> => {
   throw new Error('this command should not have created anything');
 };
 
+/** The same, for opening the pattern gallery. */
+const noGallery = (): Promise<void> => {
+  throw new Error('this command should not have opened the gallery');
+};
+
 /** The same, for choosing an agent. */
 const noAgent = (): Promise<void> => {
   throw new Error('this command should not have chosen anything');
@@ -51,6 +56,12 @@ function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
     run: async (command) => void ran.push(command),
     pick: async () => undefined,
     replaceDocument: async () => true,
+    showText: async () => {
+      throw new Error('no command puts a text in a tab of its own');
+    },
+    openFile: async () => {
+      throw new Error('no command opens a file of its own');
+    },
     onDocumentChanged: () => ({ dispose: () => {} }),
   };
 }
@@ -75,6 +86,7 @@ describe('the contributed commands', () => {
           recorder(),
           never,
           noProject,
+          noGallery,
           noAgent,
           noRefresh,
           noStack,
@@ -97,6 +109,7 @@ describe('the contributed commands', () => {
       recorder(),
       never,
       async () => void asked.push('new project'),
+      async () => void asked.push('open the gallery'),
       async () => void asked.push('choose agent'),
       async () => void asked.push('read runs again'),
       async () => void asked.push('start stack'),
@@ -106,6 +119,7 @@ describe('the contributed commands', () => {
     );
 
     await handlers['mboss.newProject']?.();
+    await handlers['mboss.newWorkflow']?.();
     await handlers['mboss.chooseCodingAgent']?.();
     await handlers['_mboss.refreshRuns#sideBar']?.();
     await handlers['mboss.startStack']?.();
@@ -115,6 +129,7 @@ describe('the contributed commands', () => {
 
     expect(asked).toEqual([
       'new project',
+      'open the gallery',
       'choose agent',
       'read runs again',
       'start stack',
@@ -136,6 +151,7 @@ describe('the contributed commands', () => {
       recorder(),
       never,
       noProject,
+      noGallery,
       noAgent,
       noRefresh,
       async () => void asked.push('start'),
@@ -157,6 +173,7 @@ describe('the contributed commands', () => {
       api,
       never,
       noProject,
+      noGallery,
       noAgent,
       noRefresh,
       noStack,
@@ -181,6 +198,7 @@ describe('the contributed commands', () => {
       api,
       never,
       noProject,
+      noGallery,
       noAgent,
       noRefresh,
       noStack,
@@ -207,6 +225,7 @@ describe('generating code', () => {
       api,
       async () => run,
       noProject,
+      noGallery,
       noAgent,
       noRefresh,
       noStack,

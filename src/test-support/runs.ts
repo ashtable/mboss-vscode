@@ -5,11 +5,11 @@ import { join } from 'node:path';
 import { vi } from 'vitest';
 
 import type { Database } from '../runs/db.js';
-import type { ForkClient } from '../runs/replay.js';
+import type { ManagementClient } from '../runs/manage.js';
 import type { RunRequest, RunStart, RunStarter } from '../runs/runner.js';
 import type { StackController, StackStatus } from '../runs/stack.js';
 import type { RunsHost } from '../runs/store.js';
-import type { LiveRun, RunWatch } from '../runs/watch.js';
+import type { LedgerRead, LiveRun, LiveStep, RunWatch } from '../runs/watch.js';
 
 /**
  * The runs panel's collaborators, faked one at a
@@ -37,6 +37,10 @@ export const RUN_ROW = {
   completed_at: '9000',
   error: null,
   serialization: null,
+  // Selected only where a single run is being read;
+  // the double answers both statements with this
+  // row, and a run page needs it.
+  inputs: '[{"email":"ada@example.com"}]',
 };
 
 export const STEP_ROW = {
@@ -66,7 +70,12 @@ export const WORKFLOWS: Record<string, unknown> = {
   nightly_sync: { mode: 'schedule', cron: '0 2 * * *' },
 };
 
-export function workflowDocument(name: string, trigger: unknown): string {
+/** A saved workflow document, as a fixture. Named
+ *  for what it builds rather than for what it is,
+ *  because the production reader of a saved document
+ *  is called `workflowDocument` and two different
+ *  things must not share one name. */
+export function savedWorkflow(name: string, trigger: unknown): string {
   return JSON.stringify({
     $schema: 'https://mboss.dev/schemas/workflow-v1.json',
     version: 1,
@@ -98,7 +107,7 @@ export function project(
   for (const name of over.workflows ?? Object.keys(WORKFLOWS)) {
     writeFileSync(
       join(workflows, `${name}.workflow.json`),
-      workflowDocument(name, WORKFLOWS[name]),
+      savedWorkflow(name, WORKFLOWS[name]),
       'utf8',
     );
   }
@@ -113,19 +122,41 @@ export function database(): Database & {
   closed: number;
   asked: string[];
   rows: unknown[];
+  steps: unknown[];
+  forks: unknown[];
   fail: string | undefined;
 } {
   const state = {
     closed: 0,
     asked: [] as string[],
     rows: [RUN_ROW] as unknown[],
+    steps: [STEP_ROW] as unknown[],
+    forks: [] as unknown[],
     fail: undefined as string | undefined,
-    query: async <Row>(text: string): Promise<Row[]> => {
+    query: async <Row>(text: string, values: unknown[]): Promise<Row[]> => {
       state.asked.push(text);
 
       if (state.fail !== undefined) throw new Error(state.fail);
-      if (text.includes('count(*)')) return [COUNTS_ROW] as Row[];
-      if (text.includes('operation_outputs')) return [STEP_ROW] as Row[];
+
+      // Told apart by what each one selects rather
+      // than by a fragment somewhere in it: the run
+      // list now counts operations in a correlated
+      // subquery, so both `count(*)` and
+      // `operation_outputs` appear inside a
+      // statement that is neither of these.
+      if (text.startsWith('SELECT count(*)')) return [COUNTS_ROW] as Row[];
+      if (text.startsWith('SELECT function_id')) return state.steps as Row[];
+      if (text.includes('AS last_reused')) return state.forks as Row[];
+
+      // A read of one run answers with that run's
+      // row and no other. The run page reads a
+      // second run by id — the one a replay came out
+      // of — so a double that answered every by-id
+      // read with the same row would say every run
+      // was replayed from itself.
+      if (text.includes('WHERE workflow_uuid = $1')) {
+        return state.rows.filter((row) => idOf(row) === values[0]) as Row[];
+      }
 
       return state.rows as Row[];
     },
@@ -137,21 +168,41 @@ export function database(): Database & {
   return state;
 }
 
+/** The id on a row a case set up, whatever else it
+ *  put there. */
+function idOf(row: unknown): unknown {
+  return (row as { workflow_uuid?: unknown }).workflow_uuid;
+}
+
 export function host(over: Partial<RunsHost> = {}): RunsHost {
   return {
     projects: () => [],
     say: () => undefined,
     setContext: () => undefined,
-    note: () => undefined,
-    notify: async () => undefined,
+    copy: async () => undefined,
+    openCanvas: async () => undefined,
+    openFile: async () => undefined,
+    showText: async () => undefined,
+    // No Conductor, because that is the window every
+    // spec here is about unless it says otherwise.
+    conductorConsoleUrl: () => '',
+    openExternal: async () => undefined,
+    revealAgent: async () => undefined,
+    // Nobody at the keyboard, which is what a spec
+    // that has not said otherwise means.
+    confirm: async () => ({ at: 'nothing' }),
     ...over,
   };
 }
 
-export function fork(): ForkClient & { destroy: ReturnType<typeof vi.fn> } {
+export function management(): ManagementClient & {
+  destroy: ReturnType<typeof vi.fn>;
+} {
   return {
     getLatestApplicationVersion: async () => ({ versionName: 'v0.4.1' }),
     forkWorkflow: async () => 'wf_fork1',
+    cancelWorkflow: async () => undefined,
+    resumeWorkflow: async () => undefined,
     destroy: vi.fn().mockResolvedValue(undefined),
   };
 }
@@ -239,20 +290,20 @@ export function echoing(): { requests: RunRequest[]; start: RunStarter } {
 
 export function watcher(): {
   armed: { workflowId: string; stopped: boolean }[];
-  say(workflowId: string, run: LiveRun): void;
+  say(workflowId: string, run: LiveRun, read?: LedgerRead): void;
   watch: RunWatch;
 } {
   const armed: {
     workflowId: string;
     stopped: boolean;
-    onChange: (run: LiveRun) => void;
+    onChange: (run: LiveRun, read: LedgerRead) => void;
   }[] = [];
 
   return {
     armed,
-    say: (workflowId, run) => {
+    say: (workflowId, run, read = ledgerReadOf(run)) => {
       for (const held of armed) {
-        if (held.workflowId === workflowId) held.onChange(run);
+        if (held.workflowId === workflowId) held.onChange(run, read);
       }
     },
     watch: (_open, _url, workflowId, onChange) => {
@@ -273,9 +324,75 @@ export function liveRun(over: Partial<LiveRun> = {}): LiveRun {
     workflowId: 'run_1',
     workflow: 'groom_booking',
     status: 'PENDING',
-    steps: [{ name: 'parse_request', nodeId: 'parse_request', state: 'done' }],
+    steps: [liveStep()],
     recovered: false,
+    recoveryAttempts: 1,
     outcome: 'running',
+    applicationVersion: 'v0.1.0',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: undefined,
+    input: undefined,
+    forkedFrom: undefined,
     ...over,
+  };
+}
+
+/** One step of a reading, with a default for
+ *  everything a caller is not saying anything
+ *  about. */
+export function liveStep(over: Partial<LiveStep> = {}): LiveStep {
+  return {
+    name: 'parse_request',
+    nodeId: 'parse_request',
+    state: 'done',
+    functionId: 0,
+    startedAt: 1000,
+    completedAt: 1100,
+    output: '{}',
+    outputCut: false,
+    error: undefined,
+    childWorkflowId: undefined,
+    restored: false,
+    reused: false,
+    ...over,
+  };
+}
+
+/**
+ * The rows a tick would have read to produce a
+ * reading, for a double that is only pretending to
+ * have read any.
+ *
+ * Named for what it builds rather than for what it
+ * is: `runs/evidence.ts` has a `ledgerRead` of its
+ * own that asks a real database, and two different
+ * things must not share one name.
+ */
+export function ledgerReadOf(run: LiveRun): LedgerRead {
+  return {
+    run: {
+      workflowId: run.workflowId,
+      name: run.workflow,
+      status: run.status,
+      recoveryAttempts: run.recoveryAttempts,
+      executorId: 'local-dev',
+      applicationVersion: run.applicationVersion,
+      createdAt: run.createdAt,
+      startedAt: run.startedAt,
+      completedAt: run.completedAt,
+      error: run.error,
+      forkedFrom: run.forkedFrom,
+      wasForkedFrom: false,
+    },
+    steps: run.steps.map((step) => ({
+      functionId: step.functionId,
+      name: step.name,
+      startedAt: step.startedAt,
+      completedAt: step.completedAt,
+      output: step.output,
+      error: step.error?.message,
+      childWorkflowId: step.childWorkflowId,
+    })),
   };
 }

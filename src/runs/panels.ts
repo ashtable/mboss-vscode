@@ -10,9 +10,29 @@ import {
 
 import { mountWebview, type Mount } from '../webview/host.js';
 
-import type { RunsStore } from './store.js';
-import { seeInit } from './view.js';
+import type { ReplayPick, RunsStore } from './store.js';
 import { runsWords, seeWords } from './words.js';
+
+/**
+ * Where a replay would start, as the message names
+ * it.
+ *
+ * A row wins over a block: the page has both once
+ * somebody has clicked a trace row, and the row is
+ * the more exact of the two. The schema has already
+ * refused a message naming neither, and this says
+ * so rather than inventing a block id nothing has.
+ */
+function pointIn(said: {
+  nodeId?: string;
+  functionId?: number;
+}): ReplayPick | undefined {
+  if (said.functionId !== undefined) {
+    return { functionId: said.functionId };
+  }
+
+  return said.nodeId === undefined ? undefined : { nodeId: said.nodeId };
+}
 
 /**
  * The two surfaces a run history has.
@@ -82,8 +102,32 @@ export class RunsListView implements WebviewViewProvider {
 
         if (message.type === 'rerun') void this.store.rerun(message.workflowId);
 
-        if (message.type === 'askAgent') {
-          void this.store.askAgent(message.workflowId);
+        // The list draws no blocks and no rows, so
+        // the message names neither and the question
+        // is about the whole run.
+        if (message.type === 'askAgent') void this.store.askAgent(message);
+
+        if (message.type === 'copyRunId') {
+          void this.store.copyRunId(message.workflowId);
+        }
+
+        if (message.type === 'replayRun') {
+          void this.store.replayRun(message.workflowId);
+        }
+
+        // By id, because the row that sent this may
+        // be Running Now or one of this session's
+        // and neither is the run page's run.
+        if (message.type === 'cancelRun') {
+          void this.store.cancel(message.workflowId);
+        }
+
+        if (message.type === 'resumeRun') {
+          void this.store.resume(message.workflowId);
+        }
+
+        if (message.type === 'openProduction') {
+          void this.store.openProduction();
         }
       },
     });
@@ -139,7 +183,7 @@ export class SeePanel {
       extensionUri: this.extensionUri,
       view: 'see',
       title: seeWords().heading,
-      init: () => seeInit(this.store.detail()),
+      init: () => this.store.see(),
       // Redrawn whenever the store moves, so the
       // panel holds nothing of its own.
       follows: [
@@ -154,8 +198,83 @@ export class SeePanel {
           this.store.selectStep(message.functionId);
         }
 
-        if (message.type === 'replay')
-          void this.store.replay(message.functionId);
+        if (message.type === 'replayFrom') {
+          const point = pointIn(message);
+
+          if (point !== undefined) {
+            void this.store.replay(message.workflowId, point);
+          }
+        }
+
+        // An id in the lineage tree. The same verb
+        // the list's rows use, because it is the
+        // same thing to have asked for — this panel
+        // is already the one that would show it.
+        if (message.type === 'runSelect') {
+          void this.store.select(message.workflowId);
+        }
+
+        // Whatever the rail had selected travels
+        // with it: a question asked with a row in
+        // front of somebody is a question about that
+        // row.
+        if (message.type === 'askAgent') void this.store.askAgent(message);
+
+        if (message.type === 'seeNode') this.store.selectNode(message.nodeId);
+        if (message.type === 'seeShow') this.store.showTab(message.tab);
+        if (message.type === 'seeRaw') this.store.showRaw(message.raw);
+        if (message.type === 'seeRefresh') void this.store.refreshRun();
+
+        if (message.type === 'openWorkflow') {
+          void this.store.openWorkflow(message.workflowId);
+        }
+
+        // The run travels with the click here too:
+        // this panel may be drawing a run the
+        // extension has since moved past.
+        if (message.type === 'cancelRun') {
+          void this.store.cancel(message.workflowId);
+        }
+
+        if (message.type === 'resumeRun') {
+          void this.store.resume(message.workflowId);
+        }
+
+        // The block travels and the run does not: a
+        // page draws exactly one run, and which one
+        // that is has already been read here.
+        if (message.type === 'openFunction') {
+          const shown = this.store.detail();
+
+          if (shown !== undefined) {
+            void this.store.openFunction(shown.run.workflowId, message.nodeId);
+          }
+        }
+
+        // The row is the whole address here. The
+        // block travels for the canvas, which holds
+        // a run and draws a card per block; this
+        // page draws one run, and a row id names one
+        // of its rows on its own.
+        if (message.type === 'openErrorLocation') {
+          const shown = this.store.detail();
+
+          if (shown !== undefined) {
+            void this.store.openErrorLocation(
+              shown.run.workflowId,
+              message.functionId,
+            );
+          }
+        }
+
+        // The run travels on this one: the card that
+        // draws a recorded value is the canvas's
+        // component and it names the run it read.
+        // The store checks that against the run it
+        // is showing.
+        if (message.type === 'openOutput') {
+          void this.store.openOutput(message.workflowId, message.functionId);
+        }
       },
     });
 
@@ -173,10 +292,10 @@ export class SeePanel {
    *  the one thing about a webview panel an
    *  extension does own. */
   private retitle(): void {
-    const detail = this.store.detail();
+    const shown = this.store.see().run;
 
-    if (this.panel !== undefined && detail !== undefined) {
-      this.panel.title = detail.run.workflowId;
+    if (this.panel !== undefined && shown !== undefined) {
+      this.panel.title = shown.workflowId;
     }
   }
 }

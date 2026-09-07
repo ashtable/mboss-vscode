@@ -202,6 +202,27 @@ describe('the built extension', () => {
   });
 
   /**
+   * The pattern library is read the same way and
+   * for the same reason, but a directory that is
+   * merely present says nothing: what the gallery
+   * hands to `usePattern` is a document per
+   * pattern, and the flagship one is named here so
+   * that a copy of empty directories fails.
+   */
+  it('ships the pattern documents the gallery offers', () => {
+    expect(
+      fileExists(
+        join(
+          outdir,
+          'library',
+          'refund_approval',
+          'refund_approval.workflow.json',
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  /**
    * The MCP server and the skill, at the paths the
    * extension goes looking for them.
    *
@@ -440,7 +461,13 @@ describe('the entry list', () => {
    * same message as the graph beside it.
    */
   it('names the surfaces this extension puts in a frame', () => {
-    expect([...WEBVIEW_ENTRIES]).toEqual(['canvas', 'sidebar', 'runs', 'see']);
+    expect([...WEBVIEW_ENTRIES]).toEqual([
+      'canvas',
+      'sidebar',
+      'runs',
+      'see',
+      'gallery',
+    ]);
   });
 
   /** Adding one is a name in that list and a file

@@ -18,12 +18,15 @@
 // agreeing with each other say nothing about what
 // goes down a pipe.
 //
-// Two environment variables steer it, because a
-// mismatched handshake and a request the client
-// never offered to serve are things one connection
-// has to be watched surviving:
-//   PEER_PROTOCOL_VERSION  what `initialize` answers
-//   PEER_PROBE             one extra request mid-turn
+// Three environment variables steer it, because a
+// mismatched handshake, a request the client never
+// offered to serve, and an agent that will take a
+// resource block are things one connection has to
+// be watched surviving:
+//   PEER_PROTOCOL_VERSION   what `initialize` answers
+//   PEER_PROBE              one extra request mid-turn
+//   PEER_EMBEDDED_CONTEXT   advertise that a prompt
+//                           may carry a resource
 
 import { appendFileSync, renameSync, writeFileSync } from 'node:fs';
 
@@ -103,7 +106,15 @@ function handle(message) {
       id: message.id,
       result: {
         protocolVersion: Number(process.env.PEER_PROTOCOL_VERSION ?? '1'),
-        agentCapabilities: {},
+
+        // Silence is the ordinary answer, and it is
+        // not the same as saying no: an agent that
+        // advertises nothing has said nothing about
+        // what a prompt may carry.
+        agentCapabilities:
+          process.env.PEER_EMBEDDED_CONTEXT === undefined
+            ? {}
+            : { promptCapabilities: { embeddedContext: true } },
         agentInfo: { name: 'scripted-peer', version: '0.0.0' },
       },
     });

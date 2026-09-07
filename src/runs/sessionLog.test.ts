@@ -1,4 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
+
+import { REPO_ROOT } from '../test-support/repo.js';
 
 import {
   SESSION_LOG_LIMIT,
@@ -27,6 +32,7 @@ function run(over: Partial<SessionRun> = {}): SessionRun {
     outcome: 'running',
     stepCount: 0,
     recovered: false,
+    via: 'start',
     ...over,
   };
 }
@@ -47,6 +53,52 @@ describe('the session log', () => {
 
     expect(log.find('run_1')?.workflow).toBe('groom_booking');
     expect(log.find('run_9')).toBeUndefined();
+  });
+
+  /**
+   * A run this window started by hand, a run it
+   * forked from a step and a run it picked back up
+   * are three different things to have done, and
+   * only the first has an input anybody here could
+   * send again.
+   */
+  it('carries how a run was started', () => {
+    const log = sessionLog();
+
+    log.record(run({ workflowId: 'run_1' }));
+    log.record(run({ workflowId: 'run_2', via: 'replay' }));
+    log.record(run({ workflowId: 'run_3', via: 'resume' }));
+
+    expect(log.list().map((row) => row.via)).toEqual([
+      'resume',
+      'replay',
+      'start',
+    ]);
+  });
+
+  /**
+   * A fork is a new run with a new id, and the only
+   * thing that says where it came from is written
+   * here — the ledger's own `forked_from` names the
+   * run but not the step somebody picked.
+   */
+  it('carries what a replay forked from', () => {
+    const log = sessionLog();
+
+    log.record(
+      run({
+        workflowId: 'run_2',
+        input: undefined,
+        via: 'replay',
+        replayOf: { workflowId: 'wf_c9d2f3', functionId: 4 },
+      }),
+    );
+
+    expect(log.find('run_2')?.replayOf).toEqual({
+      workflowId: 'wf_c9d2f3',
+      functionId: 4,
+    });
+    expect(log.find('run_1')?.replayOf).toBeUndefined();
   });
 
   it('patches a row in place, leaving the rest of it alone', () => {
@@ -88,6 +140,44 @@ describe('the session log', () => {
     expect(listed[0]?.workflowId).toBe(`run_${SESSION_LOG_LIMIT + 4}`);
     expect(log.find('run_0')).toBeUndefined();
     expect(log.find('run_5')).toBeDefined();
+  });
+
+  /**
+   * The bound itself, by name and by value. What
+   * this list costs a window is a hundred rows and
+   * no more, and raising that is a decision
+   * somebody makes on purpose rather than one that
+   * arrives with a feature.
+   */
+  it('keeps at most SESSION_LOG_LIMIT runs', () => {
+    const log = sessionLog();
+
+    for (let at = 0; at < SESSION_LOG_LIMIT * 2; at += 1) {
+      log.record(run({ workflowId: `run_${at}` }));
+    }
+
+    expect(SESSION_LOG_LIMIT).toBe(100);
+    expect(log.list()).toHaveLength(100);
+  });
+
+  /**
+   * The durable record of a run is the project's
+   * own `dbos.workflow_status`. A second copy on
+   * disk or in the editor's storage would outlive
+   * the window, drift from the ledger, and be
+   * wrong in exactly the cases somebody opens this
+   * list to understand — so the module is held to
+   * reaching for neither.
+   */
+  it('writes nothing outside this window', () => {
+    const source = readFileSync(
+      join(REPO_ROOT, 'src', 'runs', 'sessionLog.ts'),
+      'utf8',
+    );
+
+    expect(source).not.toMatch(/from 'node:/);
+    expect(source).not.toMatch(/\bworkspaceState\b|\bglobalState\b/);
+    expect(source).not.toMatch(/from 'vscode'/);
   });
 
   /**

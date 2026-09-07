@@ -2,6 +2,7 @@ import { sep } from 'node:path';
 
 import type { Disposable } from 'vscode';
 
+import type { Agent } from '../acp/agent.js';
 import { emitter } from '../emitter.js';
 
 import {
@@ -41,13 +42,6 @@ export type PreviewHost = {
   /** Regenerates every project, publishes what
    *  that found, and hands it back. */
   regenerate(): Promise<Problem[]>;
-
-  /** Says something to the agent, as a turn. */
-  notify(text: string): Promise<void>;
-
-  /** Adds a row to the agent's transcript, written
-   *  by the extension rather than by the agent. */
-  note(entry: ToolEntry | DiagnosticEntry): void;
 
   /** Tells the person something they can act on. */
   say(message: string): void;
@@ -98,7 +92,11 @@ type Applied = {
   undoable: boolean;
 };
 
-export function previewStore(host: PreviewHost, trust: Trust): PreviewStore {
+export function previewStore(
+  host: PreviewHost,
+  trust: Trust,
+  agent: Agent,
+): PreviewStore {
   const live = new Map<string, PreviewModel[]>();
   const changes = emitter();
 
@@ -216,16 +214,16 @@ export function previewStore(host: PreviewHost, trust: Trust): PreviewStore {
         const outcome = await approveProposal(
           {
             project,
-            applied: () => host.note(appliedRow(id, model.workflow)),
+            applied: () => agent.note(appliedRow(id, model.workflow)),
             regenerate: async () => {
               const reported = (await tried(() => host.regenerate())) ?? [];
               const errors = errorsIn(project, reported);
 
               if (errors.length > 0) {
-                host.note(codegenDiagnostic(id, model.workflow, errors));
+                agent.note(codegenDiagnostic(id, model.workflow, errors));
               }
             },
-            notify: (text) => tried(() => host.notify(text)),
+            notify: (text) => tried(() => agent.send({ text })),
           },
           id,
         );

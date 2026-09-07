@@ -12,7 +12,7 @@ import {
 
 import { DIST } from '../../src/build.js';
 
-import { layoutKeyOf } from '../../src/canvas/graph.js';
+import { layoutKeyOf } from '../../src/canvas/placement.js';
 import { GRID, snap } from '../../src/canvas/grid.js';
 import {
   NODE_PALETTE,
@@ -27,8 +27,11 @@ import {
   type WorkflowIR,
   type WorkflowNode,
 } from '../../src/core/rules.js';
-import type { LiveOutcome, LiveRun, StepState } from '../../src/runs/watch.js';
-import type { CanvasInit } from '../../src/webview/protocol.js';
+import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
+import type { LiveRun, LiveStep } from '../../src/runs/watch.js';
+import { liveStep } from '../../src/test-support/runs.js';
+import { filled } from '../../src/webview/fill.js';
+import type { CanvasInit, InspectorMode } from '../../src/webview/protocol.js';
 
 import { mount, type ThemeKind } from './harness.js';
 import {
@@ -112,9 +115,14 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
         : undefined,
     diagnostics: validateWorkflow(ir, { manifest }),
     manifest,
-    inspector: { strings: inspectorStrings, selected: undefined },
+    inspector: {
+      strings: inspectorStrings,
+      selected: undefined,
+      mode: 'configure',
+    },
     preview: undefined,
     run: undefined,
+    decided: {},
     ...over,
   };
 }
@@ -180,6 +188,7 @@ async function openEveryKind(page: Page) {
 function showing(
   nodeId: string,
   over: Partial<WorkflowNode> = {},
+  mode: InspectorMode = 'configure',
 ): Partial<CanvasInit> {
   const nodes = ir.nodes.map((one) =>
     one.id === nodeId ? ({ ...one, ...over } as WorkflowNode) : one,
@@ -187,7 +196,7 @@ function showing(
 
   return {
     document: { ok: true, ir: { ...ir, nodes } },
-    inspector: { strings: inspectorStrings, selected: nodeId },
+    inspector: { strings: inspectorStrings, selected: nodeId, mode },
   };
 }
 
@@ -801,9 +810,18 @@ function runOf(
     workflowId: 'wf_1',
     workflow: ir.name,
     status: outcome === 'running' ? 'PENDING' : 'SUCCESS',
-    steps: steps.map(([nodeId, state]) => ({ name: nodeId, nodeId, state })),
+    steps: steps.map(([nodeId, state], index) =>
+      liveStep({ name: nodeId, nodeId, state, functionId: index }),
+    ),
     recovered: false,
+    recoveryAttempts: 1,
     outcome,
+    applicationVersion: 'v0.1.0',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: undefined,
+    input: undefined,
+    forkedFrom: undefined,
   };
 }
 
@@ -829,6 +847,104 @@ const BROKEN = [
   ['parse_request', 'done'],
   ['find_slot', 'failed'],
 ] as const;
+
+/** The same run with its rows spelled out, for the
+ *  column that draws one row in full rather than a
+ *  graph of all of them. */
+function recording(steps: LiveStep[], over: Partial<LiveRun> = {}): LiveRun {
+  return { ...runOf([]), steps, ...over };
+}
+
+/**
+ * A moment built in the browser's own clock rather
+ * than parsed out of a UTC string, because the card
+ * formats it in that clock and a fixture in another
+ * one would be a different time on every machine.
+ */
+const RECORDED_AT = new Date(2026, 8, 7, 10, 31, 14, 218).getTime();
+
+/** The parked run again, with the moment it parked
+ *  spelled out: the line under the block reads it
+ *  back. */
+const WAITING_PARKED = recording(
+  [
+    liveStep({ name: 'parse_request', nodeId: 'parse_request', functionId: 0 }),
+    liveStep({ name: 'twilio_chat', nodeId: 'twilio_chat', functionId: 1 }),
+    liveStep({
+      name: 'await_reply.register',
+      nodeId: 'await_reply',
+      state: 'waiting',
+      functionId: 2,
+      completedAt: RECORDED_AT,
+    }),
+  ],
+  { outcome: 'waiting' },
+);
+
+/**
+ * The line that block then shows.
+ *
+ * A shape rather than a string, because the time in
+ * it is formatted in the browser's own locale and
+ * the process running this spec need not share one.
+ */
+const WAITING_LINE = new RegExp(
+  `^${canvasStrings.waitingSince.replace(
+    '{0}',
+    '\\d{1,2}:\\d{2}:\\d{2}\\.\\d{3}',
+  )}`,
+);
+
+/** One step that worked, timed to the millisecond
+ *  and carrying what it returned. */
+const DONE = liveStep({
+  name: 'find_slot',
+  nodeId: 'find_slot',
+  functionId: 3,
+  startedAt: RECORDED_AT,
+  completedAt: RECORDED_AT + 48,
+  output: '{"id":"ord_123","amount":1249}',
+});
+
+/** The same step, having thrown somewhere nobody
+ *  in this project wrote — which is most of them. */
+const THREW = liveStep({
+  ...DONE,
+  state: 'failed',
+  output: undefined,
+  error: {
+    name: 'StripeTimeoutError',
+    message: 'Request timed out after 30 s',
+    stack: [
+      'StripeTimeoutError: Request timed out after 30 s',
+      '    at post (/app/node_modules/stripe/lib/http.js:212:19)',
+    ].join('\n'),
+    retriesExhausted: false,
+    frame: undefined,
+  },
+});
+
+/** And having thrown on a line of the project's own
+ *  code, which is the one case with a line to go
+ *  to. */
+const THREW_IN_LIB = liveStep({
+  ...THREW,
+  error: {
+    ...THREW.error!,
+    stack: [
+      'StripeTimeoutError: Request timed out after 30 s',
+      '    at refundPayment (/app/lib/refund-payment.ts:18:11)',
+    ].join('\n'),
+    frame: { file: 'lib/refund-payment.ts', line: 18, column: 11 },
+  },
+});
+
+/** And having thrown on every try DBOS allowed it,
+ *  which is the one case that says so out loud. */
+const EXHAUSTED = liveStep({
+  ...THREW,
+  error: { ...THREW.error!, retriesExhausted: true },
+});
 
 /** What a run puts on a block, and what is left of
  *  it once the run has gone past. */
@@ -935,7 +1051,7 @@ test.describe('the state a block is in', () => {
     // lit and still raised.
     await expect(block).toHaveCSS(
       'box-shadow',
-      'rgb(83, 103, 255) 0px 0px 0px 1.5px, color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 5px, rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
+      'rgb(83, 103, 255) 0px 0px 0px 1.5px, color(srgb 0.32549 0.403922 1 / 0.18) 0px 0px 0px 5px, rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
     );
     await expect(block).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 0, -1)');
   });
@@ -981,7 +1097,7 @@ test.describe('the state a block is in', () => {
     await expect(block).toHaveCSS('border-top-style', 'solid');
     await expect(block).toHaveCSS(
       'box-shadow',
-      'rgb(83, 103, 255) 0px 0px 0px 1.5px, color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 5px, rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
+      'rgb(83, 103, 255) 0px 0px 0px 1.5px, color(srgb 0.32549 0.403922 1 / 0.18) 0px 0px 0px 5px, rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, rgba(23, 26, 35, 0.07) 0px 4px 12px 0px',
     );
   });
 
@@ -1120,14 +1236,33 @@ test.describe('the mark a run leaves on a block', () => {
     await expect(mark).toHaveCSS('color', 'rgb(238, 93, 104)');
   });
 
-  test('turns a mark on the block a run is parked at', async ({ page }) => {
+  test('leaves a hollow dot where a run is parked', async ({ page }) => {
     await openAtRest(page, { run: runOf(PARKED, 'waiting') });
 
     const mark = runMark(page, 'await_reply');
 
-    await expect(mark).toHaveText('↻');
-    await expect(mark).toHaveCSS('color', 'rgb(233, 162, 59)');
-    await expect(mark).toHaveCSS('animation-name', 'sig-spin');
+    // Hollow rather than filled, and still rather
+    // than turning: nothing is happening at this
+    // block, which is exactly what a spinner would
+    // deny.
+    await expect(mark).toBeEmpty();
+    await expect(mark).toHaveCSS('width', '8px');
+    await expect(mark).toHaveCSS('height', '8px');
+    await expect(mark).toHaveCSS('border-color', 'rgb(233, 162, 59)');
+    await expect(mark).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await expect(mark).toHaveCSS('animation-name', 'none');
+  });
+
+  /** The dot is worked out from the ledger rather
+   *  than read off it, and every derived thing in
+   *  this extension says so. */
+  test('says the running dot is derived, not recorded', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    await expect(runMark(page, 'twilio_chat')).toHaveAttribute(
+      'title',
+      canvasStrings.runningDerived,
+    );
   });
 
   /** The mark is the run's, so a canvas nobody is
@@ -1141,6 +1276,111 @@ test.describe('the mark a run leaves on a block', () => {
     await openAtRest(page);
 
     await expect(runMark(page, 'find_slot')).toHaveCount(0);
+  });
+
+  /**
+   * The mark says the block is parked; the line
+   * under the title says since when. An absolute
+   * moment and never a clock counting up — nothing
+   * is happening here, and a number climbing would
+   * say the opposite.
+   */
+  test('says since when a block is waiting', async ({ page }) => {
+    await openAtRest(page, { run: WAITING_PARKED });
+
+    const line = nodeLine(page, 'await_reply');
+
+    await expect(line).toHaveAttribute('data-line', 'waiting');
+    await expect(line).toHaveText(WAITING_LINE);
+
+    // The block is only as wide as core laid it out,
+    // and half a clock is not a moment — so the
+    // whole sentence stays reachable however it is
+    // cut.
+    await expect(line).toHaveAttribute('title', WAITING_LINE);
+  });
+
+  /**
+   * A branch that recorded which way it went is a
+   * branch the run demonstrably did not take the
+   * other way out of, so only one wire past it can
+   * be carrying anything.
+   */
+  test('lights one successor of a decision the run made', async ({ page }) => {
+    await openAtRest(page, {
+      run: runOf(IN_FLIGHT),
+      decided: { slot_open: 'yes' },
+    });
+
+    await expect(wireBody(page, 'e4')).toHaveAttribute('data-state', 'active');
+    await expect(wireBody(page, 'e5')).toHaveAttribute('data-state', 'idle');
+    await expect(nodeBody(page, 'book_appointment')).toHaveAttribute(
+      'data-state',
+      'running',
+    );
+    await expect(nodeBody(page, 'twilio_chat')).toHaveAttribute(
+      'data-state',
+      'dormant',
+    );
+  });
+
+  /** A branch decided on predicates writes no row
+   *  at all — it is settled in the generated code —
+   *  so the run is somewhere past both arms. */
+  test('lights both successors of a predicate branch', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT), decided: {} });
+
+    await expect(wireBody(page, 'e4')).toHaveAttribute('data-state', 'active');
+    await expect(wireBody(page, 'e5')).toHaveAttribute('data-state', 'active');
+  });
+});
+
+/**
+ * The chip at the end of the toolbar, while this
+ * window is following a run of the workflow on
+ * screen.
+ *
+ * It says which run and where it has got to, and
+ * nothing about how long ago anything happened: the
+ * canvas keeps no clock, and a chip that counted
+ * would be one.
+ */
+test.describe('the followed run on the toolbar', () => {
+  test('names the run this canvas is following', async ({ page }) => {
+    await openAtRest(page, { run: runOf(PARKED, 'waiting') });
+
+    await expect(page.locator('.following')).toHaveText(
+      filled(
+        canvasStrings.following,
+        ir.name,
+        'wf_1',
+        canvasStrings.runOutcomes.waiting,
+      ),
+    );
+  });
+
+  /** The end of it, because the ids this window
+   *  mints open with a timestamp — two runs a minute
+   *  apart share their first fifteen characters. */
+  test('shows the end of a long run id, and the whole of it beside', async ({
+    page,
+  }) => {
+    const workflowId = 'run_1757232000000_a1b2c3d4';
+
+    await openAtRest(page, {
+      run: { ...runOf(IN_FLIGHT), workflowId },
+    });
+
+    const chip = page.locator('.following');
+
+    await expect(chip).toContainText('…a1b2c3d4');
+    await expect(chip).toHaveAttribute('title', workflowId);
+  });
+
+  test('says nothing on a canvas following no run', async ({ page }) => {
+    await openAtRest(page);
+
+    await expect(page.locator('.following')).toHaveCount(0);
   });
 });
 
@@ -1260,7 +1500,10 @@ test.describe('the colour a wire is drawn in', () => {
 });
 
 /** Tint and ink per tone, as the browser resolves
- *  the mixes over this harness' light surface. */
+ *  the mixes over this harness' light surface. The
+ *  brand tile is the one that reads the deeper of
+ *  the two brand tints, because it is the only tone
+ *  whose glyph is drawn in the source colour. */
 const TONE_COLOURS = [
   {
     tone: 'neutral',
@@ -1269,7 +1512,7 @@ const TONE_COLOURS = [
   },
   {
     tone: 'brand',
-    tint: 'color(srgb 0.907843 0.915686 0.975294)',
+    tint: 'color(srgb 0.881961 0.892941 0.976392)',
     ink: 'rgb(83, 103, 255)',
   },
   {
@@ -1971,6 +2214,142 @@ test.describe('the Inspector column', () => {
     expect(await harness.postedOfType('edit')).toEqual([]);
   });
 
+  /**
+   * How hard a block tries, shown as the numbers it
+   * will actually run under. A block that carries
+   * no policy of its own reads the defaults rather
+   * than three empty boxes, so nobody has to know
+   * what an empty box would mean.
+   */
+  test('offers the three retry fields on a step', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ ...showing('find_slot') }));
+
+    await expect(
+      page.locator('[data-field="retryMaxAttempts"] input'),
+    ).toHaveValue('3');
+    await expect(
+      page.locator('[data-field="retryIntervalSeconds"] input'),
+    ).toHaveValue('1');
+    await expect(
+      page.locator('[data-field="retryBackoffRate"] input'),
+    ).toHaveValue('2');
+  });
+
+  /**
+   * And the one kind that has none says why, rather
+   * than leaving the row out and reading as a kind
+   * whose fields somebody forgot.
+   */
+  test('tells a transaction it runs once inside its commit', async ({
+    page,
+  }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ ...showing('record_booking') }));
+
+    await expect(page.locator('[data-field="retry"] .field-name')).toHaveText(
+      inspectorStrings.retryPolicy,
+    );
+    await expect(page.locator('[data-field="retry"] .field-value')).toHaveText(
+      inspectorStrings.retry,
+    );
+    await expect(page.locator('[data-field="retryMaxAttempts"]')).toHaveCount(
+      0,
+    );
+  });
+
+  /**
+   * The column asks two questions about one block —
+   * what it should do, and what a run recorded about
+   * it doing that — and never both at once. Two
+   * faces rather than one long form.
+   */
+  test('offers two faces', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ ...showing('find_slot') }));
+
+    await expect(page.locator('[data-inspector-mode]')).toHaveAttribute(
+      'data-inspector-mode',
+      'configure',
+    );
+    await expect(page.locator('button[data-inspector-tab]')).toHaveText([
+      inspectorStrings.tabs.configure,
+      inspectorStrings.tabs.evidence,
+    ]);
+    await expect(
+      page.locator('button[data-inspector-tab="configure"]'),
+    ).toHaveAttribute('aria-selected', 'true');
+  });
+
+  /** With no run there is nothing recorded to read,
+   *  and the face says what would give it
+   *  something. */
+  test('disables Run Evidence with no run and says why', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ ...showing('find_slot') }));
+
+    await expect(
+      page.locator('button[data-inspector-tab="evidence"]'),
+    ).toBeDisabled();
+    await expect(page.locator('.inspector .hint')).toHaveText(
+      inspectorStrings.noRun,
+    );
+
+    await harness.show(
+      canvasInit({ ...showing('find_slot'), run: runOf(IN_FLIGHT) }),
+    );
+
+    await expect(
+      page.locator('button[data-inspector-tab="evidence"]'),
+    ).toBeEnabled();
+    await expect(page.locator('.inspector .hint')).toHaveCount(0);
+  });
+
+  /** Two faces, not one long form: a field somebody
+   *  may change never sits beside a fact they may
+   *  not. */
+  test('shows a block’s fields on Configure only', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+
+    await harness.show(
+      canvasInit({ ...showing('find_slot'), run: runOf(IN_FLIGHT) }),
+    );
+
+    await expect(page.locator('[data-field="title"]')).toHaveCount(1);
+
+    await harness.show(
+      canvasInit({
+        ...showing('find_slot', {}, 'evidence'),
+        run: runOf(IN_FLIGHT),
+      }),
+    );
+
+    await expect(page.locator('[data-field]')).toHaveCount(0);
+  });
+
+  /**
+   * And the face is the host's to hold. A panel is
+   * torn down whenever it is hidden, so a tab a
+   * person chose survives only where the selection
+   * does.
+   */
+  test('posts the face a person picked', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+
+    await harness.show(
+      canvasInit({
+        ...showing('find_slot', {}, 'evidence'),
+        run: runOf(IN_FLIGHT),
+      }),
+    );
+
+    await page.locator('button[data-inspector-tab="configure"]').click();
+
+    expect(await harness.postedOfType('inspectorMode')).toEqual([
+      { type: 'inspectorMode', mode: 'configure' },
+    ]);
+  });
+
   test('says so plainly when the canvas itself is clicked', async ({
     page,
   }) => {
@@ -1989,6 +2368,285 @@ test.describe('the Inspector column', () => {
       inspectorStrings.nothingSelected,
     );
     await expect(page.locator('[data-field]')).toHaveCount(0);
+  });
+
+  /**
+   * The other face: what a run recorded about the
+   * block on screen.
+   *
+   * Everything on it was read off the ledger and can
+   * be edited by nobody. DBOS records no per-step
+   * input and no count of the tries a step made, so
+   * the first thing asked of the card is that it
+   * invents neither.
+   */
+  test.describe('what a run recorded about a block', () => {
+    test('never puts an attempt count or an INPUT section on a step card', async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas');
+      const card = page.locator('[data-evidence="block"]');
+
+      for (const step of [DONE, THREW, EXHAUSTED]) {
+        await harness.show(
+          canvasInit({
+            ...showing('find_slot', {}, 'evidence'),
+            run: recording([step]),
+          }),
+        );
+
+        await expect(card).toHaveCount(1);
+
+        const said = (await card.textContent()) ?? '';
+
+        expect(said).not.toMatch(/attempt/i);
+        expect(said).not.toMatch(/\bINPUT\b/);
+        await expect(page.locator('[data-field="input"]')).toHaveCount(0);
+      }
+    });
+
+    test('shows a completed step’s timing, output and configured policy', async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([DONE]),
+        }),
+      );
+
+      // The clock is the browser's, so the shape is
+      // what is held rather than the wording: what
+      // matters is that a step timed to the
+      // millisecond is drawn to the millisecond.
+      await expect(
+        page.locator('[data-evidence-field="started"] .value'),
+      ).toHaveText(/\d{1,2}:\d{2}:\d{2}\.\d{3}/);
+      await expect(
+        page.locator('[data-evidence-field="completed"] .value'),
+      ).toHaveText(/\d{1,2}:\d{2}:\d{2}\.\d{3}/);
+      await expect(
+        page.locator('[data-evidence-field="duration"] .value'),
+      ).toHaveText('48 ms');
+
+      await expect(
+        page.locator('[data-evidence-field="output"] .value'),
+      ).toHaveText(DONE.output!);
+
+      // The fixture's block spells the defaults out,
+      // and the card says they are configuration
+      // rather than something the run recorded.
+      await expect(
+        page.locator('[data-evidence-field="retry"] .value'),
+      ).toHaveText('max 3 · interval 1 s · backoff 2×');
+      await expect(
+        page.locator('[data-evidence-field="retry"] .provenance'),
+      ).toHaveText(inspectorStrings.configured);
+    });
+
+    /**
+     * The class DBOS threw first, then its sentence.
+     * A step that ran out of tries says so on a
+     * third line and never lists the tries: one
+     * entry per try is exactly the per-step history
+     * nothing here may claim.
+     */
+    test('shows a failed step’s error, its class first', async ({ page }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW]),
+        }),
+      );
+
+      const error = page.locator('.evidence-error');
+
+      await expect(error).toContainText('StripeTimeoutError');
+      await expect(error).toContainText('Request timed out after 30 s');
+      await expect(error).not.toContainText(inspectorStrings.exhausted);
+
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([EXHAUSTED]),
+        }),
+      );
+
+      await expect(error).toContainText(inspectorStrings.exhausted);
+    });
+
+    /**
+     * And the way to the line it threw on is offered
+     * only where the stack named a file in the
+     * project's own `lib/`. Most stacks name the SDK
+     * and the generated workflow and nothing else,
+     * and a button that opened one of those would be
+     * worse than no button.
+     */
+    test('shows Open Error Location only when the step has a frame', async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW]),
+        }),
+      );
+
+      const door = page.locator('[data-evidence-action="openErrorLocation"]');
+
+      await expect(page.locator('.evidence-error')).toBeVisible();
+      await expect(door).toHaveCount(0);
+
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW_IN_LIB]),
+        }),
+      );
+
+      await expect(door).toHaveText(inspectorStrings.openErrorLocation);
+      await expect(
+        page.locator('[data-evidence-field="errorLocation"] .hint'),
+      ).toHaveText(inspectorStrings.errorLocationFrom);
+    });
+
+    /**
+     * The block and the row together. A block that
+     * ran more than once failed on one of those
+     * tries, and each wrote a stack of its own.
+     */
+    test('asks for the line by block and row', async ({ page }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW_IN_LIB]),
+        }),
+      );
+
+      await page.locator('[data-evidence-action="openErrorLocation"]').click();
+
+      expect(await harness.postedOfType('openErrorLocation')).toEqual([
+        { type: 'openErrorLocation', nodeId: 'find_slot', functionId: 3 },
+      ]);
+    });
+
+    /**
+     * The ways on from a recorded step, in the order
+     * somebody reaches for them: the code, the line
+     * it broke on, a second run from here, and the
+     * agent.
+     *
+     * Every one of them carries the block, and the
+     * two that start something carry the run as
+     * well — a panel may be drawing a run the
+     * extension has since moved past, and which run
+     * is being asked about is not a question a card
+     * gets to answer from memory.
+     */
+    test('offers the four ways on from a failed step', async ({ page }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW_IN_LIB]),
+        }),
+      );
+
+      await expect(
+        page.locator('.evidence-actions [data-evidence-action]'),
+      ).toHaveText([
+        inspectorStrings.openHandler,
+        inspectorStrings.openErrorLocation,
+        inspectorStrings.replayFrom,
+        inspectorStrings.askAgent,
+      ]);
+
+      await page.locator('[data-evidence-action="openFunction"]').click();
+      await page.locator('[data-evidence-action="replayFrom"]').click();
+      await page.locator('[data-evidence-action="askAgent"]').click();
+
+      expect(await harness.postedOfType('openFunction')).toEqual([
+        { type: 'openFunction', nodeId: 'find_slot' },
+      ]);
+      expect(await harness.postedOfType('replayFrom')).toEqual([
+        { type: 'replayFrom', workflowId: 'wf_1', nodeId: 'find_slot' },
+      ]);
+      expect(await harness.postedOfType('askAgent')).toEqual([
+        { type: 'askAgent', workflowId: 'wf_1', nodeId: 'find_slot' },
+      ]);
+    });
+
+    /** The other three stay: only the line is
+     *  conditional, and a step that broke somewhere
+     *  nobody here wrote is still a step to replay
+     *  or ask about. */
+    test('keeps the other three ways on where there is no line', async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW]),
+        }),
+      );
+
+      await expect(
+        page.locator('.evidence-actions [data-evidence-action]'),
+      ).toHaveText([
+        inspectorStrings.openHandler,
+        inspectorStrings.replayFrom,
+        inspectorStrings.askAgent,
+      ]);
+    });
+
+    /**
+     * What the run was started with is a fact about
+     * the run and is drawn here and nowhere else —
+     * which is the other half of the rule the first
+     * case in this block holds a step card to.
+     */
+    test('shows the workflow input and the recovery on the run card', async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          inspector: {
+            strings: inspectorStrings,
+            selected: undefined,
+            mode: 'evidence',
+          },
+          run: recording([DONE], {
+            input: '{ "orderId": "ord_123" }',
+            recoveryAttempts: 2,
+            applicationVersion: '1',
+          }),
+        }),
+      );
+
+      await expect(page.locator('[data-evidence="run"]')).toHaveCount(1);
+      await expect(
+        page.locator('[data-evidence-field="workflowInput"] .value'),
+      ).toHaveText('{ "orderId": "ord_123" }');
+      await expect(
+        page.locator('[data-evidence-field="recovery"] .value'),
+      ).toHaveText('recovered 1×');
+      await expect(
+        page.locator('[data-evidence-field="recovery"] .hint'),
+      ).toHaveText(inspectorStrings.pickedBackUp);
+      await expect(
+        page.locator('[data-evidence-field="version"] .value'),
+      ).toHaveText('1');
+      await expect(
+        page.locator('[data-evidence-action="openRun"]'),
+      ).toHaveCount(1);
+    });
   });
 });
 
@@ -2306,7 +2964,7 @@ test.describe('the function picker', () => {
     await expect(chosen).toHaveAttribute('data-state', 'assigned');
     await expect(chosen).toHaveCSS(
       'box-shadow',
-      'color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 1px inset',
+      'color(srgb 0.32549 0.403922 1 / 0.45) 0px 0px 0px 1px inset',
     );
     expect(
       await chosen.evaluate((row) => getComputedStyle(row, '::after').content),
@@ -2351,6 +3009,23 @@ test.describe('the function picker', () => {
     await expect(toggle).toHaveText(
       `${manifest.functions.length - fitting('slot_open').length} incompatible functions hidden · show`,
     );
+  });
+
+  /**
+   * The way out of the column and into the code.
+   * The block travels and nothing else: where that
+   * function is written, and whether the project's
+   * code-behind still has one of that name, is the
+   * extension's answer rather than the panel's.
+   */
+  test('asks for the code the block already runs', async ({ page }) => {
+    const harness = await openPicker(page, 'find_slot');
+
+    await page.locator('[data-open-function]').click();
+
+    expect(await harness.postedOfType('openFunction')).toEqual([
+      { type: 'openFunction', nodeId: 'find_slot' },
+    ]);
   });
 });
 
@@ -2789,13 +3464,13 @@ const BRAND = 'rgb(83, 103, 255)';
 
 /** The system's one "this is the match" ring, at the
  *  geometry a block wears it. */
-const MATCHED = 'color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 2px';
+const MATCHED = 'color(srgb 0.32549 0.403922 1 / 0.45) 0px 0px 0px 2px';
 
 /** The ring, the softer ring around it, and the two
  *  the block was already sitting on. */
 const SELECTED =
   'rgb(83, 103, 255) 0px 0px 0px 1.5px, ' +
-  'color(srgb 0.32549 0.403922 1 / 0.3) 0px 0px 0px 5px, ' +
+  'color(srgb 0.32549 0.403922 1 / 0.18) 0px 0px 0px 5px, ' +
   'rgba(23, 26, 35, 0.06) 0px 1px 3px 0px, ' +
   'rgba(23, 26, 35, 0.07) 0px 4px 12px 0px';
 
@@ -3430,6 +4105,147 @@ test.describe('every theme', () => {
       await expect(page.locator('[data-caption="graph"]')).toBeVisible();
     });
   }
+
+  /**
+   * The three roles the shared classes are built
+   * out of. Each is mixed against a ground the
+   * theme chose, so what is asserted is that the
+   * mix resolves at all — a token that does not is
+   * an empty string, and every rule reading it
+   * silently falls back to the initial value.
+   */
+  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+    test(`mixes the shared roles against the ${theme} ground`, async ({
+      page,
+    }) => {
+      await openCanvas(page, theme);
+
+      const roles = await page.evaluate(() => {
+        const style = getComputedStyle(document.body);
+
+        return {
+          tint: style.getPropertyValue('--brand-tint-2').trim(),
+          soft: style.getPropertyValue('--ink-soft').trim(),
+          tracking: style.getPropertyValue('--label-tracking').trim(),
+        };
+      });
+
+      expect(roles.tint).not.toBe('');
+      expect(roles.soft).not.toBe('');
+      expect(roles.tracking).not.toBe('');
+    });
+  }
+});
+
+/**
+ * Two views draw the same tab strip and the same
+ * provenance chip, so both live in the token layer
+ * rather than twice in two sheets. These mount a
+ * view and put the bare markup on the page: what is
+ * being checked is the rule, not the component that
+ * will eventually carry it.
+ */
+test.describe('the controls two views share', () => {
+  test('keeps the focus ring on a control that unsets everything', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    await page.evaluate(() => {
+      const tab = document.createElement('button');
+      tab.id = 'bare-tab';
+      tab.className = 'tab';
+      tab.setAttribute('role', 'tab');
+      tab.textContent = 'Graph';
+      document.body.prepend(tab);
+    });
+
+    await page.keyboard.press('Tab');
+
+    const tab = page.locator('button#bare-tab');
+    await expect(tab).toBeFocused();
+
+    // `all: unset` takes the outline with it, which
+    // would leave a keyboard user with no idea
+    // where they are.
+    await expect(tab).not.toHaveCSS('outline-style', 'none');
+
+    // And the half that fails before the rule
+    // exists: a bare button already wears the
+    // global focus ring, so the outline alone would
+    // pass against nothing.
+    const tracking = await page.evaluate(() => {
+      const control = document.querySelector('button#bare-tab') as HTMLElement;
+      const probe = document.createElement('span');
+
+      probe.style.letterSpacing =
+        getComputedStyle(control).getPropertyValue('--label-tracking');
+      control.append(probe);
+
+      const read = {
+        control: getComputedStyle(control).letterSpacing,
+        system: getComputedStyle(probe).letterSpacing,
+      };
+
+      probe.remove();
+
+      return read;
+    });
+
+    expect(tracking.system).not.toBe('normal');
+    expect(tracking.control).toBe(tracking.system);
+  });
+
+  test('draws a derived chip dashed, in the strong hairline', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    await page.evaluate(() => {
+      const row = document.createElement('div');
+      row.id = 'told-row';
+      row.style.background = 'var(--surface-2)';
+      row.style.padding = '10px 14px';
+      row.style.width = 'max-content';
+      row.innerHTML =
+        '<span class="mono">await_reply</span>' +
+        '<span class="provenance" data-provenance="derived">derived</span>';
+      document.body.prepend(row);
+    });
+
+    const chip = page.locator('.provenance[data-provenance="derived"]');
+
+    await expect(chip).toHaveCSS('border-top-style', 'dashed');
+
+    const border = await page.evaluate(() => {
+      const probe = document.createElement('span');
+      probe.style.border = '1px solid var(--hairline-strong)';
+      document.body.append(probe);
+
+      const read = {
+        chip: getComputedStyle(
+          document.querySelector('.provenance') as HTMLElement,
+        ).borderTopColor,
+        strong: getComputedStyle(probe).borderTopColor,
+      };
+
+      probe.remove();
+
+      return read;
+    });
+
+    expect(border.chip).toBe(border.strong);
+
+    // The dash has to read as a dash at the size it
+    // is actually drawn, which is a thing only an
+    // eye can answer. The scratch directory is
+    // outside the repository on purpose: a
+    // screenshot committed here becomes a golden
+    // nobody maintains.
+    await page
+      .locator('#told-row')
+      .screenshot({ path: '../scratch/provenance-chip.png' });
+  });
 });
 
 /**

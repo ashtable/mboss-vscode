@@ -2,9 +2,9 @@ import type { Disposable } from 'vscode';
 
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
-import type { RunsInit } from '../webview/protocol.js';
+import type { StackZone } from '../webview/protocol.js';
 
-import type { StackController, StackStatus } from './stack.js';
+import type { StackAction, StackController, StackStatus } from './stack.js';
 
 /**
  * The local stack, as the panel shows it.
@@ -36,10 +36,7 @@ export type StackZoneDeps = {
   stack: StackController;
 };
 
-/** Which command the stack is in the middle of. */
-export type StackAction = 'up' | 'down' | 'rebuild';
-
-export type StackZone = Disposable & {
+export type Stack = Disposable & {
   /** What compose says now, read quietly: the
    *  panel is drawn again by whoever asked. */
   read(): Promise<void>;
@@ -48,7 +45,21 @@ export type StackZone = Disposable & {
   down(): Promise<void>;
   rebuild(): Promise<void>;
 
-  render(): RunsInit['stack'];
+  /**
+   * When the code that is running was built, as
+   * far as this window can tell.
+   *
+   * The later of what compose says about the app's
+   * container and the moment a build this window
+   * ran began, because compose does not recreate a
+   * container for an image that came out
+   * byte-identical: a rebuild that produced no new
+   * layers leaves an old container behind and the
+   * code in it is still current.
+   */
+  builtAt(): number | undefined;
+
+  render(): StackZone;
 
   onChanged(listener: () => void): Disposable;
 };
@@ -69,11 +80,15 @@ const NO_STACK: StackStatus = {
  */
 const STACK_UP_KEY = 'mboss.stackUp';
 
-export function stackZone(deps: StackZoneDeps): StackZone {
+export function stackZone(deps: StackZoneDeps): Stack {
   const changes = emitter();
 
   let stack: StackStatus = NO_STACK;
   let busy: StackAction | undefined;
+
+  /** When a build this window ran began, which is
+   *  the other half of `builtAt`. */
+  let ranAt: number | undefined;
 
   const changed = changes.fire;
 
@@ -117,6 +132,13 @@ export function stackZone(deps: StackZoneDeps): StackZone {
     if (dir === undefined || !deps.trust.isTrusted()) return;
 
     busy = action;
+
+    // Both of the other two build; `down` makes no
+    // container, and dating the running code from
+    // the moment somebody stopped it would call a
+    // stale image current.
+    if (action !== 'down') ranAt = Date.now();
+
     changed();
 
     try {
@@ -135,6 +157,9 @@ export function stackZone(deps: StackZoneDeps): StackZone {
     down: () => command('down', (dir) => deps.stack.down(dir)),
     rebuild: () => command('rebuild', (dir) => deps.stack.rebuild(dir)),
 
+    builtAt: () =>
+      latest([ranAt, ...stack.services.map((service) => service.builtAt)]),
+
     render: () => ({
       available: stack.available,
       services: stack.services,
@@ -145,4 +170,18 @@ export function stackZone(deps: StackZoneDeps): StackZone {
     onChanged: changes.on,
     dispose: () => changes.dispose(),
   };
+}
+
+/**
+ * The latest moment anything knew about, or
+ * nothing where nothing did.
+ *
+ * Only the app row carries a built time, so the
+ * maximum over the services is the app's without
+ * this having to know which one it is.
+ */
+function latest(moments: readonly (number | undefined)[]): number | undefined {
+  const known = moments.filter((at): at is number => at !== undefined);
+
+  return known.length === 0 ? undefined : Math.max(...known);
 }

@@ -3,12 +3,23 @@ import { expect, test, type Page } from '@playwright/test';
 import type {
   RunRow,
   RunsInit,
+  SeeGraph,
   SeeInit,
+  SeeLineageRun,
   SeeRun,
+  TraceGroupView,
 } from '../../src/webview/protocol.js';
 
+import { liveRun, liveStep } from '../../src/test-support/runs.js';
+
+import { paletteLabels } from './words.js';
+
 import { mount, type Harness } from './harness.js';
-import { runsWords as runsStrings, seeWords as seeStrings } from './words.js';
+import {
+  inspectorWords as inspectorStrings,
+  runsWords as runsStrings,
+  seeWords as seeStrings,
+} from './words.js';
 
 /**
  * A run history, on screen.
@@ -36,6 +47,11 @@ const ROWS: RunRow[] = [
     recovered: true,
     recoveredNote: undefined,
     error: undefined,
+    summary: undefined,
+    stoppedAt: undefined,
+    operations: undefined,
+    replayOf: undefined,
+    forks: [],
   },
   {
     workflowId: 'wf_a1b4e7',
@@ -46,6 +62,11 @@ const ROWS: RunRow[] = [
     recovered: false,
     recoveredNote: undefined,
     error: undefined,
+    summary: undefined,
+    stoppedAt: undefined,
+    operations: undefined,
+    replayOf: undefined,
+    forks: [],
   },
   {
     workflowId: 'wf_77c101',
@@ -56,6 +77,11 @@ const ROWS: RunRow[] = [
     recovered: false,
     recoveredNote: undefined,
     error: 'login failed — CDC_PASS rotated',
+    summary: 'failed · sync_rows',
+    stoppedAt: '13:41',
+    operations: 3,
+    replayOf: undefined,
+    forks: [],
   },
   {
     workflowId: 'wf_ff0912',
@@ -66,6 +92,11 @@ const ROWS: RunRow[] = [
     recovered: true,
     recoveredNote: 'recovered from 3 crashes',
     error: 'gave up after 3 attempts',
+    summary: undefined,
+    stoppedAt: undefined,
+    operations: undefined,
+    replayOf: undefined,
+    forks: [],
   },
 ];
 
@@ -97,11 +128,16 @@ function runsInit(over: Partial<RunsInit> = {}): RunsInit {
     },
     live: undefined,
     session: [],
+    production: { configured: false },
     ...over,
   };
 }
 
 const STEP_NAMES = ['parse_request', 'find_slot', 'book_appointment'];
+
+/** What the host says over a run whose workflow the
+ *  project no longer has. */
+const NO_SAVED_WORKFLOW = 'no saved workflow named groom_booking · trace only';
 
 function seeRun(over: Partial<SeeRun> = {}): SeeRun {
   return {
@@ -112,16 +148,25 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     severity: 'ok',
     span: 'started 14:02:11 · finished 14:02:19',
     recovered: {
-      heading: 'Crash recovered — exactly-once held',
+      heading: 'Recovered — completed durable operations were not re-executed',
       body:
-        'Nothing ran for 2.9 s. DBOS picked this run back up and 2 steps ' +
-        'came back from dbos.operation_outputs instead of running again.',
+        'DBOS picked this run back up. Both figures are derived from the ' +
+        'widest gap between recorded operations — the durable operations ' +
+        'that finished before that gap were reused from ' +
+        'dbos.operation_outputs rather than run again.',
+      figures: {
+        down: 'nothing ran for about 2.9 s',
+        reused: '2 durable operations reused',
+      },
     },
     chips: STEP_NAMES.map((name, index) => ({
       functionId: index,
       name,
       restored: index < 2,
+      reused: false,
       failed: false,
+      replayable: true,
+      because: undefined,
     })),
     timeline: {
       bars: STEP_NAMES.map((name, index) => ({
@@ -129,6 +174,7 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
         name,
         at: { from: index * 0.1, width: 0.08 },
         restored: index < 2,
+        reused: false,
         failed: false,
       })),
       outage: {
@@ -156,14 +202,59 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
       { label: 'recovery_attempts', value: '2' },
       { label: 'executor_id', value: 'local-dev' },
     ],
+    controls: {
+      cancel: false,
+      resume: false,
+      cancelled: undefined,
+      lastRecorded: 'book_appointment · step 2',
+    },
     selectedStep: 2,
     note: undefined,
+    graph: undefined,
+    // Set to match, the way the host sets it: the
+    // sentence is there exactly where the picture
+    // is not.
+    noGraph: over.graph === undefined ? NO_SAVED_WORKFLOW : undefined,
+    live: liveRun({
+      workflowId: 'wf_c9d2f3',
+      workflow: 'groom_booking',
+      status: 'ERROR',
+      outcome: 'failed',
+      steps: [
+        liveStep({ name: 'parse_request', nodeId: 'parse_request' }),
+        liveStep({
+          name: 'find_slot',
+          nodeId: 'find_slot',
+          state: 'failed',
+          functionId: 1,
+        }),
+      ],
+    }),
+    groups: [],
+    selected: { nodeId: undefined, functionId: 2 },
+    showRaw: false,
+    following: 'quiet',
+    input: undefined,
+    lineage: undefined,
     ...over,
   };
 }
 
-function seeInit(run: SeeRun = seeRun()): SeeInit {
-  return { type: 'init', view: 'see', strings: seeStrings, run };
+/** The trace by default: most of what this page
+ *  draws is on that side, and the graph cases say
+ *  so for themselves. */
+function seeInit(
+  run: SeeRun = seeRun(),
+  showing: 'graph' | 'trace' = 'trace',
+): SeeInit {
+  return {
+    type: 'init',
+    view: 'see',
+    strings: seeStrings,
+    inspector: inspectorStrings,
+    run,
+    showing,
+  };
 }
 
 /** Before a run has been picked. A separate helper
@@ -171,7 +262,14 @@ function seeInit(run: SeeRun = seeRun()): SeeInit {
  *  default argument would quietly turn back into a
  *  run. */
 function seeNothing(): SeeInit {
-  return { type: 'init', view: 'see', strings: seeStrings, run: undefined };
+  return {
+    type: 'init',
+    view: 'see',
+    strings: seeStrings,
+    inspector: inspectorStrings,
+    run: undefined,
+    showing: 'graph',
+  };
 }
 
 async function showList(page: Page, init: RunsInit): Promise<Harness> {
@@ -186,6 +284,19 @@ async function showRun(page: Page, init: SeeInit): Promise<Harness> {
   await harness.show(init);
 
   return harness;
+}
+
+/** The warn colour, as the light theme resolves it.
+ *  Recovery is drawn in it wherever it is drawn. */
+const WARN = 'rgb(233, 162, 59)';
+
+/** The tint of it a whole surface is washed in. */
+const WARN_TINT = 'color(srgb 0.964314 0.925333 0.868784)';
+
+function tagColour(page: Page, runId: string): Promise<string> {
+  return page
+    .locator(`[data-run="${runId}"] .run-tag`)
+    .evaluate((node) => getComputedStyle(node).color);
 }
 
 test.describe('the local stack', () => {
@@ -477,12 +588,24 @@ test.describe('the run being followed', () => {
     workflow: 'groom_booking',
     status: 'PENDING',
     steps: [
-      { name: 'find_slot', nodeId: 'find_slot', state: 'done' as const },
-      { name: 'book', nodeId: 'book', state: 'waiting' as const },
+      liveStep({ name: 'find_slot', nodeId: 'find_slot' }),
+      liveStep({
+        name: 'book',
+        nodeId: 'book',
+        state: 'waiting',
+        functionId: 1,
+      }),
     ],
     recovered: false,
+    recoveryAttempts: 1,
     outcome: 'running' as const,
     error: undefined,
+    applicationVersion: 'v0.1.0',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: undefined,
+    input: undefined,
+    forkedFrom: undefined,
   };
 
   test('marks each step with what the ledger says about it', async ({
@@ -522,6 +645,48 @@ test.describe('the run being followed', () => {
 
     await expect(page.locator('[data-zone="running-now"]')).toHaveCount(0);
   });
+
+  /**
+   * A quiet run is one the watch let go of, not one
+   * that ended: DBOS still has it `PENDING` and it
+   * can still be stopped. So all three of the
+   * stopped-and-not-stopped states offer it.
+   */
+  test('offers Cancel while a run is running, waiting or quiet', async ({
+    page,
+  }) => {
+    for (const outcome of ['running', 'waiting', 'quiet'] as const) {
+      const harness = await showList(
+        page,
+        runsInit({ live: { ...LIVE, outcome } }),
+      );
+
+      const zone = page.locator('[data-zone="running-now"]');
+      await expect(zone.locator('[data-resume-run]')).toHaveCount(0);
+      await zone.locator('[data-cancel-run]').click();
+
+      expect(await harness.postedOfType('cancelRun')).toEqual([
+        { type: 'cancelRun', workflowId: 'run_1_a1b2' },
+      ]);
+    }
+  });
+
+  test('offers Resume once it is cancelled', async ({ page }) => {
+    const harness = await showList(
+      page,
+      runsInit({
+        live: { ...LIVE, outcome: 'cancelled', status: 'CANCELLED' },
+      }),
+    );
+
+    const zone = page.locator('[data-zone="running-now"]');
+    await expect(zone.locator('[data-cancel-run]')).toHaveCount(0);
+    await zone.locator('[data-resume-run]').click();
+
+    expect(await harness.postedOfType('resumeRun')).toEqual([
+      { type: 'resumeRun', workflowId: 'run_1_a1b2' },
+    ]);
+  });
 });
 
 test.describe('this session', () => {
@@ -539,6 +704,7 @@ test.describe('this session', () => {
             recovered: false,
             error: undefined,
             keyed: false,
+            via: 'start',
           },
         ],
       }),
@@ -580,6 +746,7 @@ test.describe('this session', () => {
             recovered: false,
             error: undefined,
             keyed: true,
+            via: 'start',
           },
         ],
       }),
@@ -588,6 +755,40 @@ test.describe('this session', () => {
     await expect(
       page.locator('[data-session-row="run_2"] [data-rerun]'),
     ).toHaveText('Send the event again');
+  });
+
+  /**
+   * A fork was never handed an input in this
+   * window: it carries the input of the run it came
+   * from, and that lives in the ledger. There is
+   * nothing here to send again, so the row does not
+   * offer to — not even for a workflow whose events
+   * are keyed, where the label would otherwise read
+   * as sending the same one twice.
+   */
+  test('offers no Rerun on a replayed row', async ({ page }) => {
+    await showList(
+      page,
+      runsInit({
+        session: [
+          {
+            workflowId: 'run_9',
+            workflow: 'expense_claim',
+            outcome: 'running',
+            when: '14:11',
+            stepCount: 1,
+            recovered: false,
+            error: undefined,
+            keyed: true,
+            via: 'replay',
+          },
+        ],
+      }),
+    );
+
+    const row = page.locator('[data-session-row="run_9"]');
+    await expect(row.locator('[data-open-run]')).toHaveCount(1);
+    await expect(row.locator('[data-rerun]')).toHaveCount(0);
   });
 
   test('asks the agent why, only where there is a failure to ask about', async ({
@@ -606,6 +807,7 @@ test.describe('this session', () => {
             recovered: false,
             error: 'CDC_PASS rotated',
             keyed: false,
+            via: 'start',
           },
         ],
       }),
@@ -636,6 +838,7 @@ test.describe('this session', () => {
             recovered: false,
             error: undefined,
             keyed: false,
+            via: 'start',
           },
         ],
       }),
@@ -667,6 +870,11 @@ test.describe('this session', () => {
             recovered: false,
             recoveredNote: undefined,
             error: undefined,
+            summary: undefined,
+            stoppedAt: undefined,
+            operations: undefined,
+            replayOf: undefined,
+            forks: [],
           },
         ],
         session: [
@@ -679,6 +887,7 @@ test.describe('this session', () => {
             recovered: false,
             error: undefined,
             keyed: false,
+            via: 'start',
           },
         ],
       }),
@@ -688,6 +897,74 @@ test.describe('this session', () => {
     await expect(page.locator('.run-rows [data-run="wf_c9d2f3"]')).toHaveCount(
       0,
     );
+  });
+
+  /**
+   * The one row where sending the run again is not
+   * what somebody means. A cancelled run has its
+   * whole recorded history sitting in the ledger,
+   * and picking it back up carries on from there —
+   * so the row offers that instead of a second run
+   * from the top.
+   */
+  test('offers Resume in place of Rerun on a cancelled row', async ({
+    page,
+  }) => {
+    const harness = await showList(
+      page,
+      runsInit({
+        session: [
+          {
+            workflowId: 'run_5',
+            workflow: 'groom_booking',
+            outcome: 'cancelled',
+            when: '14:14 · 3.1 s',
+            stepCount: 2,
+            recovered: false,
+            error: undefined,
+            keyed: false,
+            via: 'start',
+          },
+        ],
+      }),
+    );
+
+    const row = page.locator('[data-session-row="run_5"]');
+    await expect(row).toHaveAttribute('data-outcome', 'cancelled');
+    await expect(row.locator('[data-rerun]')).toHaveCount(0);
+
+    await row.locator('[data-resume-run]').click();
+    expect(await harness.postedOfType('resumeRun')).toEqual([
+      { type: 'resumeRun', workflowId: 'run_5' },
+    ]);
+  });
+
+  /** Nobody has to look into a run somebody stopped
+   *  on purpose: there is no error, and no question
+   *  to hand over. */
+  test('offers no Ask agent on a cancelled row', async ({ page }) => {
+    await showList(
+      page,
+      runsInit({
+        session: [
+          {
+            workflowId: 'run_6',
+            workflow: 'groom_booking',
+            outcome: 'cancelled',
+            when: '14:14 · 3.1 s',
+            stepCount: 2,
+            recovered: false,
+            error: 'cancelled at find_slot',
+            keyed: false,
+            via: 'start',
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      page.locator('[data-session-row="run_6"] [data-ask-agent]'),
+    ).toHaveCount(0);
   });
 });
 
@@ -703,6 +980,32 @@ test.describe('the footer', () => {
     await expect(page.locator('.runs-foot')).toContainText(
       'dbos.workflow_status',
     );
+  });
+
+  /**
+   * Conductor is a licence this product does not
+   * need, so a window that has none is never told
+   * about one. The line is provenance — where runs
+   * other than these live — and belongs beside the
+   * ledger it names rather than beside Run or
+   * Rebuild.
+   */
+  test('offers Conductor only when it is configured', async ({ page }) => {
+    const harness = await showList(page, runsInit());
+
+    await expect(page.locator('[data-production="configured"]')).toHaveCount(0);
+    await expect(page.locator('[data-open-production]')).toHaveCount(0);
+
+    await harness.show(runsInit({ production: { configured: true } }));
+
+    await expect(page.locator('[data-production="configured"]')).toContainText(
+      'DBOS Conductor · configured',
+    );
+    await page.locator('[data-open-production]').click();
+
+    expect(await harness.postedOfType('openProduction')).toEqual([
+      { type: 'openProduction' },
+    ]);
   });
 });
 
@@ -745,12 +1048,12 @@ test.describe('the run list', () => {
 
     const recovered = page.locator('[data-run="wf_c9d2f3"]');
     await expect(recovered).toHaveAttribute('data-recovered', 'true');
-    await expect(recovered).toContainText('recovered ✓');
+    await expect(recovered).toContainText('↻ recovered');
     await expect(recovered).toContainText('14:02 · 8.2 s');
 
     const plain = page.locator('[data-run="wf_a1b4e7"]');
     await expect(plain).toHaveAttribute('data-recovered', 'false');
-    await expect(plain).not.toContainText('recovered ✓');
+    await expect(plain).not.toContainText('↻ recovered');
 
     const failed = page.locator('[data-run="wf_77c101"]');
     await expect(failed).toHaveAttribute('data-severity', 'failed');
@@ -758,9 +1061,144 @@ test.describe('the run list', () => {
   });
 
   /**
+   * A run parked on somebody is `PENDING` in the
+   * status column, exactly like one that is
+   * executing a step. What tells them apart is the
+   * shape of the last operation, and the row says
+   * which block and since when.
+   */
+  test('marks a run waiting on a person, and says since when', async ({
+    page,
+  }) => {
+    await showList(
+      page,
+      runsInit({
+        rows: [
+          {
+            workflowId: 'wf_parked',
+            name: 'expense_claim',
+            status: 'PENDING',
+            severity: 'waiting',
+            when: '14:06',
+            recovered: false,
+            recoveredNote: undefined,
+            error: undefined,
+            summary: 'waiting · manager_ok · 10:31',
+            stoppedAt: '10:31',
+            operations: 4,
+            replayOf: undefined,
+            forks: [],
+          },
+        ],
+      }),
+    );
+
+    const row = page.locator('[data-run="wf_parked"]');
+
+    await expect(row.locator('.run-mark')).toHaveText('◐');
+
+    const summary = row.locator('.run-summary');
+    await expect(summary).toHaveText('waiting · manager_ok · 10:31');
+    await expect(summary).toHaveAttribute('data-stopped-at', '10:31');
+    await expect(summary).toHaveAttribute('data-derived', 'true');
+    await expect(summary).toHaveAttribute('title', runsStrings.derivedTitle);
+  });
+
+  test('hands the id of a row to the window', async ({ page }) => {
+    const harness = await showList(page, runsInit());
+
+    await page.locator('[data-copy-run-id="wf_c9d2f3"]').click();
+
+    expect(await harness.postedOfType('copyRunId')).toEqual([
+      { type: 'copyRunId', workflowId: 'wf_c9d2f3' },
+    ]);
+  });
+
+  /**
+   * Nothing on this panel is a service somewhere.
+   * The footer names the two tables the list is
+   * projected from, in the project's own database.
+   */
+  /**
+   * Both lines come off `forked_from`, which every
+   * row already selects — so the child is drawn only
+   * because it happens to be on this page, and no
+   * row costs a query of its own.
+   */
+  test('says which run a row is a replay of, and what came out of it', async ({
+    page,
+  }) => {
+    await showList(
+      page,
+      runsInit({
+        rows: [
+          {
+            workflowId: 'wf_c9d2f3',
+            name: 'groom_booking',
+            status: 'ERROR',
+            severity: 'failed',
+            when: '14:02 · 8.2 s',
+            recovered: false,
+            recoveredNote: undefined,
+            error: undefined,
+            summary: undefined,
+            stoppedAt: undefined,
+            operations: undefined,
+            replayOf: undefined,
+            forks: ['└ replay → wf_fork1 · SUCCESS'],
+          },
+          {
+            workflowId: 'wf_fork1',
+            name: 'groom_booking',
+            status: 'SUCCESS',
+            severity: 'ok',
+            when: '14:09 · 3.1 s',
+            recovered: false,
+            recoveredNote: undefined,
+            error: undefined,
+            summary: undefined,
+            stoppedAt: undefined,
+            operations: undefined,
+            replayOf: 'replay of wf_c9d2f3',
+            forks: [],
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      page.locator('[data-run="wf_c9d2f3"] [data-run-fork]'),
+    ).toHaveText('└ replay → wf_fork1 · SUCCESS');
+    await expect(
+      page.locator('[data-run="wf_fork1"] [data-replay-of]'),
+    ).toHaveText('replay of wf_c9d2f3');
+    await expect(
+      page.locator('[data-run="wf_c9d2f3"] [data-replay-of]'),
+    ).toHaveCount(0);
+  });
+
+  test('says the list is a projection of the local ledger', async ({
+    page,
+  }) => {
+    await showList(page, runsInit());
+
+    await expect(page.locator('.runs-foot')).toContainText(
+      'local only · projected from the local DBOS ledger: ' +
+        'dbos.workflow_status + dbos.operation_outputs',
+    );
+  });
+
+  /**
    * The accent rule is the one ornament on a row, so
    * it has to be a rule a person can see and not
    * just an attribute a test can read.
+   *
+   * Recovery is drawn in the warn colour and not in
+   * the brand one, everywhere it is drawn: a run
+   * DBOS picked back up is a thing that happened to
+   * the run, and the brand colour means a person or
+   * the product did this. The literal is the light
+   * theme's, which is what the harness mounts.
    */
   test('rules the edge of a recovered row in the accent', async ({ page }) => {
     await showList(page, runsInit());
@@ -773,7 +1211,8 @@ test.describe('the run list', () => {
       .evaluate((node) => getComputedStyle(node).borderLeftColor);
 
     expect(edge).not.toBe(plain);
-    expect(edge).not.toContain('rgba(0, 0, 0, 0)');
+    expect(edge).toBe(WARN);
+    expect(await tagColour(page, 'wf_c9d2f3')).toBe(WARN);
   });
 
   /**
@@ -864,8 +1303,61 @@ test.describe('one run in detail', () => {
     await showRun(page, seeInit());
 
     const banner = page.locator('[data-recovered-banner]');
-    await expect(banner).toContainText('exactly-once held');
-    await expect(banner).toContainText('2 steps came back');
+    await expect(banner.locator('.eyebrow')).toHaveText(
+      'Recovered — completed durable operations were not re-executed',
+    );
+    await expect(banner).toContainText('derived from the widest gap');
+
+    // Each figure wears its own chip. A derived
+    // number a person reads as a recorded one is
+    // the whole failure mode of a flight recorder,
+    // and a number inside the paragraph wears
+    // nothing.
+    await expect(banner.locator('[data-recovered-down]')).toContainText(
+      'nothing ran for about 2.9 s',
+    );
+    await expect(banner.locator('[data-recovered-reused]')).toContainText(
+      '2 durable operations reused',
+    );
+    await expect(
+      banner.locator(`.provenance[data-provenance='derived']`),
+    ).toHaveText([seeStrings.derived, seeStrings.derived]);
+
+    // Washed in the warn colour, like every other
+    // surface that says a run was picked back up.
+    await expect(banner).toHaveCSS('background-color', WARN_TINT);
+    await expect(banner.locator('.eyebrow')).toHaveCSS('color', WARN);
+  });
+
+  /**
+   * Nothing to place is nothing to chip: a run
+   * whose steps are timed too closely together to
+   * say where the gap was still gets the banner,
+   * and gets no figures.
+   */
+  test('chips no figures where the gap could not be placed', async ({
+    page,
+  }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          recovered: {
+            heading:
+              'Recovered — completed durable operations were not re-executed',
+            body:
+              'DBOS picked this run back up. Its steps are timed too ' +
+              'closely together to say where the process went down; the ' +
+              'recovery count is in the ledger.',
+            figures: undefined,
+          },
+        }),
+      ),
+    );
+
+    const banner = page.locator('[data-recovered-banner]');
+    await expect(banner).toContainText('too closely together');
+    await expect(banner.locator('[data-recovered-down]')).toHaveCount(0);
   });
 
   test('draws no banner over a run that never crashed', async ({ page }) => {
@@ -995,6 +1487,13 @@ test.describe('one run in detail', () => {
         .evaluate((node) => getComputedStyle(node).backgroundColor);
 
     expect(await fill(0)).not.toBe(await fill(2));
+
+    // Hollow, and edged in the recovery colour
+    // rather than the brand one.
+    await expect(page.locator('[data-bar="0"]')).toHaveCSS(
+      'border-top-color',
+      WARN,
+    );
   });
 
   /**
@@ -1017,6 +1516,7 @@ test.describe('one run in detail', () => {
               name: 'send_confirmation',
               at: undefined,
               restored: false,
+              reused: false,
               failed: false,
             },
           ],
@@ -1074,13 +1574,75 @@ test.describe('one run in detail', () => {
     const harness = await showRun(page, seeInit());
 
     await expect(page.locator('[data-replay]')).toHaveText(
-      '⟲ Replay from this step',
+      '↺ Replay From Here',
     );
     await page.locator('[data-replay]').click();
 
-    expect(await harness.postedOfType('replay')).toEqual([
-      { type: 'replay', functionId: 2 },
+    expect(await harness.postedOfType('replayFrom')).toEqual([
+      { type: 'replayFrom', workflowId: 'wf_c9d2f3', functionId: 2 },
     ]);
+  });
+
+  /**
+   * A row DBOS wrote for itself, a row inside a
+   * wait, a row the run is still sitting on: none of
+   * them is a point a replay can begin at, and each
+   * has a reason a person can act on. The reason is
+   * the row's title rather than a gap where the
+   * button was.
+   */
+  test('says why a row is not offered as a boundary', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          groups: GROUPS,
+          // The SDK's own rows are drawn only where
+          // somebody asked for them, and one of them
+          // is the case.
+          showRaw: true,
+          chips: [
+            {
+              functionId: 0,
+              name: 'parse_request',
+              restored: false,
+              reused: false,
+              failed: false,
+              replayable: true,
+              because: undefined,
+            },
+            {
+              functionId: 1,
+              name: 'find_slot',
+              restored: false,
+              reused: false,
+              failed: false,
+              replayable: false,
+              because: 'The run is sitting here now.',
+            },
+          ],
+        }),
+        'trace',
+      ),
+    );
+
+    // The SDK's own row: withheld, and it already
+    // says whose row it is, so that sentence stays
+    // the one on it.
+    await expect(page.locator('[data-trace-op="2"]')).toHaveAttribute(
+      'data-replayable',
+      'false',
+    );
+
+    const row = page.locator('[data-trace-op="3"]');
+
+    await expect(row).toHaveAttribute('data-replayable', 'false');
+    await expect(row).toHaveAttribute('title', 'The run is sitting here now.');
+
+    const chip = page.locator('[data-chip="1"]');
+
+    await expect(chip).toHaveAttribute('data-replayable', 'false');
+    await expect(chip).toHaveAttribute('title', 'The run is sitting here now.');
   });
 
   test('changes which step a replay would start from', async ({ page }) => {
@@ -1118,10 +1680,59 @@ test.describe('one run in detail', () => {
     await expect(page.locator('[data-replay-note]')).toContainText('v0.5.0');
   });
 
+  test('replays a whole run from the list', async ({ page }) => {
+    const harness = await showList(page, runsInit());
+
+    await page.locator('[data-replay-run="wf_c9d2f3"]').click();
+
+    expect(await harness.postedOfType('replayRun')).toEqual([
+      { type: 'replayRun', workflowId: 'wf_c9d2f3' },
+    ]);
+  });
+
   test('offers no replay before a step has been picked', async ({ page }) => {
     await showRun(page, seeInit(seeRun({ selectedStep: undefined })));
 
     await expect(page.locator('[data-replay]')).toBeDisabled();
+  });
+
+  /**
+   * A replay forks a new execution and the run it
+   * came from stays exactly where it was, so the
+   * tree is drawn from the top whichever end of the
+   * fork the page is showing — and the line under it
+   * says both runs are still there.
+   */
+  test('draws the lineage tree', async ({ page }) => {
+    const harness = await showRun(page, seeInit(seeRun({ lineage: LINEAGE })));
+    const tree = page.locator('[data-lineage]');
+
+    await expect(tree.locator('[data-lineage-run="wf_a1b4e7"]')).toContainText(
+      'ERROR',
+    );
+    await expect(tree.locator('[data-lineage-from="wf_c9d2f3"]')).toContainText(
+      'replay from Refund payment',
+    );
+    await expect(
+      tree.locator('[data-lineage-run="wf_c9d2f3"]'),
+    ).toHaveAttribute('aria-current', 'true');
+    await expect(tree.locator('[data-lineage-note]')).toHaveText(
+      seeStrings.bothRemain,
+    );
+
+    await tree.locator('[data-lineage-id="wf_a1b4e7"]').click();
+
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: 'wf_a1b4e7' },
+    ]);
+  });
+
+  test('draws no lineage for a run with no replay either side', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun()));
+
+    await expect(page.locator('[data-lineage]')).toHaveCount(0);
   });
 
   test('has nothing to draw before a run is picked', async ({ page }) => {
@@ -1130,6 +1741,304 @@ test.describe('one run in detail', () => {
     await expect(page.locator('.state')).toHaveText(
       'Pick a run to see what it did.',
     );
+  });
+
+  /**
+   * The rail is one card about whatever is selected,
+   * then the ways on from it.
+   *
+   * The card is the Inspector's own — the same
+   * component the editor canvas draws — so what a
+   * run recorded about a block reads the same
+   * wherever somebody is standing when they ask.
+   */
+  test('shows the Evidence card for the block that is selected', async ({
+    page,
+  }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: GRAPH,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+      ),
+    );
+
+    const card = page.locator('.rail [data-evidence="block"]');
+
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('.evidence-title')).toHaveText('Find a slot');
+    await expect(card.locator('.run-status')).toContainText(
+      inspectorStrings.runStates.failed,
+    );
+  });
+
+  test('shows the run-level card with nothing selected', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH })));
+
+    const card = page.locator('.rail [data-evidence="run"]');
+
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('.evidence-title')).toContainText('wf_c9d2f3');
+  });
+
+  /** The button is a way to the run page, and this
+   *  rail is the run page. */
+  test('omits Open run on the run page', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH })));
+
+    await expect(page.locator('[data-evidence-action="openRun"]')).toHaveCount(
+      0,
+    );
+  });
+
+  /**
+   * The rest of the card's doors are the same ones
+   * the canvas draws, because it is the same card:
+   * the code the block runs and the agent are
+   * reached from wherever somebody is standing when
+   * they ask.
+   */
+  test('reaches the code and the agent from the rail', async ({ page }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: GRAPH,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+      ),
+    );
+
+    await page.locator('.rail [data-evidence-action="openFunction"]').click();
+    await page.locator('.rail [data-evidence-action="askAgent"]').click();
+
+    expect(await harness.postedOfType('openFunction')).toEqual([
+      { type: 'openFunction', nodeId: 'find_slot' },
+    ]);
+    expect(await harness.postedOfType('askAgent')).toEqual([
+      { type: 'askAgent', workflowId: 'wf_c9d2f3', nodeId: 'find_slot' },
+    ]);
+  });
+
+  /**
+   * Cancel is meaningless once a run has stopped and
+   * Resume is meaningless while one is still going,
+   * so the two can never be offered together.
+   */
+  test('offers Cancel or Resume, never both', async ({ page }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          controls: {
+            cancel: true,
+            resume: false,
+            cancelled: undefined,
+            lastRecorded: 'book_appointment · step 2',
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-cancel]')).toHaveText('Cancel run');
+    await expect(page.locator('[data-resume]')).toHaveCount(0);
+
+    await page.locator('[data-cancel]').click();
+
+    expect(await harness.postedOfType('cancelRun')).toEqual([
+      { type: 'cancelRun', workflowId: 'wf_c9d2f3' },
+    ]);
+
+    await harness.show(
+      seeInit(
+        seeRun({
+          severity: 'cancelled',
+          controls: {
+            cancel: false,
+            resume: true,
+            cancelled: '10:58:22 · by you',
+            lastRecorded: 'book_appointment · step 2',
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-cancel]')).toHaveCount(0);
+    await expect(page.locator('[data-resume]')).toHaveText('Resume');
+    await expect(page.locator('[data-cancelled]')).toContainText('by you');
+    await expect(page.locator('[data-last-recorded]')).toContainText(
+      'book_appointment · step 2',
+    );
+
+    await page.locator('[data-resume]').click();
+
+    expect(await harness.postedOfType('resumeRun')).toEqual([
+      { type: 'resumeRun', workflowId: 'wf_c9d2f3' },
+    ]);
+  });
+
+  /**
+   * Picking a stopped run back up is the thing to do
+   * with it, and Replay below it is not: a replay
+   * forks a second run, and this one is still there
+   * to be finished.
+   */
+  test('makes Resume the primary action', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          severity: 'cancelled',
+          controls: {
+            cancel: false,
+            resume: true,
+            cancelled: '10:58:22',
+            lastRecorded: 'book_appointment · step 2',
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-resume]')).toHaveClass(/primary/);
+    await expect(page.locator('[data-replay]')).not.toHaveClass(/primary/);
+    await expect(page.locator('[data-resume-hint]')).toHaveText(
+      'Resume continues from the recorded history · completed durable ' +
+        'operations are not re-executed',
+    );
+  });
+
+  /** A finished run that recorded nothing of its own
+   *  has neither control on offer and nothing to say
+   *  about how far it got, and an empty framed box
+   *  under the ledger would read as something that
+   *  failed to load. */
+  test('draws no controls block with nothing to say and nothing to do', async ({
+    page,
+  }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          controls: {
+            cancel: false,
+            resume: false,
+            cancelled: undefined,
+            lastRecorded: undefined,
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('.controls')).toHaveCount(0);
+  });
+
+  /** And it takes the weight back the moment there
+   *  is no run to pick up. */
+  test('makes Replay the primary action with nothing to resume', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit());
+
+    await expect(page.locator('[data-replay]')).toHaveClass(/primary/);
+  });
+
+  /**
+   * Said only where it is true. DBOS puts the count
+   * back to nothing when it picks a dead-lettered
+   * run up again, and a person resuming one is
+   * entitled to know the give-up clock restarts.
+   */
+  test('says recovery_attempts starts again from 0 on an exhausted run', async ({
+    page,
+  }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          severity: 'exhausted',
+          controls: {
+            cancel: false,
+            resume: true,
+            cancelled: undefined,
+            lastRecorded: 'book_appointment · step 2',
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-attempts-reset]')).toHaveText(
+      'recovery_attempts starts again from 0',
+    );
+
+    await harness.show(
+      seeInit(
+        seeRun({
+          severity: 'cancelled',
+          controls: {
+            cancel: false,
+            resume: true,
+            cancelled: '10:58:22',
+            lastRecorded: 'book_appointment · step 2',
+          },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-attempts-reset]')).toHaveCount(0);
+  });
+
+  /** The way back to Build. It opens the document
+   *  and projects nothing onto it. */
+  test('posts openWorkflow from Edit workflow', async ({ page }) => {
+    const harness = await showRun(page, seeInit());
+
+    await expect(page.locator('[data-edit-workflow]')).toHaveText(
+      seeStrings.editWorkflow,
+    );
+
+    await page.locator('[data-edit-workflow]').click();
+
+    expect(await harness.postedOfType('openWorkflow')).toEqual([
+      { type: 'openWorkflow', workflowId: 'wf_c9d2f3' },
+    ]);
+  });
+
+  /** One button, and it acts on the step both views
+   *  of the run are marking. */
+  test('posts replayFrom with the shared selection', async ({ page }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: GRAPH,
+          selectedStep: 1,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-replay]')).toHaveCount(1);
+    await page.locator('[data-replay]').click();
+
+    expect(await harness.postedOfType('replayFrom')).toEqual([
+      { type: 'replayFrom', workflowId: 'wf_c9d2f3', functionId: 1 },
+    ]);
+  });
+
+  /**
+   * The rail only ever shows what the run recorded.
+   * Configuration is set on the document, and the
+   * document is the editor's.
+   */
+  test('has no Configure tab', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH })));
+
+    await expect(page.locator('.rail [role="tab"]')).toHaveCount(0);
+    await expect(
+      page.getByText(inspectorStrings.tabs.configure, { exact: true }),
+    ).toHaveCount(0);
   });
 });
 
@@ -1167,3 +2076,660 @@ test.describe('in every theme', () => {
     });
   }
 });
+
+/**
+ * The saved workflow, and the run drawn onto it.
+ *
+ * The graph is a picture of the document as it is
+ * saved now, which may have moved on since the run
+ * — so the caption says which revision is drawn.
+ */
+test.describe('one run, as a graph', () => {
+  /**
+   * A person who panned and zoomed to look at
+   * something has to still be looking at it after
+   * they check the trace and come back. The inactive
+   * pane keeps its layout box and is hidden with
+   * `visibility`, never with `display`: the graph
+   * library measures its own pane, and a pane with
+   * no box comes back zero by zero and re-frames
+   * itself.
+   */
+  test('keeps the graph where it was left when the tabs change', async ({
+    page,
+  }) => {
+    const harness = await showRun(
+      page,
+      seeInit(seeRun({ graph: GRAPH }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    const pane = page.locator('.run-flow');
+    const box = await pane.boundingBox();
+    if (box === null) throw new Error('the graph pane has no box');
+
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 - 60, box.y + 40);
+    await page.mouse.up();
+    await page.mouse.wheel(0, -120);
+
+    await graphAtRest(page);
+    const before = await transformOf(page);
+
+    // The host answers a tab press with a fresh
+    // init, the way the extension does. One mount
+    // throughout: a second would be a new page
+    // rather than a tab change.
+    for (let round = 0; round < 2; round += 1) {
+      await page.locator('[data-see-tab="trace"]').click();
+      await harness.show(seeInit(seeRun({ graph: GRAPH }), 'trace'));
+      await page.locator('[data-see-tab="graph"]').click();
+      await harness.show(seeInit(seeRun({ graph: GRAPH }), 'graph'));
+    }
+
+    await graphAtRest(page);
+
+    expect(await transformOf(page)).toBe(before);
+  });
+
+  test('draws the saved workflow, with what the run did to each block', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH }), 'graph'));
+    await graphAtRest(page);
+
+    await expect(page.locator('[data-run-node]')).toHaveCount(2);
+    await expect(
+      page.locator('[data-run-node="parse_request"]'),
+    ).toHaveAttribute('data-state', 'done');
+    await expect(page.locator('[data-run-node="find_slot"]')).toHaveAttribute(
+      'data-state',
+      'failed',
+    );
+    await expect(page.locator('[data-graph-caption]')).toHaveText(
+      'workflow as saved · revision 4',
+    );
+  });
+
+  test('says a run whose workflow the project lost has no picture', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ graph: undefined }), 'graph'));
+
+    await expect(page.locator('[data-run-node]')).toHaveCount(0);
+    await expect(page.locator('[data-graph-caption]')).toHaveText(
+      NO_SAVED_WORKFLOW,
+    );
+  });
+
+  test('tones every block by what the run did there', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(seeRun({ graph: RUNNING_GRAPH, live: RUNNING }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    await expect(
+      page.locator('[data-run-node="parse_request"]'),
+    ).toHaveAttribute('data-state', 'done');
+    await expect(page.locator('[data-run-node="find_slot"]')).toHaveAttribute(
+      'data-state',
+      'failed',
+    );
+    await expect(page.locator('[data-run-node="await_reply"]')).toHaveAttribute(
+      'data-state',
+      'waiting',
+    );
+  });
+
+  /**
+   * Where a run is *now* is in no column: it is
+   * worked out from the last block that recorded
+   * anything, so the block it lights says `derived`
+   * on the mark itself. And only the arm the branch
+   * is recorded as having taken is lit — the other
+   * is somewhere the run demonstrably did not go.
+   */
+  test('lights where the run is now, and says it was derived', async ({
+    page,
+  }) => {
+    await showRun(
+      page,
+      seeInit(seeRun({ graph: RUNNING_GRAPH, live: RUNNING }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    const ahead = page.locator('[data-run-node="charge_it"]');
+    await expect(ahead).toHaveAttribute('data-state', 'running');
+    await expect(ahead.locator('.node-run')).toHaveAttribute(
+      'title',
+      seeStrings.derived,
+    );
+
+    await expect(page.locator('[data-run-node="refund_it"]')).toHaveAttribute(
+      'data-state',
+      'dormant',
+    );
+  });
+
+  /**
+   * The block a person picked reads as picked on
+   * both views of the run at once: the group in the
+   * trace, and the block that group belongs to on
+   * the graph.
+   */
+  test('halos the block whose group is picked', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: RUNNING_GRAPH,
+          live: RUNNING,
+          groups: GROUPS,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+        'graph',
+      ),
+    );
+    await graphAtRest(page);
+
+    await expect(page.locator('[data-run-node="find_slot"]')).toHaveAttribute(
+      'data-state',
+      'selected',
+    );
+    await expect(
+      page.locator('[data-trace-group="find_slot"]'),
+    ).toHaveAttribute('aria-current', 'true');
+  });
+
+  test('hands the block somebody clicked to the extension', async ({
+    page,
+  }) => {
+    const harness = await showRun(
+      page,
+      seeInit(seeRun({ graph: GRAPH }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    await page.locator('[data-run-node="find_slot"]').click();
+
+    expect(await harness.postedOfType('seeNode')).toEqual([
+      { type: 'seeNode', nodeId: 'find_slot' },
+    ]);
+  });
+});
+
+test.describe('one run, as a trace', () => {
+  test('keeps a group closed until it is opened', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    const closed = page.locator('[data-trace-group="parse_request"]');
+    await expect(closed).not.toHaveAttribute('open', '');
+
+    await closed.locator('.trace-head').click();
+
+    await expect(closed).toHaveAttribute('open', '');
+  });
+
+  test('opens the group that failed', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    await expect(
+      page.locator('[data-trace-group="find_slot"]'),
+    ).toHaveAttribute('open', '');
+  });
+
+  test('shows the SDK own rows only when they are asked for', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    await expect(page.locator('[data-owner="sdk"]')).toHaveCount(0);
+
+    const harness = await showRun(
+      page,
+      seeInit(seeRun({ groups: GROUPS, showRaw: true })),
+    );
+
+    const sdk = page.locator('[data-owner="sdk"]');
+    await expect(sdk).toHaveCount(1);
+    await expect(sdk).toHaveAttribute('title', seeStrings.dbosOwned);
+
+    await page.locator('[data-raw-toggle]').click();
+
+    expect(await harness.postedOfType('seeRaw')).toEqual([
+      { type: 'seeRaw', raw: false },
+    ]);
+  });
+
+  /** Chipped derived, because it is a deadline the
+   *  SDK wrote down rather than something that has
+   *  happened. */
+  test('says when a parked block gives up, and that it worked it out', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    const wakes = page.locator('[data-wakes]');
+    await expect(wakes).toContainText('times out 14:04:11.000');
+    await expect(wakes.locator('.provenance')).toHaveAttribute(
+      'data-provenance',
+      'derived',
+    );
+  });
+
+  test('says a group belongs to no block in the saved workflow', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    await expect(
+      page.locator('[data-trace-group=""] [data-unattributed]'),
+    ).toHaveText(seeStrings.unattributed);
+  });
+
+  /**
+   * A row a replay carried over is the earlier run's
+   * work, kept: `↺ recorded` says so, and the block
+   * it belongs to still draws what it did.
+   */
+  test('marks a reused row recorded', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ groups: REPLAYED })));
+
+    const carried = page.locator('[data-trace-op="0"]');
+    await expect(carried).toHaveAttribute('data-reuse', 'recorded');
+    await expect(carried).toContainText(seeStrings.recorded);
+
+    await expect(page.locator('[data-trace-op="1"]')).toHaveAttribute(
+      'data-reuse',
+      'own',
+    );
+  });
+
+  test('marks the row a block belongs to', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          groups: GROUPS,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+      ),
+    );
+
+    await expect(
+      page.locator('[data-trace-group="find_slot"]'),
+    ).toHaveAttribute('aria-current', 'true');
+    await expect(page.locator('[data-trace-op="1"]')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+});
+
+test.describe('what the run page says about itself', () => {
+  for (const [state, said] of [
+    ['following', seeStrings.following.following],
+    ['waiting', seeStrings.following.waiting],
+    ['quiet', seeStrings.following.quiet],
+  ] as const) {
+    test(`says it is ${state}`, async ({ page }) => {
+      await showRun(page, seeInit(seeRun({ following: state })));
+
+      await expect(page.locator('[data-following]')).toContainText(said);
+    });
+  }
+
+  /**
+   * The trace's own disclosure control under
+   * `all: unset`, which is the second half of the
+   * question the token layer's `.tab` answered.
+   */
+  test('keeps the focus ring on the control that opens a group', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    const head = page.locator('[data-trace-group="parse_request"] .trace-head');
+    await head.focus();
+
+    await expect(head).not.toHaveCSS('outline-style', 'none');
+    await expect(head).toHaveCSS('letter-spacing', 'normal');
+  });
+
+  test('offers a way to look again', async ({ page }) => {
+    const harness = await showRun(page, seeInit());
+
+    await page.locator('[data-see-refresh]').click();
+
+    expect(await harness.postedOfType('seeRefresh')).toEqual([
+      { type: 'seeRefresh' },
+    ]);
+  });
+
+  test('draws what the run was started with', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          input: { text: '{\n  "email": "ada@example.com"\n}', cut: false },
+        }),
+      ),
+    );
+
+    const shown = page.locator('[data-workflow-input]');
+    await expect(shown).toContainText('ada@example.com');
+    await expect(shown).toContainText(seeStrings.asRecorded);
+  });
+});
+
+/** The two blocks the graph fixture draws, laid out
+ *  the way core would lay them out. */
+const GRAPH: SeeGraph = {
+  ir: {
+    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+    version: 1,
+    revision: 4,
+    name: 'groom_booking',
+    nodes: [
+      { id: 'parse_request', kind: 'step', title: 'Parse', config: {} },
+      {
+        id: 'find_slot',
+        kind: 'step',
+        title: 'Find a slot',
+        config: {},
+        // The one node with code behind it: the
+        // card's way into it is offered where there
+        // is something to open and nowhere else.
+        handler: { export: 'findSlot' },
+      },
+    ],
+    edges: [
+      {
+        id: 'e1',
+        from: { node: 'parse_request', port: 'out' },
+        to: { node: 'find_slot' },
+      },
+    ],
+  } as unknown as SeeGraph['ir'],
+  boxes: {
+    parse_request: { x: 0, y: 0, w: 230, h: 64 },
+    find_slot: { x: 0, y: 160, w: 230, h: 64 },
+  },
+  labels: paletteLabels,
+  unassigned: 'unassigned',
+  caption: 'workflow as saved · revision 4',
+  decided: {},
+};
+
+/**
+ * The same run, still going, on a workflow that
+ * branches.
+ *
+ * Four things are true of it at once and each is
+ * drawn differently: one block finished, one threw,
+ * one is parked on a person, and one is where the
+ * run is *now* — which the ledger does not record
+ * and the page therefore works out.
+ */
+const RUNNING_GRAPH: SeeGraph = {
+  ir: {
+    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+    version: 1,
+    revision: 4,
+    name: 'groom_booking',
+    nodes: [
+      { id: 'parse_request', kind: 'step', title: 'Parse', config: {} },
+      { id: 'find_slot', kind: 'step', title: 'Find a slot', config: {} },
+      {
+        id: 'await_reply',
+        kind: 'durableWait',
+        title: 'Ask',
+        config: {
+          source: { kind: 'form', email: 'parse_request' },
+          onTimeout: 'abort',
+        },
+      },
+      {
+        id: 'how_big',
+        kind: 'branch',
+        title: 'How big',
+        config: {
+          cases: [
+            { port: 'large', when: { path: 'amount', op: 'gt', value: 500 } },
+          ],
+          elsePort: 'small',
+        },
+      },
+      { id: 'charge_it', kind: 'step', title: 'Charge it', config: {} },
+      { id: 'refund_it', kind: 'step', title: 'Refund it', config: {} },
+    ],
+    edges: [
+      {
+        id: 'e1',
+        from: { node: 'parse_request', port: 'out' },
+        to: { node: 'find_slot' },
+      },
+      {
+        id: 'e2',
+        from: { node: 'find_slot', port: 'out' },
+        to: { node: 'await_reply' },
+      },
+      {
+        id: 'e3',
+        from: { node: 'await_reply', port: 'out' },
+        to: { node: 'how_big' },
+      },
+      {
+        id: 'e4',
+        from: { node: 'how_big', port: 'large' },
+        to: { node: 'charge_it' },
+      },
+      {
+        id: 'e5',
+        from: { node: 'how_big', port: 'small' },
+        to: { node: 'refund_it' },
+      },
+    ],
+  } as unknown as SeeGraph['ir'],
+  boxes: {
+    parse_request: { x: 0, y: 0, w: 230, h: 64 },
+    find_slot: { x: 0, y: 160, w: 230, h: 64 },
+    await_reply: { x: 0, y: 320, w: 230, h: 64 },
+    how_big: { x: 0, y: 480, w: 230, h: 64 },
+    charge_it: { x: -160, y: 640, w: 230, h: 64 },
+    refund_it: { x: 160, y: 640, w: 230, h: 64 },
+  },
+  labels: paletteLabels,
+  unassigned: 'unassigned',
+  caption: 'workflow as saved · revision 4',
+  // The arm the run is recorded as having taken.
+  // The other one is somewhere it demonstrably did
+  // not go.
+  decided: { how_big: 'large' },
+};
+
+/** What the ledger holds for that run: the last row
+ *  is the block it parked on, which is where the
+ *  walk to the frontier starts. */
+const RUNNING = liveRun({
+  workflowId: 'wf_c9d2f3',
+  workflow: 'groom_booking',
+  status: 'PENDING',
+  outcome: 'running',
+  steps: [
+    liveStep({ name: 'parse_request', nodeId: 'parse_request' }),
+    liveStep({
+      name: 'find_slot',
+      nodeId: 'find_slot',
+      state: 'failed',
+      functionId: 1,
+    }),
+    liveStep({
+      name: 'await_reply.register',
+      nodeId: 'await_reply',
+      state: 'waiting',
+      functionId: 2,
+    }),
+  ],
+});
+
+const GROUPS: TraceGroupView[] = [
+  {
+    nodeId: 'parse_request',
+    title: 'Parse',
+    qualifier: undefined,
+    wakes: undefined,
+    open: false,
+    failed: false,
+    operations: [
+      {
+        functionId: 0,
+        name: 'parse_request',
+        owner: 'node',
+        state: 'done',
+        at: '14:02:11.100',
+        output: '{}',
+        outputCut: false,
+        error: undefined,
+        restored: false,
+        reused: false,
+        replayable: true,
+        because: undefined,
+        childWorkflowId: undefined,
+      },
+    ],
+  },
+  {
+    nodeId: 'find_slot',
+    title: 'Find a slot',
+    qualifier: '· round 2',
+    wakes: 'times out 14:04:11.000',
+    open: true,
+    failed: true,
+    operations: [
+      {
+        functionId: 1,
+        name: 'find_slot.r2',
+        owner: 'node',
+        state: 'failed',
+        at: '14:02:14.900',
+        output: undefined,
+        outputCut: false,
+        error: 'no slot left',
+        restored: false,
+        reused: false,
+        replayable: true,
+        because: undefined,
+        childWorkflowId: undefined,
+      },
+      {
+        functionId: 2,
+        name: 'DBOS.sleep',
+        owner: 'sdk',
+        state: 'done',
+        at: '14:02:15.000',
+        output: '1739880139200',
+        outputCut: false,
+        error: undefined,
+        restored: false,
+        reused: false,
+        replayable: false,
+        because:
+          'DBOS wrote this row for itself. A replay starts from a step ' +
+          'the workflow recorded.',
+        childWorkflowId: undefined,
+      },
+    ],
+  },
+  {
+    nodeId: undefined,
+    title: '',
+    qualifier: undefined,
+    wakes: undefined,
+    open: false,
+    failed: false,
+    operations: [
+      {
+        functionId: 3,
+        name: 'gone_away',
+        owner: 'unmapped',
+        state: 'done',
+        at: '14:02:16.000',
+        output: '{}',
+        outputCut: false,
+        error: undefined,
+        restored: true,
+        reused: false,
+        replayable: false,
+        because: 'The run is sitting here now.',
+        childWorkflowId: undefined,
+      },
+    ],
+  },
+];
+
+/** The graph's viewport transform, once nothing is
+ *  moving. A spec against the built bundle has no
+ *  `useReactFlow`, so the DOM string is the only
+ *  way to read it. */
+async function graphAtRest(page: Page): Promise<void> {
+  let last = await transformOf(page);
+
+  await expect
+    .poll(async () => {
+      const now = await transformOf(page);
+      const still = now !== '' && now === last;
+
+      last = now;
+
+      return still;
+    })
+    .toBe(true);
+}
+
+function transformOf(page: Page): Promise<string> {
+  return page
+    .locator('.react-flow__viewport')
+    .evaluate((viewport) => (viewport as HTMLElement).style.transform);
+}
+
+/**
+ * The same trace, after a replay: the first row was
+ * carried over from the run this one came out of,
+ * and every later row is this run's own work.
+ */
+const REPLAYED: TraceGroupView[] = GROUPS.map((group, at) => ({
+  ...group,
+  open: true,
+  operations: group.operations.map((one, index) => ({
+    ...one,
+    reused: at === 0 && index === 0,
+  })),
+}));
+
+/**
+ * A run that came out of another, drawn from the top
+ * of the tree: the run that failed, the fork point,
+ * and the replay under it.
+ */
+const LINEAGE: SeeLineageRun = {
+  workflowId: 'wf_a1b4e7',
+  status: 'ERROR',
+  severity: 'failed',
+  startStep: undefined,
+  from: undefined,
+  here: false,
+  forks: [
+    {
+      workflowId: 'wf_c9d2f3',
+      status: 'SUCCESS',
+      severity: 'ok',
+      startStep: 3,
+      from: 'replay from Refund payment',
+      here: true,
+      forks: [],
+    },
+  ],
+};

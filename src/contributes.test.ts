@@ -63,9 +63,13 @@ describe('commands', () => {
 
   const palette = commands.filter((entry) => !isSideBar(entry.command));
 
-  it('offers exactly the nine the design names', () => {
+  it('offers exactly the ten the design names', () => {
     expect(palette.map((entry) => entry.command)).toEqual([
       'mboss.newProject',
+      // Beside the command that makes a project,
+      // because starting a workflow from a pattern
+      // is the same kind of act one step in.
+      'mboss.newWorkflow',
       'mboss.openRuns',
       'mboss.generateCode',
       'mboss.openAgentSidebar',
@@ -166,6 +170,7 @@ describe('commands', () => {
   it('shows the titles a user reads in the palette', () => {
     expect(palette.map((entry) => resolved(entry.title))).toEqual([
       'New Project',
+      'New Workflow…',
       'Open Runs',
       'Generate Code',
       'Open Agent Sidebar',
@@ -268,29 +273,48 @@ describe('the workflow canvas editor', () => {
   });
 });
 
-describe('the agent settings', () => {
+describe('the settings', () => {
   const configuration = contributes().configuration as {
     title: string;
     properties: Record<
       string,
-      { type: string; scope?: string; description: string }
+      { type: string; scope?: string; description: string; default?: unknown }
     >;
   };
 
   /**
-   * These three ids are a published contract. An
-   * end-to-end suite writes them into a workspace
-   * to point this extension at a stand-in agent,
-   * with no test hook anywhere in the extension —
-   * so renaming one breaks a repository that
-   * cannot see this file.
+   * The three agent ids are a published contract.
+   * An end-to-end suite writes them into a
+   * workspace to point this extension at a stand-in
+   * agent, with no test hook anywhere in the
+   * extension — so renaming one breaks a repository
+   * that cannot see this file.
    */
   it('contributes the three ids anything driving this extension writes', () => {
     expect(Object.keys(configuration.properties)).toEqual([
       'mboss.agent.id',
       'mboss.agent.command',
       'mboss.agent.args',
+      'mboss.conductor.consoleUrl',
     ]);
+  });
+
+  /**
+   * Conductor is a licence this product does not
+   * need. Everything the extension does works
+   * against a stack on this machine, so the setting
+   * that points at a deployed console starts empty
+   * and stays that way for anybody who never buys
+   * one.
+   */
+  it('leaves the Conductor console empty until somebody names one', () => {
+    const conductor = configuration.properties['mboss.conductor.consoleUrl'];
+
+    expect(conductor?.type).toBe('string');
+    expect(conductor?.default).toBe('');
+    expect(conductor?.description).toBe(
+      '%configuration.conductor.consoleUrl.description%',
+    );
   });
 
   /**

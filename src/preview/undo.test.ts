@@ -1,6 +1,7 @@
 import { applySpec, mbossDirOf } from '@mboss/core';
 import { describe, expect, it } from 'vitest';
 
+import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { currentWorkflow } from '../core/index.js';
 import { WorkflowIRSchema } from '../core/rules.js';
@@ -66,8 +67,6 @@ function trustingHost(
 
       return [];
     },
-    notify: async (text) => void said.push(text),
-    note: () => {},
     say: (message) => void said.push(message),
   };
 }
@@ -149,7 +148,7 @@ describe('the card after an approval', () => {
     });
 
     const host = trustingHost([project]);
-    const store = previewStore(host, fakeTrust());
+    const store = previewStore(host, fakeTrust(), fakeAgent());
     await store.reloadAll();
 
     await store.approve(proposal.id);
@@ -193,7 +192,11 @@ describe('an untrusted window', () => {
       baseRevision: groom.revision,
     });
 
-    const store = previewStore(trustingHost([project]), fakeTrust(false));
+    const store = previewStore(
+      trustingHost([project]),
+      fakeTrust(false),
+      fakeAgent(),
+    );
     await store.reloadAll();
 
     expect(store.card()).toBeUndefined();

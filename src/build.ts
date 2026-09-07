@@ -54,6 +54,7 @@ export const WEBVIEW_ENTRIES: readonly WebviewName[] = [
   'sidebar',
   'runs',
   'see',
+  'gallery',
 ];
 
 /**
@@ -90,6 +91,12 @@ export const WEBVIEW_FONTS = {
 export const SCAFFOLD_TEMPLATES = [
   { from: 'src/scaffold/app', to: 'app' },
   { from: 'src/scaffold/workflows/index.ts', to: 'workflows/index.ts' },
+  // The pattern library, for the same reason and by
+  // the same road: the gallery reads it off disk
+  // beside the bundle, and `usePattern` copies a
+  // pattern's handlers out of it into somebody's
+  // project.
+  { from: 'src/patterns/library', to: 'library' },
 ] as const;
 
 /**

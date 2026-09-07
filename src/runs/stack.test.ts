@@ -222,6 +222,52 @@ describe('what the local stack is doing', () => {
     expect(services[0]?.detail).toBe('built 12 s ago · :3000');
   });
 
+  /**
+   * The same moment as the sentence above, kept as
+   * a number.
+   *
+   * Whoever asks whether the running app is behind
+   * the workspace compares it against when those
+   * files last changed, and `built 12 s ago`
+   * cannot be compared with anything.
+   */
+  it('reads when the app container was built', async () => {
+    const older = JSON.stringify([
+      { ...APP, CreatedAt: '', Created: SECONDS(NOW) - 12 },
+    ]);
+    const { stack, project } = driven(answers(older));
+
+    const services = (await stack.status(project)).services;
+
+    expect(services[0]?.builtAt).toBe(NOW - 12_000);
+  });
+
+  it('reads a built time from the CreatedAt string too', async () => {
+    const { stack, project } = driven(answers(NDJSON));
+
+    const services = (await stack.status(project)).services;
+
+    expect(services[1]?.service).toBe('app');
+    expect(services[1]?.builtAt).toBe(NOW - 12_000);
+  });
+
+  /**
+   * Every row says when its container was made, and
+   * only one of them is the code somebody is
+   * editing. A built time on the database would be
+   * compared against the workspace and would say
+   * the app is stale whenever postgres is older
+   * than a file.
+   */
+  it('carries no built time for a service that is not the app', async () => {
+    const { stack, project } = driven(answers(NDJSON));
+
+    const services = (await stack.status(project)).services;
+
+    expect(services[0]?.service).toBe('postgres');
+    expect(services[0]?.builtAt).toBeUndefined();
+  });
+
   it('tells a container that stopped from one that is up', async () => {
     const stopped = JSON.stringify([
       { ...POSTGRES, State: 'exited', Health: '', Publishers: null },

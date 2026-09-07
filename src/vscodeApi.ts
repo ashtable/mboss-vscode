@@ -60,6 +60,40 @@ export type VsCodeApi = {
    */
   replaceDocument(document: TextDocument, text: string): Promise<boolean>;
 
+  /**
+   * Puts some text in front of somebody, in an
+   * editor tab of its own.
+   *
+   * Untitled and unsaved, which is the point: what
+   * goes through here is a copy of something a run
+   * recorded, and a buffer with nowhere to be saved
+   * to cannot be written back over the ledger it
+   * came from. It is not read-only in the editor's
+   * sense — VS Code has no such flag on a document
+   * made this way, and genuine immutability would
+   * take a content provider under a scheme of its
+   * own. Nothing here needs one.
+   */
+  showText(content: string, language: string): Promise<void>;
+
+  /**
+   * Opens a file somebody asked to read, with the
+   * caret on a line of it.
+   *
+   * Not a preview tab: this is somewhere a person
+   * was sent on purpose, and a preview tab is the
+   * one that disappears the moment they open
+   * anything else.
+   *
+   * The line is 1-based, the way a manifest, a
+   * compiler and an editor's own gutter all count
+   * them. Turning that into the editor's own
+   * zero-based position is done here, at the seam,
+   * so that nothing upstream has to know VS Code
+   * counts from a different place.
+   */
+  openFile(path: string, at?: { line: number; column?: number }): Promise<void>;
+
   /** Every change to any open document, whoever
    *  made it. */
   onDocumentChanged(listener: (document: TextDocument) => void): Disposable;
@@ -109,6 +143,36 @@ export function vsCodeApi(): VsCodeApi {
       );
 
       return await workspace.applyEdit(edit);
+    },
+    showText: async (content, language) => {
+      const document = await workspace.openTextDocument({ content, language });
+
+      await window.showTextDocument(document, { preview: false });
+    },
+    openFile: async (path, at) => {
+      const document = await workspace.openTextDocument(path);
+
+      // A zero-width range rather than a selection
+      // with something in it: this puts somebody
+      // where the code is, and highlighting a line
+      // they did not ask to have highlighted would
+      // be an edit waiting to happen. No line at all
+      // means the top, which is the honest answer
+      // for a manifest that never recorded one.
+      //
+      // Both numbers count from one everywhere a
+      // person reads them — a manifest, a stack, the
+      // editor's own gutter — and from zero only in
+      // a `Position`. The turn is made here.
+      const caret = new Position(
+        at === undefined ? 0 : Math.max(0, at.line - 1),
+        at?.column === undefined ? 0 : Math.max(0, at.column - 1),
+      );
+
+      await window.showTextDocument(document, {
+        selection: new Range(caret, caret),
+        preview: false,
+      });
     },
     onDocumentChanged: (listener) =>
       workspace.onDidChangeTextDocument((event) => listener(event.document)),

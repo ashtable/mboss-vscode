@@ -12,8 +12,9 @@
  *
  * What a webview does need is the meaning of a
  * workflow: what a node may be, which ports it
- * has, how big it is drawn, and whether a wire is
- * legal. Those are zod schemas and arithmetic, and
+ * has, how big it is drawn, whether a wire is
+ * legal, and which block a recorded row belongs
+ * to. Those are zod schemas and arithmetic, and
  * they are what this file re-exports.
  *
  * The paths are relative rather than through the
@@ -26,12 +27,15 @@
  */
 
 export {
+  DEFAULT_RETRY,
   EdgeSchema,
   NODE_PALETTE,
   NodeKindSchema,
   NodeSchema,
   PositionSchema,
+  RetrySchema,
   WorkflowIRSchema,
+  WorkflowNameSchema,
   carryPositions,
   deleteNode,
   nextEdgeId,
@@ -50,6 +54,7 @@ export type {
   NodePaletteGroup,
   Position,
   Predicate,
+  Retry,
   WorkflowEdge,
   WorkflowIR,
   WorkflowNode,
@@ -89,3 +94,28 @@ export type {
   LibFunction,
   LibManifest,
 } from '../../mboss-core/src/manifest/index.js';
+
+// From `compile/names`, not `compile` — the barrel
+// beside it is the whole code generator. This one
+// module imports nothing at all, which is what
+// lets a frame drawing a run parse the names off
+// the ledger itself instead of asking the host
+// about every row.
+export { SDK_OPERATIONS, ownerOf } from '../../mboss-core/src/compile/names.js';
+
+export type {
+  Owner,
+  RecordedSegment,
+} from '../../mboss-core/src/compile/names.js';
+
+// From `app-contract/layout`, which is two string
+// constants and a name parse. A stack captured
+// inside a container names the directory the image
+// ran from, and reading a project-relative path
+// back out of one is arithmetic a frame drawing a
+// failure does — so the two constants come here
+// rather than only through the host's barrel.
+export {
+  CONTAINER_APP_DIR,
+  LIB_DIR,
+} from '../../mboss-core/src/app-contract/layout.js';

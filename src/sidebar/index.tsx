@@ -352,6 +352,7 @@ function Tool({
   strings: SidebarStrings;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const action = entry.action;
 
   return (
     <div
@@ -401,6 +402,23 @@ function Tool({
             </p>
           ))
         : null}
+
+      {/* The one place this row leads, where it
+          leads anywhere. The label and the id are
+          both the entry's: the panel resolves no
+          words and works out no run. */}
+      {action === undefined ? null : (
+        <button
+          type="button"
+          className="tool-action"
+          data-tool-action={action.posts}
+          onClick={() =>
+            postToHost({ type: 'openRun', workflowId: action.workflowId })
+          }
+        >
+          {action.label}
+        </button>
+      )}
     </div>
   );
 }

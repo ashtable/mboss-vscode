@@ -4,6 +4,7 @@ import type {
   DiagnosticEntry,
   FileEditEntry,
   SessionUpdate,
+  ToolEntry,
 } from '../../src/acp/transcript.js';
 import { foldUpdates } from '../../src/acp/transcript.js';
 import type { SidebarInit } from '../../src/webview/protocol.js';
@@ -294,6 +295,66 @@ test.describe('a tool call', () => {
 
     await expect(card.locator('.tool-body')).toHaveCount(2);
     await expect(card.locator('.tool-body').first()).toHaveText('line one');
+  });
+
+  /**
+   * What mBoss read out of a run, in the column
+   * beside what the agent did.
+   *
+   * The same row as any other read: folded, because
+   * a summary of a run is a page of lines and the
+   * agent has the whole of it attached to the turn
+   * anyway.
+   */
+  const evidence: ToolEntry = {
+    at: 'tool',
+    id: 'evidence:wf_c9d2f3',
+    by: 'person',
+    kind: 'read',
+    verb: 'Read',
+    target: 'run wf_c9d2f3 · mBoss run evidence',
+    status: 'applied',
+    body: ['ERROR · recovered ×1 · v0.4.1', '3 of 3 operations carried'],
+    action: { label: 'Open run', posts: 'openRun', workflowId: 'wf_c9d2f3' },
+  };
+
+  test('folds a person-authored read row and expands it', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(sidebarInit({ transcript: [evidence] }));
+
+    const card = page.locator('[data-tool-call="evidence:wf_c9d2f3"]');
+
+    await expect(card).toHaveAttribute('data-by', 'person');
+    await expect(card.locator('.tool-verb')).toHaveText('Read');
+    await expect(card.locator('.tool-body')).toHaveCount(0);
+
+    await card.locator('.tool-body-toggle').click();
+
+    await expect(card.locator('.tool-body')).toHaveCount(2);
+  });
+
+  /**
+   * The way out of the transcript. A row about a run
+   * is the one place in this column that names
+   * something with a page of its own, and the id it
+   * posts is the row's rather than anything the view
+   * worked out.
+   */
+  test("posts openRun from the row's action", async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(sidebarInit({ transcript: [evidence] }));
+
+    const card = page.locator('[data-tool-call="evidence:wf_c9d2f3"]');
+
+    await expect(card.locator('[data-tool-action]')).toHaveText('Open run');
+
+    await card.locator('[data-tool-action]').click();
+
+    expect(await harness.postedOfType('openRun')).toEqual([
+      { type: 'openRun', workflowId: 'wf_c9d2f3' },
+    ]);
   });
 
   /**

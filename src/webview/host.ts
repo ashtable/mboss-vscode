@@ -1,7 +1,11 @@
 import { Uri, type Disposable, type Webview } from 'vscode';
 import { z } from 'zod';
 
-import { NodeKindSchema, PositionSchema } from '../core/rules.js';
+import {
+  NodeKindSchema,
+  PositionSchema,
+  WorkflowNameSchema,
+} from '../core/rules.js';
 import { RUN_FILTERS } from '../runs/queries.js';
 
 import { pageNonce, webviewPage } from './html.js';
@@ -48,6 +52,75 @@ const Select = z.object({
 });
 
 /**
+ * Which of the Inspector's two faces somebody
+ * picked.
+ *
+ * Held by the host for the reason the selection is:
+ * a panel is torn down whenever it is hidden, so a
+ * face nobody remembered would come back as
+ * whichever one the run in focus implies. The two
+ * words are `InspectorMode`'s: a third one added
+ * here stops compiling where the canvas assigns it.
+ */
+const InspectorModePicked = z.object({
+  type: z.literal('inspectorMode'),
+  mode: z.enum(['configure', 'evidence']),
+});
+
+/**
+ * Somebody asked to read the code a block runs.
+ *
+ * The block and nothing else. Where that function
+ * is, and whether the project's code-behind has one
+ * of that name at all, is the extension's answer:
+ * the panel holds a drawing and the manifest is not
+ * in it.
+ */
+const OpenFunction = z.object({
+  type: z.literal('openFunction'),
+  nodeId: z.string(),
+});
+
+/**
+ * Somebody asked to read the line a recorded
+ * failure came from.
+ *
+ * The row rather than the block, because a block
+ * that ran more than once failed on one of those
+ * tries and each wrote a stack of its own. The
+ * block travels beside it so the extension can
+ * answer about a panel that has moved on.
+ *
+ * A separate door from the one above on purpose:
+ * where a failure named no code anybody wrote there
+ * is no line to go to, and a single door that fell
+ * back to the function would put somebody somewhere
+ * they did not ask to be.
+ */
+const OpenErrorLocation = z.object({
+  type: z.literal('openErrorLocation'),
+  nodeId: z.string(),
+  functionId: z.number().int(),
+});
+
+/**
+ * Somebody asked to read a whole recorded output
+ * somewhere it fits.
+ *
+ * A column 284px wide can hold a line of JSON and
+ * not a page of it, so the value goes into an
+ * editor tab instead. The run travels with the row
+ * because the panel may be drawing a run the
+ * extension has since moved past, and the extension
+ * is what decides which run this is about.
+ */
+const OpenOutput = z.object({
+  type: z.literal('openOutput'),
+  workflowId: z.string(),
+  functionId: z.number().int(),
+});
+
+/**
  * Somebody drew a wire from one block to another.
  *
  * The source block and no port. A block has one dot
@@ -81,14 +154,26 @@ const Connect = z.object({
  * looking for, and the two are written together.
  * The port is the host's question there too.
  */
-const AddNode = z.object({
-  type: z.literal('addNode'),
-  baseRevision: z.number().int(),
-  kind: NodeKindSchema,
-  position: PositionSchema,
-  spliceEdge: z.string().optional(),
-  connectFrom: z.object({ node: z.string() }).optional(),
-});
+const AddNode = z
+  .object({
+    type: z.literal('addNode'),
+    baseRevision: z.number().int(),
+    kind: NodeKindSchema,
+    position: PositionSchema,
+    spliceEdge: z.string().optional(),
+    connectFrom: z.object({ node: z.string() }).optional(),
+  })
+  // Never both. A drop is one gesture or the other,
+  // and the two handlers that send this are disjoint
+  // — but a panel is a frame running scripts, and a
+  // message carrying both used to make the host ask
+  // which way out of a block to leave by and then
+  // throw the answer away, because splicing decides
+  // where the block sits without needing one.
+  .refine(
+    (sent) => sent.spliceEdge === undefined || sent.connectFrom === undefined,
+    'a block goes into a wire or comes off a port, never both',
+  );
 
 /**
  * Somebody moved a block.
@@ -246,9 +331,17 @@ const RunFilterPicked = z.object({
 /** Somebody wants the list read again. */
 const RunRefresh = z.object({ type: z.literal('runRefresh') });
 
-/** Somebody opened a run. */
+/** Somebody opened a run — from a row of the list,
+ *  or from an id in the run page's lineage tree. */
 const RunSelect = z.object({
   type: z.literal('runSelect'),
+  workflowId: z.string(),
+});
+
+/** Somebody wants a run's id where they can paste
+ *  it. A webview has no clipboard of its own. */
+const CopyRunId = z.object({
+  type: z.literal('copyRunId'),
   workflowId: z.string(),
 });
 
@@ -292,19 +385,43 @@ const Rerun = z.object({
   workflowId: z.string(),
 });
 
-/** Somebody wants the agent to look at a failed
- *  run. */
+/**
+ * Somebody wants the agent to look at a run.
+ *
+ * The run always, and the part of it the surface
+ * had in front of them: a block where a card was
+ * showing one, a row where a trace was. Both are
+ * optional and neither is required, because a
+ * question about a whole run is a question somebody
+ * can ask — the list draws no blocks and no rows,
+ * and names neither.
+ */
 const AskAgent = z.object({
   type: z.literal('askAgent'),
   workflowId: z.string(),
+  nodeId: z.string().optional(),
+  functionId: z.number().int().optional(),
 });
 
-/** Somebody opened one of this session's runs in
- *  the flight recorder. */
+/** Somebody opened a run in the flight recorder:
+ *  one of this session's, from the list, from a
+ *  transcript row, or the one a canvas is drawing
+ *  itself against. */
 const OpenRun = z.object({
   type: z.literal('openRun'),
   workflowId: z.string(),
 });
+
+/**
+ * Somebody wants the console for the app this
+ * project deploys to.
+ *
+ * No address travels: which console, and whether
+ * there is one at all, is a setting the extension
+ * reads. The panel only knows that one is
+ * configured.
+ */
+const OpenProduction = z.object({ type: z.literal('openProduction') });
 
 /** Somebody picked the step the rail describes. */
 const StepSelect = z.object({
@@ -313,19 +430,138 @@ const StepSelect = z.object({
 });
 
 /**
- * Somebody asked for a run to be forked from one
- * of its steps.
+ * Somebody asked for a run to be forked from a
+ * point it recorded.
  *
- * The step travels with the click for the same
+ * The run travels with the click for the same
  * reason a proposal id does: the panel may be
- * drawing a step the extension has since moved
- * past, and the extension is what decides which
- * run this is about.
+ * drawing a run the extension has since moved past,
+ * and the extension is what decides which run this
+ * is about.
+ *
+ * Both ways of naming the point are optional and at
+ * least one is required, because the two surfaces
+ * that send this hold different things. A canvas has
+ * a block in its column and no row at all; the run
+ * page has a row somebody clicked in a trace. Which
+ * of the two a block's several rows a replay starts
+ * from is the extension's answer, not the panel's.
  */
-const Replay = z.object({
-  type: z.literal('replay'),
-  functionId: z.number().int(),
+const ReplayFrom = z
+  .object({
+    type: z.literal('replayFrom'),
+    workflowId: z.string(),
+    nodeId: z.string().optional(),
+    functionId: z.number().int().optional(),
+  })
+  .refine(
+    (sent) => sent.nodeId !== undefined || sent.functionId !== undefined,
+    'a replay starts from a block or from a row it recorded',
+  );
+
+/** The same, from wherever the run's own default
+ *  point is: the list draws no rows and no blocks,
+ *  so it names neither. */
+const ReplayRun = z.object({
+  type: z.literal('replayRun'),
+  workflowId: z.string(),
 });
+
+/**
+ * Somebody asked for a run to be stopped, or for a
+ * stopped one to be picked back up.
+ *
+ * By id, because three surfaces send these and none
+ * of them is necessarily showing the run: Running
+ * Now names the run this window is watching, a
+ * session row names one this window started, and
+ * the run page names the one it has open.
+ *
+ * `cancelRun` rather than `cancel`, which is the
+ * side bar's own kind for stopping an agent's turn.
+ * Two frames can post the same kind, so a name that
+ * meant both would be one message with two
+ * unrelated meanings.
+ */
+const CancelRun = z.object({
+  type: z.literal('cancelRun'),
+  workflowId: z.string(),
+});
+
+const ResumeRun = z.object({
+  type: z.literal('resumeRun'),
+  workflowId: z.string(),
+});
+
+/**
+ * Which of the two views of one run is on screen.
+ *
+ * Held by the extension rather than by the frame,
+ * because a view docked in the side bar is disposed
+ * the moment it is hidden — a tab a person chose
+ * has to survive that, and nothing a webview holds
+ * does.
+ */
+const SeeShow = z.object({
+  type: z.literal('seeShow'),
+  tab: z.enum(['graph', 'trace']),
+});
+
+/** Somebody picked a block on the run's graph. */
+const SeeNode = z.object({
+  type: z.literal('seeNode'),
+  nodeId: z.string(),
+});
+
+/** Whether the rows DBOS wrote for itself are
+ *  shown. */
+const SeeRaw = z.object({
+  type: z.literal('seeRaw'),
+  raw: z.boolean(),
+});
+
+/**
+ * Somebody asked the run page to look again.
+ *
+ * A watch lets go of a run that parked or went
+ * quiet and nothing re-arms it on a timer, so this
+ * is one of the few things that starts one.
+ */
+const SeeRefresh = z.object({ type: z.literal('seeRefresh') });
+
+/**
+ * Somebody wants the workflow this run was a run
+ * of, open to edit.
+ *
+ * The run's id rather than the document's path: the
+ * page draws what the extension last read, and
+ * which file that run's name resolves to is the
+ * extension's answer rather than the panel's.
+ */
+const OpenWorkflow = z.object({
+  type: z.literal('openWorkflow'),
+  workflowId: z.string(),
+});
+
+/**
+ * Somebody chose a pattern to start a workflow
+ * from.
+ *
+ * The pattern's own name and nothing else. It is
+ * parsed as a workflow name because that is what a
+ * pattern's directory is called and what the
+ * document it writes will be filed under — and
+ * because a name a frame invented is looked up in
+ * the library rather than joined onto a path.
+ */
+const UsePattern = z.object({
+  type: z.literal('usePattern'),
+  name: WorkflowNameSchema,
+});
+
+/** Somebody asked for an empty canvas instead of a
+ *  pattern. */
+const StartBlank = z.object({ type: z.literal('startBlank') });
 
 /**
  * What each view may say, `ready` included.
@@ -333,14 +569,22 @@ const Replay = z.object({
  * One union per view rather than one for all four,
  * so that a provider's `heard` is typed to the
  * messages its own frame can send and has no branch
- * for the twenty-odd it cannot. The four are
- * disjoint by construction: a kind belongs to the
- * view whose bundle posts it.
+ * for the thirty-odd it cannot. Mostly they are
+ * disjoint, but they need not be: a schema is
+ * listed on every view whose bundle posts it, and
+ * two frames can post the same kind.
  */
 const SCHEMAS = {
   canvas: z.discriminatedUnion('type', [
     Ready,
     Select,
+    InspectorModePicked,
+    OpenFunction,
+    OpenErrorLocation,
+    OpenOutput,
+    OpenRun,
+    AskAgent,
+    ReplayFrom,
     Connect,
     AddNode,
     Move,
@@ -360,6 +604,7 @@ const SCHEMAS = {
     Undo,
     KeepFile,
     UndoFile,
+    OpenRun,
   ]),
   runs: z.discriminatedUnion('type', [
     Ready,
@@ -374,8 +619,30 @@ const SCHEMAS = {
     Rerun,
     AskAgent,
     OpenRun,
+    OpenProduction,
+    CopyRunId,
+    ReplayRun,
+    CancelRun,
+    ResumeRun,
   ]),
-  see: z.discriminatedUnion('type', [Ready, StepSelect, Replay]),
+  see: z.discriminatedUnion('type', [
+    Ready,
+    StepSelect,
+    RunSelect,
+    OpenFunction,
+    OpenErrorLocation,
+    OpenOutput,
+    AskAgent,
+    ReplayFrom,
+    SeeShow,
+    SeeNode,
+    SeeRaw,
+    SeeRefresh,
+    OpenWorkflow,
+    CancelRun,
+    ResumeRun,
+  ]),
+  gallery: z.discriminatedUnion('type', [Ready, UsePattern, StartBlank]),
 };
 
 /** What one view may say. */

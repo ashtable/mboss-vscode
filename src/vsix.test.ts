@@ -166,6 +166,11 @@ describe('the packaged extension', () => {
   it('ships the assets it copies into a project', () => {
     expect(has('dist/app/')).toBe(true);
     expect(has('dist/workflows/index.ts')).toBe(true);
+    // The gallery reads these to draw its cards and
+    // `usePattern` writes them into somebody's
+    // project, so an exclusion that swept them up
+    // would leave the gallery empty.
+    expect(has('dist/library/refund_approval/')).toBe(true);
     expect(has('dist/mcp/server.js')).toBe(true);
     expect(has('dist/mcp/VERSION')).toBe(true);
     expect(has('dist/skill/SKILL.md')).toBe(true);

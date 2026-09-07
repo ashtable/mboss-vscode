@@ -1,14 +1,23 @@
 import type { Database, OpenDatabase } from './db.js';
-import { FAILED_STATUSES, runQuery, stepsQuery } from './queries.js';
+import { runQuery, stepsQuery } from './queries.js';
+import {
+  readRun,
+  type LiveOutcome,
+  type Operation,
+  type Reading,
+} from './reading.js';
 import {
   hasRecovered,
   toRun,
   toStep,
   type OperationOutputRow,
   type Run,
+  type RunInput,
   type Step,
   type WorkflowStatusRow,
 } from './rows.js';
+
+export type { SourceFrame, StepError } from './rows.js';
 
 /**
  * Following one run while it is going.
@@ -31,39 +40,14 @@ import {
  */
 
 /**
- * What the ledger can say about one step.
+ * One row of a run, as it crosses to a webview.
  *
- * There is no `running`: `dbos.operation_outputs`
- * records a step when it completes, never when it
- * starts. Where a run has got to is derived from
- * the edges of the graph, by whoever is drawing
- * one.
+ * The reading's own step, less the two things only
+ * the trace needs: which of the three kinds of owner
+ * wrote the row, and where inside its block it ran.
+ * A canvas paints blocks and needs neither.
  */
-export type StepState = 'done' | 'failed' | 'waiting';
-
-export type LiveStep = {
-  /** The name the ledger recorded, rounds, item
-   *  indexes and wait suffixes and all. */
-  name: string;
-
-  /** The block it belongs to. */
-  nodeId: string;
-
-  state: StepState;
-};
-
-/**
- * Where the watch left the run.
- *
- * `waiting` and `quiet` are both stopped watches
- * and are kept apart on purpose. A parked run is
- * waiting on a person and will move when they act;
- * a quiet one is waiting on nobody and the watch
- * simply let go of it. Telling somebody a quiet run
- * is waiting would send them looking for an email
- * that was never sent.
- */
-export type LiveOutcome = 'running' | 'done' | 'failed' | 'waiting' | 'quiet';
+export type LiveStep = Omit<Operation, 'owner' | 'segments'>;
 
 export type LiveRun = {
   workflowId: string;
@@ -81,10 +65,44 @@ export type LiveRun = {
    *  picked back up, it stays said. */
   recovered: boolean;
 
+  /** The raw column, which counts dispatches rather
+   *  than crashes. */
+  recoveryAttempts: number;
+
   outcome: LiveOutcome;
 
   error?: string;
+
+  applicationVersion: string | undefined;
+
+  createdAt: number;
+
+  startedAt: number | undefined;
+
+  completedAt: number | undefined;
+
+  /** What the run was started with, printed. */
+  input: string | undefined;
+
+  forkedFrom: string | undefined;
 };
+
+/** The rows one tick read, handed over beside the
+ *  reading made of them so nothing has to ask the
+ *  database again for what is already in hand. */
+export type LedgerRead = { run: Run; steps: Step[] };
+
+/**
+ * The outcomes a run will not move on from.
+ *
+ * Not the question of when a watch lets go, which
+ * is any outcome but `running` — `waiting` and
+ * `quiet` stop one too, over runs that may yet
+ * move. This is what a session row asks before it
+ * stamps how long the run took and stops being
+ * re-armed.
+ */
+export const SETTLED: readonly LiveOutcome[] = ['done', 'failed', 'cancelled'];
 
 export type RunWatcher = { stop(): void };
 
@@ -101,7 +119,7 @@ export type RunWatch = (
   open: OpenDatabase,
   url: string,
   workflowId: string,
-  onChange: (run: LiveRun) => void,
+  onChange: (run: LiveRun, read: LedgerRead) => void,
 ) => RunWatcher;
 
 /**
@@ -122,30 +140,11 @@ export const WATCH_INTERVAL_MS = 500;
  */
 export const WATCH_QUIET_MS = 15_000;
 
-/** The one status that means it worked. */
-const SUCCEEDED = 'SUCCESS';
-
-/** DBOS's own three, widened so a status read out
- *  of a row can be compared against them. */
-const FAILED: readonly string[] = FAILED_STATUSES;
-
-/** Steps the SDK records for its own bookkeeping —
- *  `DBOS.sleep`, `DBOS.recv`, `DBOS.setEvent` —
- *  which belong to no block on any canvas. */
-const SDK_PREFIX = 'DBOS.';
-
-/** The two steps a durable wait is made of: the row
- *  that says which run is parked, and its deletion
- *  once the run wakes. */
-const REGISTERED = '.register';
-
-const CLEARED = '.clear';
-
 export function watchRun(
   open: OpenDatabase,
   url: string,
   workflowId: string,
-  onChange: (run: LiveRun) => void,
+  onChange: (run: LiveRun, read: LedgerRead) => void,
 ): RunWatcher {
   /**
    * One connection for the life of the watch.
@@ -164,6 +163,7 @@ export function watchRun(
   let stopped = false;
   let recovered = false;
   let last: LiveRun | undefined;
+  let lastRead: LedgerRead | undefined;
   let movedAt = Date.now();
 
   const stop = (): void => {
@@ -178,10 +178,11 @@ export function watchRun(
     void connection?.close().catch(() => undefined);
   };
 
-  const report = (run: LiveRun): void => {
+  const report = (run: LiveRun, read: LedgerRead): void => {
     last = run;
+    lastRead = read;
     movedAt = Date.now();
-    onChange(run);
+    onChange(run, read);
   };
 
   const connect = async (): Promise<Database | undefined> => {
@@ -208,7 +209,9 @@ export function watchRun(
     return held;
   };
 
-  const readRun = async (): Promise<LiveRun | undefined> => {
+  const readTick = async (): Promise<
+    { live: LiveRun; read: LedgerRead } | undefined
+  > => {
     const database = await connect();
     if (database === undefined) return undefined;
 
@@ -233,7 +236,16 @@ export function watchRun(
       const run = toRun(row);
       recovered = recovered || hasRecovered(run);
 
-      return liveRun(run, recorded, recovered);
+      // A watch polls a database and never looked
+      // for a document, so the grammar's answer
+      // about which block a row names is the only
+      // one there is.
+      const reading = readRun(run, recorded, 'unasked', recovered, Date.now());
+
+      return {
+        live: liveRunOf(run, reading),
+        read: { run, steps: recorded },
+      };
     } catch {
       // A read that did not answer is a tick that
       // said nothing. If the database never comes
@@ -243,18 +255,20 @@ export function watchRun(
   };
 
   const tick = async (): Promise<void> => {
-    const seen = await readRun();
+    const seen = await readTick();
     if (stopped) return;
 
-    if (seen !== undefined && !same(seen, last)) {
-      report(seen);
+    if (seen !== undefined && !same(seen.live, last)) {
+      report(seen.live, seen.read);
 
-      if (seen.outcome !== 'running') return stop();
+      if (seen.live.outcome !== 'running') return stop();
     } else if (Date.now() - movedAt >= WATCH_QUIET_MS) {
       // Nothing to say about a run whose row never
       // appeared — only that nobody is watching it
       // any more.
-      if (last !== undefined) report({ ...last, outcome: 'quiet' });
+      if (last !== undefined && lastRead !== undefined) {
+        report({ ...last, outcome: 'quiet' }, lastRead);
+      }
 
       return stop();
     }
@@ -270,99 +284,61 @@ export function watchRun(
   return { stop };
 }
 
-function liveRun(run: Run, steps: Step[], recovered: boolean): LiveRun {
-  const own = steps.filter((step) => !step.name.startsWith(SDK_PREFIX));
-  const live = liveSteps(own);
-
+/**
+ * A reading, as it crosses to a webview.
+ *
+ * `steps` keeps the rows a block owns. Everything
+ * the SDK recorded for itself was read — the outage
+ * inference and the outcome both needed it — but a
+ * canvas has no block to put it on.
+ */
+export function liveRunOf(run: Run, reading: Reading): LiveRun {
   return {
     workflowId: run.workflowId,
     workflow: run.name,
     status: run.status,
-    steps: live,
-    recovered,
-    outcome: outcomeOf(run, live),
+    steps: reading.steps.filter((one) => one.owner !== 'sdk').map(liveStepOf),
+    recovered: reading.recovered,
+    recoveryAttempts: run.recoveryAttempts,
+    outcome: reading.outcome,
     error: run.error,
+    applicationVersion: run.applicationVersion,
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    input: printed(run.input),
+    forkedFrom: run.forkedFrom,
   };
 }
 
-function liveSteps(steps: Step[]): LiveStep[] {
-  const parked = parkedNodes(steps);
-
-  return steps.map((step) => {
-    const nodeId = nodeOf(step.name);
-
-    return {
-      name: step.name,
-      nodeId,
-      state: stateOf(step, parked.has(nodeId)),
-    };
-  });
+/** Named field by field rather than spread, so that
+ *  widening the reading is a decision about what
+ *  crosses rather than something that just happens. */
+function liveStepOf(operation: Operation): LiveStep {
+  return {
+    name: operation.name,
+    nodeId: operation.nodeId,
+    state: operation.state,
+    functionId: operation.functionId,
+    startedAt: operation.startedAt,
+    completedAt: operation.completedAt,
+    output: operation.output,
+    outputCut: operation.outputCut,
+    error: operation.error,
+    childWorkflowId: operation.childWorkflowId,
+    restored: operation.restored,
+    reused: operation.reused,
+  };
 }
 
-/**
- * The blocks a run is parked on.
- *
- * A wait writes `.register` when the run parks and
- * `.clear` when it wakes, and can write a reminder
- * in between — so the question is whether a block's
- * latest registration has been cleared, and not
- * whether its latest row happens to be one.
- */
-function parkedNodes(steps: Step[]): Set<string> {
-  const registered = new Map<string, number>();
-  const cleared = new Map<string, number>();
+/** What a run was started with, as text a panel can
+ *  put in a cell. */
+function printed(input: RunInput | undefined): string | undefined {
+  if (input === undefined || input.shape === 'none') return undefined;
 
-  steps.forEach((step, index) => {
-    const nodeId = nodeOf(step.name);
-
-    if (step.name.endsWith(REGISTERED)) registered.set(nodeId, index);
-    if (step.name.endsWith(CLEARED)) cleared.set(nodeId, index);
-  });
-
-  const parked = new Set<string>();
-
-  for (const [nodeId, at] of registered) {
-    if ((cleared.get(nodeId) ?? -1) < at) parked.add(nodeId);
-  }
-
-  return parked;
-}
-
-function stateOf(step: Step, parked: boolean): StepState {
-  if (step.error !== undefined) return 'failed';
-
-  return parked ? 'waiting' : 'done';
-}
-
-/**
- * The block a recorded step belongs to.
- *
- * The compiler names a step for its block and then
- * appends where it ran — `.r${round}` for a loop,
- * `[${index}]` for a fan-out, `.register`,
- * `.clear`, `.ask` and `.resend.${n}` for the parts
- * of a wait — so everything up to the first `.` or
- * `[` is the block's id.
- */
-function nodeOf(name: string): string {
-  const cut = name.search(/[.[]/);
-
-  return cut === -1 ? name : name.slice(0, cut);
-}
-
-/**
- * Where the run is, as the ledger has it.
- *
- * A step that threw is not an ending: DBOS may
- * retry it, and only the status column says the run
- * is over.
- */
-function outcomeOf(run: Run, steps: LiveStep[]): LiveOutcome {
-  if (run.status === SUCCEEDED) return 'done';
-  if (FAILED.includes(run.status)) return 'failed';
-  if (steps.some((step) => step.state === 'waiting')) return 'waiting';
-
-  return 'running';
+  return input.shape === 'payload'
+    ? JSON.stringify(input.value, null, 2)
+    : input.text;
 }
 
 /**

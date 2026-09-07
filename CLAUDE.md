@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-The mBoss VS Code extension ("Design Durable Apps with DBOS"). It contributes four
+The mBoss VS Code extension ("Design Durable Apps with DBOS"). It contributes five
 React webviews — the **workflow canvas** (a custom editor for
 `**/.mboss/workflows/*.workflow.json`), the **agent sidebar** (an Agent Client
 Protocol client that drives claude-code / codex / gemini / a custom command), the
-**Runs** list (a project's DBOS run history read from the project's own Postgres)
-and the **See** panel (one run in detail) — and it ships an MCP server bundle plus
+**Runs** list (a project's DBOS run history read from the project's own Postgres),
+the **See** panel (one run in detail) and the **gallery** (the patterns a workflow
+can be started from) — and it ships an MCP server bundle plus
 an Agent Skill that it copies into every project it creates or refreshes.
 
 Three nested git submodules, each pinned to a version branch in `.gitmodules`
@@ -37,6 +38,7 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
 | Fast host + webview rebuild into `dist/`      | `node src/build.ts`                                                          |
 | Package a `.vsix` (root, gitignored)          | `npm run package`                                                            |
 | Typecheck + ESLint + Prettier check           | `npm run lint`                                                               |
+| Rewrite the generated strings from the source | `npm run strings`                                                            |
 | Typecheck only / format everything            | `npm run typecheck` / `npm run format`                                       |
 | Unit tier                                     | `npm test` (`npm run test:watch` for watch mode)                             |
 | One unit file / one test by name              | `npx vitest run src/watchers/debounce.test.ts -t "costs one run"`            |
@@ -60,7 +62,9 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
   project's own compose), so run one file at a time. It creates and drops only
   the database `mboss_vscode_runs_test`.
 - `prettier --check .` covers Markdown, JSON, YAML and CSS too. After editing
-  `l10n/bundle.l10n.json` or `package.nls.json`, run `npm run format`.
+  `package.nls.json`, run `npm run format`. Two files are never edited by hand —
+  `l10n/bundle.l10n.json` and `tests/webview/words.json` — because
+  `npm run strings` writes them, already prettier-shaped.
 - There is no `launch.json`; the only way to see the extension in a real window
   is `npm run package` and installing `mboss-vscode-0.0.0.vsix`.
 - CI (`.github/workflows/ci.yml`) runs on `pull_request` only: build:mcp, lint,
@@ -72,8 +76,8 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
 
 `src/build.ts` makes two esbuild calls because `platform` is per build: the
 host (`src/extension.ts` → `dist/extension.cjs`, CommonJS, `@mboss/core`
-aliased, `vscode` + DBOS/elk optional requires external) and the four webviews
-(`src/{canvas,sidebar,runs,see}/index.tsx` → `dist/webview/<name>.{js,css}`,
+aliased, `vscode` + DBOS/elk optional requires external) and the five webviews
+(`src/{canvas,sidebar,runs,see,gallery}/index.tsx` → `dist/webview/<name>.{js,css}`,
 ESM, browser, **no alias, no externals but `*.woff2`**). `WEBVIEW_ENTRIES` is
 typed against `WebviewName` in `src/webview/entry.ts`.
 
@@ -87,8 +91,9 @@ typed against `WebviewName` in `src/webview/entry.ts`.
   builtin or `process.env`. Enforcement is the browser esbuild call failing to
   resolve, plus `src/build.test.ts` scanning the output.
 - `dist/` also carries assets the host needs beside the bundle: `webview/fonts`
-  (the CSP allows only self-hosted fonts), `app/` + `workflows/index.ts` (core's
-  scaffold templates, read via `import.meta.dirname`), `node_modules/@types/node`
+  (the CSP allows only self-hosted fonts), `app/` + `workflows/index.ts` +
+  `library/` (core's scaffold templates and its pattern library, read via
+  `import.meta.dirname`), `node_modules/@types/node`
   (core's manifest scan resolves it at module load — without it the extension
   does not activate), `mcp/` and `skill/`. `.vscodeignore` excludes by
   directory, never by extension, because `dist/` ships `.ts` templates.
@@ -103,19 +108,29 @@ behaviour modules take the editor as an argument:
   `commands/newProject.ts`, `PanelHost` in `acp/agent.ts`, `RunsHost` in
   `runs/store.ts`, `WatchHost` in `watchers/host.ts`, `PreviewHost` in
   `preview/store.ts`, …) and a factory in the directory's `host.ts` closes over
-  `workspace`/`window`, reading folders and settings fresh on every call.
+  `workspace`/`window`, reading folders and settings fresh on every call —
+  except `PreviewHost`, whose `regenerate` is the watchers rather than the
+  editor, so `extension.ts` assembles it and `src/preview/` has no `host.ts`.
 - Workspace trust is on no host. `src/trust.ts` (`Trust`: `isTrusted()`,
   `onGranted()`) is one collaborator handed to every store beside its host;
   `workspaceTrust()` is the one adapter that asks `workspace.isTrusted`, and
   `test/doubles/trust.ts` (`fakeTrust(trusted)`, with `grant()`) is its one
   double. `src/trust.test.ts` pins that the adapter asks on every call.
+- The agent is on no host either, for the same reasons. `Agent`
+  (`note()`, `send()`, declared in `acp/agent.ts`) is one collaborator handed to
+  the preview store, the runs store and the canvas beside their `Trust`; the
+  panel is its own adapter, since `agentPanel()` already returns something that
+  is one. `test/doubles/agent.ts` (`fakeAgent()`, with `told`, `noted()`,
+  `sent()` and `fails()`) is its one double, and it records both verbs in **one**
+  list — what mBoss did and what the agent did go into one column, so the order
+  across the two is the thing worth asserting.
 - `src/vscodeApi.ts` (`VsCodeApi`: info / run / pick / replaceDocument /
   onDocumentChanged) is the general-purpose seam used by `commands.ts` and the
   canvas editor.
 - Only editor plumbing value-imports `vscode`: `extension.ts`, `messages.ts`,
-  `trust.ts`, the three `words.ts`, `vscodeApi.ts`, `statusBar.ts`, the providers
-  (`sidebar/view.ts`, `runs/panels.ts`, `canvas/editor.ts`),
-  `webview/host.ts`, every `host.ts`, and `acp/fs.ts`. `import type { Disposable } from 'vscode'` is fine anywhere.
+  `trust.ts`, the four `words.ts`, `vscodeApi.ts`, `statusBar.ts`, the providers
+  (`sidebar/view.ts`, `runs/panels.ts`, `canvas/editor.ts`,
+  `gallery/panel.ts`), `webview/host.ts`, every `host.ts`, and `acp/fs.ts`. `import type { Disposable } from 'vscode'` is fine anywhere.
 - `src/webview/host.ts` is a different kind of `host.ts`: the host side of the
   webview protocol (see below).
 - A second stand-in exists: the `DRIVER` script in
@@ -160,19 +175,31 @@ behaviour modules take the editor as an argument:
 
 ### Strings
 
-- `src/messages.ts` and the three `words.ts` modules (`canvas/`, `sidebar/`,
-  `runs/`) are the only files that call `l10n.t` (`l10n.test.ts` fences the
-  list); every entry wraps a **literal**. `l10n/bundle.l10n.json` is key ===
-  value and `src/l10n.test.ts` checks both directions over every `.ts`/`.tsx`
-  under `src/` (tests included). `package.json` strings go through `%key%` +
-  `package.nls.json` (`src/nls.test.ts`, both directions); the two mechanisms
-  share nothing and neither falls back to the other.
+- `src/messages.ts` and the four `words.ts` modules (`canvas/`, `gallery/`,
+  `runs/`, `sidebar/`) are the only files that call `l10n.t` (`l10n.test.ts`
+  fences the list); every entry wraps a **literal**. That rule is load-bearing rather than
+  policed: `src/bundle.ts` parses every non-spec `.ts`/`.tsx` under `src/` with
+  TypeScript's own parser and **writes** `l10n/bundle.l10n.json` (key === value,
+  sorted) — `npm run strings`. A `l10n.t` wrapping anything but a literal throws
+  `NotALiteral` with the file and line. The bundle is checked in because a
+  translator forks it and the VSIX ships it; `l10n.test.ts` asserts only that it
+  matches what the source generates, plus the five-file fence. `package.json`
+  strings go through `%key%` + `package.nls.json` (`src/nls.test.ts`, both
+  directions); the two mechanisms share nothing and neither falls back to the
+  other.
 - Webviews have no `l10n`: their words travel in the init message as bags
   built once by the view's `words.ts` (`canvasWords`, `inspectorWords`,
-  `sidebarWords`, `runsWords`, `seeWords`), whose return types are the
+  `sidebarWords`, `runsWords`, `seeWords`, `galleryWords`), whose return types are the
   `<View>Strings` types `protocol.ts` derives through type-only imports, with
   `{0}` templates filled by `src/webview/fill.ts`. Nothing under a webview
   entry contains English a user sees.
+- The Playwright fixture is generated too. `src/fixture.ts` bundles the four
+  `words.ts` modules against `test/doubles/vscode.ts` (whose `l10n.t` answers
+  with the source string), calls the seven bags and writes
+  `tests/webview/words.json`; `tests/webview/words.ts` is a typed loader over
+  it. `src/words.test.ts` holds the file to what the bags say, building the same
+  bytes without esbuild because the unit tier already resolves `vscode`. Every
+  value in every bag is a plain string, which is what lets JSON carry them.
 - The unit double's `l10n.t` returns the English source, so unit specs pin
   English literals; Playwright specs send the bags in `tests/webview/words.ts`,
   which `src/words.test.ts` holds equal to the host's. Rewording a view's copy
@@ -193,7 +220,12 @@ behaviour modules take the editor as an argument:
   disposed, and returns a `Mount` (`repaint`, `dispose`). The browser half is
   `mountView` in `src/webview/mount.tsx`.
 - Host → webview is trusted and is always one whole `init` (the `HostMessage`
-  union in `protocol.ts`), re-sent on every change. Views render from the last
+  union in `protocol.ts`), re-sent on every change. `protocol.ts` is a
+  declaration file rather than a module — five near-disjoint regions, one per
+  view, plus the union and `isHostMessageFor` — and it imports **only leaves**:
+  a type it needs must come from a module that does not import it back, which
+  is why `StackAction` lives in `runs/stack.ts` beside the commands it names
+  rather than beside the zone that tracks one. Views render from the last
   message and **hold nothing**: an activity-bar view is disposed the moment it
   is hidden, so all state lives in stores constructed once in `extension.ts`
   (`agentPanel`, `previewStore`, `runsStore`, `SeePanel`). Stores publish
@@ -208,7 +240,8 @@ behaviour modules take the editor as an argument:
 
 `src/extension.ts` decides nothing: it constructs each long-lived object once,
 hands it its collaborators (structural slices — the canvas takes `Watchers`
-and `RunsStore` as `CanvasCode`/`CanvasRuns`, and `Trust` as itself), builds
+and `RunsStore` as `CanvasCode`/`CanvasRuns`, and `Trust` and `Agent` as
+themselves; the panel goes over whole rather than as a closure), builds
 the command table with `commandHandlers()` in `src/commands.ts` (a pure record;
 `commands.test.ts` asserts its keys equal `contributes.commands`), registers
 providers and holds the disposables. `activationEvents` is `[]`.
@@ -228,23 +261,35 @@ none of that.
   command). Every gesture is a message; every edit lands through
   `api.replaceDocument` so VS Code keeps undo/dirty/save. A **gesture** is
   what the panel sent; an **edit** is the pure function of the document it
-  becomes, worked out in `edits.ts`: `editFor(gesture, context)` takes the
-  document, its boxes, the manifest and the palette labels and answers
-  `next` / `refused` / `nothing`; `waysOutOf` says which ports a wire may
-  leave by. `CanvasSession` is gate, compute, write: it refuses a stale
-  `baseRevision` first, asks the picker which way out a wire takes, calls
-  `editFor`, then says the sentence, selects, notes and writes.
+  becomes, worked out in `edits.ts`: `editFor(gesture, context, answered?)`
+  takes the document, its boxes, the manifest and the palette labels and answers
+  `next` / `refused` / `nothing` / **`asks`**; `waysOutOf` says which ports a
+  wire may leave by. `CanvasSession` is gate, compute, ask, compute, write: it
+  refuses a stale `baseRevision` first, calls `editFor`, and where that answers
+  `asks` — the block and its ways out — puts the question through the picker and
+  calls `editFor` again with the answer, re-reading the document because the
+  question took time. Which gestures need asking is the rule's answer, not the
+  session's: one way out is settled without anybody being asked, and the schema
+  refuses a drop that is both a splice and a wire's end, so no gesture can be
+  asked a question its rule would then discard. Then it says the sentence,
+  selects, notes and writes.
   `CanvasInit.editing` is the one place a view reads whether it may edit and
   against which revision (absent over an unreadable file or a live proposal),
   and `inspector.selected` is an id: the column reads a block's fields and
   where its outcomes lead off the document. The webview never
   repaints itself: it redraws when `onDocumentChanged` fires `reread` + post
-  (tests simulate this with `livingDocument().saved()`). Layout: core `place()`
-  runs ELK only when no node has a position; `onTheGrid` snaps unplaced boxes;
-  the first hand move pins every position into the document; Arrange writes
-  `withoutPositions`. `layoutKeyOf` (revision + hash of nodes/edges/boxes)
-  decides whether the view keeps the positions it is holding. While a proposal
-  is live the canvas is read-only (`heard()` ignores everything).
+  (tests simulate this with `livingDocument().saved()`).
+  **`canvas/placement.ts` is where a block goes**, browser-safe and read from
+  both sides: `onTheGrid` snaps the boxes the engine placed and leaves alone the
+  ones the document did; `layoutKeyOf` (revision + hash of nodes/edges/boxes)
+  names one picture; `nodesFor` answers what to draw, keeping the positions the
+  view holds when the key is unchanged and taking the host's back when it is
+  not; `landingFor` and `landsAt` say where a carried block hangs and where it
+  lands. Around it: core `place()` runs ELK only when no node has a position,
+  the first hand move pins every position into the document through `edits.pin`,
+  Arrange writes `withoutPositions`, and ReactFlow's own `snapGrid` is a drawing
+  affordance only. While a proposal is live the canvas is read-only (`heard()`
+  ignores everything).
 - **`preview/`** — an agent proposal is a **file** (`.mboss/proposals/*.proposal.json`,
   written by the MCP server through core's `proposeSpec`; core keeps one live
   proposal per workflow). The store reloads on watcher events; approve runs
@@ -254,6 +299,11 @@ none of that.
 - **`acp/`** — `connection.ts` is the only importer of
   `@agentclientprotocol/sdk` (content-regex enforced; the version is pinned
   exactly by `sdk.test.ts`). `agent.ts` holds one session per window,
+  `prompt.ts` is the pure module that turns an `AgentPrompt` (a sentence plus
+  whatever mBoss read out of a run) into content blocks — the record rides as
+  its own `resource` block where the agent advertised
+  `promptCapabilities.embeddedContext` at the handshake, and fenced into the
+  sentence where it did not, which is the default,
   `diff.ts` counts and lists a file edit's changes,
   `transcript.ts` folds updates into entries and writes the extension's own
   rows (`personEdit`, `said`), `session.ts` is the pure state machine and says whether a prompt may go now
@@ -264,14 +314,22 @@ none of that.
   `registry.ts` is the published contract for the `mboss.agent.*` settings.
   `test/fixtures/scripted-peer.mjs` is a hand-written JSON-RPC peer for
   `connection`/`capabilities`/`agent` specs only — do not grow it into an e2e agent.
-- **`runs/`** — `store.ts` is a façade over three zones with their own slots
+- **`runs/`** — `store.ts` is a façade over four zones with their own slots
   and change signals: `history.ts` (the ledger read, the filter, the rows and
-  counts, the picked run and its replay; it also offers the connection string
-  quietly to whoever arms a watch), `stackZone.ts` (what compose says and the
-  three commands) and `testRun.ts` (the saved workflows, the chosen one and
-  its input, starting a run, the live watches, the session rows,
-  ask-the-agent). `list()` composes their renders into `RunsInit` directly;
-  `view.ts` turns a row into words. Each zone's spec builds only that zone's
+  counts; it also offers the connection string quietly to whoever arms a
+  watch), **`openRun.ts`** (the run somebody has open — reading it, the
+  document laid out beside it, arming its watch, what carries over when the
+  same run is read again, which of the two views is on screen, and the
+  replay), `stackZone.ts` (what compose says and the three commands) and
+  `testRun.ts` (the saved workflows, the chosen one and its input, starting a
+  run, the live watches, the session rows, ask-the-agent). The run page reads
+  the same ledger as the list and **borrows the connection** rather than
+  opening one: what a read learns about somebody's database is a fact about
+  the project, so `history.connection()`/`read()` are lent and the list is
+  what says it. `list()` composes their renders into `RunsInit`, adding which
+  row is marked from the open run; `store.see()` is the whole run page, tab
+  and all, so nothing carries the tab separately. `view.ts` turns a row into
+  words. Each zone's spec builds only that zone's
   collaborators from `src/test-support/runs.ts`. Hand-composed parameterised
   `SELECT`s over `dbos.workflow_status` / `dbos.operation_outputs` via `pg`
   (`queries.test.ts` enforces SELECT-only, the `dbos.` prefix and `$n` binds);
@@ -281,6 +339,17 @@ none of that.
   file); `watch.ts` polls a started run every 500 ms and goes quiet after 15 s.
   `queries.ts` and `rows.ts` are shared with the browser bundle: no Node
   imports there; `db.ts` is the only file that may import `pg`.
+  **`reading.ts` is the one projection of a run's rows** (`readRun`): every row
+  attributed to its block, the window they are drawn in, and the run's outcome.
+  It takes the clock — `runTimeline` takes one too and neither defaults, because
+  a default is what let three callers answer one page about three moments. Both
+  of its readers go through it: `view.seeRun` for the page and `watchRun` for the
+  live overlay, whose `LiveRun`/`LiveStep` are a rendering of a reading for the
+  wire. What a reader knows about the drawing is three-valued (`Drawing`:
+  the document, `'lost'`, `'unasked'`) because the page and the watch meant
+  opposite things by "no drawing". `operations.ts` groups a reading and reads
+  its decided arms; `timeline.ts` owns the outage inference and has one caller.
+  See `CONTEXT.md` for the vocabulary.
 - **`watchers/`** — per folder: globs for workflow documents, `lib/**` and
   proposals, plus `onDidSaveTextDocument` (a watcher can be silenced by
   `files.watcherExclude`), coalesced by a 300 ms `Debouncer` keyed on the
@@ -295,6 +364,12 @@ none of that.
   with nothing — asked when the event arrives and again when the debounced run
   fires — so an approval, an undo or the canvas's own write costs one
   generation (`approval.test.ts`).
+- **`gallery/`** — the patterns a workflow can start from, read out of core's
+  library on every mount. `panel.ts` holds both the flow (`gallery(deps)`:
+  trust, `projects()[0]`, one name question, core's write, one sentence) and
+  the `GalleryPanel` that mounts it, disposed the moment a document exists.
+  It compiles nothing, scans nothing and never claims generated code exists —
+  the handlers land in `lib/` and the next save is what generates.
 - **`vendor/`** — `shippedVendor` reads `dist/mcp` + `dist/skill`; `newProject`
   scaffolds through core with the bundle and copies the skill to both
   `.mboss/skills/mboss` and `.claude/skills/mboss`; `offerVendorRefresh` at
@@ -316,11 +391,15 @@ Three tiers, three configs, and placement decides which runs:
   `acquireVsCodeApi`. `retries: 0`. Colour assertions are literal Chromium
   serialisations on purpose (reading the token back would pass any value).
   Never measure the graph before a locator expectation or `graphAtRest()` has
-  settled it. A spec may import only `src` modules whose transitive graph never
-  touches `vscode` or `@mboss/core` (no alias is configured).
+  settled it. A spec may import no `src` module whose transitive graph value-imports
+  `vscode`: nothing aliases it in this tier and there is no `vscode` on disk, so
+  the import fails to resolve and Playwright reports "No tests found" rather than
+  a failing assertion. `@mboss/core` does resolve here — Playwright honours
+  `tsconfig.json` `paths` — but reaching for it pulls elkjs and ts-morph into a
+  spec, so the browser-safe `src/core/rules.ts` is what a spec should use.
 
 Doubles and helpers: `test/doubles/vscode.ts` (fails loudly for anything not
-added on purpose), `watchHost.ts`, `webview.ts`; `src/test-support/` (exempt
+added on purpose), `trust.ts`, `agent.ts`, `watchHost.ts`, `webview.ts`; `src/test-support/` (exempt
 from the boundary greps): `project.ts` scaffolds a real project with core and
 copies fixtures from `mboss-core/fixtures/` (the submodule worktree must be at
 the pinned commit — bump commits move it together with the gitlink), `vendor.ts`,
@@ -391,17 +470,19 @@ value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
 - **Add a webview**: name in `WebviewName` and `WEBVIEW_ENTRIES`; its message
   union in `SCHEMAS` in `webview/host.ts`; `src/<name>/index.tsx` calling
   `mountView` + `<name>.css`; `<Name>Init` + `<Name>Strings` in the
-  `HostMessage` union; a `messages.<name>Strings()` builder; a host caller of
-  `mountWebview`; `build.test.ts` / `vsix.test.ts` expect one js+css per entry.
-- **Add a string**: a host sentence is a `messages.ts` entry + identical
-  key=value line in `l10n/bundle.l10n.json`; a word a webview shows is a line
-  in that view's `words.ts`, the bundle line, and the same line in
-  `tests/webview/words.ts`. Some copy is duplicated
-  across the two systems on purpose (agent names in `package.nls.json`
-  enum descriptions and `messages.agents()`).
+  `HostMessage` union in `webview/protocol.ts`, whose region is that view's
+  and imports only what that view draws; a `<name>Words()` builder beside the
+  view; a host caller of `mountWebview`; `build.test.ts` / `vsix.test.ts`
+  expect one js+css per entry.
+- **Add a string**: a host sentence is one `messages.ts` entry; a word a
+  webview shows is one line in that view's `words.ts`. Then `npm run strings`,
+  which rewrites `l10n/bundle.l10n.json` and `tests/webview/words.json` — never
+  edit either by hand. Some copy is duplicated across the two systems on purpose
+  (agent names in `package.nls.json` enum descriptions and `messages.agents()`).
 - **Add an Inspector field**: `canvas/inspector/forms.ts` lens + entries in
-  `inspectorFields()`/`inspectorOptions()` in `messages.ts` + bundle lines;
-  `forms.test.ts` asserts every field and option has a word.
+  `inspectorFields()`/`inspectorOptions()` in `canvas/words.ts`, then
+  `npm run strings`; `forms.test.ts` asserts every field and option has a
+  word.
 - **Add a canvas gesture**: a zod schema in `webview/host.ts` and its member
   in `WebviewMessageSchema`; a `Gesture` member and a case in `editFor` in
   `canvas/edits.ts`, with the rule pinned in `edits.test.ts`; the

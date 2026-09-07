@@ -3,11 +3,33 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { applySpec } from '@mboss/core';
+import * as fromCore from '@mboss/core';
 import { describe, expect, it } from 'vitest';
 
-import { NODE_PALETTE, WorkflowIRSchema } from './rules.js';
-import { nextDocument, readWorkflow } from './index.js';
+import {
+  DEFAULT_RETRY,
+  NODE_PALETTE,
+  RetrySchema,
+  SDK_OPERATIONS,
+  WorkflowIRSchema,
+  ownerOf,
+} from './rules.js';
+import {
+  compileInputs,
+  compileWorkflow,
+  compileWorkflows,
+  nextDocument,
+  readWorkflow,
+  type TraceMatch,
+  type UsePatternOutcome,
+} from './index.js';
+import * as fromIndex from './index.js';
 import { paletteLabels } from '../canvas/words.js';
+import {
+  makeProject,
+  readWorkflowFixture,
+  writeWorkflow,
+} from '../test-support/project.js';
 import { CORE_ROOT, sourceFiles } from '../test-support/repo.js';
 
 const GROOM_BOOKING = join(
@@ -127,6 +149,70 @@ describe('the palette labels', () => {
 });
 
 /**
+ * What a webview needs of core beyond the drawing
+ * rules: how to read a ledger row back to the
+ * block that wrote it, and what a block that
+ * configured nothing will actually do when it
+ * fails. Both are arithmetic over data a frame
+ * already holds, so they belong on the browser-safe
+ * side rather than behind a message.
+ */
+describe('the browser-safe slice', () => {
+  it('reads a recorded step name back to the block that owns it', () => {
+    expect(ownerOf('await_reply.register')).toEqual({
+      kind: 'node',
+      nodeId: 'await_reply',
+      segments: [{ kind: 'register' }],
+    });
+    expect(ownerOf('DBOS.sleep').kind).toBe('sdk');
+    expect(SDK_OPERATIONS.has('getStatus')).toBe(true);
+  });
+
+  it('carries the retry policy an unconfigured block runs under', () => {
+    expect(DEFAULT_RETRY).toEqual(RetrySchema.parse({}));
+    expect(DEFAULT_RETRY).toEqual({
+      maxAttempts: 3,
+      intervalSeconds: 1,
+      backoffRate: 2,
+    });
+  });
+});
+
+/**
+ * A document compiled on its own has to be
+ * compiled the way the project would compile it,
+ * or the source a person is shown is not the
+ * source that would be written. The manifest and
+ * the zone are the whole of that: the manifest
+ * says what the handlers are, and the zone is
+ * stamped into every schedule whose trigger names
+ * none.
+ */
+describe('what a document is compiled with', () => {
+  it('gives one document the same manifest and timezone the project gets', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'groom_booking');
+
+    const compiled = await compileWorkflows(project);
+    expect(compiled.ok).toBe(true);
+    const [generated] = compiled.written;
+    expect(generated).toBeDefined();
+    if (generated === undefined) return;
+
+    const onDisk = readFileSync(join(project, generated), 'utf8');
+    const ir = WorkflowIRSchema.parse(
+      JSON.parse(readWorkflowFixture('groom_booking')),
+    );
+
+    const alone = compileWorkflow({ ir, ...compileInputs(project) });
+
+    expect(alone.ok).toBe(true);
+    if (!alone.ok) return;
+    expect(alone.source).toBe(onDisk);
+  });
+});
+
+/**
  * The seam, asserted rather than agreed to.
  *
  * Core's shapes are a library's, and they change
@@ -160,5 +246,98 @@ describe('the boundary', () => {
    */
   it('reaches past it in exactly one other place', () => {
     expect(importing(/mboss-core\/src\//)).toEqual(['src/core/rules.ts']);
+  });
+
+  /**
+   * The client that can write to somebody's run
+   * history is opened in one place, so that what
+   * this extension may do to a database it does not
+   * own is a question with one answer rather than
+   * one per caller.
+   */
+  it('opens a DBOS client in exactly one place', () => {
+    // The import and the identifier, rather than the
+    // package's name anywhere: the skew gate names
+    // the package as a key into a lockfile, which is
+    // a fact about somebody else's project rather
+    // than a way into this one.
+    expect(importing(/from '@dbos-inc\/dbos-sdk'|\bDBOSClient\b/)).toEqual([
+      'src/runs/db.ts',
+    ]);
+  });
+
+  /**
+   * And what it may do stops short of starting a
+   * run. A run goes through the app's own ingress,
+   * so the app's own code decides what a run is;
+   * a client that could start one from an editor
+   * would be a second door with none of that behind
+   * it.
+   */
+  it('starts no run through the client', () => {
+    for (const call of [/startWorkflow\(/, /enqueue\(/, /listWorkflows\(/]) {
+      expect(
+        importing(call).filter((path) => path.startsWith('src/runs/')),
+      ).toEqual([]);
+    }
+  });
+
+  it('starts a run through the app own ingress', () => {
+    const ingress = importing(/\/runs\/\$\{/);
+
+    expect(ingress).toEqual(['src/runs/runner.ts']);
+
+    // The verb as well as the path. The rule is
+    // POST `/runs/:workflow`, and a fence that read
+    // only the path would not notice the request
+    // becoming something the route that starts runs
+    // does not answer.
+    expect(importing(/method: 'POST'/)).toEqual(ingress);
+  });
+
+  /**
+   * The wrapper wraps most of core and forwards the
+   * rest, and forwarding is only worth anything if
+   * what arrives is the same function. A local
+   * reimplementation under a core name would satisfy
+   * the type and drift the first time core changed
+   * its mind, so identity is what is asserted rather
+   * than shape.
+   *
+   * This file is exempt from the fence above, which
+   * is what lets it hold the two sides of each name
+   * against each other.
+   */
+  it('carries core own names, not copies of them', () => {
+    expect(fromIndex.compileWorkflow).toBe(fromCore.compileWorkflow);
+    expect(fromIndex.replayBoundaries).toBe(fromCore.replayBoundaries);
+    expect(fromIndex.traceGrammar).toBe(fromCore.traceGrammar);
+    expect(fromIndex.matchTrace).toBe(fromCore.matchTrace);
+    expect(fromIndex.listPatterns).toBe(fromCore.listPatterns);
+    expect(fromIndex.patternNamed).toBe(fromCore.patternNamed);
+    expect(fromIndex.usePattern).toBe(fromCore.usePattern);
+    expect(fromIndex.blankSpec).toBe(fromCore.blankSpec);
+    expect(fromIndex.patternSpec).toBe(fromCore.patternSpec);
+    expect(fromIndex.WorkflowNameSchema).toBe(fromCore.WorkflowNameSchema);
+    expect(fromIndex.CONTAINER_APP_DIR).toBe(fromCore.CONTAINER_APP_DIR);
+    expect(fromIndex.LIB_DIR).toBe(fromCore.LIB_DIR);
+  });
+
+  /**
+   * The two type-only forwards, read at run time
+   * because a type that does not resolve is a
+   * compile failure and there is nothing else to
+   * assert about it.
+   */
+  it('carries the two answers that are types and nothing else', () => {
+    const matched: TraceMatch = { ok: true };
+    const used: UsePatternOutcome = {
+      ok: false,
+      code: 'WORKFLOW_EXISTS',
+      name: 'groom_booking',
+    };
+
+    expect(matched.ok).toBe(true);
+    expect(used.ok).toBe(false);
   });
 });

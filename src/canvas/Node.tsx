@@ -136,7 +136,9 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
         title={node.title}
         line={data.line}
         wanting={wantsHandler(node)}
+        waiting={data.waiting}
         state={state}
+        runTitle={data.runTitle}
       />
 
       <Handle type="source" position={Position.Bottom} id={SOURCE_PORT} />
@@ -170,18 +172,20 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
  * tone is.
  *
  * The three states that are not a run leave none at
- * all. The block a run is at leaves an empty one on
- * purpose: what it wears is a dot the stylesheet
- * draws, because a tick on a block that has not
- * finished is the one thing this set must never
- * say.
+ * all. The two the run has not finished leave an
+ * empty one on purpose: what each wears is a dot
+ * the stylesheet draws, because a tick on a block
+ * that has not finished is the one thing this set
+ * must never say — and because a block waiting on a
+ * person is not doing anything, which is what a
+ * turning mark would deny.
  */
 const RUN_MARK: Record<NodeState, string | undefined> = {
   dormant: undefined,
   selected: undefined,
   proposed: undefined,
   running: '',
-  waiting: '↻',
+  waiting: '',
   failed: '✕',
   done: '✓',
 };
@@ -203,7 +207,9 @@ export function BlockFace({
   title,
   line,
   wanting,
+  waiting,
   state,
+  runTitle,
 }: {
   kind: NodeKind;
   title: string;
@@ -212,7 +218,19 @@ export function BlockFace({
   /** Whether that line is a gap where a function
    *  goes rather than the name of one. */
   wanting: boolean;
+
+  /** Or when the run parked here, which displaces
+   *  both. Said by whoever wrote the line, never
+   *  read back off the state: a reader that draws a
+   *  block `waiting` without the word for it is
+   *  still showing the code behind the block. */
+  waiting?: boolean;
   state: NodeState;
+
+  /** What the mark says it is, for anything that
+   *  cannot see a colour. Absent where the block is
+   *  not part of a run and there is no mark. */
+  runTitle?: string;
 }) {
   const mark = RUN_MARK[state];
 
@@ -224,14 +242,22 @@ export function BlockFace({
         <p className="node-title">{truncateTitle(title)}</p>
         <p
           className="node-line mono"
-          data-line={wanting ? 'unassigned' : undefined}
+          data-line={
+            waiting === true ? 'waiting' : wanting ? 'unassigned' : undefined
+          }
+          // A block is the width core laid the graph
+          // out at, and a clock written out to the
+          // millisecond does not always fit inside
+          // it. Half a moment is no moment at all,
+          // so the whole of it stays reachable.
+          title={waiting === true ? line : undefined}
         >
           {line}
         </p>
       </div>
 
       {mark === undefined ? null : (
-        <span className="node-run" data-run={state}>
+        <span className="node-run" data-run={state} title={runTitle}>
           {mark}
         </span>
       )}

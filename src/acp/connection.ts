@@ -9,6 +9,7 @@ import {
   ndJsonStream,
   type ClientCapabilities,
   type ClientConnection,
+  type ContentBlock,
   type NewSessionRequest,
   type PermissionOption,
   type SessionUpdate,
@@ -16,6 +17,7 @@ import {
   type ToolCallUpdate,
 } from '@agentclientprotocol/sdk';
 
+import type { AgentAccepts } from './prompt.js';
 import { versionFailure, type Failure } from './session.js';
 
 /**
@@ -126,8 +128,20 @@ export type ConnectionHandlers = {
 export type AgentSession = {
   sessionId: string;
 
+  /**
+   * What this agent said, at the handshake, that a
+   * prompt may contain.
+   *
+   * Read once and kept, because it is a property
+   * of the process on the other end and that
+   * process does not change its mind mid-session.
+   * Everything unsaid is false: an agent that
+   * advertised nothing has not advertised this.
+   */
+  accepts: AgentAccepts;
+
   /** Runs one turn. Resolves with why it stopped. */
-  prompt(text: string): Promise<StopReason>;
+  prompt(blocks: readonly ContentBlock[]): Promise<StopReason>;
 
   /**
    * Ends the current turn.
@@ -259,13 +273,15 @@ export async function openAgentSession(
   // session behind, so the process goes with it —
   // the protocol's own instruction on a version
   // mismatch is to close rather than carry on.
-  const sessionId = await handshake(connection, launch.cwd, stderr).catch(
-    (error: unknown) => {
-      connection.close();
-      child.kill();
-      throw error;
-    },
-  );
+  const { sessionId, accepts } = await handshake(
+    connection,
+    launch.cwd,
+    stderr,
+  ).catch((error: unknown) => {
+    connection.close();
+    child.kill();
+    throw error;
+  });
 
   let closed = false;
 
@@ -278,10 +294,18 @@ export async function openAgentSession(
   return {
     sessionId,
 
-    prompt: async (text) => {
+    accepts,
+
+    // The blocks arrive already decided; this end
+    // only copies them into the mutable array the
+    // request wants. Building the payload here
+    // would mean the one place that knows what the
+    // agent accepts is not the one place that acts
+    // on it.
+    prompt: async (blocks) => {
       const response = await connection.agent.request('session/prompt', {
         sessionId,
-        prompt: [{ type: 'text', text }],
+        prompt: [...blocks],
       });
 
       return response.stopReason;
@@ -310,12 +334,20 @@ export async function openAgentSession(
  * and the client's part is to stop there. Going on
  * would mean talking past an agent that has
  * already said it does not understand.
+ *
+ * The one thing kept from what the agent says
+ * about itself is whether a prompt may carry a
+ * resource, because that decides the shape of
+ * every turn afterwards. It is read here rather
+ * than asked for again later: the agent answers it
+ * once, and there is nowhere else the answer
+ * arrives.
  */
 async function handshake(
   connection: ClientConnection,
   project: string,
   stderr: () => string | undefined,
-): Promise<string> {
+): Promise<{ sessionId: string; accepts: AgentAccepts }> {
   const initialized = await connection.agent
     .request('initialize', {
       protocolVersion: PROTOCOL_VERSION,
@@ -345,7 +377,14 @@ async function handshake(
       });
     });
 
-  return opened.sessionId;
+  return {
+    sessionId: opened.sessionId,
+    accepts: {
+      embeddedContext:
+        initialized.agentCapabilities?.promptCapabilities?.embeddedContext ??
+        false,
+    },
+  };
 }
 
 /**

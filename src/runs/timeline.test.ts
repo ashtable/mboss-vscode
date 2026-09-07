@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Run, Step } from './rows.js';
-import { runTimeline } from './timeline.js';
+import { endOf, runTimeline } from './timeline.js';
 
 /**
  * The one place the drawing rule lives.
@@ -41,7 +41,14 @@ const RUN: Run = {
   startedAt: 1000,
   completedAt: 9000,
   error: undefined,
+  forkedFrom: undefined,
+  wasForkedFrom: false,
 };
+
+/** Later than anything these fixtures record, so a
+ *  window closes at the run's own ending rather
+ *  than at the moment of the read. */
+const READ_AT = 1_000_000;
 
 function step(functionId: number, from: number, to: number): Step {
   return {
@@ -76,7 +83,7 @@ describe('a run that never recovered', () => {
    * picked back up.
    */
   it('has no outage however long its gaps are', () => {
-    const timeline = runTimeline(quiet, CRASHED);
+    const timeline = runTimeline(quiet, CRASHED, READ_AT);
 
     expect(timeline.outage).toBeUndefined();
     expect(timeline.steps.every((one) => !one.restored)).toBe(true);
@@ -84,7 +91,7 @@ describe('a run that never recovered', () => {
 });
 
 describe('a run that recovered', () => {
-  const timeline = runTimeline(RUN, CRASHED);
+  const timeline = runTimeline(RUN, CRASHED, READ_AT);
 
   it('puts the outage in the widest hole between steps', () => {
     expect(timeline.outage).toEqual({ from: 1500, to: 4400 });
@@ -120,6 +127,7 @@ describe('a run that recovered', () => {
     const going = runTimeline(
       { ...RUN, status: 'PENDING', completedAt: undefined },
       CRASHED,
+      READ_AT,
     );
 
     expect(going.to).toBe(5000);
@@ -136,7 +144,11 @@ describe('what the rule cannot answer', () => {
    * never claims to show every one.
    */
   it('draws one band however many times a run recovered', () => {
-    const twice = runTimeline({ ...RUN, recoveryAttempts: 3 }, CRASHED);
+    const twice = runTimeline(
+      { ...RUN, recoveryAttempts: 3 },
+      CRASHED,
+      READ_AT,
+    );
 
     expect(twice.outage).toEqual({ from: 1500, to: 4400 });
   });
@@ -144,14 +156,14 @@ describe('what the rule cannot answer', () => {
   it('draws none when there is no hole to put one in', () => {
     const unbroken = [step(0, 1000, 1200), step(1, 1200, 1500)];
 
-    const timeline = runTimeline(RUN, unbroken);
+    const timeline = runTimeline(RUN, unbroken, READ_AT);
 
     expect(timeline.outage).toBeUndefined();
     expect(timeline.steps.every((one) => !one.restored)).toBe(true);
   });
 
   it('draws none when there is only one step to hold it', () => {
-    const timeline = runTimeline(RUN, [step(0, 1000, 1200)]);
+    const timeline = runTimeline(RUN, [step(0, 1000, 1200)], READ_AT);
 
     expect(timeline.outage).toBeUndefined();
   });
@@ -170,11 +182,11 @@ describe('what the rule cannot answer', () => {
       completedAt: undefined,
     };
 
-    const timeline = runTimeline(RUN, [
-      step(0, 1000, 1200),
-      untimed,
-      step(2, 4400, 4700),
-    ]);
+    const timeline = runTimeline(
+      RUN,
+      [step(0, 1000, 1200), untimed, step(2, 4400, 4700)],
+      READ_AT,
+    );
 
     expect(timeline.steps).toHaveLength(3);
     expect(timeline.steps[1]?.startedAt).toBeUndefined();
@@ -182,10 +194,68 @@ describe('what the rule cannot answer', () => {
   });
 
   it('draws nothing at all for a run with no steps', () => {
-    const timeline = runTimeline(RUN, []);
+    const timeline = runTimeline(RUN, [], READ_AT);
 
     expect(timeline.steps).toEqual([]);
     expect(timeline.outage).toBeUndefined();
     expect(timeline.to).toBeGreaterThan(timeline.from);
+  });
+
+  /**
+   * A sleeping run records the moment it means to
+   * wake as the sleep row's completion, and that
+   * moment is in the future. Drawn as the right
+   * edge it would push every bar that has actually
+   * happened into a sliver on the left, and say the
+   * run had been going for a day when it had been
+   * going a second.
+   */
+  it('does not stretch an unfinished run to a deadline in the future', () => {
+    const now = 6000;
+    const asleep: Step = {
+      ...step(4, 5000, 90_000),
+      name: 'DBOS.sleep',
+    };
+
+    const going = runTimeline(
+      { ...RUN, status: 'PENDING', completedAt: undefined },
+      [...CRASHED, asleep],
+      now,
+    );
+
+    expect(going.to).toBe(now);
+    expect(
+      endOf(
+        { ...RUN, status: 'PENDING', completedAt: undefined },
+        [...CRASHED, asleep],
+        now,
+      ),
+    ).toBe(now);
+  });
+
+  /**
+   * The wait a person is asked to answer is not an
+   * outage: nothing was down, the run was parked.
+   * The SDK writes a row spanning that wait, so the
+   * hole the rule looks for is already filled by it
+   * — which is why the hole is computed over every
+   * row and not only the ones a block owns.
+   */
+  it('leaves a long wait for a person out of the outage', () => {
+    const waited: Step[] = [
+      step(0, 1000, 1200),
+      { ...step(1, 1200, 1500), name: 'await_reply.register' },
+      { ...step(2, 1500, 80_000), name: 'DBOS.recv' },
+      { ...step(3, 80_000, 80_100), name: 'await_reply.clear' },
+      step(4, 84_000, 84_500),
+    ];
+
+    const timeline = runTimeline(
+      { ...RUN, completedAt: 84_500 },
+      waited,
+      100_000,
+    );
+
+    expect(timeline.outage).toEqual({ from: 80_100, to: 84_000 });
   });
 });

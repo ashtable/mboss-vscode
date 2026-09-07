@@ -2,6 +2,7 @@ import { l10n } from 'vscode';
 
 import type { HandlerMisfit, NodeKind } from '../core/rules.js';
 import { once } from '../once.js';
+import type { LiveOutcome } from '../runs/reading.js';
 
 /**
  * Every word the canvas and its Inspector column
@@ -20,8 +21,10 @@ import { once } from '../once.js';
  * every selection, change and run tick.
  *
  * Each entry holds a literal, because that is what
- * the extraction tooling reads and what
- * `l10n/bundle.l10n.json` is checked against.
+ * `src/bundle.ts` reads to write
+ * `l10n/bundle.l10n.json`. A call that wraps
+ * anything else stops the generator by name rather
+ * than going quietly untranslated.
  */
 
 /**
@@ -114,6 +117,21 @@ export const canvasWords = once(() => ({
   // is lowercase and why it is one word.
   unassigned: l10n.t('unassigned'),
 
+  // On the dot at the block a run is at. The dot
+  // says nothing on its own, and where it is drawn
+  // is worked out from the rows either side of it
+  // rather than read off a row of its own — which
+  // is the second half of the sentence.
+  runningDerived: l10n.t('RUNNING · derived'),
+
+  // Under the title of a block the run stopped on,
+  // in place of the code behind it. When it parked
+  // is the fact worth reading there, and it is an
+  // absolute moment rather than a count upwards:
+  // nothing is happening at that block, and a
+  // number climbing beside it would say otherwise.
+  waitingSince: l10n.t('WAITING · since {0}'),
+
   typedWiring: l10n.t('Typed wiring'),
 
   // The toolbar's own word for what the palette
@@ -124,6 +142,29 @@ export const canvasWords = once(() => ({
   // Follows the function's name, in the toolbar,
   // while a chip is on its way to a block.
   libFnDragging: l10n.t('dragging {0}…'),
+
+  // At the far end of the toolbar while this window
+  // is following a run of the workflow on screen:
+  // which workflow, which run, and where it has got
+  // to. The run carries no label of its own because
+  // the ids this window mints already open with the
+  // word, and the whole of one is on the chip
+  // itself for anybody who needs to read it.
+  following: l10n.t('{0} · {1} · {2}'),
+
+  // Where that run has got to, in the six answers a
+  // reading gives. `quiet` is not an ending — it is
+  // the watch letting go of a run that may yet move
+  // — and it has to read as something other than
+  // one.
+  runOutcomes: {
+    running: l10n.t('running'),
+    done: l10n.t('done'),
+    failed: l10n.t('failed'),
+    waiting: l10n.t('waiting'),
+    quiet: l10n.t('quiet'),
+    cancelled: l10n.t('cancelled'),
+  } satisfies Record<LiveOutcome, string>,
 
   // On the rail's own chip, while a block is on
   // its way onto the canvas. The chip is where a
@@ -194,7 +235,176 @@ export const canvasWords = once(() => ({
 export const inspectorWords = once(() => ({
   heading: l10n.t('Node inspector'),
   nothingSelected: l10n.t('Pick a block to set what it does.'),
+
+  // The column's two faces, named for the question
+  // each answers rather than for the panel it draws:
+  // one is what a block should do, the other what a
+  // run recorded about it doing that.
+  tabs: {
+    configure: l10n.t('Configure'),
+    evidence: l10n.t('Run evidence'),
+  },
+
+  // And what would give the second one something to
+  // show.
+  noRun: l10n.t('start or pick a run to see what it recorded'),
+
   kinds: paletteLabels(),
+
+  /* — what a run recorded about the block — */
+
+  // Said on anything the column worked out rather
+  // than read off a row, and on the one thing that
+  // is neither: a policy somebody set. A card about
+  // a run is worth nothing if a person cannot tell
+  // the three apart at a glance.
+  derived: l10n.t('derived'),
+  configured: l10n.t('configured'),
+
+  // Where the ledger got to with the block. The
+  // first three are states a row carries; the fourth
+  // is worked out from the rows either side of it,
+  // which is why it is the one that wears a chip.
+  runStates: {
+    done: l10n.t('done'),
+    failed: l10n.t('failed'),
+    waiting: l10n.t('waiting'),
+    running: l10n.t('running'),
+  } satisfies Record<string, string>,
+
+  started: l10n.t('started'),
+  completed: l10n.t('completed'),
+  duration: l10n.t('duration'),
+  notTimed: l10n.t('not timed'),
+
+  // Seconds with one decimal under a second's
+  // worth, and whole milliseconds over it — the
+  // same two forms the run page draws, because a
+  // duration read in two places should not be
+  // rounded two ways.
+  milliseconds: l10n.t('{0} ms'),
+  seconds: l10n.t('{0} s'),
+
+  // The numbers the block will actually run under,
+  // which are configuration and are chipped as
+  // such. A policy of one is spelled out rather
+  // than drawn as `max 1`, because "max 1" reads
+  // like a limit somebody hit.
+  policy: l10n.t('max {0} · interval {1} s · backoff {2}×'),
+  policyOff: l10n.t('off · runs once'),
+
+  // Why one row can cover more time than one run of
+  // the code. "Try" and never "attempt": a card
+  // that says attempt is read as a count of them,
+  // and DBOS records no such count for a step.
+  durationCoversTries: l10n.t(
+    'duration covers every try DBOS made · the ledger records one row',
+  ),
+
+  outputLabel: l10n.t('output · recorded result'),
+
+  // Said where the reading kept only the front of
+  // what the step returned, so that nobody reads a
+  // value that stops mid-object as the value.
+  outputCut: l10n.t('cut at {0} characters'),
+  openOutput: l10n.t('Open'),
+
+  // The one place the wrapper DBOS stores over a
+  // step that ran out of tries is named. The
+  // attempts it carries are not drawn: one entry
+  // per try is exactly the per-step history nothing
+  // here may claim.
+  exhausted: l10n.t(
+    'every configured try failed · DBOS recorded DBOSMaxStepRetriesError',
+  ),
+
+  // The way into the code a block runs, offered on
+  // a card the way it is offered on the other face.
+  // Spelled out rather than borrowing the picker's
+  // `open ƒ`: that one sits at the end of a line of
+  // code and this one stands in a row of buttons.
+  openHandler: l10n.t('Open function'),
+
+  // The second door out of a failure, drawn only
+  // where the stack named a file in the project's
+  // own `lib/`. Its own button rather than a
+  // cleverer Open ƒ: most failures name no such
+  // file, and a door that quietly opened the
+  // function instead would put somebody somewhere
+  // they did not ask to be.
+  openErrorLocation: l10n.t('Open error location'),
+
+  // Said under it, because the line is a fact about
+  // the image and not about the folder on screen.
+  // A container runs the code that was copied into
+  // it, so an edit since the build is a line the
+  // frame knows nothing about.
+  errorLocationFrom: l10n.t(
+    'line from the image that ran · edited since? rebuild to be sure',
+  ),
+
+  // A second run from this block, leaving the run
+  // on screen exactly where it is. "From here"
+  // rather than "again": what a replay picks is
+  // where to start, and everything before that is
+  // carried over rather than done twice.
+  replayFrom: l10n.t('Replay from here'),
+
+  // The run and the block go to the agent, and the
+  // answer comes back in the sidebar rather than in
+  // this column.
+  askAgent: l10n.t('Ask agent'),
+
+  rowsLabel: l10n.t('rows · as recorded'),
+  nothingRecorded: l10n.t('nothing recorded here yet'),
+
+  // A loop is generated as the control flow around
+  // its body, so nothing in the ledger belongs to
+  // it. How many times round the run went is read
+  // off the names its body wrote.
+  noOwnRow: l10n.t('no row of its own'),
+  roundsObserved: l10n.t('rounds observed · {0}'),
+
+  waitingSince: l10n.t('waiting since {0}'),
+
+  // A branch with no function behind it is compiled
+  // into the workflow body, so there is no step to
+  // record and nothing missing.
+  decidedInCode: l10n.t('decided in generated code · no durable operation'),
+
+  // On a row whose output came back from Postgres
+  // rather than from running the code again.
+  restored: l10n.t('restored'),
+
+  // On a row a replay carried over from the run it
+  // came from. The glyph is part of the word: it is
+  // the mark Replay wears, and what it says here is
+  // that the row is the earlier run's rather than
+  // work this one did.
+  recorded: l10n.t('↺ recorded'),
+
+  /* — the run itself — */
+
+  run: l10n.t('run'),
+  span: l10n.t('started {0} · finished {1}'),
+  spanRunning: l10n.t('started {0}'),
+
+  // What the run was started with, drawn here and
+  // nowhere else: the schema has no per-step input
+  // column, and a step card that showed one would
+  // be making it up.
+  workflowInput: l10n.t('workflow input'),
+
+  recovery: l10n.t('recovery'),
+  neverRecovered: l10n.t('never recovered'),
+  recoveredTimes: l10n.t('recovered {0}×'),
+  pickedBackUp: l10n.t('picked back up by DBOS'),
+  applicationVersion: l10n.t('application version'),
+
+  // The way out of the column: a card says what one
+  // run recorded about one block, and the whole run
+  // is a page.
+  openRun: l10n.t('Open run'),
   fields: inspectorFields(),
   options: inspectorOptions(),
 
@@ -209,6 +419,13 @@ export const inspectorWords = once(() => ({
   dropHere: l10n.t('drop a ƒ here'),
   end: l10n.t('end'),
   database: l10n.t('app postgres · prisma tx'),
+  openFunction: l10n.t('open ƒ'),
+
+  // What a transaction is told instead of the three
+  // retry fields every other code-running kind
+  // offers.
+  retryPolicy: l10n.t('retry policy'),
+  retry: l10n.t('runs once, inside its own commit'),
 
   /** The two kinds whose relationship with their
    *  code needs saying out loud. */
@@ -254,6 +471,10 @@ function inspectorFields(): Record<string, string> {
     logic: l10n.t('logic'),
     database: l10n.t('database'),
     service: l10n.t('service'),
+
+    retryMaxAttempts: l10n.t('attempts'),
+    retryIntervalSeconds: l10n.t('first retry after, in seconds'),
+    retryBackoffRate: l10n.t('backoff, times'),
 
     mode: l10n.t('run'),
     topic: l10n.t('topic'),

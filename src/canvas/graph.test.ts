@@ -10,9 +10,13 @@ import {
   type NodeBox,
   type NodeKind,
 } from '../core/rules.js';
-import type { LiveOutcome, LiveRun, StepState } from '../runs/watch.js';
+import type { LiveOutcome, StepState } from '../runs/reading.js';
+import type { LiveRun } from '../runs/watch.js';
+import { liveStep } from '../test-support/runs.js';
+import { fine } from '../webview/time.js';
 
 import {
+  runStateOf,
   toReactFlow,
   type CanvasNode,
   type Drawing,
@@ -62,7 +66,12 @@ const labels = Object.fromEntries(
  *  proposed and nothing selected unless a test
  *  says so. */
 function drawing(over: Partial<Drawing> = {}): Drawing {
-  return { labels, unassigned: 'unassigned', ...over };
+  return {
+    labels,
+    unassigned: 'unassigned',
+    runningDerived: 'RUNNING · derived',
+    ...over,
+  };
 }
 
 /**
@@ -82,9 +91,18 @@ function run(
     workflowId: 'wf_1',
     workflow: ir.name,
     status: outcome === 'running' ? 'PENDING' : 'SUCCESS',
-    steps: steps.map(([nodeId, state]) => ({ name: nodeId, nodeId, state })),
+    steps: steps.map(([nodeId, state], index) =>
+      liveStep({ name: nodeId, nodeId, state, functionId: index }),
+    ),
     recovered: false,
+    recoveryAttempts: 1,
     outcome,
+    applicationVersion: 'v0.1.0',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: undefined,
+    input: undefined,
+    forkedFrom: undefined,
   };
 }
 
@@ -402,6 +420,99 @@ describe('the state a run puts a block in', () => {
     });
   });
 
+  /**
+   * A branch that recorded a value went one way, and
+   * the ledger says which. Lighting both arms after
+   * that would tell somebody the run might be
+   * somewhere it demonstrably is not.
+   */
+  it('lights one arm of a decision the run has already made', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([
+          ['parse_request', 'done'],
+          ['find_slot', 'done'],
+        ]),
+        decided: new Map([['slot_open', 'yes']]),
+      }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      book_appointment: 'running',
+      twilio_chat: 'dormant',
+    });
+  });
+
+  /**
+   * A branch deciding on predicates in the generated
+   * code writes no row, so nothing knows which way
+   * it went and both arms stay lit.
+   */
+  it('lights both arms of a decision nothing recorded', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([
+          ['parse_request', 'done'],
+          ['find_slot', 'done'],
+        ]),
+      }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      book_appointment: 'running',
+      twilio_chat: 'running',
+    });
+  });
+
+  it('lights the arm a person approved', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([
+          ['parse_request', 'done'],
+          ['find_slot', 'done'],
+        ]),
+        decided: new Map([['slot_open', 'no']]),
+      }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      book_appointment: 'dormant',
+      twilio_chat: 'running',
+    });
+  });
+
+  /**
+   * The rule that keeps a round-one decision out of
+   * round two: nothing names the branch, so both
+   * arms light again. Which round a recorded value
+   * belongs to is settled before the drawing sees
+   * it.
+   */
+  it('lights both arms again on a round the run has not decided', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([
+          ['parse_request', 'done'],
+          ['find_slot', 'done'],
+        ]),
+        decided: new Map([['reply_decision', 'book_it']]),
+      }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      book_appointment: 'running',
+      twilio_chat: 'running',
+    });
+  });
+
   /** Written against a run that stopped in the
    *  middle, because a run that reached the end of
    *  the graph would have nothing ahead of it to get
@@ -480,6 +591,39 @@ describe('the state a run puts a block in', () => {
     );
 
     expect(statesOf(nodes)['parse_request']).toBe('selected');
+  });
+
+  /**
+   * And what the run says about that block is still
+   * asked for, by the column beside the graph: the
+   * halo is drawn instead of the run's colour, so
+   * the answer cannot be read back off the block —
+   * it is asked of the same function that painted
+   * the others.
+   */
+  describe('as the column beside it asks', () => {
+    it('is the state the graph paints the block in', () => {
+      const painted = run([
+        ['parse_request', 'done'],
+        ['find_slot', 'failed'],
+      ]);
+
+      expect(runStateOf(ir, painted, 'find_slot')).toBe('failed');
+      expect(runStateOf(ir, painted, 'parse_request')).toBe('done');
+    });
+
+    it('says a block the run may be at is running', () => {
+      expect(
+        runStateOf(ir, run([['parse_request', 'done']]), 'find_slot'),
+      ).toBe('running');
+    });
+
+    it('says nothing about a block no run has been near', () => {
+      expect(
+        runStateOf(ir, run(WHOLE_RUN, 'done'), 'booking_requested'),
+      ).toBeUndefined();
+      expect(runStateOf(ir, undefined, 'find_slot')).toBeUndefined();
+    });
   });
 });
 
@@ -580,5 +724,63 @@ describe('the line under a title', () => {
     expect(lineOf('booking_requested')).toBe('Trigger');
     expect(lineOf('await_reply')).toBe('Wait');
     expect(lineOf('send_confirmation')).toBe('Email');
+  });
+});
+
+/**
+ * The one thing that takes that line's place, and
+ * the only thing a run is allowed to put there.
+ *
+ * A block the run stopped on is the block somebody
+ * came to the canvas about, and when it stopped is
+ * the fact worth reading there — an absolute moment
+ * and never a counter, because nothing is happening
+ * at a parked block and a number climbing beside it
+ * would say the opposite.
+ */
+describe('the line under a block a run is parked at', () => {
+  const parked = run(
+    [
+      ['parse_request', 'done'],
+      ['twilio_chat', 'done'],
+      ['await_reply', 'waiting'],
+    ],
+    'waiting',
+  );
+
+  /** The moment the fixture's own waiting row
+   *  records, read back rather than written twice. */
+  const since = parked.steps.find(
+    (step) => step.state === 'waiting',
+  )?.completedAt;
+
+  const nodeAt = (id: string): CanvasNode | undefined =>
+    toReactFlow(
+      ir,
+      boxes,
+      drawing({ run: parked, waitingSince: 'WAITING · since {0}' }),
+    ).nodes.find((node) => node.id === id);
+
+  it('says when the run stopped there', () => {
+    expect(nodeAt('await_reply')?.data.line).toBe(
+      `WAITING · since ${fine(since ?? 0)}`,
+    );
+    expect(nodeAt('await_reply')?.data.waiting).toBe(true);
+  });
+
+  it('leaves every other block saying which code runs there', () => {
+    expect(nodeAt('parse_request')?.data.line).toBe('ƒ parseRequest');
+    expect(nodeAt('parse_request')?.data.waiting).toBeUndefined();
+  });
+
+  /** A reader with no word for it draws the block
+   *  it always drew, rather than a template with a
+   *  hole in it. */
+  it('says nothing about waiting where nobody sent the word', () => {
+    const { nodes } = toReactFlow(ir, boxes, drawing({ run: parked }));
+
+    expect(nodes.find((node) => node.id === 'await_reply')?.data.line).toBe(
+      'Wait',
+    );
   });
 });

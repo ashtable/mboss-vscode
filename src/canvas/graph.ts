@@ -9,7 +9,10 @@ import {
   type WorkflowIR,
   type WorkflowNode,
 } from '../core/rules.js';
-import type { LiveRun, LiveStep, StepState } from '../runs/watch.js';
+import type { StepState } from '../runs/reading.js';
+import type { LiveRun, LiveStep } from '../runs/watch.js';
+import { filled } from '../webview/fill.js';
+import { fine } from '../webview/time.js';
 
 /**
  * A workflow document, as the graph library wants
@@ -77,6 +80,25 @@ export type Drawing = {
    *  code nobody has named yet. */
   unassigned: string;
 
+  /** What the mark on the block a run is at says it
+   *  is. The mark itself is a dot, so the sentence
+   *  is the only thing a screen reader has, and it
+   *  is also where the mark admits it was worked
+   *  out rather than read off a row. */
+  runningDerived: string;
+
+  /**
+   * What the line under a parked block says, with
+   * `{0}` for the moment the run stopped there.
+   *
+   * Optional because not every reader of this
+   * drawing has the word: the run page says the
+   * same thing in a column of its own and would
+   * then be saying it twice. Without one, a parked
+   * block keeps the line every other block has.
+   */
+  waitingSince?: string;
+
   /** Blocks an agent is asking for, which the file
    *  does not have. */
   proposed?: readonly string[];
@@ -86,6 +108,19 @@ export type Drawing = {
   /** The run this canvas is about, while somebody is
    *  following one of this workflow. */
   run?: LiveRun;
+
+  /**
+   * Which way out each decided block took, where the
+   * ledger says.
+   *
+   * Optional because a canvas with no run has no
+   * decisions, and making every caller pass an empty
+   * map would be noise. Only ever names the round
+   * the run is on — which round a recorded value
+   * belongs to is settled before the drawing sees
+   * it.
+   */
+  decided?: ReadonlyMap<string, string>;
 };
 
 /** What a node component is handed. */
@@ -97,7 +132,18 @@ export type CanvasNodeData = {
    *  reader's language. */
   line: string;
 
+  /** Whether that line is when the run parked here
+   *  rather than the code behind the block. Absent
+   *  everywhere else, so a block drawn `waiting` by
+   *  a reader with no word for it does not claim to
+   *  be saying one. */
+  waiting?: boolean;
+
   state: NodeState;
+
+  /** What the run mark says, where there is a run
+   *  and it is at this block. */
+  runTitle?: string;
 
   [key: string]: unknown;
 };
@@ -143,47 +189,6 @@ export const TARGET_PORT = 'in';
 export const SOURCE_PORT = 'out';
 
 /**
- * The identity of one picture: this document, laid
- * out here.
- *
- * The canvas holds its own nodes once a person can
- * drag one, so it has to tell a message that is a
- * different picture from one that is the same
- * picture with something else true about it — a
- * different block selected, a manifest that finished
- * scanning. Those leave this key alone and are
- * patched in; anything that changes what is drawn
- * changes it, and the canvas takes the host's nodes
- * back.
- *
- * The revision leads because that is the number a
- * person can check by eye, but it cannot carry this
- * alone: a proposal is drawn at the revision of the
- * file it is a proposal about.
- */
-export function layoutKeyOf(
-  ir: WorkflowIR,
-  boxes: Record<string, NodeBox>,
-): string {
-  return `${ir.revision}:${hashOf(
-    JSON.stringify([ir.nodes, ir.edges, boxes]),
-  )}`;
-}
-
-/** A short, stable stand-in for a string, so a key
- *  stays a key rather than a copy of the document. */
-function hashOf(text: string): string {
-  let hash = 0x811c9dc5;
-
-  for (let at = 0; at < text.length; at += 1) {
-    hash ^= text.charCodeAt(at);
-    hash = Math.imul(hash, 0x01000193);
-  }
-
-  return (hash >>> 0).toString(36);
-}
-
-/**
  * Turns a document plus its computed boxes into
  * the nodes and edges the canvas renders.
  *
@@ -201,7 +206,8 @@ export function toReactFlow(
 ): { nodes: CanvasNode[]; edges: CanvasEdge[] } {
   const arriving = new Set(drawing.proposed ?? []);
   const ports = new Map(ir.nodes.map((node) => [node.id, portsOf(node)]));
-  const run = tonesOf(ir, drawing.run);
+  const run = tonesOf(ir, drawing.run, drawing.decided ?? new Map());
+  const parked = parkedAt(drawing.run);
 
   // Built once and handed to every wire, rather
   // than each of them keeping its own copy of the
@@ -214,7 +220,8 @@ export function toReactFlow(
         node,
         boxes[node.id],
         stateOf(node.id, arriving, drawing.selected, run.nodes),
-        lineOf(node, drawing),
+        lineFor(node, drawing, parked.get(node.id)),
+        drawing.runningDerived,
       ),
     ),
     edges: ir.edges.map((edge) => ({
@@ -244,7 +251,8 @@ function toCanvasNode(
   node: WorkflowNode,
   box: NodeBox | undefined,
   state: NodeState,
-  line: string,
+  line: BlockLine,
+  runningDerived: string,
 ): CanvasNode {
   if (box === undefined) {
     throw new Error(`the layout has no box for \`${node.id}\``);
@@ -262,8 +270,90 @@ function toCanvasNode(
     // because selection is its keyboard handling
     // and its z-order too, not only a colour.
     selected: state === 'selected',
-    data: { node, line, state },
+    data: {
+      node,
+      line: line.text,
+      state,
+      ...(line.waiting ? { waiting: true } : {}),
+      ...(state === 'running' ? { runTitle: runningDerived } : {}),
+    },
   };
+}
+
+/** The line under a title, and which of the two
+ *  kinds of line it is. */
+type BlockLine = { text: string; waiting: boolean };
+
+/**
+ * The line a block shows, which is the code behind
+ * it until a run is parked there.
+ *
+ * A block the run stopped on is the one somebody
+ * came to the canvas about, and when it stopped is
+ * what is worth reading there. Written here rather
+ * than inside `lineOf`, because that function
+ * answers a question about the document alone and a
+ * run is not part of the document.
+ */
+function lineFor(
+  node: WorkflowNode,
+  drawing: Drawing,
+  since: number | undefined,
+): BlockLine {
+  const word = drawing.waitingSince;
+
+  if (since === undefined || word === undefined) {
+    return { text: lineOf(node, drawing), waiting: false };
+  }
+
+  return { text: filled(word, fine(since)), waiting: true };
+}
+
+/**
+ * When each parked block parked.
+ *
+ * The row carrying `waiting` is the registration
+ * the run wrote as it stopped, so its completion is
+ * the moment. A block that parked more than once
+ * has a row for each, and the latest is where the
+ * run is sitting now.
+ */
+function parkedAt(run: LiveRun | undefined): ReadonlyMap<string, number> {
+  const since = new Map<string, number>();
+  if (run === undefined) return since;
+
+  for (const step of run.steps) {
+    if (step.state !== 'waiting' || step.nodeId === undefined) continue;
+
+    const at = step.completedAt ?? step.startedAt;
+    if (at !== undefined) since.set(step.nodeId, at);
+  }
+
+  return since;
+}
+
+/**
+ * What the run says about one block, as the graph
+ * says it.
+ *
+ * The column beside the graph draws a card about
+ * whichever block somebody selected, and the state
+ * on that card has to be the state the block is
+ * drawn in — a block a run may be at reads
+ * `running` on the canvas and must not read
+ * "nothing recorded" a hand's width away. Selection
+ * is what the graph paints instead of the run's
+ * colour, so the answer cannot be read back off the
+ * drawn block; it is asked here, of the function
+ * that painted every other one.
+ */
+export function runStateOf(
+  ir: WorkflowIR,
+  run: LiveRun | undefined,
+  nodeId: string,
+  decided: ReadonlyMap<string, string> = new Map(),
+): RunState | undefined {
+  return tonesOf(ir, run, decided).nodes.get(nodeId);
 }
 
 /**
@@ -318,7 +408,11 @@ const EDGE_FOR: Record<RunState, EdgeState> = {
  *  recorded. */
 const LOUDNESS: readonly StepState[] = ['done', 'waiting', 'failed'];
 
-function tonesOf(ir: WorkflowIR, run: LiveRun | undefined): RunTones {
+function tonesOf(
+  ir: WorkflowIR,
+  run: LiveRun | undefined,
+  decided: ReadonlyMap<string, string>,
+): RunTones {
   if (run === undefined) return { nodes: new Map(), edges: new Map() };
 
   const recorded = recordedStates(run.steps);
@@ -331,7 +425,7 @@ function tonesOf(ir: WorkflowIR, run: LiveRun | undefined): RunTones {
   // is being told about any more.
   const ahead =
     run.outcome === 'running'
-      ? frontierFrom(ir, run.steps.at(-1)?.nodeId, recorded)
+      ? frontierFrom(ir, run.steps.at(-1)?.nodeId, recorded, decided)
       : { nodes: new Set<string>(), edges: new Set<string>() };
 
   for (const id of ahead.nodes) nodes.set(id, 'running');
@@ -374,13 +468,20 @@ function recordedStates(
   const states = new Map<string, StepState>();
 
   for (const step of steps) {
-    const held = states.get(step.nodeId);
+    // A row naming no block of this drawing paints
+    // nothing: an unreadable name, or a block
+    // somebody deleted between the run and the
+    // reading.
+    const nodeId = step.nodeId;
+    if (nodeId === undefined) continue;
+
+    const held = states.get(nodeId);
 
     if (
       held === undefined ||
       LOUDNESS.indexOf(step.state) > LOUDNESS.indexOf(held)
     ) {
-      states.set(step.nodeId, step.state);
+      states.set(nodeId, step.state);
     }
   }
 
@@ -407,6 +508,7 @@ function frontierFrom(
   ir: WorkflowIR,
   from: string | undefined,
   recorded: ReadonlyMap<string, StepState>,
+  decided: ReadonlyMap<string, string>,
 ): { nodes: ReadonlySet<string>; edges: ReadonlySet<string> } {
   const nodes = new Set<string>();
   const edges = new Set<string>();
@@ -420,8 +522,15 @@ function frontierFrom(
     if (walked.has(at)) return;
     walked.add(at);
 
+    // Which way out this block is known to have
+    // taken, where the ledger recorded one. Every
+    // other way out is somewhere the run
+    // demonstrably did not go.
+    const arm = decided.get(at);
+
     for (const edge of ir.edges) {
       if (edge.from.node !== at) continue;
+      if (arm !== undefined && edge.from.port !== arm) continue;
 
       // A block the ledger already holds is behind
       // the run rather than ahead of it.
@@ -449,7 +558,10 @@ function frontierFrom(
  * trigger, and saying otherwise would send a
  * person looking for code to write.
  */
-export function lineOf(node: WorkflowNode, drawing: Drawing): string {
+export function lineOf(
+  node: WorkflowNode,
+  drawing: Pick<Drawing, 'labels' | 'unassigned'>,
+): string {
   if (node.handler !== undefined) return `ƒ ${node.handler.export}`;
 
   const label = drawing.labels[node.kind];

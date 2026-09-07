@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { fakeAgent, type FakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { fakeWebview, type FakeWebview } from '../../test/doubles/webview.js';
-import type { ToolEntry } from '../acp/transcript.js';
 import {
   WorkflowIRSchema,
   starterNode,
@@ -17,7 +17,9 @@ import { previewStore, type PreviewStore } from '../preview/store.js';
 import { makeProject, writeWorkflow } from '../test-support/project.js';
 import { fileExists } from '../test-support/repo.js';
 import { propose, specOf } from '../test-support/proposals.js';
+import { OUTPUT_KEPT } from '../runs/rows.js';
 import type { LiveRun } from '../runs/watch.js';
+import { liveStep } from '../test-support/runs.js';
 import type { Trust } from '../trust.js';
 import type { PickChoice, VsCodeApi } from '../vscodeApi.js';
 import type { CanvasInit } from '../webview/protocol.js';
@@ -71,9 +73,17 @@ type Recorded = {
   written: Written[];
   told: string[];
 
-  /** What the canvas wrote into the agent's
-   *  transcript. */
-  noted: ToolEntry[];
+  /** Every text put in front of somebody in a tab
+   *  of its own. */
+  shown: { content: string; language: string }[];
+
+  /** Every file opened, and where the caret was put
+   *  in it. */
+  opened: { path: string; at?: { line: number; column?: number } }[];
+
+  /** The agent the canvas speaks to, and what it
+   *  was told. */
+  agent: FakeAgent;
 
   /** Every list somebody was asked to choose
    *  from. */
@@ -89,7 +99,9 @@ type Recorded = {
 function recorder(): Recorded {
   const written: Written[] = [];
   const told: string[] = [];
-  const noted: ToolEntry[] = [];
+  const shown: { content: string; language: string }[] = [];
+  const opened: Recorded['opened'] = [];
+  const agent = fakeAgent();
   const asked: { title: string; choices: PickChoice[] }[] = [];
   const watchers: ((document: never) => void)[] = [];
   const answer: { id: string | undefined } = { id: undefined };
@@ -97,7 +109,9 @@ function recorder(): Recorded {
   return {
     written,
     told,
-    noted,
+    shown,
+    opened,
+    agent,
     asked,
     answers: (id) => {
       answer.id = id;
@@ -108,6 +122,12 @@ function recorder(): Recorded {
     api: {
       info: (message) => told.push(message),
       run: () => Promise.resolve(),
+      showText: async (content, language) => {
+        shown.push({ content, language });
+      },
+      openFile: async (path, at) => {
+        opened.push({ path, at });
+      },
       pick: (title, choices) => {
         asked.push({ title, choices });
 
@@ -180,24 +200,64 @@ function previewsIn(folders: string[]): PreviewStore {
     {
       folders: () => folders,
       regenerate: async () => [],
-      notify: async () => {},
-      note: () => {},
       say: (message) => recorded.told.push(message),
     },
     fakeTrust(),
+    fakeAgent(),
   );
 }
 
 /** The runs store, as the canvas reads one, with a
  *  way to say a watcher heard something. */
-type FakeRuns = CanvasRuns & { heard(run: LiveRun | undefined): void };
+type FakeRuns = CanvasRuns & {
+  heard(run: LiveRun | undefined): void;
 
-function runsSaying(): FakeRuns {
+  /** Every run the canvas asked to have put on
+   *  screen. */
+  readonly opened: string[];
+
+  /** Every replay it asked to be offered, as
+   *  `<run> <block>`. */
+  readonly offered: string[];
+
+  /** Every document the canvas asked for the
+   *  decided arms of. */
+  readonly asked: WorkflowIR[];
+
+  /** Every run it handed to the agent, as
+   *  `<run> <block>`. */
+  readonly handed: string[];
+};
+
+function runsSaying(
+  arms: Record<string, string> = {},
+  outputs: Record<number, string> = {},
+): FakeRuns {
   const listeners: (() => void)[] = [];
+  const opened: string[] = [];
+  const offered: string[] = [];
+  const asked: WorkflowIR[] = [];
+  const handed: string[] = [];
   let live: LiveRun | undefined;
 
   return {
     live: () => live,
+    decided: (ir) => {
+      asked.push(ir);
+
+      return new Map(Object.entries(arms));
+    },
+    output: (workflowId, functionId) =>
+      workflowId === live?.workflowId ? outputs[functionId] : undefined,
+    openRun: async (workflowId) => {
+      opened.push(workflowId);
+    },
+    replayFrom: async (workflowId, nodeId) => {
+      offered.push(`${workflowId} ${nodeId}`);
+    },
+    askAgent: async (ask) => {
+      handed.push(`${ask.workflowId} ${ask.nodeId ?? ''}`.trim());
+    },
     onChanged: (listener) => {
       listeners.push(listener);
 
@@ -207,6 +267,10 @@ function runsSaying(): FakeRuns {
       live = run;
       for (const listener of listeners) listener();
     },
+    opened,
+    offered,
+    asked,
+    handed,
   };
 }
 
@@ -232,14 +296,21 @@ function codeSaying(): FakeCode {
 /** One run of a workflow, as far as a canvas reads
  *  one: whose it is, and which blocks it has been
  *  through. */
-function runOf(workflow: string): LiveRun {
+function runOf(workflow: string, workflowId = 'wf_1'): LiveRun {
   return {
-    workflowId: 'wf_1',
+    workflowId,
     workflow,
     status: 'PENDING',
-    steps: [{ name: 'parse_request', nodeId: 'parse_request', state: 'done' }],
+    steps: [liveStep()],
     recovered: false,
+    recoveryAttempts: 1,
     outcome: 'running',
+    applicationVersion: 'v0.1.0',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: undefined,
+    input: undefined,
+    forkedFrom: undefined,
   };
 }
 
@@ -264,7 +335,7 @@ async function open(
     runs,
     trusted,
     coded,
-    (entry) => recorded.noted.push(entry),
+    recorded.agent,
   );
 
   await editor.resolveCustomTextEditor(document, panel.panel);
@@ -681,7 +752,7 @@ describe('selecting a node', () => {
       runsSaying(),
       fakeTrust(true),
       codeSaying(),
-      () => {},
+      fakeAgent(),
     ).resolveCustomTextEditor(
       fakeDocument(text, '/project/.mboss/workflows/other.workflow.json'),
       other.panel,
@@ -704,6 +775,33 @@ describe('an edit from the Inspector column', () => {
       view: 'canvas',
       baseRevision: ir.revision,
       node: { id: 'find_slot', kind: 'step', title: 'x', config: null },
+    });
+    await settled();
+
+    expect(recorded.written).toHaveLength(0);
+    expect(recorded.told).toEqual([messages.inspectorEditRefused()]);
+  });
+
+  /**
+   * The retry fields are three numbers a person
+   * types, and the catalog bounds all three. The
+   * column does not check them — it has no schema
+   * and no way to say so — so a value out of range
+   * is refused here, the same way every other shape
+   * the column cannot complete is.
+   */
+  it('refuses a retry the schema will not take', async () => {
+    panel.send({
+      type: 'edit',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      node: {
+        id: 'find_slot',
+        kind: 'step',
+        title: 'Find open slot',
+        config: {},
+        retry: { maxAttempts: 0 },
+      },
     });
     await settled();
 
@@ -796,7 +894,7 @@ describe('assigning a function to a block', () => {
     assign('slot_open', 'tryAgain');
     await settled();
 
-    expect(recorded.noted).toEqual([
+    expect(recorded.agent.noted()).toEqual([
       expect.objectContaining({
         at: 'tool',
         by: 'person',
@@ -813,7 +911,192 @@ describe('assigning a function to a block', () => {
     assign('slot_open', 'parseRequest');
     await settled();
 
-    expect(recorded.noted).toEqual([]);
+    expect(recorded.agent.noted()).toEqual([]);
+  });
+});
+
+/**
+ * The way from a block on the canvas to the code it
+ * runs.
+ *
+ * A read and not an edit, so it goes nowhere near
+ * the revision gate: the document is not changed by
+ * looking at the function behind it, and refusing
+ * this because a panel was drawn a moment ago would
+ * be refusing to open a file.
+ *
+ * Where the function is comes out of a real scan of
+ * the copied code-behind, which is what makes the
+ * line worth asserting at all.
+ */
+describe('the way to the code a block runs', () => {
+  let scanned: string;
+
+  /** The canvas over a project whose code-behind
+   *  has been read. */
+  async function openScanned(): Promise<void> {
+    scanned = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(scanned, 'groom_booking');
+
+    await open(fakeDocument(readFileSync(path, 'utf8'), path));
+    await until(() => lastCanvasInit().manifest !== undefined);
+  }
+
+  it("opens a block's function through the editor's own bag", async () => {
+    await openScanned();
+
+    panel.send({ type: 'openFunction', view: 'canvas', nodeId: 'find_slot' });
+    await settled();
+
+    expect(recorded.opened).toEqual([
+      { path: `${scanned}/lib/findSlot.ts`, at: { line: 6 } },
+    ]);
+  });
+
+  /** A block nobody has put a function behind has no
+   *  code to open, and saying so would be
+   *  complaining about a workflow part way through
+   *  being drawn. */
+  it('opens nothing for a block that runs no function', async () => {
+    await openScanned();
+    const before = recorded.told.length;
+
+    panel.send({
+      type: 'openFunction',
+      view: 'canvas',
+      nodeId: 'send_confirmation',
+    });
+    await settled();
+
+    expect(recorded.opened).toEqual([]);
+    expect(recorded.told.slice(before)).toEqual([]);
+  });
+});
+
+/**
+ * The way from a recorded failure to the line it
+ * came from.
+ *
+ * A second door beside the one above rather than a
+ * cleverer version of it. The frame was captured
+ * inside the image that ran, against the copy of
+ * the code it was built from, so what it names is a
+ * claim about a project — and this workspace may
+ * have moved the file, renamed it, or never have
+ * been the project the image was built from at all.
+ */
+describe('the way to the line a failure came from', () => {
+  /** A run whose one step failed on a line of the
+   *  project's own code. */
+  function failedAt(file: string): LiveRun {
+    return {
+      ...runOf('groom_booking'),
+      steps: [
+        liveStep({
+          name: 'find_slot',
+          nodeId: 'find_slot',
+          state: 'failed',
+          functionId: 3,
+          error: {
+            name: 'SlotTaken',
+            message: 'no slot left',
+            retriesExhausted: false,
+            frame: { file, line: 6, column: 9 },
+          },
+        }),
+      ],
+    };
+  }
+
+  it('opens the file the failure came from', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+    const runs = runsSaying();
+
+    await open(
+      fakeDocument(readFileSync(path, 'utf8'), path),
+      previewsIn([]),
+      fakeTrust(true),
+      runs,
+    );
+
+    runs.heard(failedAt('lib/findSlot.ts'));
+    await settled();
+
+    panel.send({
+      type: 'openErrorLocation',
+      view: 'canvas',
+      nodeId: 'find_slot',
+      functionId: 3,
+    });
+    await settled();
+
+    expect(recorded.opened).toEqual([
+      { path: `${project}/lib/findSlot.ts`, at: { line: 6, column: 9 } },
+    ]);
+  });
+
+  it('says the file the failure named is gone', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+    const runs = runsSaying();
+
+    await open(
+      fakeDocument(readFileSync(path, 'utf8'), path),
+      previewsIn([]),
+      fakeTrust(true),
+      runs,
+    );
+
+    runs.heard(failedAt('lib/rescheduleSlot.ts'));
+    await settled();
+
+    const before = recorded.told.length;
+
+    panel.send({
+      type: 'openErrorLocation',
+      view: 'canvas',
+      nodeId: 'find_slot',
+      functionId: 3,
+    });
+    await settled();
+
+    expect(recorded.opened).toEqual([]);
+    expect(recorded.told.slice(before)).toEqual([
+      messages.errorLocationGone('lib/rescheduleSlot.ts'),
+    ]);
+  });
+
+  /** A panel that has moved on asks about a row this
+   *  canvas is not holding, and gets nothing rather
+   *  than the wrong file. */
+  it('opens nothing for a row it is not holding', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+    const runs = runsSaying();
+
+    await open(
+      fakeDocument(readFileSync(path, 'utf8'), path),
+      previewsIn([]),
+      fakeTrust(true),
+      runs,
+    );
+
+    runs.heard(failedAt('lib/findSlot.ts'));
+    await settled();
+
+    const before = recorded.told.length;
+
+    panel.send({
+      type: 'openErrorLocation',
+      view: 'canvas',
+      nodeId: 'find_slot',
+      functionId: 99,
+    });
+    await settled();
+
+    expect(recorded.opened).toEqual([]);
+    expect(recorded.told.slice(before)).toEqual([]);
   });
 });
 
@@ -1239,6 +1522,198 @@ describe('a run of the workflow on screen', () => {
     await settled();
 
     expect(lastCanvasInit().run).toBeUndefined();
+  });
+
+  /**
+   * Which way out each decided block took is worked
+   * out against the document this panel is drawing
+   * rather than against whatever the watch had. The
+   * store holds the rows and the canvas holds the
+   * picture, so the picture is what goes over.
+   */
+  it('fills the decided arms from the followed run', async () => {
+    const runs = runsSaying({ slot_open: 'no' });
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    expect(lastCanvasInit().decided).toEqual({ slot_open: 'no' });
+    expect(runs.asked.map((ir) => ir.name)).toEqual(['groom_booking']);
+  });
+
+  it('decides nothing for a canvas the followed run is not of', async () => {
+    const runs = runsSaying({ slot_open: 'no' });
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('invoice_dunning'));
+    await settled();
+
+    expect(lastCanvasInit().decided).toEqual({});
+
+    // And the store is not asked at all: a canvas
+    // with no run of its own has no arms to draw,
+    // and asking would read rows about somebody
+    // else's workflow.
+    expect(runs.asked).toEqual([]);
+  });
+});
+
+/**
+ * Which of the Inspector's two faces is on screen.
+ *
+ * The column configures a block and it reads what a
+ * run recorded about one, and those are two
+ * different questions about the same block. Which
+ * one is being asked is held here rather than in
+ * the panel, for the reason the selection is: a
+ * hidden panel is torn down and mounted again with
+ * no memory of what was on screen.
+ */
+describe('the face the Inspector is showing', () => {
+  it('shows Configure when no run is in focus', () => {
+    expect(lastCanvasInit().inspector.mode).toBe('configure');
+  });
+
+  it('shows Run Evidence once when a run comes into focus', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    expect(lastCanvasInit().inspector.mode).toBe('evidence');
+  });
+
+  /**
+   * And keeps showing it while the run moves. The
+   * store hands out a fresh reading whenever the
+   * ledger says something new, so a face that reset
+   * on every reading would be a face nobody could
+   * hold on to.
+   */
+  it('keeps the face a person picked', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    panel.send({ type: 'inspectorMode', view: 'canvas', mode: 'configure' });
+    await settled();
+
+    expect(lastCanvasInit().inspector.mode).toBe('configure');
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    expect(lastCanvasInit().inspector.mode).toBe('configure');
+  });
+
+  it('goes back to Run Evidence when a different run comes into focus', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+    panel.send({ type: 'inspectorMode', view: 'canvas', mode: 'configure' });
+    await settled();
+
+    runs.heard(runOf('groom_booking', 'wf_2'));
+    await settled();
+
+    expect(lastCanvasInit().inspector.mode).toBe('evidence');
+  });
+
+  it('goes back to Configure when the run goes away', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+    runs.heard(undefined);
+    await settled();
+
+    expect(lastCanvasInit().inspector.mode).toBe('configure');
+  });
+});
+
+/**
+ * The two doors a card about a run opens.
+ *
+ * Neither writes anything: one puts a recorded value
+ * somewhere it can be read, the other puts the run
+ * itself on screen. Both are answered from what this
+ * canvas is already holding, so a panel naming a run
+ * it is not drawing is a panel that gets nothing.
+ */
+describe('a card about the run on screen', () => {
+  /**
+   * The whole value, and not the copy the card was
+   * drawn from. What crosses to a panel is cut at
+   * 2000 characters and the card says so out loud;
+   * an Open that re-served the cut would be the one
+   * way a flight recorder lies.
+   */
+  it('opens the whole stored value in an editor of its own', async () => {
+    const whole = `{"note":"${'x'.repeat(OUTPUT_KEPT)}"}`;
+    const runs = runsSaying({}, { 0: whole });
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard({
+      ...runOf('groom_booking'),
+      steps: [
+        liveStep({ output: whole.slice(0, OUTPUT_KEPT), outputCut: true }),
+      ],
+    });
+    await settled();
+
+    panel.send({
+      type: 'openOutput',
+      view: 'canvas',
+      workflowId: 'wf_1',
+      functionId: 0,
+    });
+    await settled();
+
+    expect(recorded.shown).toEqual([{ content: whole, language: 'json' }]);
+  });
+
+  it('opens nothing for a row it is not holding', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    panel.send({
+      type: 'openOutput',
+      view: 'canvas',
+      workflowId: 'wf_1',
+      functionId: 99,
+    });
+    panel.send({
+      type: 'openOutput',
+      view: 'canvas',
+      workflowId: 'wf_somebody_else',
+      functionId: 0,
+    });
+    await settled();
+
+    expect(recorded.shown).toEqual([]);
+  });
+
+  it('opens the run a card points at', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    panel.send({ type: 'openRun', view: 'canvas', workflowId: 'wf_1' });
+    await settled();
+
+    expect(runs.opened).toEqual(['wf_1']);
   });
 });
 

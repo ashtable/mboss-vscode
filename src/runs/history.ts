@@ -5,38 +5,44 @@ import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
 import type { RunsInit } from '../webview/protocol.js';
 
-import type { Database, OpenDatabase, OpenFork } from './db.js';
+import type { Database, OpenDatabase, OpenManagement } from './db.js';
 import { describeDatabase, systemDatabaseUrl } from './env.js';
 import { detailOf } from './failure.js';
+import {
+  FINISHED,
+  cancelRun,
+  resumeRun,
+  type Cancel,
+  type ManagementClient,
+  type Resume,
+} from './manage.js';
 import {
   MAX_RUNS,
   countsQuery,
   runQuery,
   runsQuery,
-  stepsQuery,
   type RunFilter,
 } from './queries.js';
-import { replayFrom, type ForkClient, type Replay } from './replay.js';
 import {
   toCounts,
   toRun,
-  toStep,
   type CountsRow,
-  type OperationOutputRow,
   type Run,
   type RunCounts,
-  type Step,
   type WorkflowStatusRow,
 } from './rows.js';
-import { rowOf, type SeeView } from './view.js';
+import { EXTENSION_SDK, sdkSkew, type ProjectSdk } from './sdk.js';
+import { rowOf } from './view.js';
 
 /**
  * A project's run history, as the window holds it.
  *
- * What the ledger says: the rows the list draws and
- * the three counts above them, the run somebody has
- * picked with its steps, and the note the last
- * replay left. Nothing is read on a schedule. A
+ * What the ledger says about the project: the rows
+ * the list draws and the three counts above them.
+ * The run somebody has open is a second question,
+ * asked of the same ledger by `openRun.ts`, which
+ * borrows the connection from here. Nothing is read
+ * on a schedule. A
  * database is somebody else's, and an editor
  * polling one all afternoon to notice a run that
  * finished is a cost the person did not ask for —
@@ -53,6 +59,14 @@ import { rowOf, type SeeView } from './view.js';
  * connection string is a reason not to arm one,
  * never a reason to replace the list somebody is
  * looking at with a sentence about it.
+ *
+ * The two controls a person has over a run live here
+ * too, and by id. Running Now names the run this
+ * window is watching and a session row names one it
+ * started, and neither of those is necessarily the
+ * run the run page has open — so the zone that owns
+ * the list, and the by-id read every caller already
+ * goes through, is where they belong.
  */
 
 /** The slice of the editor the history needs. */
@@ -65,35 +79,91 @@ export type HistoryDeps = {
   host: HistoryHost;
   trust: Trust;
   open: OpenDatabase;
-  openFork: OpenFork;
+
+  /** The one door the two controls write through.
+   *  Opened per control and closed by the adapter
+   *  that used it. */
+  openManagement: OpenManagement;
+
+  /** Which DBOS the project runs, so a client newer
+   *  than it never gets to ask for a member the
+   *  project never wrote. */
+  projectSdk: (project: string) => ProjectSdk;
 };
+
+/**
+ * What a control did, for whoever has to act on it
+ * afterwards.
+ *
+ * The run is the row as it read *after* the call, so
+ * that whoever follows it follows what the ledger
+ * says rather than what was asked for. `nothing`
+ * covers every way the request did not go out — no
+ * project, no trust, an SDK the client is ahead of,
+ * a run nobody has, a database that refused — each
+ * of which has already said whatever there was to
+ * say.
+ */
+export type Controlled = { at: 'asked'; run: Run } | { at: 'nothing' };
 
 /** What the list draws of the history. */
 export type HistoryZone = Pick<
   RunsInit,
-  'state' | 'detail' | 'source' | 'filter' | 'counts' | 'rows' | 'selected'
+  'state' | 'detail' | 'source' | 'filter' | 'counts' | 'rows'
 >;
 
 export type History = Disposable & {
   /** The connection string, quietly: nothing said
-   *  and nothing changed when there is none. */
+   *  and nothing changed when there is none. This is
+   *  what whoever arms a watch takes. */
   ledger(): string | undefined;
+
+  /**
+   * The connection string, and this zone told what
+   * it learned about the database while answering.
+   *
+   * Lent to the run page, which reads the same
+   * ledger: whether somebody's database can be
+   * reached is a fact about the project rather than
+   * about the run being read, and this is the zone
+   * that says it.
+   */
+  connection(): string | undefined;
+
+  /** Opens, reads, and closes again — noting whether
+   *  the database answered. Lent for the same
+   *  reason. */
+  read<Value>(
+    url: string,
+    take: (db: Database) => Promise<Value>,
+  ): Promise<Value | undefined>;
+
+  /** One run of this project's ledger, by the id on
+   *  its row. */
+  runOf(workflowId: string): Promise<Run | undefined>;
+
+  /** Stops a run, and says what the row said
+   *  afterwards. */
+  cancel(workflowId: string): Promise<Controlled>;
+
+  /** Picks a stopped one back up, and says the
+   *  same. */
+  resume(workflowId: string): Promise<Controlled>;
+
+  /**
+   * The runs this window is what cancelled.
+   *
+   * The only evidence there is for "by you": no
+   * column records who cancelled a run. Window
+   * memory, nothing written down, gone when the
+   * window closes.
+   */
+  cancelledHere(): ReadonlySet<string>;
 
   /** The list, read again. */
   refresh(): Promise<void>;
 
   setFilter(filter: RunFilter): Promise<void>;
-
-  select(workflowId: string): Promise<void>;
-
-  /** Which step the rail describes and a replay
-   *  would fork from. */
-  selectStep(functionId: number): void;
-
-  replay(functionId: number): Promise<void>;
-
-  /** The run somebody picked, with its steps. */
-  detail(): SeeView | undefined;
 
   render(): HistoryZone;
 
@@ -111,8 +181,11 @@ export function runHistory(deps: HistoryDeps): History {
   let database: string | undefined;
   let runs: Run[] = [];
   let counts: RunCounts = EMPTY;
-  let selected: SeeView | undefined;
-  let note: string | undefined;
+
+  /** The ids this window asked to cancel and then
+   *  read back as cancelled. Nothing is persisted;
+   *  this goes with the window. */
+  const cancelledHere = new Set<string>();
 
   const changed = changes.fire;
 
@@ -219,98 +292,209 @@ export function runHistory(deps: HistoryDeps): History {
     changed();
   };
 
+  const runOf = async (workflowId: string): Promise<Run | undefined> => {
+    const url = connection();
+    if (url === undefined) return undefined;
+
+    return await read(url, async (db) => {
+      const one = runQuery(workflowId);
+      const row = (await db.query<WorkflowStatusRow>(one.text, one.values))[0];
+
+      return row === undefined ? undefined : toRun(row);
+    });
+  };
+
+  /**
+   * Everything a control has to be true before the
+   * request goes out: a project, trust, an SDK the
+   * client this extension ships is not ahead of, a
+   * reachable ledger, and a run in it.
+   *
+   * Asked once for both verbs, because both write
+   * into somebody else's database through the same
+   * client and each of these is a reason not to.
+   */
+  const controllable = async (
+    workflowId: string,
+  ): Promise<{ url: string; run: Run } | undefined> => {
+    const dir = project();
+    if (dir === undefined || !deps.trust.isTrusted()) return undefined;
+
+    const sdk = deps.projectSdk(dir);
+
+    // A project with no lockfile is not refused here
+    // the way a replay is. Both controls are one
+    // `UPDATE` of columns `workflow_status` has
+    // always had, where a fork copies rows between
+    // tables and depends on which migrations the
+    // project ran.
+    if (sdk.ok) {
+      const skew = sdkSkew(EXTENSION_SDK, sdk.version);
+
+      if (skew !== 'ok') {
+        deps.host.say(
+          skew === 'extension-newer'
+            ? messages.runControlSdkNewer(EXTENSION_SDK, sdk.version)
+            : messages.runControlSdkMajor(EXTENSION_SDK, sdk.version),
+        );
+
+        return undefined;
+      }
+    }
+
+    const url = connection();
+
+    // The list says why there is no connection the
+    // next time it is drawn; a control has nothing
+    // to add to that.
+    if (url === undefined) {
+      changed();
+
+      return undefined;
+    }
+
+    const run = await runOf(workflowId);
+
+    if (run === undefined) {
+      // A read that did not happen has already put
+      // its own sentence under the list. This one is
+      // about a run the ledger answered about and
+      // does not have.
+      if (state === 'ok') deps.host.say(messages.runNotFound(workflowId));
+
+      changed();
+
+      return undefined;
+    }
+
+    return { url, run };
+  };
+
+  /**
+   * Opens a client, does the one thing that was
+   * asked, closes it — and turns a client that would
+   * not open into the same refusal a call that threw
+   * gives, because to whoever clicked they are one
+   * thing.
+   */
+  const managed = async <Answer extends Cancel | Resume>(
+    url: string,
+    take: (client: ManagementClient) => Promise<Answer>,
+  ): Promise<Answer | { at: 'refused'; detail: string }> => {
+    let client: ManagementClient;
+
+    try {
+      client = await deps.openManagement(url);
+    } catch (cause) {
+      return { at: 'refused', detail: detailOf(cause) };
+    }
+
+    // The adapter closes what it was handed, in a
+    // `finally` of its own.
+    return await take(client);
+  };
+
+  const cancel = async (workflowId: string): Promise<Controlled> => {
+    const ready = await controllable(workflowId);
+    if (ready === undefined) return { at: 'nothing' };
+
+    const answer = await managed(ready.url, (client) =>
+      cancelRun(client, ready.run),
+    );
+
+    if (answer.at === 'over') {
+      deps.host.say(messages.runCancelOver(workflowId, answer.status));
+
+      return { at: 'nothing' };
+    }
+
+    if (answer.at === 'refused') {
+      deps.host.say(messages.runCancelRefused(answer.detail));
+
+      return { at: 'nothing' };
+    }
+
+    // The statement reports nothing about itself and
+    // cancelling is not an interrupt, so the row is
+    // the only witness to what actually happened.
+    const after = await runOf(workflowId);
+
+    if (after?.status === 'CANCELLED') {
+      cancelledHere.add(workflowId);
+      deps.host.say(messages.runCancelled(workflowId));
+    } else if (after !== undefined && FINISHED.includes(after.status)) {
+      deps.host.say(messages.runCancelOver(workflowId, after.status));
+    } else {
+      deps.host.say(messages.runCancelPending(workflowId));
+    }
+
+    // The row on the list says something else now,
+    // and somebody clicking a control is somebody
+    // asking.
+    await readRuns();
+
+    return after === undefined
+      ? { at: 'nothing' }
+      : { at: 'asked', run: after };
+  };
+
+  const resume = async (workflowId: string): Promise<Controlled> => {
+    const ready = await controllable(workflowId);
+    if (ready === undefined) return { at: 'nothing' };
+
+    const answer = await managed(ready.url, (client) =>
+      resumeRun(client, ready.run),
+    );
+
+    if (answer.at === 'over') {
+      deps.host.say(messages.runResumeOver(workflowId, answer.status));
+
+      return { at: 'nothing' };
+    }
+
+    if (answer.at === 'refused') {
+      deps.host.say(messages.runResumeRefused(answer.detail));
+
+      return { at: 'nothing' };
+    }
+
+    const after = await runOf(workflowId);
+    const run = after ?? ready.run;
+
+    // Resume leaves the run's own version exactly
+    // where it was and a worker dequeues only its
+    // own, so a run picked back up under a version
+    // the app has moved past sits enqueued for ever.
+    deps.host.say(
+      run.applicationVersion === undefined ||
+        run.applicationVersion === answer.latest
+        ? messages.runResumeStarted(workflowId, answer.latest)
+        : messages.runResumeStartedOlder(
+            workflowId,
+            run.applicationVersion,
+            answer.latest,
+          ),
+    );
+
+    await readRuns();
+
+    return { at: 'asked', run };
+  };
+
   return {
     ledger,
+    connection,
+    read,
+    runOf,
+    cancel,
+    resume,
+    cancelledHere: () => cancelledHere,
     refresh: readRuns,
 
     setFilter: async (next) => {
       filter = next;
       await readRuns();
     },
-
-    select: async (workflowId) => {
-      const url = connection();
-      if (url === undefined) return void changed();
-
-      // `null` for a run that is not there, against
-      // `undefined` for a read that did not happen:
-      // a row somebody deleted has to clear what the
-      // tab is showing, where a database that went
-      // away must not, or the tab would go blank on
-      // a hiccup.
-      const found = await read(url, async (db) => {
-        const one = runQuery(workflowId);
-        const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
-        const found = rows[0];
-        if (found === undefined) return null;
-
-        const steps = stepsQuery(workflowId);
-
-        return {
-          run: toRun(found),
-          steps: (
-            await db.query<OperationOutputRow>(steps.text, steps.values)
-          ).map(toStep),
-        };
-      });
-
-      if (found !== undefined) {
-        // A different run is a different question,
-        // so the note about the last replay and the
-        // step somebody had picked both go.
-        note = undefined;
-        selected =
-          found === null
-            ? undefined
-            : { ...found, selectedStep: firstStep(found.steps), note };
-      }
-
-      changed();
-    },
-
-    selectStep: (functionId) => {
-      if (selected === undefined) return;
-
-      selected = { ...selected, selectedStep: functionId };
-      changed();
-    },
-
-    replay: async (functionId) => {
-      const showing = selected;
-      if (showing === undefined || !deps.trust.isTrusted()) return;
-
-      const url = connection();
-      if (url === undefined) return void changed();
-
-      const outcome = await forkedFrom(deps, url, showing.run, functionId);
-
-      note =
-        outcome.at === 'refused'
-          ? messages.replayRefused(outcome.detail)
-          : outcome.movedFrom === undefined
-            ? messages.replayStarted(
-                outcome.workflowId,
-                outcome.applicationVersion,
-              )
-            : messages.replayStartedNewer(
-                outcome.workflowId,
-                outcome.applicationVersion,
-                outcome.movedFrom,
-              );
-
-      // Said in the notification area as well as on
-      // the panel: a fork is a new run that nothing
-      // on screen is showing yet, and the sentence
-      // names the version it is waiting for.
-      deps.host.say(note);
-      selected = { ...showing, note };
-
-      // The list now has a run in it that was not
-      // there a moment ago.
-      await readRuns();
-    },
-
-    detail: () => selected,
 
     render: () => ({
       state,
@@ -319,41 +503,10 @@ export function runHistory(deps: HistoryDeps): History {
         database === undefined ? undefined : messages.runsSource(database),
       filter,
       counts,
-      rows: runs.map(rowOf),
-      selected: selected?.run.workflowId,
+      rows: runs.map((run) => rowOf(run, runs)),
     }),
 
     onChanged: changes.on,
-    dispose: () => changes.dispose(),
+    dispose: changes.dispose,
   };
-}
-
-/**
- * Opening the client is itself a connection, and a
- * database that is down refuses it before there is
- * anything to fork — so the failure has to become
- * the same sentence the fork's own would.
- */
-async function forkedFrom(
-  deps: HistoryDeps,
-  url: string,
-  run: Run,
-  functionId: number,
-): Promise<Replay> {
-  let client: ForkClient;
-
-  try {
-    client = await deps.openFork(url);
-  } catch (cause) {
-    return { at: 'refused', detail: detailOf(cause) };
-  }
-
-  return await replayFrom(client, run, functionId);
-}
-
-/** The step a replay starts from unless somebody
- *  picks another: the first one, which replays the
- *  whole run from its ledger. */
-function firstStep(steps: Step[]): number | undefined {
-  return steps[0]?.functionId;
 }

@@ -6,7 +6,15 @@ import { DBOS } from '@dbos-inc/dbos-sdk';
 import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { openDatabase, openFork } from '../../src/runs/db.js';
+import { openDatabase, openManagement } from '../../src/runs/db.js';
+import { forksQuery } from '../../src/runs/queries.js';
+import { replayFrom } from '../../src/runs/replay.js';
+import type {
+  ReplayAnswer,
+  ReplayQuestion,
+} from '../../src/runs/replayZone.js';
+import { projectSdk } from '../../src/runs/sdk.js';
+import { fakeAgent } from '../doubles/agent.js';
 import { fakeTrust } from '../doubles/trust.js';
 import { sessionLog } from '../../src/runs/sessionLog.js';
 import { runsStore, type RunsStore } from '../../src/runs/store.js';
@@ -64,6 +72,18 @@ const SYSTEM_DATABASE_URL = `${SERVER}/${DATABASE}`;
 const OK_RUN = 'itest_ok';
 const FAILED_RUN = 'itest_failed';
 const RECOVERED_RUN = 'itest_recovered';
+const BOOKED_RUN = 'itest_booked';
+const SLEEPING_RUN = 'itest_sleeping';
+const PARKED_RUN = 'itest_parked';
+
+/** The one the two controls are pointed at, put
+ *  back to `PENDING` by hand so there is a run in
+ *  flight to stop. */
+const CONTROLLED_RUN = 'itest_controlled';
+
+/** What the ingress a generated project ships
+ *  hands a workflow: one object, positionally. */
+const BOOKING = { email: 'ada@example.com', slot: '09:00' };
 
 /** Two steps that return, so a run has a ledger to
  *  be restored from. */
@@ -96,11 +116,140 @@ const stumble = DBOS.registerWorkflow(
   { name: 'stumble' },
 );
 
+/**
+ * One argument and one named failure, which is the
+ * shape a generated workflow and its handlers
+ * actually have.
+ *
+ * Started the way the scaffold's ingress starts one
+ * — `DBOS.startWorkflow(fn, { workflowID })(payload)`
+ * — rather than through `withNextWorkflowID`,
+ * because what is being checked here is the
+ * `inputs` column, and the two start paths are the
+ * two ways an argument reaches it.
+ */
+const book = DBOS.registerWorkflow(
+  async (event: { email: string; slot: string }): Promise<void> => {
+    await DBOS.runStep(
+      async () => {
+        const taken = new Error(`the ${event.slot} slot is taken`);
+        taken.name = 'SlotTaken';
+        throw taken;
+      },
+      { name: 'find_slot', retriesAllowed: false },
+    );
+  },
+  { name: 'book' },
+);
+
+/**
+ * The two shapes the SDK writes while a run is not
+ * running.
+ *
+ * Both are the SDK's own rows rather than anything
+ * the compiler emits, which is why they are checked
+ * here against a real schema and not against a
+ * golden. Whether the run page can draw "asleep
+ * until" and "times out" at all rests entirely on
+ * what these rows turn out to hold.
+ */
+const SLEEP_MS = 120_000;
+
+const RECV_TIMEOUT_S = 120;
+
+const timerWait = DBOS.registerWorkflow(
+  async (): Promise<void> => {
+    await DBOS.runStep(async () => 'ready', { name: 'before_wait' });
+    await DBOS.sleep(SLEEP_MS);
+    await DBOS.runStep(async () => 'woken', { name: 'after_wait' });
+  },
+  { name: 'timer_wait_probe' },
+);
+
+const approvalFlow = DBOS.registerWorkflow(
+  async (): Promise<void> => {
+    await DBOS.runStep(async () => 'asked', { name: 'manager_ok.ask' });
+    await DBOS.runStep(async () => 'parked', { name: 'manager_ok.register' });
+    await DBOS.recv('approval', RECV_TIMEOUT_S);
+    await DBOS.runStep(async () => 'woken', { name: 'manager_ok.clear' });
+  },
+  { name: 'approval_flow_probe' },
+);
+
+/** One row of the ledger, as the SDK wrote it. */
+type Recorded = {
+  function_id: number;
+  function_name: string;
+  started_at_epoch_ms: string | null;
+  completed_at_epoch_ms: string | null;
+  output: string | null;
+  serialization: string | null;
+};
+
+async function rowsOf(workflowId: string): Promise<Recorded[]> {
+  const client = new pg.Client({ connectionString: SYSTEM_DATABASE_URL });
+  await client.connect();
+  try {
+    const { rows } = await client.query<Recorded>(
+      'SELECT function_id, function_name, started_at_epoch_ms, ' +
+        'completed_at_epoch_ms, output, serialization ' +
+        'FROM dbos.operation_outputs WHERE workflow_uuid = $1 ' +
+        'ORDER BY function_id',
+      [workflowId],
+    );
+
+    return rows;
+  } finally {
+    await client.end();
+  }
+}
+
+/** Polls until the run has written as many rows as
+ *  it is going to before it parks. */
+async function settledAt(
+  workflowId: string,
+  rows: number,
+): Promise<Recorded[]> {
+  for (let tries = 0; tries < 60; tries += 1) {
+    const found = await rowsOf(workflowId);
+    if (found.length >= rows) return found;
+
+    await new Promise((wake) => setTimeout(wake, 250));
+  }
+
+  return await rowsOf(workflowId);
+}
+
 async function onMaintenanceServer(sql: string): Promise<void> {
   const client = new pg.Client({ connectionString: `${SERVER}/postgres` });
   await client.connect();
   try {
     await client.query(sql);
+  } finally {
+    await client.end();
+  }
+}
+
+/** One run's own row, as the two controls leave
+ *  it. */
+type Status = {
+  status: string;
+  completed_at: string | null;
+  recovery_attempts: string | number;
+  queue_name: string | null;
+};
+
+async function statusOf(workflowId: string): Promise<Status | undefined> {
+  const client = new pg.Client({ connectionString: SYSTEM_DATABASE_URL });
+  await client.connect();
+  try {
+    const { rows } = await client.query<Status>(
+      'SELECT status, completed_at, recovery_attempts, queue_name ' +
+        'FROM dbos.workflow_status WHERE workflow_uuid = $1',
+      [workflowId],
+    );
+
+    return rows[0];
   } finally {
     await client.end();
   }
@@ -134,6 +283,14 @@ describe('a run history, read from a real dbos schema', () => {
   let store: RunsStore;
   let said: string[];
 
+  /** What the modal answers, since there is nobody
+   *  here to press a button, and what it was
+   *  asked. */
+  let confirmed: ReplayAnswer;
+  let asked: ReplayQuestion[];
+  let sleeping: Recorded[];
+  let parked: Recorded[];
+
   beforeAll(async () => {
     await onMaintenanceServer(
       `DROP DATABASE IF EXISTS "${DATABASE}" WITH (FORCE)`,
@@ -148,9 +305,24 @@ describe('a run history, read from a real dbos schema', () => {
 
     await DBOS.withNextWorkflowID(OK_RUN, async () => greet('world'));
     await DBOS.withNextWorkflowID(RECOVERED_RUN, async () => greet('again'));
+    await DBOS.withNextWorkflowID(CONTROLLED_RUN, async () => greet('stop'));
     await expect(
       DBOS.withNextWorkflowID(FAILED_RUN, async () => stumble()),
     ).rejects.toThrow();
+
+    const booking = await DBOS.startWorkflow(book, {
+      workflowID: BOOKED_RUN,
+    })(BOOKING);
+    await expect(booking.getResult()).rejects.toThrow();
+
+    // Started and deliberately not awaited: what is
+    // being read is what the ledger holds *while*
+    // each of them is parked.
+    await DBOS.startWorkflow(timerWait, { workflowID: SLEEPING_RUN })();
+    await DBOS.startWorkflow(approvalFlow, { workflowID: PARKED_RUN })();
+
+    sleeping = await settledAt(SLEEPING_RUN, 2);
+    parked = await settledAt(PARKED_RUN, 3);
 
     // The one hand-written statement here. A crash
     // that DBOS really recovered from would mean
@@ -162,6 +334,18 @@ describe('a run history, read from a real dbos schema', () => {
       [3, RECOVERED_RUN],
     );
 
+    // And the second: a run in flight for the two
+    // controls to be pointed at. Stopping one that
+    // is genuinely executing would mean keeping a
+    // worker alive here, and what the `UPDATE`
+    // behind each control does to the row is the
+    // same either way.
+    await onTestDatabase(
+      "UPDATE dbos.workflow_status SET status = 'PENDING', " +
+        'completed_at = NULL WHERE workflow_uuid = $1',
+      [CONTROLLED_RUN],
+    );
+
     // The extension never runs inside a DBOS
     // process, so the fixture's own launch is shut
     // down before anything is read: what follows
@@ -169,18 +353,33 @@ describe('a run history, read from a real dbos schema', () => {
     await DBOS.shutdown({ deregister: false });
 
     said = [];
+    asked = [];
+    confirmed = { at: 'nothing' };
     const dir = project();
     store = runsStore({
       host: {
         projects: () => [dir],
         say: (message) => said.push(message),
         setContext: () => undefined,
-        note: () => undefined,
-        notify: async () => undefined,
+        copy: async () => undefined,
+        openCanvas: async () => undefined,
+        openFile: async () => undefined,
+        showText: async () => undefined,
+        conductorConsoleUrl: () => '',
+        openExternal: async () => undefined,
+        revealAgent: async () => undefined,
+        // Nobody at the keyboard, so the case that
+        // reads the question reads it here.
+        confirm: async (question) => {
+          asked.push(question);
+
+          return confirmed;
+        },
       },
+      agent: fakeAgent(),
       trust: fakeTrust(),
       open: openDatabase,
-      openFork,
+      openManagement,
       // This suite reads a real ledger and forks a
       // real run. Nothing here starts a container
       // or an ingress, so the collaborators that
@@ -203,6 +402,7 @@ describe('a run history, read from a real dbos schema', () => {
       }),
       watch: () => ({ stop: () => undefined }),
       sessionLog: sessionLog(),
+      projectSdk,
     });
   });
 
@@ -218,11 +418,15 @@ describe('a run history, read from a real dbos schema', () => {
     const list = store.list();
     expect(list.state).toBe('ok');
     expect(list.rows.map((row) => row.workflowId).sort()).toEqual([
+      BOOKED_RUN,
+      CONTROLLED_RUN,
       FAILED_RUN,
       OK_RUN,
+      PARKED_RUN,
       RECOVERED_RUN,
+      SLEEPING_RUN,
     ]);
-    expect(list.counts).toEqual({ all: 3, failed: 1, recovered: 1 });
+    expect(list.counts).toEqual({ all: 7, failed: 2, recovered: 1 });
   });
 
   /**
@@ -264,6 +468,84 @@ describe('a run history, read from a real dbos schema', () => {
   });
 
   /**
+   * The `inputs` column and the stored error, read
+   * back through the extension's own decoders
+   * against bytes the SDK itself wrote. Both shapes
+   * are the SDK's rather than the ingress's, and a
+   * fixture could assert neither.
+   */
+  it('reads what a run was started with, and what its step threw', async () => {
+    await store.refresh();
+    await store.select(BOOKED_RUN);
+
+    const detail = store.detail();
+
+    expect(detail?.run.input).toEqual({ shape: 'payload', value: BOOKING });
+
+    const failure = detail?.steps[0]?.failure;
+    expect(failure?.name).toBe('SlotTaken');
+    expect(failure?.message).toContain('09:00 slot is taken');
+    expect(failure?.stack).toContain('SlotTaken');
+  });
+
+  /**
+   * What the SDK writes while a run is asleep.
+   *
+   * A sleep's row records the wake deadline as its
+   * completion, so the step's duration is the sleep
+   * — which is what would let a run page say when a
+   * run wakes.
+   */
+  it('records a sleep as the deadline it will wake at', () => {
+    const row = sleeping.find((one) => one.function_name === 'DBOS.sleep');
+
+    expect(row).toBeDefined();
+    if (row === undefined) return;
+
+    const deadline = Number(JSON.parse(row.output ?? 'null'));
+    const startedAt = Number(row.started_at_epoch_ms);
+
+    expect(Number.isFinite(deadline)).toBe(true);
+    expect(deadline).toBeGreaterThanOrEqual(startedAt);
+    expect(Number(row.completed_at_epoch_ms)).toBe(deadline);
+
+    // The bytes themselves, because this is the one
+    // step output the application does not
+    // serialize: the SDK writes its own deadline
+    // with the portable serializer whatever the app
+    // configured, and the reader takes the column at
+    // its word rather than looking for an envelope.
+    expect(Number(row.output)).toBe(deadline);
+    expect(row.serialization).toBe('portable_json');
+  });
+
+  /**
+   * And what it writes while a run is parked on a
+   * person: the wait's own two rows, nothing at the
+   * id `DBOS.recv` reserved, and a zero-width sleep
+   * carrying the moment the wait gives up.
+   */
+  it('records a timeout as a marker of zero width', () => {
+    expect(parked.map((one) => [one.function_id, one.function_name])).toEqual([
+      [0, 'manager_ok.ask'],
+      [1, 'manager_ok.register'],
+      [3, 'DBOS.sleep'],
+    ]);
+
+    const marker = parked[2];
+    if (marker === undefined) return;
+
+    expect(Number(marker.completed_at_epoch_ms)).toBe(
+      Number(marker.started_at_epoch_ms),
+    );
+    expect(Number.isFinite(Number(JSON.parse(marker.output ?? 'null')))).toBe(
+      true,
+    );
+    expect(Number.isFinite(Number(marker.output))).toBe(true);
+    expect(marker.serialization).toBe('portable_json');
+  });
+
+  /**
    * A run can match two filters at once — recovering
    * is something that happened during a run, not a
    * way one ended — so the counts do not add up and
@@ -271,9 +553,12 @@ describe('a run history, read from a real dbos schema', () => {
    */
   it('filters on what the database itself calls failed', async () => {
     await store.setFilter('failed');
-    expect(store.list().rows.map((row) => row.workflowId)).toEqual([
-      FAILED_RUN,
-    ]);
+    expect(
+      store
+        .list()
+        .rows.map((row) => row.workflowId)
+        .sort(),
+    ).toEqual([BOOKED_RUN, FAILED_RUN]);
 
     await store.setFilter('recovered');
     expect(store.list().rows.map((row) => row.workflowId)).toEqual([
@@ -281,23 +566,81 @@ describe('a run history, read from a real dbos schema', () => {
     ]);
 
     await store.setFilter('all');
-    expect(store.list().rows).toHaveLength(3);
+    expect(store.list().rows).toHaveLength(7);
   });
 
   /**
-   * The done-when, against the real client: a replay
-   * writes a new run that DBOS marks as forked from
-   * this one. It sits `ENQUEUED` because nothing is
-   * running to pick it up, which is exactly what the
-   * note beside the button says.
+   * The runs in this suite are workflows registered
+   * by hand under one `DBOS.launch()`, so the
+   * project they were read from has no document for
+   * any of them — which is a refusal a person can
+   * act on rather than a fork that would end in an
+   * error the moment it ran.
    */
-  it('forks a run when a step is replayed', async () => {
+  it('refuses a replay of a run this project has no document for', async () => {
     await store.refresh();
     await store.select(FAILED_RUN);
-    await store.replay(1);
+    await store.replay(FAILED_RUN, { functionId: 1 });
 
-    expect(said).toHaveLength(1);
-    expect(said[0]).toContain('Replaying as ');
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.detail).toContain('has no workflow named');
+    expect(asked[0]?.actions.map((one) => one.at)).toEqual(['again']);
+
+    const forked = await openDatabase(SYSTEM_DATABASE_URL);
+    try {
+      expect(
+        await forked.query(
+          'SELECT workflow_uuid FROM dbos.workflow_status ' +
+            'WHERE forked_from = $1',
+          [FAILED_RUN],
+        ),
+      ).toEqual([]);
+    } finally {
+      await forked.close();
+    }
+  });
+
+  /**
+   * The fork itself, against the real client: a new
+   * run that DBOS marks as forked from this one. It
+   * sits `ENQUEUED` because nothing is running to
+   * pick it up, which is exactly what the note
+   * beside the button says.
+   *
+   * Driven through the write rather than through the
+   * decision above it, because a decision that says
+   * yes needs a scaffolded project with generated
+   * code — which is the compose-backed harness in
+   * `stack.integration.test.ts`, not this one.
+   *
+   * What the fork copies is asserted here as well,
+   * and it is the load-bearing half. `reused`, the
+   * step a replay actually began at, the lineage
+   * boundary and every `↺ recorded` mark rest on
+   * one undocumented SDK behaviour: a fork copies
+   * the rows the parent had already finished and
+   * keeps the parent's timestamps on them. Nothing
+   * in the schema marks a copied row, every unit
+   * spec drives a double whose rows a case sets by
+   * hand, and so nothing else in this repository
+   * would notice the day that changed.
+   */
+  it('forks a run through the real management client', async () => {
+    await store.refresh();
+    await store.select(FAILED_RUN);
+
+    const run = store.detail()?.run;
+    expect(run).toBeDefined();
+    if (run === undefined) return;
+
+    const outcome = await replayFrom(
+      await openManagement(SYSTEM_DATABASE_URL),
+      run,
+      1,
+      { newWorkflowID: `${FAILED_RUN}_fork` },
+    );
+
+    expect(outcome.at).toBe('forked');
 
     const forked = await openDatabase(SYSTEM_DATABASE_URL);
     try {
@@ -307,10 +650,111 @@ describe('a run history, read from a real dbos schema', () => {
         [FAILED_RUN],
       );
 
-      expect(rows).toHaveLength(1);
-      expect(said[0]).toContain(rows[0]?.workflow_uuid ?? 'no fork');
+      expect(rows.map((row) => row.workflow_uuid)).toEqual([
+        `${FAILED_RUN}_fork`,
+      ]);
+
+      // The parent is marked, which is the column
+      // the run page branches on before it goes
+      // looking for forks at all.
+      const parent = await forked.query<{ was_forked_from: boolean }>(
+        'SELECT was_forked_from FROM dbos.workflow_status ' +
+          'WHERE workflow_uuid = $1',
+        [FAILED_RUN],
+      );
+
+      expect(parent[0]?.was_forked_from).toBe(true);
+
+      // The one row this fork carried over — it
+      // started at step 1, so step 0 is copied —
+      // still carries the moment the parent
+      // finished it, which is before the fork
+      // existed. Every reading of a replay is that
+      // comparison.
+      const copied = await forked.query<{
+        function_id: number;
+        completed_at_epoch_ms: string | null;
+      }>(
+        'SELECT function_id, completed_at_epoch_ms ' +
+          'FROM dbos.operation_outputs WHERE workflow_uuid = $1 ' +
+          'ORDER BY function_id',
+        [`${FAILED_RUN}_fork`],
+      );
+      const child = await forked.query<{ created_at: string }>(
+        'SELECT created_at FROM dbos.workflow_status ' +
+          'WHERE workflow_uuid = $1',
+        [`${FAILED_RUN}_fork`],
+      );
+
+      expect(copied.map((row) => row.function_id)).toEqual([0]);
+      expect(copied[0]?.completed_at_epoch_ms).not.toBeNull();
+      expect(Number(copied[0]?.completed_at_epoch_ms)).toBeLessThan(
+        Number(child[0]?.created_at),
+      );
+
+      // Which is the whole of what the tree's own
+      // query asks: the highest row the fork did
+      // not have to run again.
+      const asks = forksQuery(FAILED_RUN);
+      const answered = await forked.query<{ last_reused: number | null }>(
+        asks.text,
+        asks.values,
+      );
+
+      expect(answered[0]?.last_reused).toBe(0);
     } finally {
       await forked.close();
     }
+  });
+
+  /**
+   * The two controls against the real client, which
+   * is the only place their claims can be checked:
+   * both are one `UPDATE` inside DBOS's own code and
+   * what those statements write is the whole of what
+   * the extension is relying on.
+   */
+  it('cancels a run in flight, and the row says so', async () => {
+    await store.refresh();
+    await store.cancel(CONTROLLED_RUN);
+
+    const row = await statusOf(CONTROLLED_RUN);
+
+    expect(row?.status).toBe('CANCELLED');
+    expect(row?.completed_at).not.toBeNull();
+    expect(said.at(-1)).toContain(CONTROLLED_RUN);
+  });
+
+  /**
+   * And resume puts it back on DBOS's own internal
+   * queue with the recovery count wound back, which
+   * is what makes a worker pick it up again.
+   */
+  it('picks the cancelled run back up onto the internal queue', async () => {
+    await store.resume(CONTROLLED_RUN);
+
+    const row = await statusOf(CONTROLLED_RUN);
+
+    expect(row?.status).toBe('ENQUEUED');
+    expect(Number(row?.recovery_attempts)).toBe(0);
+    expect(row?.queue_name).toBe('_dbos_internal_queue');
+  });
+
+  /**
+   * The reason the two adapters answer `over`
+   * themselves. DBOS's statement ends in
+   * `status NOT IN ('SUCCESS','ERROR')` and never
+   * reads how many rows it changed, so asking it
+   * about a finished run resolves having done
+   * nothing at all.
+   */
+  it('leaves a finished run alone and says it was already over', async () => {
+    said.length = 0;
+    await store.cancel(OK_RUN);
+
+    const row = await statusOf(OK_RUN);
+
+    expect(row?.status).toBe('SUCCESS');
+    expect(said.at(-1)).toContain('SUCCESS');
   });
 });

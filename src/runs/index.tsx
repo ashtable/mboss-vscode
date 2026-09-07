@@ -8,10 +8,11 @@ import type {
   RunsStrings,
   SessionRow,
   StackZone,
-  TestRunZone,
+  RunByHand,
 } from '../webview/protocol.js';
 import { RUN_FILTERS, type RunFilter } from './queries.js';
-import type { LiveRun, StepState } from './watch.js';
+import type { StepState } from './reading.js';
+import type { LiveRun } from './watch.js';
 
 import './runs.css';
 
@@ -35,9 +36,16 @@ import './runs.css';
  *  the extension would have to ship. */
 const MARKS: Record<RunRow['severity'], string> = {
   ok: '✓',
-  running: '◐',
+  running: '●',
+  // Half filled: something is true of this run and
+  // nothing is happening in it.
+  waiting: '◐',
   failed: '✕',
   exhausted: '⊘',
+  // Barred rather than crossed: somebody asked for
+  // this, so it is not the same news as a run that
+  // threw.
+  cancelled: '■',
 };
 
 /** One glyph per step, read off the ledger. There is
@@ -53,12 +61,30 @@ const STEP_MARKS: Record<StepState, string> = {
  *  step marks above: this is a whole run, and
  *  `quiet` is a state no step ever carries. */
 const SESSION_MARKS: Record<SessionRow['outcome'], string> = {
-  running: '◐',
+  running: '●',
   done: '✓',
   failed: '✕',
-  waiting: '◑',
+  waiting: '◐',
   quiet: '○',
+  // The same mark the ledger's own rows carry, so a
+  // run somebody stopped reads the same in both
+  // lists.
+  cancelled: '■',
 };
+
+/**
+ * The outcomes a run can still be stopped from.
+ *
+ * `quiet` is on the list because a quiet run is one
+ * the watch let go of rather than one that ended —
+ * DBOS still has it going, and it can still be
+ * stopped.
+ */
+const STOPPABLE: readonly LiveRun['outcome'][] = [
+  'running',
+  'waiting',
+  'quiet',
+];
 
 /** The compose service the app runs in, as the
  *  scaffold's own compose file names it. Rebuild
@@ -101,11 +127,24 @@ function Runs(state: RunsInit) {
       )}
 
       <footer className="runs-foot">
+        <p>{strings.projection}</p>
         {state.source === undefined ? null : (
           <p className="mono">{state.source}</p>
         )}
         <p>{strings.scope}</p>
         <p>{strings.sessionScope}</p>
+        {state.production.configured ? (
+          <div className="state-block" data-production="configured">
+            <span>{strings.conductorConfigured}</span>
+            <button
+              type="button"
+              data-open-production
+              onClick={() => postToHost({ type: 'openProduction' })}
+            >
+              {strings.openProduction}
+            </button>
+          </div>
+        ) : null}
       </footer>
     </div>
   );
@@ -196,7 +235,7 @@ function TestRun({
   testRun,
   strings,
 }: {
-  testRun: TestRunZone;
+  testRun: RunByHand;
   strings: RunsStrings;
 }) {
   const [text, setText] = useState(testRun.input);
@@ -332,6 +371,32 @@ function RunningNow({
           </li>
         ))}
       </ol>
+
+      <div className="zone-actions">
+        {STOPPABLE.includes(live.outcome) ? (
+          <button
+            type="button"
+            data-cancel-run
+            onClick={() =>
+              postToHost({ type: 'cancelRun', workflowId: live.workflowId })
+            }
+          >
+            {strings.cancelRun}
+          </button>
+        ) : null}
+
+        {live.outcome === 'cancelled' ? (
+          <button
+            type="button"
+            data-resume-run
+            onClick={() =>
+              postToHost({ type: 'resumeRun', workflowId: live.workflowId })
+            }
+          >
+            {strings.resumeRun}
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }
@@ -342,6 +407,18 @@ function RunningNow({
  * fits it — sending an event again reads differently
  * from rerunning a manual workflow, because only one
  * of them is honestly the same run.
+ *
+ * A row this window forked or picked back up gets
+ * neither. Both actions send the input the row was
+ * started with, and that run's input belongs to the
+ * run it came from.
+ *
+ * A cancelled row gets a third thing instead: its
+ * whole recorded history is sitting in the ledger,
+ * so carrying on from there is what somebody means
+ * rather than a second run from the top. And no Ask
+ * agent — nobody has to look into a run somebody
+ * stopped on purpose.
  */
 function Session({
   session,
@@ -379,18 +456,34 @@ function Session({
                   postToHost({ type: 'openRun', workflowId: row.workflowId })
                 }
               >
-                {strings.openFlightRecorder}
+                {strings.openRun}
               </button>
-              <button
-                type="button"
-                data-rerun
-                onClick={() =>
-                  postToHost({ type: 'rerun', workflowId: row.workflowId })
-                }
-              >
-                {row.keyed ? strings.resendEvent : strings.rerunSameInput}
-              </button>
-              {row.error === undefined ? null : (
+              {row.outcome === 'cancelled' ? (
+                <button
+                  type="button"
+                  data-resume-run
+                  onClick={() =>
+                    postToHost({
+                      type: 'resumeRun',
+                      workflowId: row.workflowId,
+                    })
+                  }
+                >
+                  {strings.resumeRun}
+                </button>
+              ) : null}
+              {row.outcome === 'cancelled' || row.via !== 'start' ? null : (
+                <button
+                  type="button"
+                  data-rerun
+                  onClick={() =>
+                    postToHost({ type: 'rerun', workflowId: row.workflowId })
+                  }
+                >
+                  {row.keyed ? strings.resendEvent : strings.rerunSameInput}
+                </button>
+              )}
+              {row.outcome === 'cancelled' || row.error === undefined ? null : (
                 <button
                   type="button"
                   data-ask-agent
@@ -454,12 +547,46 @@ function List({ state }: { state: RunsInit }) {
   return (
     <ol className="run-rows">
       {rows.map((row) => (
-        <li key={row.workflowId}>
+        <li key={row.workflowId} className="run-item">
           <Row
             row={row}
             strings={state.strings}
             selected={row.workflowId === state.selected}
           />
+
+          {/* Beside the row rather than inside it:
+              the row is itself a button, and a
+              button inside a button is neither
+              valid nor clickable. */}
+          <button
+            type="button"
+            className="run-copy"
+            data-copy-run-id={row.workflowId}
+            title={state.strings.copyRunId}
+            aria-label={state.strings.copyRunId}
+            onClick={() =>
+              postToHost({ type: 'copyRunId', workflowId: row.workflowId })
+            }
+          >
+            ⧉
+          </button>
+
+          {/* No row and no block travels: the list
+              draws neither, so where the replay
+              starts is the run's own default and the
+              extension is what works it out. */}
+          <button
+            type="button"
+            className="run-copy run-replay"
+            data-replay-run={row.workflowId}
+            title={state.strings.replayRun}
+            aria-label={state.strings.replayRun}
+            onClick={() =>
+              postToHost({ type: 'replayRun', workflowId: row.workflowId })
+            }
+          >
+            ↺
+          </button>
         </li>
       ))}
     </ol>
@@ -506,9 +633,41 @@ function Row({
         {row.recoveredNote === undefined ? null : ` · ${row.recoveredNote}`}
       </span>
 
+      {/* Worked out from the last operation the run
+          recorded, never read off a column — so it
+          says so, and carries the moment it was
+          worked out from. */}
+      {row.summary === undefined ? null : (
+        <span
+          className="run-summary"
+          data-derived
+          data-stopped-at={row.stoppedAt}
+          title={strings.derivedTitle}
+        >
+          {row.summary}
+        </span>
+      )}
+
       {row.error === undefined ? null : (
         <span className="run-error">{row.error}</span>
       )}
+
+      {/* Where the run came from and what came out
+          of it. Both are read off a column every row
+          already selects, and the child line is
+          drawn only for a run that is on this page —
+          so neither costs a read. */}
+      {row.replayOf === undefined ? null : (
+        <span className="mono run-lineage" data-replay-of>
+          {row.replayOf}
+        </span>
+      )}
+
+      {row.forks.map((fork) => (
+        <span className="mono run-lineage" key={fork} data-run-fork>
+          {fork}
+        </span>
+      ))}
     </button>
   );
 }

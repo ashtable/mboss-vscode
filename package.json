@@ -35,6 +35,11 @@
         "category": "%commands.category%"
       },
       {
+        "command": "mboss.newWorkflow",
+        "title": "%commands.newWorkflow.title%",
+        "category": "%commands.category%"
+      },
+      {
         "command": "mboss.openRuns",
         "title": "%commands.openRuns.title%",
         "category": "%commands.category%"
@@ -184,6 +189,12 @@
           "default": [],
           "description": "%configuration.agent.args.description%",
           "scope": "resource"
+        },
+        "mboss.conductor.consoleUrl": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.conductor.consoleUrl.description%",
+          "scope": "resource"
         }
       }
     },
@@ -204,6 +215,7 @@
     "build:mcp": "npm --prefix mboss-mcp-server ci && npm --prefix mboss-mcp-server run build:bundle",
     "build": "npm run build:mcp && node src/build.ts",
     "package": "npm run build && vsce package --no-dependencies",
+    "strings": "node src/bundle.ts && node src/fixture.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",

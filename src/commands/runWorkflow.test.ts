@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { sessionLog } from '../runs/sessionLog.js';
 import { runsStore, type RunsDeps, type RunsHost } from '../runs/store.js';
@@ -55,8 +56,14 @@ function runsHost(dir: string): RunsHost {
     projects: () => [dir],
     say: () => undefined,
     setContext: () => undefined,
-    note: () => undefined,
-    notify: async () => undefined,
+    copy: async () => undefined,
+    openCanvas: async () => undefined,
+    openFile: async () => undefined,
+    showText: async () => undefined,
+    conductorConsoleUrl: () => '',
+    openExternal: async () => undefined,
+    revealAgent: async () => undefined,
+    confirm: async () => ({ at: 'nothing' }),
   };
 }
 
@@ -77,9 +84,10 @@ function deps(dir: string): RunsDeps {
 
   return {
     host: runsHost(dir),
+    agent: fakeAgent(),
     trust: fakeTrust(),
     open: refused('opened a database'),
-    openFork: refused('opened a fork client'),
+    openManagement: refused('opened a fork client'),
     stack: {
       up: refused('brought the stack up'),
       down: refused('brought the stack down'),
@@ -93,6 +101,7 @@ function deps(dir: string): RunsDeps {
     }),
     watch: () => ({ stop: () => undefined }),
     sessionLog: sessionLog(),
+    projectSdk: () => ({ ok: false, because: 'no-lockfile' }) as const,
   };
 }
 

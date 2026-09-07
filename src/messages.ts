@@ -26,8 +26,10 @@ import type { AgentId } from './acp/registry.js';
  * answers with the active locale's bundle, which
  * is not loaded until the extension activates.
  * Each one holds a literal, because that is what
- * the extraction tooling reads and what
- * `l10n/bundle.l10n.json` is checked against.
+ * `src/bundle.ts` reads to write
+ * `l10n/bundle.l10n.json`. A call that wraps
+ * anything else stops the generator by name rather
+ * than going quietly untranslated.
  */
 export const messages = {
   /**
@@ -61,6 +63,90 @@ export const messages = {
   newProjectWorking: (name: string) => l10n.t('Creating {0}…', name),
   newProjectFailed: (detail: string) =>
     l10n.t('The project was not created: {0}', detail),
+
+  /**
+   * Starting a workflow writes a document and a
+   * handler file per block into somebody's folder,
+   * which is the decision workspace trust exists to
+   * make. The gallery still opens without it: it is
+   * a catalog, and refusing to draw one explains
+   * less than refusing to write.
+   */
+  newWorkflowNeedsTrust: () =>
+    l10n.t(
+      'Starting a workflow writes a document and its handlers into a folder, so it waits until you trust this window.',
+    ),
+
+  newWorkflowNeedsProject: () =>
+    l10n.t('Open an mBoss project to start a workflow in it.'),
+
+  newWorkflowNameTitle: () => l10n.t('What is the workflow called?'),
+
+  /**
+   * The rule is core's, because the name is the
+   * document's file name, the generated function's
+   * name and the name every run is recorded
+   * against all at once.
+   */
+  newWorkflowNameRefused: () =>
+    l10n.t(
+      'Lower-case letters, digits and underscores, starting with a letter.',
+    ),
+
+  /** Said under the name box while somebody types,
+   *  and again if the file turns up between the
+   *  question and the write. */
+  workflowNameTaken: (name: string) =>
+    l10n.t('This project already has a workflow named {0}.', name),
+
+  newWorkflowWorking: (name: string) => l10n.t('Starting {0}…', name),
+
+  /**
+   * A pattern brings its handlers with it under
+   * names it chose, so a file already at one of
+   * those names is not something a different
+   * workflow name would get around.
+   */
+  patternCodeExists: (path: string) =>
+    l10n.t(
+      'The pattern brings its own {0}, and this project already has one. Nothing was written.',
+      path,
+    ),
+
+  newWorkflowRefused: (detail: string) =>
+    l10n.t('That workflow was not started: {0}', detail),
+
+  /**
+   * The handlers go in before the document, so a
+   * refused apply is the one refusal that leaves
+   * files behind. Nobody can clean up files they
+   * were not told about.
+   */
+  newWorkflowLeftBehind: (files: string) =>
+    l10n.t('Its handlers were written first and are still there: {0}', files),
+
+  /**
+   * What landed, and where the code behind it is.
+   *
+   * It says the handlers are in `lib/` and stops
+   * there: nothing has been generated yet, and a
+   * sentence promising generated code would point
+   * somebody at a file that is not there until the
+   * next save.
+   */
+  newWorkflowCreated: (name: string, handlers: number) =>
+    l10n.t(
+      '{0} is on the canvas with its {1} handlers in lib/.',
+      name,
+      handlers,
+    ),
+
+  /** The one thing a pattern does that reaches
+   *  outside the machine it was started on. */
+  newWorkflowSendsMail: () =>
+    l10n.t(
+      'Its approval and email blocks send real mail — set TWILIO_* in .env, or point TWILIO_EMAIL_BASE_URL at a sink, before running it.',
+    ),
 
   vendorRefreshOffer: () =>
     l10n.t(
@@ -221,6 +307,164 @@ export const messages = {
     ),
 
   /**
+   * The question asked about a run the ledger has,
+   * in three parts.
+   *
+   * Assembled rather than written whole, because a
+   * clause whose fact the evidence does not carry
+   * has to be left out: the record is built not to
+   * invent, and a sentence introducing it that
+   * named a block nobody recorded would undo that
+   * in its first line.
+   */
+  runAskAgentAtBlock: (
+    workflowId: string,
+    workflow: string,
+    title: string,
+    error: string,
+  ) =>
+    l10n.t(
+      'Run `{0}` of `{1}` failed at {2} — {3}.',
+      workflowId,
+      workflow,
+      title,
+      error,
+    ),
+
+  /** The same, where the run threw with no step of
+   *  its own to blame. */
+  runAskAgentWith: (workflowId: string, workflow: string, error: string) =>
+    l10n.t('Run `{0}` of `{1}` failed with {2}.', workflowId, workflow, error),
+
+  /** And a run somebody asked about that recorded
+   *  no failure at all, which the button offers
+   *  because any run the ledger has may be asked
+   *  about. */
+  runAskAgentNoFailure: (
+    workflowId: string,
+    workflow: string,
+    status: string,
+  ) =>
+    l10n.t(
+      'Run `{0}` of `{1}` recorded no failure; DBOS has it as {2}.',
+      workflowId,
+      workflow,
+      status,
+    ),
+
+  /** How hard the block was allowed to try, said
+   *  beside the code it runs. */
+  runAskAgentRetry: (attempts: string) =>
+    l10n.t('retry policy max {0} (configured)', attempts),
+
+  /**
+   * Where the attachment came from, what to prefer
+   * over what, and what is deliberately not
+   * claimed.
+   *
+   * The provenance is not decoration: an agent with
+   * an MCP tool that reads the same two tables has
+   * two accounts of one run, and this is what tells
+   * it which is which. The last clause is the one
+   * that matters most — the document describes the
+   * workspace now and the run carries the version
+   * that ran, and nothing here compares them.
+   */
+  runAskAgentEvidence: (database: string, from: string) =>
+    l10n.t(
+      'The attached mBoss run evidence was assembled by the editor from the local DBOS ledger (`dbos.workflow_status`, `dbos.operation_outputs` at {0}, via {1}); `project_debug` reads the same tables and returns stored errors unparsed, so prefer the attachment for this run and use `project_debug` for others. The saved workflow and manifest describe the workspace now; the run carries the version that ran, and they are not compared. Tell me why, and fix the handler if the fix belongs in `lib/`.',
+      database,
+      from,
+    ),
+
+  /**
+   * The question about a run that never started.
+   *
+   * No ledger clause, because there is no row
+   * anywhere to have read: what travels is this
+   * window's own memory of trying, and saying so is
+   * what stops it reading as a run that ran.
+   */
+  runAskAgentRefused: (workflow: string, detail: string) =>
+    l10n.t(
+      "A run of `{0}` never started — the app refused it with: {1}. The attached mBoss run evidence is this window's own record of the attempt; nothing was written to the ledger, because there was no run to write. Tell me why the request was refused.",
+      workflow,
+      detail,
+    ),
+
+  /**
+   * The row mBoss writes into the transcript when
+   * it reads a run for the agent.
+   *
+   * The agent's own reads are drawn the same way,
+   * which is the point: what mBoss did and what the
+   * agent did belong in one column, and only the
+   * rail says which is which.
+   */
+  runEvidenceVerb: () => l10n.t('Read'),
+
+  runEvidenceTarget: (workflowId: string) =>
+    l10n.t('run {0} · mBoss run evidence', workflowId),
+
+  /** The way from that row to the whole run. */
+  runEvidenceOpenRun: () => l10n.t('Open run'),
+
+  /**
+   * The summary folded under that row, one fact per
+   * line.
+   *
+   * A line whose fact the record does not carry is
+   * not printed at all — never a label with a dash
+   * after it, which is a panel saying it looked and
+   * a reader taking it as an answer.
+   */
+  runEvidenceError: (error: string) => l10n.t('error · {0}', error),
+
+  runEvidenceFailedAt: (operation: string) =>
+    l10n.t('failed at · {0}', operation),
+
+  runEvidenceRetry: (attempts: string) =>
+    l10n.t('retry · max {0} · configured', attempts),
+
+  runEvidenceHandler: (signature: string) => l10n.t('handler · {0}', signature),
+
+  /** An export the last scan of the code behind the
+   *  project never found — somebody renamed it, or
+   *  it is not written yet. */
+  runEvidenceHandlerMissing: (exported: string) =>
+    l10n.t('handler · {0} · not in the last scan of lib/', exported),
+
+  runEvidenceSource: (file: string) => l10n.t('source · {0}', file),
+
+  runEvidenceStatus: (status: string) => l10n.t('status · {0}', status),
+
+  runEvidenceRecovered: (times: string) =>
+    l10n.t('recovered · picked back up {0} times', times),
+
+  runEvidenceVersion: (version: string) => l10n.t('version · {0}', version),
+
+  /** Who read what, and where. The host and the
+   *  database only — the string it came from
+   *  carries a password. */
+  runEvidenceReader: (database: string, from: string) =>
+    l10n.t(
+      'read · dbos.workflow_status, dbos.operation_outputs at {0} via {1}',
+      database,
+      from,
+    ),
+
+  /** How many rows travelled, so a run longer than
+   *  the record carries has a visible gap rather
+   *  than a silent one. */
+  runEvidenceOperations: (carried: string, total: string) =>
+    l10n.t('operations · {0} of {1} carried', carried, total),
+
+  runEvidenceRefused: (workflow: string, at: string) =>
+    l10n.t('refused · {0} at {1}', workflow, at),
+
+  runEvidenceDetail: (detail: string) => l10n.t('detail · {0}', detail),
+
+  /**
    * The line naming what is being read. The host
    * and database only — the string it came from
    * carries a password.
@@ -228,12 +472,110 @@ export const messages = {
   runsSource: (database: string) =>
     l10n.t('dbos.workflow_status · {0}', database),
 
+  /**
+   * A run of a workflow this project no longer
+   * saves.
+   *
+   * Somebody renamed the document, or deleted it,
+   * or the run came from an app this folder is not
+   * the source of. The run still happened and its
+   * trace still reads — only the drawing is gone,
+   * so this says which one rather than opening
+   * nothing.
+   */
+  runNoDocument: (name: string) =>
+    l10n.t(
+      'This project has no workflow named {0} to open. The run still reads; only its drawing is missing.',
+      name,
+    ),
+
+  /**
+   * A block naming a function the last scan of the
+   * project's code-behind never found.
+   *
+   * Ordinary rather than broken: a workflow is
+   * usually drawn before its code is written, and
+   * agents write these documents too. So this names
+   * the export and stops, which is what somebody
+   * needs to go and write it.
+   */
+  openFunctionUnknown: (exported: string) =>
+    l10n.t(
+      "This project's code-behind has no function named {0} to open. Write it in lib/, or point the block at one that exists.",
+      exported,
+    ),
+
+  /**
+   * A frame naming a file this workspace no longer
+   * has.
+   *
+   * The frame was captured inside the image the run
+   * executed, so it is a claim about the code that
+   * was built rather than about the code on disk.
+   * The two coming apart is ordinary — a rename, a
+   * move, a run of somebody else's build — so this
+   * names the file and says which of the two is
+   * being talked about.
+   */
+  errorLocationGone: (file: string) =>
+    l10n.t(
+      'This workspace has no {0}. The line came from the image that ran, so the file has been moved or renamed since it was built.',
+      file,
+    ),
+
   /** The boundary the design draws, drawn where a
    *  person can see it. */
   runsScope: () =>
     l10n.t("Local runs only. Deployed apps are DBOS Conductor's."),
 
-  runsRecoveredTag: () => l10n.t('recovered ✓'),
+  /** The mark leads, because recovery is what
+   *  happened to the run and the tick after it read
+   *  as a second opinion about the outcome. */
+  runsRecoveredTag: () => l10n.t('↻ recovered'),
+
+  /**
+   * Where a run got to, in one line under its row.
+   *
+   * Every form of it is worked out from the last
+   * operation the run recorded of its own — nothing
+   * in the ledger marks a run as being *at* a block
+   * — so the row draws these beside the word that
+   * says they were derived.
+   */
+  /**
+   * What the run page's graph is a picture of.
+   *
+   * The revision matters: the document may have
+   * moved on since the run, and the picture is of
+   * the document rather than of the run.
+   */
+  runGraphCaption: (revision: number) =>
+    l10n.t('workflow as saved · revision {0}', revision),
+  runGraphMissing: (name: string) =>
+    l10n.t('no saved workflow named {0} · trace only', name),
+
+  /**
+   * When a block wakes, and when it gives up.
+   *
+   * Both are read off the sleep row the SDK writes
+   * beside a wait — and both are drawn as derived,
+   * because the moment is a deadline the SDK
+   * recorded rather than something that has
+   * happened.
+   */
+  runAsleepUntil: (at: string) => l10n.t('asleep until {0}', at),
+  runTimesOut: (at: string) => l10n.t('times out {0}', at),
+
+  /** What tells one turn of a block from another. */
+  runGroupRound: (round: number) => l10n.t('· round {0}', round),
+  runGroupItems: (items: number) => l10n.t('· {0} items', items),
+
+  runFailedSummary: (node: string) => l10n.t('failed · {0}', node),
+  runWaitingSummary: (node: string, at: string) =>
+    l10n.t('waiting · {0} · {1}', node, at),
+  runRunningSummary: (node: string) => l10n.t('running · after {0}', node),
+  runDoneSummary: (count: number) =>
+    l10n.t('done · {0} durable operations', count),
   /**
    * How many crashes, not what the column says: the
    * column counts dispatches, so a run that never
@@ -259,13 +601,34 @@ export const messages = {
    * again — and never out of a crash time nothing
    * records.
    */
-  runRecoveredHeading: () => l10n.t('Crash recovered — exactly-once held'),
-  runRecoveredBody: (down: string, restored: number) =>
+  /**
+   * What a recovery cost, without claiming code was
+   * skipped.
+   *
+   * The old wording said steps "came back instead of
+   * running again", which reads as though DBOS chose
+   * not to execute something. What actually happened
+   * is narrower and worth saying exactly: completed
+   * durable operations were not re-executed, and the
+   * gap is an inference over the recorded rows
+   * rather than a moment anything wrote down.
+   *
+   * The two numbers are not in the sentence. Each is
+   * its own line so the page can mark it derived
+   * beside the figure — a number inside a paragraph
+   * wears no chip, and a derived number a person
+   * reads as a recorded one is the whole failure
+   * mode of a flight recorder.
+   */
+  runRecoveredHeading: () =>
+    l10n.t('Recovered — completed durable operations were not re-executed'),
+  runRecoveredBody: () =>
     l10n.t(
-      'Nothing ran for {0}. DBOS picked this run back up and {1} steps came back from dbos.operation_outputs instead of running again.',
-      down,
-      restored,
+      'DBOS picked this run back up. Both figures are derived from the widest gap between recorded operations — the durable operations that finished before that gap were reused from dbos.operation_outputs rather than run again.',
     ),
+  runRecoveredDown: (down: string) => l10n.t('nothing ran for about {0}', down),
+  runRecoveredReused: (count: number) =>
+    l10n.t('{0} durable operations reused', count),
 
   /**
    * The same fact, when the steps are timed too
@@ -293,6 +656,30 @@ export const messages = {
 
   runBreadcrumb: (workflow: string, id: string) =>
     l10n.t('mBoss › runs › {0} › {1}', workflow, id),
+
+  /**
+   * Where a replay took over.
+   *
+   * Named by the block wherever the row at the fork
+   * point still belongs to one, and by DBOS's own
+   * step number otherwise — a workflow edited since
+   * the run has rows naming blocks that are gone,
+   * and the number is the fact that is left.
+   */
+  runReplayFrom: (block: string) => l10n.t('replay from {0}', block),
+  runReplayFromStep: (step: number) => l10n.t('replay from step {0}', step),
+
+  /**
+   * The same fork, from the list.
+   *
+   * The child line is drawn only for a run already
+   * on the page, so neither of these costs a query:
+   * `forked_from` is a column every row already
+   * selects.
+   */
+  runsReplayOf: (id: string) => l10n.t('replay of {0}', id),
+  runsReplayInto: (id: string, status: string) =>
+    l10n.t('└ replay → {0} · {1}', id, status),
 
   /**
    * Seconds with one decimal, because a local run
@@ -328,6 +715,257 @@ export const messages = {
     ),
   replayRefused: (detail: string) =>
     l10n.t('That replay did not start: {0}', detail),
+
+  /**
+   * The modal a replay is offered through.
+   *
+   * The two lists are the whole of it. What a replay
+   * costs is that some of the run is reused and the
+   * rest runs again, and a person deciding whether
+   * to press the button is deciding about exactly
+   * those two lists — so they are drawn, not
+   * summarised.
+   */
+  replayTitle: (block: string) => l10n.t('Replay from {0}?', block),
+
+  /** The same question about a run no point could be
+   *  named in, which is every refusal. */
+  replayRunTitle: (id: string) => l10n.t('Replay run {0}?', id),
+  replayBody: () =>
+    l10n.t(
+      'Creates a new DBOS execution from this step. Earlier durable results are reused, not re-executed.',
+    ),
+  replayReused: () => l10n.t('reused · recorded'),
+  replayReusedNothing: () =>
+    l10n.t("nothing — this is the run's first durable operation"),
+  replayWillExecute: () => l10n.t('will execute'),
+
+  /**
+   * Where the list stops.
+   *
+   * A branch's way out is a value nothing recorded,
+   * so what runs after it is not something anybody
+   * here can know. The block that decides is named
+   * instead of the blocks it might reach.
+   */
+  replayDecides: (block: string) => l10n.t('then {0} decides', block),
+
+  replayHint: () =>
+    l10n.t(
+      "resolves to the durable operation's DBOS function id · available while the structure before this point is unchanged — structural edits need a new run",
+    ),
+
+  /** The buttons. `Cancel` is the modal's own. */
+  replayDo: () => l10n.t('Replay'),
+  replayRebuildFirst: () => l10n.t('Rebuild and replay'),
+  replayStartFirst: () => l10n.t('Start and replay'),
+  replayChoose: () => l10n.t('Choose…'),
+  replayChoosing: () =>
+    l10n.t('Which recorded point should the replay start from?'),
+  replayRunAgain: () => l10n.t('Run again'),
+
+  /**
+   * What the running app is, against what is on
+   * disk.
+   *
+   * A replay executes the image, not the folder
+   * somebody is editing, so a fix that has not been
+   * built answers exactly as the failure did. The
+   * file that is newest is named because it is the
+   * one they just saved.
+   */
+  replayStackStale: (path: string) =>
+    l10n.t('The running app was built before your change to {0}.', path),
+  replayStackDown: () =>
+    l10n.t('The local stack is not running. The replay starts when it is.'),
+  replayStackUnknown: () =>
+    l10n.t('Nothing here says when the running app was built.'),
+  replayRebuildFailed: () =>
+    l10n.t('The app did not come back up, so nothing was replayed.'),
+  replayOnBuild: (seconds: string) =>
+    l10n.t('It runs on the app built {0} s ago.', seconds),
+
+  /**
+   * The seven ways a replay is not on offer.
+   *
+   * Each names the one thing that would change the
+   * answer, because a refusal a person cannot act on
+   * is a refusal that reads as a bug.
+   */
+  replayNoDocument: (name: string) =>
+    l10n.t('This project has no workflow named {0} to replay against.', name),
+  replayNoLockfile: () =>
+    l10n.t(
+      'This project has no package-lock.json, so which DBOS it runs is unknown.',
+    ),
+  replaySdkNewer: (extension: string, project: string) =>
+    l10n.t(
+      'This extension reads DBOS {0} and the project runs {1}. Update the project first.',
+      extension,
+      project,
+    ),
+  replaySdkMajor: (extension: string, project: string) =>
+    l10n.t(
+      'This extension reads DBOS {0} and the project runs {1}, which is a different major version.',
+      extension,
+      project,
+    ),
+  replayNotOffered: () =>
+    l10n.t('That row is not a point a replay can start from.'),
+
+  /** Row 14's diagnostic is what says which document
+   *  was refused and why, so this points at it
+   *  rather than repeating it. */
+  replayGeneratedBehind: (name: string) =>
+    l10n.t(
+      'The code generated for {0} is not what the document says. See the Problems panel.',
+      name,
+    ),
+
+  /**
+   * The one refusal that is about the run rather
+   * than the project.
+   *
+   * DBOS compares the recorded name at each function
+   * id as it replays, so a fork carrying rows the
+   * current code would not write ends in an error
+   * the moment it runs. Both names are said, because
+   * which pair disagreed is the whole of what
+   * changed.
+   */
+  replayStructureChanged: (
+    block: string,
+    at: number,
+    recorded: string,
+    expected: string,
+  ) =>
+    l10n.t(
+      'The workflow structure before {0} changed: step {1} recorded `{2}`, and the workflow now records `{3}` there. Start a new run instead.',
+      block,
+      at,
+      recorded,
+      expected,
+    ),
+
+  /** Why one recorded row is not a boundary, said on
+   *  the row itself. */
+  replayRowSdkOwned: () =>
+    l10n.t(
+      'DBOS wrote this row for itself. A replay starts from a step the workflow recorded.',
+    ),
+  replayRowInsideWait: () =>
+    l10n.t(
+      'Starting here would hand the new run an answer that came back for the old one.',
+    ),
+  replayRowLinkScoped: (block: string) =>
+    l10n.t(
+      'The link this wait opens names the run it was minted for. Replay from {0} instead.',
+      block,
+    ),
+  replayRowParkedHere: () => l10n.t('The run is sitting here now.'),
+
+  /**
+   * The two controls a person has over a run, said
+   * out loud.
+   *
+   * Both are one `UPDATE` inside DBOS's client and
+   * neither reports what it did, so every sentence
+   * here is chosen from the row read *after* the
+   * call rather than from the call's own answer.
+   * That is why cancelling has two of them: a run
+   * that has already stopped at a durable operation
+   * comes back `CANCELLED`, and one still working
+   * comes back exactly as it was and will notice at
+   * its next one.
+   */
+  runNotFound: (id: string) =>
+    l10n.t('This project’s ledger has no run {0}.', id),
+
+  runCancelled: (id: string) =>
+    l10n.t(
+      'Run {0} is cancelled. Everything it had already recorded stays in the ledger.',
+      id,
+    ),
+  runCancelPending: (id: string) =>
+    l10n.t(
+      'Asked DBOS to cancel {0}. Cancelling is not an interrupt — the run stops at its next durable operation.',
+      id,
+    ),
+  runCancelOver: (id: string, status: string) =>
+    l10n.t(
+      'Run {0} had already finished as {1}, so there was nothing to cancel.',
+      id,
+      status,
+    ),
+  runCancelRefused: (detail: string) =>
+    l10n.t('That run was not cancelled: {0}', detail),
+
+  /**
+   * Resuming leaves the run's own
+   * `application_version` exactly where it was, and
+   * a worker dequeues only its own version — so a
+   * run picked back up under a version the app has
+   * moved past sits `ENQUEUED` and nothing says why.
+   * The second form is that case, and it points at
+   * the one thing that does run under the current
+   * version.
+   */
+  runResumeStarted: (id: string, version: string) =>
+    l10n.t(
+      'Resuming {0} from its recorded history. It starts when your app is running under version {1}.',
+      id,
+      version,
+    ),
+  runResumeStartedOlder: (id: string, version: string, latest: string) =>
+    l10n.t(
+      'Resuming {0} under version {1}, and your app is running {2}. Replay From Here forks it under the current version instead.',
+      id,
+      version,
+      latest,
+    ),
+  runResumeOver: (id: string, status: string) =>
+    l10n.t(
+      'Run {0} had already finished as {1}, so there was nothing to resume.',
+      id,
+      status,
+    ),
+  runResumeRefused: (detail: string) =>
+    l10n.t('That run was not resumed: {0}', detail),
+
+  /**
+   * The same skew gate a replay goes through, said
+   * about the two controls instead.
+   *
+   * Both of them write into somebody's ledger
+   * through a client this extension ships, and a
+   * client newer than the project's own SDK asks for
+   * members the project never wrote.
+   */
+  runControlSdkNewer: (extension: string, project: string) =>
+    l10n.t(
+      'This extension writes DBOS {0} and the project runs {1}. Update the project before cancelling or resuming a run.',
+      extension,
+      project,
+    ),
+  runControlSdkMajor: (extension: string, project: string) =>
+    l10n.t(
+      'This extension writes DBOS {0} and the project runs {1}, which is a different major version. Cancel and Resume are not offered.',
+      extension,
+      project,
+    ),
+
+  /**
+   * The two lines the run page draws above its
+   * controls.
+   *
+   * "by you" is this window's own memory of having
+   * asked — no column anywhere records who cancelled
+   * a run — so it is said only where the window
+   * remembers doing it.
+   */
+  runCancelledByYou: (at: string) => l10n.t('{0} · by you', at),
+  runLastRecorded: (name: string, step: number) =>
+    l10n.t('{0} · step {1}', name, step),
 
   /**
    * `mBoss: Run Workflow…`'s two questions: which
@@ -396,6 +1034,26 @@ export const messages = {
 
   codegenStopped: (detail: string) =>
     l10n.t('Code generation stopped: {0}', detail),
+
+  /**
+   * Said on a document that is fine, about one that
+   * is not.
+   *
+   * The compiler refuses a project all or nothing,
+   * so a workflow nobody has touched stops being
+   * regenerated because of something in a document
+   * beside it. Without this the panel says only
+   * what is wrong with the other one, and the
+   * connection between the two is a thing a person
+   * has to already know.
+   *
+   * One name, not a list: a sentence naming three
+   * documents stops being read, and each refused
+   * document carries its own errors in the same
+   * panel.
+   */
+  codegenNotRegenerated: (name: string, other: string) =>
+    l10n.t('`{0}` was not regenerated: `{1}` was refused.', name, other),
 
   documentUnreadable: (detail: string) =>
     l10n.t('This file is not a workflow document: {0}', detail),

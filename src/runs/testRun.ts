@@ -1,20 +1,33 @@
 import type { Disposable } from 'vscode';
 
-import type { DiagnosticEntry } from '../acp/transcript.js';
+import type { Agent } from '../acp/agent.js';
+import type { ToolEntry } from '../acp/transcript.js';
+import type { LibManifest, WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
-import type { RunsInit } from '../webview/protocol.js';
+import type { RunsInit, TestRunProblem } from '../webview/protocol.js';
 
 import type { OpenDatabase } from './db.js';
+import type { EnvName } from './env.js';
+import {
+  assembleRunEvidence,
+  refusedRunEvidence,
+  type AskAgent,
+  type RunEvidence,
+} from './evidence.js';
+import type { Following } from './following.js';
+import { decidedArms } from './operations.js';
+import { readRun } from './reading.js';
+import { hasRecovered } from './rows.js';
 import { newRunId, type RunStart, type RunStarter } from './runner.js';
 import {
   refusedRunId,
   type SessionLog,
   type SessionRun,
 } from './sessionLog.js';
-import { sessionRowOf, type TestRunProblem } from './view.js';
-import type { LiveRun, RunWatch, RunWatcher } from './watch.js';
+import { evidenceLines, evidenceSentence, sessionRowOf } from './view.js';
+import { SETTLED, type LedgerRead, type LiveRun } from './watch.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 
 /**
@@ -43,36 +56,67 @@ import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 /** The slice of the editor the zone needs. */
 export type TestRunHost = {
   projects(): string[];
-  /** Puts what the extension did in the agent's
-   *  transcript, beside what the agent did. */
-  note(entry: DiagnosticEntry): void;
 
-  /** Hands the agent something to answer. */
-  notify(text: string): Promise<void>;
+  /** Puts the agent panel where somebody can see
+   *  it. A question handed over in a view nobody is
+   *  looking at is a question nobody was asked. */
+  revealAgent(): Promise<void>;
 };
 
 export type TestRunDeps = {
   host: TestRunHost;
+  agent: Agent;
   trust: Trust;
-  open: OpenDatabase;
   runner: RunStarter;
-  watch: RunWatch;
   sessionLog: SessionLog;
 
-  /** The connection string a watch reads the run
-   *  from, quietly: none is a reason not to arm
-   *  one. */
-  ledger(): string | undefined;
+  /** The one owner of every watch this window arms.
+   *  This zone says which runs it started and hears
+   *  back; it polls nothing itself. */
+  following: Following;
+
+  /**
+   * What reading a run out of the ledger takes: a
+   * connection to open, the workflow as it is saved
+   * now, and the last scan of the code behind it.
+   *
+   * The connection is a fresh one rather than the
+   * list's, because this read is open, read, close
+   * — nothing here holds a slot on somebody's
+   * development database while their editor is
+   * open. Where there is none, there is nothing to
+   * read and the question is answered from what
+   * this window remembers instead.
+   */
+  open: OpenDatabase;
+
+  ledger(): { url: string; from: EnvName } | undefined;
+
+  document(name: string): WorkflowIR | undefined;
+
+  manifest(): LibManifest | undefined;
 };
 
 /** What the list draws of this session. */
 export type TestRunZone = Pick<RunsInit, 'testRun' | 'live' | 'session'>;
 
+/**
+ * Why a run this window is watching exists, where
+ * a button rather than a typed input is what made
+ * it.
+ */
+export type RunOrigin = Pick<SessionRun, 'via' | 'replayOf'>;
+
 export type TestRun = Disposable & {
-  /** Reads the saved workflows again and re-arms
-   *  the watches on runs still moving, quietly:
-   *  the panel is drawn again by whoever asked. */
+  /** Reads the saved workflows again, quietly: the
+   *  panel is drawn again by whoever asked, and
+   *  re-arming is the watch owner's. */
   refresh(): void;
+
+  /** The runs this session started that have not
+   *  settled, for whoever composes what is worth
+   *  following. */
+  unsettled(): readonly string[];
 
   /** Re-reads the project's saved workflows off
    *  disk and says so — what a command needs before
@@ -93,8 +137,33 @@ export type TestRun = Disposable & {
    *  same input. */
   rerun(workflowId: string): Promise<void>;
 
-  /** Hands a failed run to the agent. */
-  askAgent(workflowId: string): Promise<void>;
+  /**
+   * Puts a run this window is about to ask for on
+   * screen, and follows it.
+   *
+   * Called with the id the request will carry and
+   * before that request goes out, so a fork or a
+   * resume somebody's database refuses lands on a
+   * row already in the list rather than on nothing.
+   */
+  follow(workflowId: string, workflow: string, origin: RunOrigin): void;
+
+  /** Says the request that was going to create one
+   *  of those runs did not. */
+  refused(workflowId: string, detail: string): void;
+
+  /**
+   * Hands a run to the agent, with whatever can be
+   * read about it.
+   *
+   * Any run the ledger has, not only one this
+   * window started: the ledger is the durable
+   * record and the session log is a window's
+   * memory, so asking the first and falling back to
+   * the second is what lets somebody ask about a
+   * run from yesterday.
+   */
+  askAgent(ask: AskAgent): Promise<void>;
 
   /** Drops the problem under the input box, quietly:
    *  a stack command that is about to say something
@@ -105,14 +174,38 @@ export type TestRun = Disposable & {
    *  one has been followed. */
   live(): LiveRun | undefined;
 
+  /**
+   * The whole of what one of that run's rows
+   * recorded, as the ledger holds it.
+   *
+   * What crosses to a panel is cut at 2000
+   * characters, and a card drawn from that copy
+   * says so. The rows the same tick read are still
+   * here, so opening a value somewhere it fits can
+   * give back all of it rather than the front of it
+   * again.
+   */
+  output(workflowId: string, functionId: number): string | undefined;
+
+  /**
+   * Which way out each decided block of that run
+   * took, read against the document the asker is
+   * drawing.
+   *
+   * The document comes in because the rows are here
+   * and the picture is theirs. The watch never
+   * looked at one, so its own reading attributes
+   * every row by name alone; asking again against a
+   * real drawing is what lets a workflow edited
+   * since the run say honestly that a row names a
+   * block it no longer has.
+   */
+  decided(ir: WorkflowIR): ReadonlyMap<string, string>;
+
   render(): TestRunZone;
 
   onChanged(listener: () => void): Disposable;
 };
-
-/** Outcomes a watch has nothing left to say
- *  about. */
-const SETTLED: readonly LiveRun['outcome'][] = ['done', 'failed'];
 
 export function testRunZone(deps: TestRunDeps): TestRun {
   const changes = emitter();
@@ -123,9 +216,10 @@ export function testRunZone(deps: TestRunDeps): TestRun {
   let problem: TestRunProblem | undefined;
   let live: LiveRun | undefined;
 
-  /** One watch per run, so that asking twice does
-   *  not poll twice. */
-  const watching = new Map<string, RunWatcher>();
+  /** The rows that reading was made of, kept beside
+   *  it so a second reader with a document of its
+   *  own need not go back to the database. */
+  let ledger: LedgerRead | undefined;
 
   const changed = changes.fire;
 
@@ -152,10 +246,34 @@ export function testRunZone(deps: TestRunDeps): TestRun {
    * let go — and the run is what a canvas of the
    * same workflow draws itself against.
    */
-  const heard = (run: LiveRun): void => {
-    live = run;
-
+  /**
+   * What the ledger says about a run somebody is
+   * watching — but only about one this window
+   * started.
+   *
+   * One owner polls every followed run, including
+   * ones a person merely opened on the run page, so
+   * a report about a foreign run arrives here too.
+   * The session log is what says which ones are
+   * this window's, and colouring the editable
+   * document with somebody else's run is exactly
+   * what this guard prevents.
+   */
+  const heard = (run: LiveRun, read: LedgerRead): void => {
     const row = deps.sessionLog.find(run.workflowId);
+    if (row === undefined) return;
+
+    // What the run was started with, filled in from
+    // the row where the ledger has no record of it.
+    // Done as the report lands rather than when
+    // somebody asks, so that the same reading comes
+    // back between ticks — a canvas compares what it
+    // is following by identity, and a fresh object
+    // per question would redraw it on every signal
+    // this store makes.
+    live = run.input === undefined ? { ...run, input: sent(row) } : run;
+    ledger = read;
+
     const failed = run.steps.find((step) => step.state === 'failed');
 
     deps.sessionLog.update(run.workflowId, {
@@ -165,36 +283,15 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       ...(failed === undefined
         ? {}
         : { failedStep: { name: failed.name, error: run.error ?? '' } }),
-      ...(SETTLED.includes(run.outcome) && row !== undefined
+      ...(SETTLED.includes(run.outcome)
         ? { durationMs: Date.now() - row.startedAt }
         : {}),
     });
 
-    // A watch stops itself on anything but
-    // `running`, so what is held here has to go
-    // with it or refresh would find a watcher that
-    // is no longer watching.
-    if (run.outcome !== 'running') watching.delete(run.workflowId);
-
     changed();
   };
 
-  const arm = (workflowId: string): void => {
-    if (watching.has(workflowId)) return;
-
-    const url = deps.ledger();
-    if (url === undefined) return;
-
-    watching.set(workflowId, deps.watch(deps.open, url, workflowId, heard));
-  };
-
-  /** The runs that are still moving, watched
-   *  again. */
-  const rewatch = (): void => {
-    for (const row of deps.sessionLog.list()) {
-      if (!SETTLED.includes(row.outcome)) arm(row.workflowId);
-    }
-  };
+  const reports = deps.following.onRun(heard);
 
   /** What the zone says when a start did not
    *  happen, and whether the same Rebuild action
@@ -220,6 +317,9 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     outcome: 'running',
     stepCount: 0,
     recovered: false,
+    // Pressing Run is the ordinary way a row gets
+    // here; the other two say so.
+    via: 'start',
     ...over,
   });
 
@@ -267,7 +367,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
         // came back: the route starts the run under
         // the id it was handed, and the row on
         // screen is the thing being followed.
-        arm(workflowId);
+        deps.following.arm(workflowId);
       } else {
         deps.sessionLog.update(workflowId, {
           outcome: 'failed',
@@ -306,15 +406,101 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       deps.sessionLog.record(row(answer.workflowId, flow.name, payload));
     }
 
-    arm(answer.workflowId);
+    deps.following.arm(answer.workflowId);
     changed();
+  };
+
+  /**
+   * The row mBoss writes into the transcript about
+   * a run it read.
+   *
+   * One shape whatever the read came back with,
+   * because a read that answered and a read that
+   * did not are the same event: a reader scanning
+   * the column tells them apart by the status word,
+   * not by meeting two different kinds of row.
+   */
+  const readRow = (
+    workflowId: string,
+    over: Pick<ToolEntry, 'status' | 'body' | 'action'>,
+  ): ToolEntry => ({
+    at: 'tool',
+    id: `evidence:${workflowId}`,
+    by: 'person',
+    kind: 'read',
+    verb: messages.runEvidenceVerb(),
+    target: messages.runEvidenceTarget(workflowId),
+    ...over,
+  });
+
+  /**
+   * The record into the column, the panel onto the
+   * screen, the question to the agent — in that
+   * order.
+   *
+   * The row goes in first so the transcript reads in
+   * the order things happened, and the panel is
+   * revealed before the turn starts so that an
+   * answer arriving quickly still arrives somewhere
+   * somebody is looking. What the row shows is a
+   * summary; the machine-readable copy travels with
+   * the sentence, because a transcript is what a
+   * person reads and a page of JSON in it is not.
+   */
+  const handOver = async (
+    evidence: RunEvidence,
+    workflowId: string,
+  ): Promise<void> => {
+    const target = messages.runEvidenceTarget(workflowId);
+
+    deps.agent.note(
+      readRow(workflowId, {
+        status: 'applied',
+        body: evidenceLines(evidence),
+        // A way out only where there is a run to
+        // open. The id a refused run is filed under
+        // was minted here, and a page for it would
+        // draw nothing.
+        ...(evidence.at === 'refused'
+          ? {}
+          : {
+              action: {
+                label: messages.runEvidenceOpenRun(),
+                posts: 'openRun',
+                workflowId,
+              },
+            }),
+      }),
+    );
+
+    await deps.host.revealAgent();
+
+    await deps.agent.send({
+      text: evidenceSentence(evidence),
+      context: [
+        {
+          // Names what the record is about rather
+          // than somewhere to fetch it from: nothing
+          // serves `mboss://`.
+          uri: `mboss://run-evidence/${workflowId}`,
+          name: target,
+          mimeType: 'application/json',
+          text: JSON.stringify(evidence, null, 2),
+        },
+      ],
+    });
   };
 
   return {
     refresh: () => {
       readWorkflows();
-      rewatch();
     },
+
+    unsettled: () =>
+      deps.sessionLog
+        .list()
+        .filter((row) => !SETTLED.includes(row.outcome))
+        .map((row) => row.workflowId),
 
     refreshWorkflows: () => {
       readWorkflows();
@@ -355,33 +541,103 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       const previous = deps.sessionLog.find(workflowId);
       if (previous === undefined) return;
 
+      // Only a run somebody typed an input for can
+      // be sent again with it. A fork or a resume
+      // carries the input of the run it came from,
+      // which lives in the ledger and never passed
+      // through here — so there is nothing to send.
+      if (previous.via !== 'start') return;
+
       const flow = workflows.find((one) => one.name === previous.workflow);
       if (flow === undefined) return;
 
       await start(flow, previous.input);
     },
 
-    askAgent: async (workflowId) => {
-      const failed = deps.sessionLog.find(workflowId);
-      if (failed === undefined) return;
+    follow: (workflowId, workflow, origin) => {
+      // The watch goes on with the row rather than
+      // after it: a report about a run the session
+      // log has never heard of is dropped, so the
+      // row has to exist for the watch to be worth
+      // anything.
+      if (deps.sessionLog.find(workflowId) === undefined) {
+        deps.sessionLog.record(row(workflowId, workflow, undefined, origin));
+      }
 
-      const said = failed.failedStep?.error ?? failed.error;
-      if (said === undefined) return;
+      deps.following.arm(workflowId);
+      changed();
+    },
 
-      const step = failed.failedStep?.name;
+    refused: (workflowId, detail) => {
+      if (deps.sessionLog.find(workflowId) === undefined) return;
 
-      deps.host.note({
-        at: 'diagnostic',
-        id: `run:${workflowId}`,
-        source: `${failed.workflow} · ${workflowId}`,
-        rows: [{ at: step, message: said }],
+      deps.sessionLog.update(workflowId, { outcome: 'failed', error: detail });
+
+      // Nothing will ever be written under that id,
+      // so the watch lets go now instead of reading
+      // somebody's database until the quiet bound
+      // ends it.
+      deps.following.drop(workflowId);
+      changed();
+    },
+
+    askAgent: async (ask) => {
+      const { workflowId } = ask;
+      const source = deps.ledger();
+
+      // The ledger first, whatever this window
+      // remembers: it is the durable record, it has
+      // every run rather than this session's, and
+      // what it says about a run this window did
+      // start is the same thing said in more detail.
+      // No connection string is no read at all,
+      // rather than a read that answered nothing.
+      const recorded =
+        source === undefined
+          ? { at: 'unasked' as const }
+          : await assembleRunEvidence(deps, source, ask);
+
+      if (recorded.at === 'run') return await handOver(recorded, workflowId);
+
+      const remembered = deps.sessionLog.find(workflowId);
+      if (remembered === undefined) return;
+
+      // A run the app refused has no row anywhere —
+      // the id it is filed under was minted here and
+      // names nothing in anybody's database — so
+      // this window's memory of trying is the whole
+      // of what there is to hand over.
+      if (remembered.failedStep === undefined) {
+        if (remembered.error === undefined) return;
+
+        return await handOver(refusedRunEvidence(remembered), workflowId);
+      }
+
+      // A read that could not be made is said out
+      // loud, because the sentence after it is
+      // thinner than the one a read would have
+      // earned and a reader deserves to know which
+      // they are looking at.
+      //
+      // Only that one. A read that was made and
+      // found no row under this id answered its
+      // question perfectly well — the ledger has no
+      // such run — and a column saying it failed
+      // would send somebody deciding whether to
+      // trust a run off after a database that is
+      // fine.
+      if (recorded.at === 'unreachable') {
+        deps.agent.note(readRow(workflowId, { status: 'failed', body: [] }));
+      }
+
+      await deps.host.revealAgent();
+      await deps.agent.send({
+        text: messages.runAskAgent(
+          remembered.workflow,
+          remembered.failedStep.name,
+          remembered.failedStep.error,
+        ),
       });
-
-      await deps.host.notify(
-        step === undefined
-          ? messages.runAskAgentNoStep(failed.workflow, said)
-          : messages.runAskAgent(failed.workflow, step, said),
-      );
     },
 
     clearProblem: () => {
@@ -389,6 +645,25 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     },
 
     live: () => live,
+
+    output: (workflowId, functionId) =>
+      ledger?.run.workflowId === workflowId
+        ? ledger.steps.find((step) => step.functionId === functionId)?.output
+        : undefined,
+
+    decided: (ir) =>
+      ledger === undefined
+        ? new Map()
+        : decidedArms(
+            readRun(
+              ledger.run,
+              ledger.steps,
+              ir,
+              hasRecovered(ledger.run),
+              Date.now(),
+            ).steps,
+            ir,
+          ),
 
     render: () => ({
       testRun: {
@@ -414,10 +689,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     onChanged: changes.on,
 
     dispose: () => {
-      // A watch outliving the window that armed it
-      // would poll a database nobody is looking at.
-      for (const watcher of watching.values()) watcher.stop();
-      watching.clear();
+      reports.dispose();
       changes.dispose();
     },
   };
@@ -442,6 +714,24 @@ function hintFor(
   }
 
   return messages.runKeyPathHint(trigger.keyPath);
+}
+
+/**
+ * What this window sent to start the run, printed
+ * the way the ledger's own input column is.
+ *
+ * DBOS does not always record what a run was
+ * started with, and a run this window started is
+ * one whose input this window is still holding — so
+ * the row answers where the column could not. A
+ * fork or a resume carries the input of the run it
+ * came from, which never passed through here, and
+ * for those there is honestly nothing to say.
+ */
+function sent(row: SessionRun): string | undefined {
+  return row.input === undefined
+    ? undefined
+    : JSON.stringify(row.input, null, 2);
 }
 
 /**

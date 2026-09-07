@@ -83,12 +83,19 @@ export type Timeline = {
  */
 const MINIMUM_SPAN_MS = 1;
 
-export function runTimeline(run: Run, steps: Step[]): Timeline {
+/**
+ * `now` is a parameter and not a default. A default
+ * is what let three callers take three clocks
+ * without any of them saying so, and the right edge
+ * of a window has to be the same moment as every
+ * other answer drawn beside it.
+ */
+export function runTimeline(run: Run, steps: Step[], now: number): Timeline {
   const outage = hasRecovered(run) ? widestHole(steps) : undefined;
 
   return {
     from: run.startedAt ?? run.createdAt,
-    to: endOf(run, steps),
+    to: endOf(run, steps, now),
     outage,
     steps: steps.map((step) => ({
       functionId: step.functionId,
@@ -143,8 +150,17 @@ function widestHole(steps: Step[]): Outage | undefined {
  * going ends at the last thing that has happened,
  * because a bar drawn against an unknown end is
  * drawn against nothing.
+ *
+ * And never later than the moment it is being read.
+ * A sleeping run records the moment it means to
+ * wake as the sleep row's completion, which is in
+ * the future — taken as the right edge it would
+ * squeeze everything that has actually happened
+ * into a sliver on the left and say the run had
+ * been going for a day when it had been going a
+ * second.
  */
-function endOf(run: Run, steps: Step[]): number {
+export function endOf(run: Run, steps: Step[], now: number): number {
   const from = run.startedAt ?? run.createdAt;
 
   const latest = Math.max(
@@ -154,5 +170,5 @@ function endOf(run: Run, steps: Step[]): number {
     ),
   );
 
-  return Math.max(latest, from + MINIMUM_SPAN_MS);
+  return Math.max(Math.min(latest, now), from + MINIMUM_SPAN_MS);
 }

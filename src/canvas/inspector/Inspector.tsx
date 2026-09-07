@@ -6,15 +6,19 @@ import type {
   WorkflowIR,
   WorkflowNode,
 } from '../../core/rules.js';
+import type { LiveRun } from '../../runs/watch.js';
 import { postToHost } from '../../webview/client.js';
 import { filled } from '../../webview/fill.js';
 import type {
   Callout as CalloutWords,
+  InspectorMode,
   InspectorStrings,
 } from '../../webview/protocol.js';
 import { useEditing } from '../Editing.js';
+import type { RunState } from '../graph.js';
 import { FunctionLines, fitsFor, type LibFit } from '../libFunction.js';
 
+import { Evidence } from './EvidenceCard.js';
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
 import { outcomesOf, type DecisionOutcome } from './outcomes.js';
 
@@ -54,6 +58,23 @@ export type InspectorProps = {
 
   selected: Selection | undefined;
 
+  /** Which of the two faces is on screen. The
+   *  host's answer, not the column's: a panel that
+   *  is hidden and shown again remembers nothing. */
+  mode: InspectorMode;
+
+  /** The run this canvas is drawing itself against,
+   *  which is what the second face reads. Nothing
+   *  being followed is what that face has nothing
+   *  to say about. */
+  run: LiveRun | undefined;
+
+  /** What that run says about the selected block, as
+   *  the graph says it — asked there rather than
+   *  worked out again here, so the card and the
+   *  block cannot disagree. */
+  runState: RunState | undefined;
+
   /** What the project's code-behind offers, which
    *  is what the picker offers. */
   lib: LibFunction[] | undefined;
@@ -80,31 +101,121 @@ export function showInspectorHeading(): void {
     ?.scrollIntoView({ block: 'nearest' });
 }
 
-export function Inspector({ strings, selected, lib, misfits }: InspectorProps) {
+export function Inspector({
+  strings,
+  selected,
+  mode,
+  run,
+  runState,
+  lib,
+  misfits,
+}: InspectorProps) {
+  const editing = useEditing();
+
   // A block is shown only while it can be edited:
   // the host lets go of the selection while a
   // proposal is showing, and the column agrees.
-  const editing = useEditing();
-
-  if (selected === undefined || editing === undefined) {
-    return (
-      <div className="inspector">
+  const configuring =
+    selected === undefined || editing === undefined ? (
+      <>
         <p className="eyebrow text-muted">{strings.heading}</p>
         <p className="state text-muted">{strings.nothingSelected}</p>
-      </div>
+      </>
+    ) : (
+      <Fields
+        key={`${selected.node.id}:${editing.revision}`}
+        strings={strings}
+        ir={selected.ir}
+        node={selected.node}
+        revision={editing.revision}
+        lib={lib}
+        misfits={misfits}
+      />
     );
-  }
+
+  // The card is handed the block's identity and its
+  // policy rather than the node, because the other
+  // face is where configuration is read and set: a
+  // card that could reach `config` would drift into
+  // being a second form.
+  const node = selected?.node;
 
   return (
-    <Fields
-      key={`${selected.node.id}:${editing.revision}`}
-      strings={strings}
-      ir={selected.ir}
-      node={selected.node}
-      revision={editing.revision}
-      lib={lib}
-      misfits={misfits}
-    />
+    <div className="inspector" data-inspector-mode={mode}>
+      <Faces strings={strings} mode={mode} run={run} />
+
+      {/* One face at a time. The other reads what a
+          run recorded and takes nothing off the
+          document, so the two share no rows and
+          drawing both would put a field somebody may
+          change beside a fact they may not. */}
+      {mode === 'configure' ? (
+        configuring
+      ) : run === undefined ? null : (
+        <Evidence
+          strings={strings}
+          run={run}
+          block={
+            node === undefined
+              ? undefined
+              : {
+                  id: node.id,
+                  kind: node.kind,
+                  title: node.title,
+                  handler: node.handler?.export,
+                  retry: node.retry,
+                  body: node.kind === 'loop' ? node.config.body : undefined,
+                }
+          }
+          runState={runState}
+          onRunPage={false}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The two faces, and which one is showing.
+ *
+ * The choice goes to the host rather than into
+ * state here: this panel is torn down every time it
+ * is hidden, and a face nobody remembered would
+ * come back as whichever one the run implies. With
+ * nothing being followed the second face has
+ * nothing to read, so it refuses and says what
+ * would give it something.
+ */
+function Faces({
+  strings,
+  mode,
+  run,
+}: {
+  strings: InspectorStrings;
+  mode: InspectorMode;
+  run: LiveRun | undefined;
+}) {
+  return (
+    <>
+      <div className="tabs" role="tablist">
+        {(['configure', 'evidence'] as const).map((face) => (
+          <button
+            key={face}
+            type="button"
+            className="tab"
+            role="tab"
+            data-inspector-tab={face}
+            aria-selected={mode === face}
+            disabled={face === 'evidence' && run === undefined}
+            onClick={() => postToHost({ type: 'inspectorMode', mode: face })}
+          >
+            {strings.tabs[face]}
+          </button>
+        ))}
+      </div>
+
+      {run === undefined ? <p className="hint">{strings.noRun}</p> : null}
+    </>
   );
 }
 
@@ -153,7 +264,7 @@ function Fields({
     });
 
   return (
-    <div className="inspector">
+    <>
       <p className="eyebrow" data-inspector-heading>
         {strings.heading} · {strings.kinds[form.kind]}
       </p>
@@ -185,14 +296,24 @@ function Fields({
         ))}
 
         {form.kind !== 'transaction' ? null : (
-          <Told
-            id="database"
-            name={strings.fields.database}
-            value={strings.database}
-          />
+          <>
+            <Told
+              id="database"
+              name={strings.fields.database}
+              value={strings.database}
+            />
+
+            {/* The one kind with no retry fields.
+                Told rather than left off: eight
+                kinds carry the three fields, and a
+                row that is simply missing from the
+                ninth reads as an oversight instead
+                of as the answer. */}
+            <Told id="retry" name={strings.retryPolicy} value={strings.retry} />
+          </>
         )}
       </dl>
-    </div>
+    </>
   );
 }
 
@@ -302,11 +423,29 @@ function Picker({
     <div className="field" data-field={field.id} data-control="picker">
       <dt className="field-name text-muted">{strings.fields[field.id]}</dt>
       <dd className="field-value">
-        <p className="picker-value mono" data-picker-value>
+        {/* The value is its own mark, and the way to
+            the code sits outside it: what the caret
+            says can be changed is the name, not the
+            row it is drawn on. */}
+        <p className="picker-value mono">
           {field.value === undefined ? (
-            <span className="picker-nothing">{strings.dropHere}</span>
+            <span className="picker-nothing" data-picker-value>
+              {strings.dropHere}
+            </span>
           ) : (
-            `${field.value} ▾`
+            <>
+              <span data-picker-value>{`${field.value} ▾`}</span>{' '}
+              <button
+                type="button"
+                className="picker-open"
+                data-open-function
+                onClick={() =>
+                  postToHost({ type: 'openFunction', nodeId: node.id })
+                }
+              >
+                {strings.openFunction}
+              </button>
+            </>
           )}
         </p>
 

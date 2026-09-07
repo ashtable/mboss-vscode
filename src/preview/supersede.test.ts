@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { WorkflowIRSchema } from '../core/rules.js';
 import {
@@ -120,7 +121,7 @@ describe('a proposal on each of two workflows', () => {
       baseRevision: approval.revision,
     });
 
-    const store = previewStore(quietHost([project]), fakeTrust());
+    const store = previewStore(quietHost([project]), fakeTrust(), fakeAgent());
     await store.reloadAll();
 
     expect(store.forWorkflow(project, 'groom_booking')?.candidate.title).toBe(
@@ -159,7 +160,7 @@ describe('drawing a preview', () => {
 
     const before = proposalsOnDisk(project);
 
-    const store = previewStore(quietHost([project]), fakeTrust());
+    const store = previewStore(quietHost([project]), fakeTrust(), fakeAgent());
     await store.reloadAll();
     store.card();
     await livePreviews(project);
@@ -172,7 +173,7 @@ describe('a project with nothing outstanding', () => {
   it('has nothing to offer and nothing to draw', async () => {
     const project = await projectWithWorkflow();
 
-    const store = previewStore(quietHost([project]), fakeTrust());
+    const store = previewStore(quietHost([project]), fakeTrust(), fakeAgent());
     await store.reloadAll();
 
     expect(store.card()).toBeUndefined();
@@ -186,8 +187,6 @@ function quietHost(folders: string[]): PreviewHost {
   return {
     folders: () => folders,
     regenerate: async () => [],
-    notify: async () => {},
-    note: () => {},
     say: () => {},
   };
 }

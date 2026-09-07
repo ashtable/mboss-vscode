@@ -3,14 +3,17 @@ import { commands, window, workspace, type ExtensionContext } from 'vscode';
 import { agentPanel } from './acp/agent.js';
 import { chooseAgent } from './acp/choose.js';
 import { agentPickerHost, panelHost } from './acp/host.js';
-import { WorkflowCanvasEditor } from './canvas/editor.js';
+import { WorkflowCanvasEditor, type CanvasRuns } from './canvas/editor.js';
 import { commandHandlers } from './commands.js';
 import { projectHost, runWorkflowHost } from './commands/host.js';
 import { newProject, offerVendorRefresh } from './commands/newProject.js';
 import { runWorkflowCommand } from './commands/runWorkflow.js';
 import { isProject } from './core/index.js';
+import { galleryHost } from './gallery/host.js';
+import { GalleryPanel } from './gallery/panel.js';
 import { previewStore } from './preview/store.js';
-import { openDatabase, openFork } from './runs/db.js';
+import { openDatabase, openManagement } from './runs/db.js';
+import { projectSdk } from './runs/sdk.js';
 import { projectEnv } from './runs/env.js';
 import { runsHost } from './runs/host.js';
 import { RunsListView, SeePanel } from './runs/panels.js';
@@ -72,11 +75,10 @@ export function activate(context: ExtensionContext): void {
 
         return run.ran ? run.problems : [];
       },
-      notify: (text) => panel.send(text),
-      note: (entry) => panel.note(entry),
       say: (message) => api.info(message),
     },
     trust,
+    panel,
   );
 
   void preview.reloadAll();
@@ -102,10 +104,12 @@ export function activate(context: ExtensionContext): void {
   // and the canvas all draw it, and any of them can
   // be disposed while the others are on screen.
   const runs = runsStore({
-    host: runsHost(panel),
+    host: runsHost(),
+    agent: panel,
     trust,
     open: openDatabase,
-    openFork,
+    openManagement,
+    projectSdk,
     stack,
     // The runner is handed its collaborators here
     // rather than reaching for them: the store has
@@ -121,10 +125,40 @@ export function activate(context: ExtensionContext): void {
   });
   const see = new SeePanel(context.extensionUri, runs);
 
+  // Opening a run takes both the store that reads
+  // it and the page that shows one, so the pair is
+  // put together once here. Two surfaces ask for it
+  // — a card on the canvas, and a row mBoss wrote
+  // into the transcript — and neither has any
+  // business holding both halves.
+  const openRun = async (workflowId: string): Promise<void> => {
+    await runs.select(workflowId);
+    see.show();
+  };
+
+  // The canvas draws a run and offers the ways out
+  // of it: the whole run, a replay, and the agent.
+  const canvasRuns: CanvasRuns = {
+    live: () => runs.live(),
+    decided: (ir) => runs.decided(ir),
+    output: (workflowId, functionId) => runs.output(workflowId, functionId),
+    openRun,
+    replayFrom: (workflowId, nodeId) => runs.replay(workflowId, { nodeId }),
+    askAgent: (ask) => runs.askAgent(ask),
+    onChanged: (listener) => runs.onChanged(listener),
+  };
+
+  // The shelf of workflows to start from. Held here
+  // rather than by the command, so that running it
+  // twice reveals the one panel rather than opening
+  // a second.
+  const gallery = new GalleryPanel(context.extensionUri, galleryHost(), trust);
+
   const handlers = commandHandlers(
     api,
     () => watchers.generateNow(),
     newProject(projects, vendor, trust),
+    async () => gallery.show(),
     pickAgent,
     () => runs.refresh(),
     () => runs.stackUp(),
@@ -161,14 +195,21 @@ export function activate(context: ExtensionContext): void {
       context.extensionUri,
       api,
       preview,
-      runs,
+      canvasRuns,
       trust,
       watchers,
-      (entry) => panel.note(entry),
+      panel,
     ),
-    AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview),
+    AgentSidebarView.register(
+      context.extensionUri,
+      panel,
+      pickAgent,
+      preview,
+      openRun,
+    ),
     RunsListView.register(context.extensionUri, runs, see),
     { dispose: () => see.dispose() },
+    { dispose: () => gallery.dispose() },
     { dispose: () => panel.dispose() },
     preview,
     runs,

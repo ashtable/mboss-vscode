@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { layoutKeyOf } from '../../src/canvas/graph.js';
+import { layoutKeyOf } from '../../src/canvas/placement.js';
 import {
   NODE_PALETTE,
   WorkflowIRSchema,
@@ -87,6 +87,11 @@ const PROPOSED = ['twilio_chat', 'await_reply'];
 const inspector: CanvasInspector = {
   strings: inspectorWords,
   selected: undefined,
+
+  // Nothing is being followed on a canvas showing a
+  // proposal, so there is no evidence to read
+  // either.
+  mode: 'configure',
 };
 
 function preview(over: Partial<CanvasPreview> = {}): CanvasPreview {
@@ -123,6 +128,7 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     editing:
       shown.preview === undefined ? { revision: ir.revision } : undefined,
     run: undefined,
+    decided: {},
     ...over,
   };
 }

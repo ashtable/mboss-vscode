@@ -78,15 +78,32 @@ body {
   color: var(--warn);
 }
 
+/* Not the failure colour: a run somebody stopped is
+   not a bug anybody has to read. */
+.see-head > .title[data-severity='cancelled'] {
+  color: var(--ink-muted);
+}
+
 /* — the banner — */
 
 .recovered {
-  background: var(--brand-tint);
+  background: var(--warn-tint);
 }
 
 .recovered > .eyebrow {
-  color: var(--brand);
+  color: var(--warn);
   margin-bottom: var(--space-2);
+}
+
+/* The two numbers, above the sentence that says
+   where they came from — each carrying its own
+   derived chip. */
+.recovered-figures {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-2);
 }
 
 .recovered-body {
@@ -153,7 +170,7 @@ body {
   font-size: var(--text-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--brand);
+  color: var(--warn);
 }
 
 /* — the chart — */
@@ -221,7 +238,7 @@ body {
   inset-block: 0;
   background: var(--hatch);
   border-left: 1px dashed var(--fail);
-  border-right: 1px dashed var(--brand);
+  border-right: 1px dashed var(--warn);
 }
 
 .bar {
@@ -235,7 +252,7 @@ body {
    again. */
 .bar[data-restored='true'] {
   background: transparent;
-  border: 1px solid var(--brand);
+  border: 1px solid var(--warn);
 }
 
 .bar[data-failed='true'] {
@@ -271,7 +288,7 @@ body {
 }
 
 .band-labels > .resumed {
-  color: var(--brand);
+  color: var(--warn);
 }
 
 .ticks {
@@ -380,20 +397,194 @@ body {
   padding-left: var(--space-2);
 }
 
-.primary {
-  border: 1px solid var(--brand);
-  border-radius: 0;
-  background: var(--brand);
-  color: var(--on-brand);
-  font-weight: 600;
+/* How far the run got, and the one control left
+   over it. A column rather than the ledger's
+   label/value grid: a recorded name and a clock are
+   each as long as they are, and a rail somebody
+   narrowed has no second column to give them. */
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.control-line {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.control-name {
   font-size: var(--text-xs);
-  letter-spacing: 0.09em;
+  letter-spacing: var(--label-tracking);
   text-transform: uppercase;
-  padding: var(--space-2) var(--space-3);
+  color: var(--ink-muted);
+}
+
+/* The page's one action wears the shared button.
+   The rule that used to live here was the other
+   half of a shape two views spelled twice. */
+.btn:disabled {
+  opacity: 0.5;
+}
+
+/* — the two views of one run — */
+
+/* Both panes in one grid cell, so the one not being
+   read keeps its layout box. The graph library
+   measures its own pane: with no box it comes back
+   zero by zero and re-frames itself, and what a
+   person panned to would be lost every time the tab
+   changed. */
+.tab-panes {
+  display: grid;
+  min-height: 0;
+}
+
+.tab-pane {
+  grid-area: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.tab-pane[data-showing='false'] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The graph, at a height of its own: a pane that
+   sized itself to its content would be nothing tall
+   before the graph had drawn. */
+.run-flow {
+  position: relative;
+  height: 60vh;
+  min-height: 260px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.run-flow .node {
   cursor: pointer;
 }
 
-.primary:disabled {
-  opacity: 0.5;
-  cursor: default;
+/* — the trace — */
+
+.trace-block {
+  margin-top: var(--space-3);
+}
+
+.raw-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+  cursor: pointer;
+}
+
+.trace {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trace-group {
+  border-top: 1px solid var(--hairline);
+  border-left: 2px solid transparent;
+}
+
+.trace-group[data-failed='true'] {
+  border-left-color: var(--fail);
+}
+
+.trace-group[aria-current='true'] {
+  background: var(--surface-2);
+}
+
+.trace-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  cursor: pointer;
+}
+
+/* Restated after `all: unset` would take it away —
+   and asserted, because a control a keyboard cannot
+   find is a control half the people using this
+   cannot find. */
+.trace-head:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, var(--brand));
+  outline-offset: -2px;
+}
+
+.trace-title {
+  font-weight: 600;
+  font-size: var(--text-sm);
+  letter-spacing: var(--label-tracking);
+  text-transform: uppercase;
+}
+
+.trace-ops {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--space-2) var(--space-4);
+}
+
+.trace-op {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  padding: 2px var(--space-2);
+  cursor: pointer;
+}
+
+.trace-op:hover {
+  background: var(--surface-2);
+}
+
+.trace-op[aria-current='true'] {
+  background: var(--brand-tint);
+}
+
+/* A row DBOS wrote for itself is here because it
+   fell inside what a block was doing, which is all
+   the ledger says about where it belongs. Faint,
+   and its title says so. */
+.trace-op[data-owner='sdk'] {
+  color: var(--ink-faint);
+}
+
+.trace-op[data-state='failed'] .trace-name {
+  color: var(--fail);
+}
+
+.trace-name {
+  overflow-wrap: anywhere;
+}
+
+.trace-error {
+  font-size: var(--text-sm);
+  color: var(--fail);
+  overflow-wrap: anywhere;
+}
+
+/* What the run was started with, cut like a cell. */
+.raw-input {
+  margin: var(--space-1) 0 0;
+  max-height: 12em;
+  overflow: auto;
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
