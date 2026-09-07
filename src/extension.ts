@@ -133,6 +133,7 @@ export function activate(context: ExtensionContext): void {
   // one thing to have asked for.
   const canvasRuns: CanvasRuns = {
     live: () => runs.live(),
+    decided: (ir) => runs.decided(ir),
     openRun: async (workflowId) => {
       await runs.select(workflowId);
       see.show();

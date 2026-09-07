@@ -13,6 +13,7 @@ import {
 import type { LiveOutcome, StepState } from '../runs/reading.js';
 import type { LiveRun } from '../runs/watch.js';
 import { liveStep } from '../test-support/runs.js';
+import { fine } from '../webview/time.js';
 
 import {
   runStateOf,
@@ -723,5 +724,63 @@ describe('the line under a title', () => {
     expect(lineOf('booking_requested')).toBe('Trigger');
     expect(lineOf('await_reply')).toBe('Wait');
     expect(lineOf('send_confirmation')).toBe('Email');
+  });
+});
+
+/**
+ * The one thing that takes that line's place, and
+ * the only thing a run is allowed to put there.
+ *
+ * A block the run stopped on is the block somebody
+ * came to the canvas about, and when it stopped is
+ * the fact worth reading there — an absolute moment
+ * and never a counter, because nothing is happening
+ * at a parked block and a number climbing beside it
+ * would say the opposite.
+ */
+describe('the line under a block a run is parked at', () => {
+  const parked = run(
+    [
+      ['parse_request', 'done'],
+      ['twilio_chat', 'done'],
+      ['await_reply', 'waiting'],
+    ],
+    'waiting',
+  );
+
+  /** The moment the fixture's own waiting row
+   *  records, read back rather than written twice. */
+  const since = parked.steps.find(
+    (step) => step.state === 'waiting',
+  )?.completedAt;
+
+  const nodeAt = (id: string): CanvasNode | undefined =>
+    toReactFlow(
+      ir,
+      boxes,
+      drawing({ run: parked, waitingSince: 'WAITING · since {0}' }),
+    ).nodes.find((node) => node.id === id);
+
+  it('says when the run stopped there', () => {
+    expect(nodeAt('await_reply')?.data.line).toBe(
+      `WAITING · since ${fine(since ?? 0)}`,
+    );
+    expect(nodeAt('await_reply')?.data.waiting).toBe(true);
+  });
+
+  it('leaves every other block saying which code runs there', () => {
+    expect(nodeAt('parse_request')?.data.line).toBe('ƒ parseRequest');
+    expect(nodeAt('parse_request')?.data.waiting).toBeUndefined();
+  });
+
+  /** A reader with no word for it draws the block
+   *  it always drew, rather than a template with a
+   *  hole in it. */
+  it('says nothing about waiting where nobody sent the word', () => {
+    const { nodes } = toReactFlow(ir, boxes, drawing({ run: parked }));
+
+    expect(nodes.find((node) => node.id === 'await_reply')?.data.line).toBe(
+      'Wait',
+    );
   });
 });

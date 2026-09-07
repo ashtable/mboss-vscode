@@ -2,6 +2,7 @@ import { l10n } from 'vscode';
 
 import type { HandlerMisfit, NodeKind } from '../core/rules.js';
 import { once } from '../once.js';
+import type { LiveOutcome } from '../runs/reading.js';
 
 /**
  * Every word the canvas and its Inspector column
@@ -123,6 +124,14 @@ export const canvasWords = once(() => ({
   // is the second half of the sentence.
   runningDerived: l10n.t('RUNNING · derived'),
 
+  // Under the title of a block the run stopped on,
+  // in place of the code behind it. When it parked
+  // is the fact worth reading there, and it is an
+  // absolute moment rather than a count upwards:
+  // nothing is happening at that block, and a
+  // number climbing beside it would say otherwise.
+  waitingSince: l10n.t('WAITING · since {0}'),
+
   typedWiring: l10n.t('Typed wiring'),
 
   // The toolbar's own word for what the palette
@@ -133,6 +142,29 @@ export const canvasWords = once(() => ({
   // Follows the function's name, in the toolbar,
   // while a chip is on its way to a block.
   libFnDragging: l10n.t('dragging {0}…'),
+
+  // At the far end of the toolbar while this window
+  // is following a run of the workflow on screen:
+  // which workflow, which run, and where it has got
+  // to. The run carries no label of its own because
+  // the ids this window mints already open with the
+  // word, and the whole of one is on the chip
+  // itself for anybody who needs to read it.
+  following: l10n.t('{0} · {1} · {2}'),
+
+  // Where that run has got to, in the six answers a
+  // reading gives. `quiet` is not an ending — it is
+  // the watch letting go of a run that may yet move
+  // — and it has to read as something other than
+  // one.
+  runOutcomes: {
+    running: l10n.t('running'),
+    done: l10n.t('done'),
+    failed: l10n.t('failed'),
+    waiting: l10n.t('waiting'),
+    quiet: l10n.t('quiet'),
+    cancelled: l10n.t('cancelled'),
+  } satisfies Record<LiveOutcome, string>,
 
   // On the rail's own chip, while a block is on
   // its way onto the canvas. The chip is where a

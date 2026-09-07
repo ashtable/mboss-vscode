@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
+import type { WorkflowIR } from '../core/rules.js';
 import {
   LEDGER_URL,
   database,
@@ -561,5 +562,127 @@ describe('asking the agent why', () => {
     await shown.askAgent('run_nothing');
 
     expect(agent.told).toEqual([]);
+  });
+});
+
+/**
+ * What the run was started with, where the ledger
+ * has no record of it.
+ *
+ * DBOS does not always write the input column, and
+ * a run this window started is one whose input this
+ * window is still holding. Filling the gap from the
+ * session row is the only place that fact exists —
+ * and it is filled only for a row that carries one,
+ * which a fork or a resume never does.
+ */
+describe('what a followed run was started with', () => {
+  it('keeps the input the ledger recorded', async () => {
+    const owner = follows();
+    const shown = zone({ runner: echoing().start, following: owner.held });
+
+    await shown.runWorkflow('groom_booking', '{"email":"ada@example.com"}');
+    const workflowId = shown.render().session[0]?.workflowId ?? '';
+
+    owner.watch.say(
+      workflowId,
+      liveRun({ workflowId, input: '{"from":"the ledger"}' }),
+    );
+
+    expect(shown.live()?.input).toBe('{"from":"the ledger"}');
+  });
+
+  it('takes the workflow input from the session row when the ledger has none', async () => {
+    const owner = follows();
+    const shown = zone({ runner: echoing().start, following: owner.held });
+
+    await shown.runWorkflow('groom_booking', '{"email":"ada@example.com"}');
+    const workflowId = shown.render().session[0]?.workflowId ?? '';
+
+    owner.watch.say(workflowId, liveRun({ workflowId, input: undefined }));
+
+    // Printed the way the ledger's own input is
+    // printed, so a card cannot tell which of the
+    // two it is reading by how it is laid out.
+    expect(shown.live()?.input).toBe('{\n  "email": "ada@example.com"\n}');
+  });
+
+  it('says none when neither the ledger nor the session knows', () => {
+    const owner = follows();
+    const shown = zone({ following: owner.held });
+
+    shown.follow('wf_fork1', 'groom_booking', { via: 'replay' });
+    owner.watch.say(
+      'wf_fork1',
+      liveRun({ workflowId: 'wf_fork1', input: undefined }),
+    );
+
+    expect(shown.live()?.input).toBeUndefined();
+  });
+});
+
+/**
+ * A branch that a canvas of this workflow draws.
+ * Only the shape `decidedArms` reads matters here.
+ */
+const BRANCHING = {
+  $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+  version: 1,
+  revision: 1,
+  name: 'groom_booking',
+  nodes: [
+    {
+      id: 'how_big',
+      kind: 'branch',
+      title: 'How big',
+      config: {
+        cases: [
+          { port: 'large', when: { path: 'amount', op: 'gt', value: 500 } },
+        ],
+        elsePort: 'small',
+      },
+    },
+  ],
+  edges: [],
+} as unknown as WorkflowIR;
+
+/**
+ * Which way out each decided block took, worked out
+ * against the document whoever is drawing hands in.
+ *
+ * The rows are the ones the watch already read, so
+ * nothing goes back to the database for them — and
+ * the document is the asker's, because a workflow
+ * edited since the run is a different picture and a
+ * row naming a block it no longer has belongs to
+ * nothing.
+ */
+describe('the arms a followed run decided', () => {
+  it('reads them off the rows the watch handed over', async () => {
+    const owner = follows();
+    const shown = zone({ runner: echoing().start, following: owner.held });
+
+    await shown.runWorkflow('groom_booking', '{}');
+    const workflowId = shown.render().session[0]?.workflowId ?? '';
+
+    owner.watch.say(
+      workflowId,
+      liveRun({
+        workflowId,
+        steps: [
+          liveStep({
+            name: 'how_big',
+            nodeId: 'how_big',
+            output: JSON.stringify({ amount: 900 }),
+          }),
+        ],
+      }),
+    );
+
+    expect(shown.decided(BRANCHING).get('how_big')).toBe('large');
+  });
+
+  it('decides nothing before a run has said anything', () => {
+    expect(zone().decided(BRANCHING).size).toBe(0);
   });
 });

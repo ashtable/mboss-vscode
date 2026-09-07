@@ -128,6 +128,7 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     editing:
       shown.preview === undefined ? { revision: ir.revision } : undefined,
     run: undefined,
+    decided: {},
     ...over,
   };
 }

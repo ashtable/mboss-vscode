@@ -1,12 +1,16 @@
 import type { Disposable } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
+import type { WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
 import type { RunsInit, TestRunProblem } from '../webview/protocol.js';
 
 import type { Following } from './following.js';
+import { decidedArms } from './operations.js';
+import { readRun } from './reading.js';
+import { hasRecovered } from './rows.js';
 import { newRunId, type RunStart, type RunStarter } from './runner.js';
 import {
   refusedRunId,
@@ -14,7 +18,7 @@ import {
   type SessionRun,
 } from './sessionLog.js';
 import { sessionRowOf } from './view.js';
-import { SETTLED, type LiveRun } from './watch.js';
+import { SETTLED, type LedgerRead, type LiveRun } from './watch.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 
 /**
@@ -125,6 +129,21 @@ export type TestRun = Disposable & {
    *  one has been followed. */
   live(): LiveRun | undefined;
 
+  /**
+   * Which way out each decided block of that run
+   * took, read against the document the asker is
+   * drawing.
+   *
+   * The document comes in because the rows are here
+   * and the picture is theirs. The watch never
+   * looked at one, so its own reading attributes
+   * every row by name alone; asking again against a
+   * real drawing is what lets a workflow edited
+   * since the run say honestly that a row names a
+   * block it no longer has.
+   */
+  decided(ir: WorkflowIR): ReadonlyMap<string, string>;
+
   render(): TestRunZone;
 
   onChanged(listener: () => void): Disposable;
@@ -138,6 +157,11 @@ export function testRunZone(deps: TestRunDeps): TestRun {
   let input = '';
   let problem: TestRunProblem | undefined;
   let live: LiveRun | undefined;
+
+  /** The rows that reading was made of, kept beside
+   *  it so a second reader with a document of its
+   *  own need not go back to the database. */
+  let ledger: LedgerRead | undefined;
 
   const changed = changes.fire;
 
@@ -177,11 +201,21 @@ export function testRunZone(deps: TestRunDeps): TestRun {
    * document with somebody else's run is exactly
    * what this guard prevents.
    */
-  const heard = (run: LiveRun): void => {
+  const heard = (run: LiveRun, read: LedgerRead): void => {
     const row = deps.sessionLog.find(run.workflowId);
     if (row === undefined) return;
 
-    live = run;
+    // What the run was started with, filled in from
+    // the row where the ledger has no record of it.
+    // Done as the report lands rather than when
+    // somebody asks, so that the same reading comes
+    // back between ticks — a canvas compares what it
+    // is following by identity, and a fresh object
+    // per question would redraw it on every signal
+    // this store makes.
+    live = run.input === undefined ? { ...run, input: sent(row) } : run;
+    ledger = read;
+
     const failed = run.steps.find((step) => step.state === 'failed');
 
     deps.sessionLog.update(run.workflowId, {
@@ -437,6 +471,20 @@ export function testRunZone(deps: TestRunDeps): TestRun {
 
     live: () => live,
 
+    decided: (ir) =>
+      ledger === undefined
+        ? new Map()
+        : decidedArms(
+            readRun(
+              ledger.run,
+              ledger.steps,
+              ir,
+              hasRecovered(ledger.run),
+              Date.now(),
+            ).steps,
+            ir,
+          ),
+
     render: () => ({
       testRun: {
         workflows: workflows.map((flow) => ({
@@ -486,6 +534,24 @@ function hintFor(
   }
 
   return messages.runKeyPathHint(trigger.keyPath);
+}
+
+/**
+ * What this window sent to start the run, printed
+ * the way the ledger's own input column is.
+ *
+ * DBOS does not always record what a run was
+ * started with, and a run this window started is
+ * one whose input this window is still holding — so
+ * the row answers where the column could not. A
+ * fork or a resume carries the input of the run it
+ * came from, which never passed through here, and
+ * for those there is honestly nothing to say.
+ */
+function sent(row: SessionRun): string | undefined {
+  return row.input === undefined
+    ? undefined
+    : JSON.stringify(row.input, null, 2);
 }
 
 /**

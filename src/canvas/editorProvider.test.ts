@@ -214,15 +214,25 @@ type FakeRuns = CanvasRuns & {
   /** Every run the canvas asked to have put on
    *  screen. */
   readonly opened: string[];
+
+  /** Every document the canvas asked for the
+   *  decided arms of. */
+  readonly asked: WorkflowIR[];
 };
 
-function runsSaying(): FakeRuns {
+function runsSaying(arms: Record<string, string> = {}): FakeRuns {
   const listeners: (() => void)[] = [];
   const opened: string[] = [];
+  const asked: WorkflowIR[] = [];
   let live: LiveRun | undefined;
 
   return {
     live: () => live,
+    decided: (ir) => {
+      asked.push(ir);
+
+      return new Map(Object.entries(arms));
+    },
     openRun: async (workflowId) => {
       opened.push(workflowId);
     },
@@ -236,6 +246,7 @@ function runsSaying(): FakeRuns {
       for (const listener of listeners) listener();
     },
     opened,
+    asked,
   };
 }
 
@@ -1487,6 +1498,40 @@ describe('a run of the workflow on screen', () => {
     await settled();
 
     expect(lastCanvasInit().run).toBeUndefined();
+  });
+
+  /**
+   * Which way out each decided block took is worked
+   * out against the document this panel is drawing
+   * rather than against whatever the watch had. The
+   * store holds the rows and the canvas holds the
+   * picture, so the picture is what goes over.
+   */
+  it('fills the decided arms from the followed run', async () => {
+    const runs = runsSaying({ slot_open: 'no' });
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    expect(lastCanvasInit().decided).toEqual({ slot_open: 'no' });
+    expect(runs.asked.map((ir) => ir.name)).toEqual(['groom_booking']);
+  });
+
+  it('decides nothing for a canvas the followed run is not of', async () => {
+    const runs = runsSaying({ slot_open: 'no' });
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('invoice_dunning'));
+    await settled();
+
+    expect(lastCanvasInit().decided).toEqual({});
+
+    // And the store is not asked at all: a canvas
+    // with no run of its own has no arms to draw,
+    // and asking would read rows about somebody
+    // else's workflow.
+    expect(runs.asked).toEqual([]);
   });
 });
 

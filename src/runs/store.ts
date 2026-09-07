@@ -4,6 +4,7 @@ import type { Disposable } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
 import { manifestFor } from '../core/index.js';
+import type { WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import { messages } from '../messages.js';
 import { openHandler, openSourceFrame } from '../openHandler.js';
@@ -135,6 +136,11 @@ export type RunsStore = Disposable & {
   /** The run a canvas draws itself against, when
    *  one has been followed. */
   live(): LiveRun | undefined;
+
+  /** Which way out each decided block of that run
+   *  took, read against the document whoever is
+   *  drawing hands in. */
+  decided(ir: WorkflowIR): ReadonlyMap<string, string>;
 
   /**
    * Everything the panel shows, asked for again.
@@ -367,6 +373,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     see: openRun.see,
     detail: openRun.reading,
     live: testRun.live,
+    decided: testRun.decided,
 
     refresh: async () => {
       await stack.read();

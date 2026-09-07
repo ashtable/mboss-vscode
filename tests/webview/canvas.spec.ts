@@ -30,6 +30,7 @@ import {
 import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
 import type { LiveRun, LiveStep } from '../../src/runs/watch.js';
 import { liveStep } from '../../src/test-support/runs.js';
+import { filled } from '../../src/webview/fill.js';
 import type { CanvasInit, InspectorMode } from '../../src/webview/protocol.js';
 
 import { mount, type ThemeKind } from './harness.js';
@@ -121,6 +122,7 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     },
     preview: undefined,
     run: undefined,
+    decided: {},
     ...over,
   };
 }
@@ -861,6 +863,38 @@ function recording(steps: LiveStep[], over: Partial<LiveRun> = {}): LiveRun {
  */
 const RECORDED_AT = new Date(2026, 8, 7, 10, 31, 14, 218).getTime();
 
+/** The parked run again, with the moment it parked
+ *  spelled out: the line under the block reads it
+ *  back. */
+const WAITING_PARKED = recording(
+  [
+    liveStep({ name: 'parse_request', nodeId: 'parse_request', functionId: 0 }),
+    liveStep({ name: 'twilio_chat', nodeId: 'twilio_chat', functionId: 1 }),
+    liveStep({
+      name: 'await_reply.register',
+      nodeId: 'await_reply',
+      state: 'waiting',
+      functionId: 2,
+      completedAt: RECORDED_AT,
+    }),
+  ],
+  { outcome: 'waiting' },
+);
+
+/**
+ * The line that block then shows.
+ *
+ * A shape rather than a string, because the time in
+ * it is formatted in the browser's own locale and
+ * the process running this spec need not share one.
+ */
+const WAITING_LINE = new RegExp(
+  `^${canvasStrings.waitingSince.replace(
+    '{0}',
+    '\\d{1,2}:\\d{2}:\\d{2}\\.\\d{3}',
+  )}`,
+);
+
 /** One step that worked, timed to the millisecond
  *  and carrying what it returned. */
 const DONE = liveStep({
@@ -1242,6 +1276,111 @@ test.describe('the mark a run leaves on a block', () => {
     await openAtRest(page);
 
     await expect(runMark(page, 'find_slot')).toHaveCount(0);
+  });
+
+  /**
+   * The mark says the block is parked; the line
+   * under the title says since when. An absolute
+   * moment and never a clock counting up — nothing
+   * is happening here, and a number climbing would
+   * say the opposite.
+   */
+  test('says since when a block is waiting', async ({ page }) => {
+    await openAtRest(page, { run: WAITING_PARKED });
+
+    const line = nodeLine(page, 'await_reply');
+
+    await expect(line).toHaveAttribute('data-line', 'waiting');
+    await expect(line).toHaveText(WAITING_LINE);
+
+    // The block is only as wide as core laid it out,
+    // and half a clock is not a moment — so the
+    // whole sentence stays reachable however it is
+    // cut.
+    await expect(line).toHaveAttribute('title', WAITING_LINE);
+  });
+
+  /**
+   * A branch that recorded which way it went is a
+   * branch the run demonstrably did not take the
+   * other way out of, so only one wire past it can
+   * be carrying anything.
+   */
+  test('lights one successor of a decision the run made', async ({ page }) => {
+    await openAtRest(page, {
+      run: runOf(IN_FLIGHT),
+      decided: { slot_open: 'yes' },
+    });
+
+    await expect(wireBody(page, 'e4')).toHaveAttribute('data-state', 'active');
+    await expect(wireBody(page, 'e5')).toHaveAttribute('data-state', 'idle');
+    await expect(nodeBody(page, 'book_appointment')).toHaveAttribute(
+      'data-state',
+      'running',
+    );
+    await expect(nodeBody(page, 'twilio_chat')).toHaveAttribute(
+      'data-state',
+      'dormant',
+    );
+  });
+
+  /** A branch decided on predicates writes no row
+   *  at all — it is settled in the generated code —
+   *  so the run is somewhere past both arms. */
+  test('lights both successors of a predicate branch', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT), decided: {} });
+
+    await expect(wireBody(page, 'e4')).toHaveAttribute('data-state', 'active');
+    await expect(wireBody(page, 'e5')).toHaveAttribute('data-state', 'active');
+  });
+});
+
+/**
+ * The chip at the end of the toolbar, while this
+ * window is following a run of the workflow on
+ * screen.
+ *
+ * It says which run and where it has got to, and
+ * nothing about how long ago anything happened: the
+ * canvas keeps no clock, and a chip that counted
+ * would be one.
+ */
+test.describe('the followed run on the toolbar', () => {
+  test('names the run this canvas is following', async ({ page }) => {
+    await openAtRest(page, { run: runOf(PARKED, 'waiting') });
+
+    await expect(page.locator('.following')).toHaveText(
+      filled(
+        canvasStrings.following,
+        ir.name,
+        'wf_1',
+        canvasStrings.runOutcomes.waiting,
+      ),
+    );
+  });
+
+  /** The end of it, because the ids this window
+   *  mints open with a timestamp — two runs a minute
+   *  apart share their first fifteen characters. */
+  test('shows the end of a long run id, and the whole of it beside', async ({
+    page,
+  }) => {
+    const workflowId = 'run_1757232000000_a1b2c3d4';
+
+    await openAtRest(page, {
+      run: { ...runOf(IN_FLIGHT), workflowId },
+    });
+
+    const chip = page.locator('.following');
+
+    await expect(chip).toContainText('…a1b2c3d4');
+    await expect(chip).toHaveAttribute('title', workflowId);
+  });
+
+  test('says nothing on a canvas following no run', async ({ page }) => {
+    await openAtRest(page);
+
+    await expect(page.locator('.following')).toHaveCount(0);
   });
 });
 

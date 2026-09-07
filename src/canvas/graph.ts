@@ -11,6 +11,8 @@ import {
 } from '../core/rules.js';
 import type { StepState } from '../runs/reading.js';
 import type { LiveRun, LiveStep } from '../runs/watch.js';
+import { filled } from '../webview/fill.js';
+import { fine } from '../webview/time.js';
 
 /**
  * A workflow document, as the graph library wants
@@ -85,6 +87,18 @@ export type Drawing = {
    *  out rather than read off a row. */
   runningDerived: string;
 
+  /**
+   * What the line under a parked block says, with
+   * `{0}` for the moment the run stopped there.
+   *
+   * Optional because not every reader of this
+   * drawing has the word: the run page says the
+   * same thing in a column of its own and would
+   * then be saying it twice. Without one, a parked
+   * block keeps the line every other block has.
+   */
+  waitingSince?: string;
+
   /** Blocks an agent is asking for, which the file
    *  does not have. */
   proposed?: readonly string[];
@@ -117,6 +131,13 @@ export type CanvasNodeData = {
   /** The one line under the title, already in the
    *  reader's language. */
   line: string;
+
+  /** Whether that line is when the run parked here
+   *  rather than the code behind the block. Absent
+   *  everywhere else, so a block drawn `waiting` by
+   *  a reader with no word for it does not claim to
+   *  be saying one. */
+  waiting?: boolean;
 
   state: NodeState;
 
@@ -186,6 +207,7 @@ export function toReactFlow(
   const arriving = new Set(drawing.proposed ?? []);
   const ports = new Map(ir.nodes.map((node) => [node.id, portsOf(node)]));
   const run = tonesOf(ir, drawing.run, drawing.decided ?? new Map());
+  const parked = parkedAt(drawing.run);
 
   // Built once and handed to every wire, rather
   // than each of them keeping its own copy of the
@@ -198,7 +220,7 @@ export function toReactFlow(
         node,
         boxes[node.id],
         stateOf(node.id, arriving, drawing.selected, run.nodes),
-        lineOf(node, drawing),
+        lineFor(node, drawing, parked.get(node.id)),
         drawing.runningDerived,
       ),
     ),
@@ -229,7 +251,7 @@ function toCanvasNode(
   node: WorkflowNode,
   box: NodeBox | undefined,
   state: NodeState,
-  line: string,
+  line: BlockLine,
   runningDerived: string,
 ): CanvasNode {
   if (box === undefined) {
@@ -250,11 +272,64 @@ function toCanvasNode(
     selected: state === 'selected',
     data: {
       node,
-      line,
+      line: line.text,
       state,
+      ...(line.waiting ? { waiting: true } : {}),
       ...(state === 'running' ? { runTitle: runningDerived } : {}),
     },
   };
+}
+
+/** The line under a title, and which of the two
+ *  kinds of line it is. */
+type BlockLine = { text: string; waiting: boolean };
+
+/**
+ * The line a block shows, which is the code behind
+ * it until a run is parked there.
+ *
+ * A block the run stopped on is the one somebody
+ * came to the canvas about, and when it stopped is
+ * what is worth reading there. Written here rather
+ * than inside `lineOf`, because that function
+ * answers a question about the document alone and a
+ * run is not part of the document.
+ */
+function lineFor(
+  node: WorkflowNode,
+  drawing: Drawing,
+  since: number | undefined,
+): BlockLine {
+  const word = drawing.waitingSince;
+
+  if (since === undefined || word === undefined) {
+    return { text: lineOf(node, drawing), waiting: false };
+  }
+
+  return { text: filled(word, fine(since)), waiting: true };
+}
+
+/**
+ * When each parked block parked.
+ *
+ * The row carrying `waiting` is the registration
+ * the run wrote as it stopped, so its completion is
+ * the moment. A block that parked more than once
+ * has a row for each, and the latest is where the
+ * run is sitting now.
+ */
+function parkedAt(run: LiveRun | undefined): ReadonlyMap<string, number> {
+  const since = new Map<string, number>();
+  if (run === undefined) return since;
+
+  for (const step of run.steps) {
+    if (step.state !== 'waiting' || step.nodeId === undefined) continue;
+
+    const at = step.completedAt ?? step.startedAt;
+    if (at !== undefined) since.set(step.nodeId, at);
+  }
+
+  return since;
 }
 
 /**

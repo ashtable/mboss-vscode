@@ -219,6 +219,21 @@ function Workspace({
   );
 
   /**
+   * Which way out each decided block took, off the
+   * wire.
+   *
+   * Built once here rather than in each of the two
+   * places that read it: the graph paints the arms
+   * the run did not take as structure, and the
+   * column beside it has to say the same thing
+   * about the block somebody selected.
+   */
+  const decided = useMemo(
+    () => new Map(Object.entries(init.decided)),
+    [init.decided],
+  );
+
+  /**
    * Everything after the press.
    *
    * The graph as it stands is taken here, at the
@@ -307,7 +322,12 @@ function Workspace({
 
         {document.ok ? (
           showing === 'canvas' ? (
-            <Graph init={init} ir={document.ir} carrying={flying} />
+            <Graph
+              init={init}
+              ir={document.ir}
+              carrying={flying}
+              decided={decided}
+            />
           ) : (
             <Json ir={document.ir} readOnly={editing === undefined} />
           )
@@ -329,7 +349,7 @@ function Workspace({
           run={init.run}
           runState={
             document.ok && selected !== undefined
-              ? runStateOf(document.ir, init.run, selected.id)
+              ? runStateOf(document.ir, init.run, selected.id, decided)
               : undefined
           }
           lib={init.manifest?.functions}
@@ -483,6 +503,17 @@ function Toolbar({
         </p>
       )}
 
+      {init.run === undefined ? null : (
+        <p className="following mono text-muted" title={init.run.workflowId}>
+          {filled(
+            init.strings.following,
+            init.run.workflow,
+            shortRunId(init.run.workflowId),
+            init.strings.runOutcomes[init.run.outcome],
+          )}
+        </p>
+      )}
+
       {init.preview === undefined ? null : (
         <p className="preview-line eyebrow" data-preview-headline>
           {init.preview.headline}
@@ -492,10 +523,29 @@ function Toolbar({
   );
 }
 
+/**
+ * How much of a run's id the chip shows.
+ *
+ * Its end rather than its head: the ids this window
+ * mints open with a timestamp, so two runs a minute
+ * apart share their first fifteen characters and a
+ * head would name neither of them. The whole of it
+ * is on the chip itself for anybody who needs to
+ * read it.
+ */
+const RUN_ID_SHOWN = 8;
+
+function shortRunId(workflowId: string): string {
+  return workflowId.length <= RUN_ID_SHOWN
+    ? workflowId
+    : `…${workflowId.slice(-RUN_ID_SHOWN)}`;
+}
+
 function Graph({
   init,
   ir,
   carrying,
+  decided,
 }: {
   init: CanvasInit;
   ir: WorkflowIR;
@@ -503,6 +553,10 @@ function Graph({
   /** The block in flight over the graph, while
    *  somebody is carrying one. */
   carrying: Carrying | undefined;
+
+  /** Which way out each decided block took, so the
+   *  arms the run did not take stay structure. */
+  decided: ReadonlyMap<string, string>;
 }) {
   const [refused, setRefused] = useState<Diagnostic | undefined>();
 
@@ -526,9 +580,11 @@ function Graph({
         labels: init.paletteLabels,
         unassigned: init.strings.unassigned,
         runningDerived: init.strings.runningDerived,
+        waitingSince: init.strings.waitingSince,
         proposed: preview?.proposed,
         selected,
         run: init.run,
+        decided,
       }),
     [
       ir,
@@ -536,9 +592,11 @@ function Graph({
       init.paletteLabels,
       init.strings.unassigned,
       init.strings.runningDerived,
+      init.strings.waitingSince,
       preview?.proposed,
       selected,
       init.run,
+      decided,
     ],
   );
 

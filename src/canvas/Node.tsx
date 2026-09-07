@@ -136,6 +136,7 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
         title={node.title}
         line={data.line}
         wanting={wantsHandler(node)}
+        waiting={data.waiting}
         state={state}
         runTitle={data.runTitle}
       />
@@ -206,6 +207,7 @@ export function BlockFace({
   title,
   line,
   wanting,
+  waiting,
   state,
   runTitle,
 }: {
@@ -216,6 +218,13 @@ export function BlockFace({
   /** Whether that line is a gap where a function
    *  goes rather than the name of one. */
   wanting: boolean;
+
+  /** Or when the run parked here, which displaces
+   *  both. Said by whoever wrote the line, never
+   *  read back off the state: a reader that draws a
+   *  block `waiting` without the word for it is
+   *  still showing the code behind the block. */
+  waiting?: boolean;
   state: NodeState;
 
   /** What the mark says it is, for anything that
@@ -233,7 +242,15 @@ export function BlockFace({
         <p className="node-title">{truncateTitle(title)}</p>
         <p
           className="node-line mono"
-          data-line={wanting ? 'unassigned' : undefined}
+          data-line={
+            waiting === true ? 'waiting' : wanting ? 'unassigned' : undefined
+          }
+          // A block is the width core laid the graph
+          // out at, and a clock written out to the
+          // millisecond does not always fit inside
+          // it. Half a moment is no moment at all,
+          // so the whole of it stays reachable.
+          title={waiting === true ? line : undefined}
         >
           {line}
         </p>

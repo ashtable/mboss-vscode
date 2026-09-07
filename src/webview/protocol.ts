@@ -135,6 +135,20 @@ export type CanvasInit = {
    * where they are.
    */
   run: LiveRun | undefined;
+
+  /**
+   * Which way out each decided block took, read
+   * against the document this canvas is drawing.
+   *
+   * A record rather than a map: this crosses
+   * `postMessage`, and a map does not survive being
+   * JSON. Empty where no run of this workflow is
+   * being followed — and read against the file on
+   * screen rather than against whatever the watch
+   * had, so a document edited since the run says
+   * honestly that a row names nothing it has.
+   */
+  decided: Record<string, string>;
 };
 
 export type CanvasPreview = {

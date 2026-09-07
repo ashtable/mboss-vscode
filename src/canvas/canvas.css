@@ -282,6 +282,18 @@ button.lib-fn {
   white-space: nowrap;
 }
 
+/* Which run this canvas is drawing itself against,
+   at the far end of the toolbar beside the two
+   other things that are true of the moment rather
+   than of the file. Nothing is timed here: the run
+   moves, and a chip that counted would need a clock
+   the canvas does not keep. */
+.following {
+  margin: 0 0 0 auto;
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
 /* The one line of chrome that belongs to a
    proposal rather than to the file. The mockup puts
    it in the tab strip, which no extension can write

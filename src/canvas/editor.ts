@@ -94,6 +94,21 @@ export type CanvasRuns = {
   live(): LiveRun | undefined;
 
   /**
+   * Which way out each decided block took, read
+   * against the document this canvas draws.
+   *
+   * The document is handed over because the store
+   * has the rows and the canvas has the drawing. A
+   * branch's arm is written into a row the store
+   * already holds, but which block that row names is
+   * a question only a document answers — and this
+   * canvas is the one being edited, so a block
+   * somebody deleted since the run is honestly a
+   * block the run cannot have gone through.
+   */
+  decided(ir: WorkflowIR): ReadonlyMap<string, string>;
+
+  /**
    * Puts one run on screen in the flight recorder.
    *
    * The way out of the column: a card here says what
@@ -463,6 +478,16 @@ export class CanvasSession {
       inspector: this.inspector(),
       preview: this.live === undefined ? undefined : canvasPreview(this.live),
       run: this.run,
+
+      // Asked only where this canvas is drawing a
+      // run of its own workflow: with no run there
+      // are no decisions, and with an unreadable
+      // file there is no document to read them
+      // against.
+      decided:
+        this.run === undefined || !this.read.ok
+          ? {}
+          : Object.fromEntries(this.runs.decided(this.read.ir)),
     };
   }
 
