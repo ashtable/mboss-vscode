@@ -68,6 +68,23 @@ const InspectorModePicked = z.object({
 });
 
 /**
+ * Somebody asked to read a whole recorded output
+ * somewhere it fits.
+ *
+ * A column 284px wide can hold a line of JSON and
+ * not a page of it, so the value goes into an
+ * editor tab instead. The run travels with the row
+ * because the panel may be drawing a run the
+ * extension has since moved past, and the extension
+ * is what decides which run this is about.
+ */
+const OpenOutput = z.object({
+  type: z.literal('openOutput'),
+  workflowId: z.string(),
+  functionId: z.number().int(),
+});
+
+/**
  * Somebody drew a wire from one block to another.
  *
  * The source block and no port. A block has one dot
@@ -338,8 +355,9 @@ const AskAgent = z.object({
   workflowId: z.string(),
 });
 
-/** Somebody opened one of this session's runs in
- *  the flight recorder. */
+/** Somebody opened a run in the flight recorder:
+ *  one of this session's, from the list, or the one
+ *  a canvas is drawing itself against. */
 const OpenRun = z.object({
   type: z.literal('openRun'),
   workflowId: z.string(),
@@ -463,6 +481,8 @@ const SCHEMAS = {
     Ready,
     Select,
     InspectorModePicked,
+    OpenOutput,
+    OpenRun,
     Connect,
     AddNode,
     Move,
@@ -502,6 +522,7 @@ const SCHEMAS = {
   see: z.discriminatedUnion('type', [
     Ready,
     StepSelect,
+    OpenOutput,
     Replay,
     SeeShow,
     SeeNode,

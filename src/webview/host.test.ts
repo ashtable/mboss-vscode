@@ -150,6 +150,7 @@ describe('what each view may say', () => {
 
     select: ['canvas'],
     inspectorMode: ['canvas'],
+    openOutput: ['canvas', 'see'],
     connect: ['canvas'],
     addNode: ['canvas'],
     move: ['canvas'],
@@ -179,7 +180,7 @@ describe('what each view may say', () => {
     runWorkflow: ['runs'],
     rerun: ['runs'],
     askAgent: ['runs'],
-    openRun: ['runs'],
+    openRun: ['runs', 'canvas'],
     openProduction: ['runs'],
 
     stepSelect: ['see'],
@@ -201,6 +202,7 @@ describe('what each view may say', () => {
 
     select: { nodeId: 'find_slot' },
     inspectorMode: { mode: 'evidence' },
+    openOutput: { workflowId: 'wf_c9d2f3', functionId: 2 },
     connect: {
       baseRevision: 3,
       from: { node: 'find_slot' },

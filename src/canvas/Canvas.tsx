@@ -49,6 +49,7 @@ import { spliceGaps, type SpliceGap } from './drag/gaps.js';
 import { pastThreshold } from './drag/gesture.js';
 import {
   lineOf,
+  runStateOf,
   toReactFlow,
   wantsHandler,
   type CanvasEdge,
@@ -326,6 +327,11 @@ function Workspace({
           }
           mode={init.inspector.mode}
           run={init.run}
+          runState={
+            document.ok && selected !== undefined
+              ? runStateOf(document.ir, init.run, selected.id)
+              : undefined
+          }
           lib={init.manifest?.functions}
           misfits={init.strings.misfits}
         />

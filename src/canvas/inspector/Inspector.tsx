@@ -15,8 +15,10 @@ import type {
   InspectorStrings,
 } from '../../webview/protocol.js';
 import { useEditing } from '../Editing.js';
+import type { RunState } from '../graph.js';
 import { FunctionLines, fitsFor, type LibFit } from '../libFunction.js';
 
+import { Evidence } from './EvidenceCard.js';
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
 import { outcomesOf, type DecisionOutcome } from './outcomes.js';
 
@@ -67,6 +69,12 @@ export type InspectorProps = {
    *  to say about. */
   run: LiveRun | undefined;
 
+  /** What that run says about the selected block, as
+   *  the graph says it — asked there rather than
+   *  worked out again here, so the card and the
+   *  block cannot disagree. */
+  runState: RunState | undefined;
+
   /** What the project's code-behind offers, which
    *  is what the picker offers. */
   lib: LibFunction[] | undefined;
@@ -98,6 +106,7 @@ export function Inspector({
   selected,
   mode,
   run,
+  runState,
   lib,
   misfits,
 }: InspectorProps) {
@@ -124,6 +133,13 @@ export function Inspector({
       />
     );
 
+  // The card is handed the block's identity and its
+  // policy rather than the node, because the other
+  // face is where configuration is read and set: a
+  // card that could reach `config` would drift into
+  // being a second form.
+  const node = selected?.node;
+
   return (
     <div className="inspector" data-inspector-mode={mode}>
       <Faces strings={strings} mode={mode} run={run} />
@@ -133,7 +149,26 @@ export function Inspector({
           document, so the two share no rows and
           drawing both would put a field somebody may
           change beside a fact they may not. */}
-      {mode === 'configure' ? configuring : null}
+      {mode === 'configure' ? (
+        configuring
+      ) : run === undefined ? null : (
+        <Evidence
+          strings={strings}
+          run={run}
+          block={
+            node === undefined
+              ? undefined
+              : {
+                  id: node.id,
+                  kind: node.kind,
+                  title: node.title,
+                  handler: node.handler?.export,
+                  retry: node.retry,
+                }
+          }
+          runState={runState}
+        />
+      )}
     </div>
   );
 }

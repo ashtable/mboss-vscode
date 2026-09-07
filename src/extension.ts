@@ -3,7 +3,7 @@ import { commands, window, workspace, type ExtensionContext } from 'vscode';
 import { agentPanel } from './acp/agent.js';
 import { chooseAgent } from './acp/choose.js';
 import { agentPickerHost, panelHost } from './acp/host.js';
-import { WorkflowCanvasEditor } from './canvas/editor.js';
+import { WorkflowCanvasEditor, type CanvasRuns } from './canvas/editor.js';
 import { commandHandlers } from './commands.js';
 import { projectHost, runWorkflowHost } from './commands/host.js';
 import { newProject, offerVendorRefresh } from './commands/newProject.js';
@@ -125,6 +125,21 @@ export function activate(context: ExtensionContext): void {
   });
   const see = new SeePanel(context.extensionUri, runs);
 
+  // The canvas draws a run and offers the way to the
+  // whole of it, which takes both the store that
+  // reads the run and the page that shows one. Put
+  // together here rather than given to the canvas as
+  // two collaborators, because "open this run" is
+  // one thing to have asked for.
+  const canvasRuns: CanvasRuns = {
+    live: () => runs.live(),
+    openRun: async (workflowId) => {
+      await runs.select(workflowId);
+      see.show();
+    },
+    onChanged: (listener) => runs.onChanged(listener),
+  };
+
   // The shelf of workflows to start from. Held here
   // rather than by the command, so that running it
   // twice reveals the one panel rather than opening
@@ -172,7 +187,7 @@ export function activate(context: ExtensionContext): void {
       context.extensionUri,
       api,
       preview,
-      runs,
+      canvasRuns,
       trust,
       watchers,
       panel,

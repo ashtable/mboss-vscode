@@ -28,7 +28,7 @@ import {
   type WorkflowNode,
 } from '../../src/core/rules.js';
 import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
-import type { LiveRun } from '../../src/runs/watch.js';
+import type { LiveRun, LiveStep } from '../../src/runs/watch.js';
 import { liveStep } from '../../src/test-support/runs.js';
 import type { CanvasInit, InspectorMode } from '../../src/webview/protocol.js';
 
@@ -845,6 +845,56 @@ const BROKEN = [
   ['parse_request', 'done'],
   ['find_slot', 'failed'],
 ] as const;
+
+/** The same run with its rows spelled out, for the
+ *  column that draws one row in full rather than a
+ *  graph of all of them. */
+function recording(steps: LiveStep[], over: Partial<LiveRun> = {}): LiveRun {
+  return { ...runOf([]), steps, ...over };
+}
+
+/**
+ * A moment built in the browser's own clock rather
+ * than parsed out of a UTC string, because the card
+ * formats it in that clock and a fixture in another
+ * one would be a different time on every machine.
+ */
+const RECORDED_AT = new Date(2026, 8, 7, 10, 31, 14, 218).getTime();
+
+/** One step that worked, timed to the millisecond
+ *  and carrying what it returned. */
+const DONE = liveStep({
+  name: 'find_slot',
+  nodeId: 'find_slot',
+  functionId: 3,
+  startedAt: RECORDED_AT,
+  completedAt: RECORDED_AT + 48,
+  output: '{"id":"ord_123","amount":1249}',
+});
+
+/** The same step, having thrown. */
+const THREW = liveStep({
+  ...DONE,
+  state: 'failed',
+  output: undefined,
+  error: {
+    name: 'StripeTimeoutError',
+    message: 'Request timed out after 30 s',
+    stack: [
+      'StripeTimeoutError: Request timed out after 30 s',
+      '    at refundPayment (/app/lib/refund-payment.ts:18:11)',
+    ].join('\n'),
+    retriesExhausted: false,
+    frame: undefined,
+  },
+});
+
+/** And having thrown on every try DBOS allowed it,
+ *  which is the one case that says so out loud. */
+const EXHAUSTED = liveStep({
+  ...THREW,
+  error: { ...THREW.error!, retriesExhausted: true },
+});
 
 /** What a run puts on a block, and what is left of
  *  it once the run has gone past. */
@@ -2163,6 +2213,183 @@ test.describe('the Inspector column', () => {
       inspectorStrings.nothingSelected,
     );
     await expect(page.locator('[data-field]')).toHaveCount(0);
+  });
+
+  /**
+   * The other face: what a run recorded about the
+   * block on screen.
+   *
+   * Everything on it was read off the ledger and can
+   * be edited by nobody. DBOS records no per-step
+   * input and no count of the tries a step made, so
+   * the first thing asked of the card is that it
+   * invents neither.
+   */
+  test.describe('what a run recorded about a block', () => {
+    test('never puts an attempt count or an INPUT section on a step card', async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas');
+      const card = page.locator('[data-evidence="block"]');
+
+      for (const step of [DONE, THREW, EXHAUSTED]) {
+        await harness.show(
+          canvasInit({
+            ...showing('find_slot', {}, 'evidence'),
+            run: recording([step]),
+          }),
+        );
+
+        await expect(card).toHaveCount(1);
+
+        const said = (await card.textContent()) ?? '';
+
+        expect(said).not.toMatch(/attempt/i);
+        expect(said).not.toMatch(/\bINPUT\b/);
+        await expect(page.locator('[data-field="input"]')).toHaveCount(0);
+      }
+    });
+
+    test('shows a completed step’s timing, output and configured policy', async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([DONE]),
+        }),
+      );
+
+      // The clock is the browser's, so the shape is
+      // what is held rather than the wording: what
+      // matters is that a step timed to the
+      // millisecond is drawn to the millisecond.
+      await expect(
+        page.locator('[data-evidence-field="started"] .value'),
+      ).toHaveText(/\d{1,2}:\d{2}:\d{2}\.\d{3}/);
+      await expect(
+        page.locator('[data-evidence-field="completed"] .value'),
+      ).toHaveText(/\d{1,2}:\d{2}:\d{2}\.\d{3}/);
+      await expect(
+        page.locator('[data-evidence-field="duration"] .value'),
+      ).toHaveText('48 ms');
+
+      await expect(
+        page.locator('[data-evidence-field="output"] .value'),
+      ).toHaveText(DONE.output!);
+
+      // The fixture's block spells the defaults out,
+      // and the card says they are configuration
+      // rather than something the run recorded.
+      await expect(
+        page.locator('[data-evidence-field="retry"] .value'),
+      ).toHaveText('max 3 · interval 1 s · backoff 2×');
+      await expect(
+        page.locator('[data-evidence-field="retry"] .provenance'),
+      ).toHaveText(inspectorStrings.configured);
+    });
+
+    /**
+     * The class DBOS threw first, then its sentence.
+     * A step that ran out of tries says so on a
+     * third line and never lists the tries: one
+     * entry per try is exactly the per-step history
+     * nothing here may claim.
+     */
+    test('shows a failed step’s error, its class first', async ({ page }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW]),
+        }),
+      );
+
+      const error = page.locator('.evidence-error');
+
+      await expect(error).toContainText('StripeTimeoutError');
+      await expect(error).toContainText('Request timed out after 30 s');
+      await expect(error).not.toContainText(inspectorStrings.exhausted);
+
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([EXHAUSTED]),
+        }),
+      );
+
+      await expect(error).toContainText(inspectorStrings.exhausted);
+    });
+
+    /**
+     * And the way to the line it threw on is offered
+     * only where a frame inside the project's own
+     * code was resolved. Nothing resolves one: the
+     * frame the ledger carries is whatever sat at the
+     * top of the stack, `node_modules` and the SDK
+     * included, and a button that opened one of those
+     * would be worse than no button.
+     */
+    test('shows Open Error Location only when the step has a frame', async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW]),
+        }),
+      );
+
+      await expect(page.locator('.evidence-error')).toBeVisible();
+      await expect(
+        page.locator('[data-evidence-action="openErrorLocation"]'),
+      ).toHaveCount(0);
+    });
+
+    /**
+     * What the run was started with is a fact about
+     * the run and is drawn here and nowhere else —
+     * which is the other half of the rule the first
+     * case in this block holds a step card to.
+     */
+    test('shows the workflow input and the recovery on the run card', async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          inspector: {
+            strings: inspectorStrings,
+            selected: undefined,
+            mode: 'evidence',
+          },
+          run: recording([DONE], {
+            input: '{ "orderId": "ord_123" }',
+            recoveryAttempts: 2,
+            applicationVersion: '1',
+          }),
+        }),
+      );
+
+      await expect(page.locator('[data-evidence="run"]')).toHaveCount(1);
+      await expect(
+        page.locator('[data-evidence-field="workflowInput"] .value'),
+      ).toHaveText('{ "orderId": "ord_123" }');
+      await expect(
+        page.locator('[data-evidence-field="recovery"] .value'),
+      ).toHaveText('recovered 1×');
+      await expect(
+        page.locator('[data-evidence-field="recovery"] .hint'),
+      ).toHaveText(inspectorStrings.pickedBackUp);
+      await expect(
+        page.locator('[data-evidence-field="version"] .value'),
+      ).toHaveText('1');
+      await expect(
+        page.locator('[data-evidence-action="openRun"]'),
+      ).toHaveCount(1);
+    });
   });
 });
 

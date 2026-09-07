@@ -56,6 +56,9 @@ function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
     run: async (command) => void ran.push(command),
     pick: async () => undefined,
     replaceDocument: async () => true,
+    showText: async () => {
+      throw new Error('no command puts a text in a tab of its own');
+    },
     onDocumentChanged: () => ({ dispose: () => {} }),
   };
 }

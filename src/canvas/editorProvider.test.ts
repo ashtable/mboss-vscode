@@ -72,6 +72,10 @@ type Recorded = {
   written: Written[];
   told: string[];
 
+  /** Every text put in front of somebody in a tab
+   *  of its own. */
+  shown: { content: string; language: string }[];
+
   /** The agent the canvas speaks to, and what it
    *  was told. */
   agent: FakeAgent;
@@ -90,6 +94,7 @@ type Recorded = {
 function recorder(): Recorded {
   const written: Written[] = [];
   const told: string[] = [];
+  const shown: { content: string; language: string }[] = [];
   const agent = fakeAgent();
   const asked: { title: string; choices: PickChoice[] }[] = [];
   const watchers: ((document: never) => void)[] = [];
@@ -98,6 +103,7 @@ function recorder(): Recorded {
   return {
     written,
     told,
+    shown,
     agent,
     asked,
     answers: (id) => {
@@ -109,6 +115,9 @@ function recorder(): Recorded {
     api: {
       info: (message) => told.push(message),
       run: () => Promise.resolve(),
+      showText: async (content, language) => {
+        shown.push({ content, language });
+      },
       pick: (title, choices) => {
         asked.push({ title, choices });
 
@@ -190,14 +199,24 @@ function previewsIn(folders: string[]): PreviewStore {
 
 /** The runs store, as the canvas reads one, with a
  *  way to say a watcher heard something. */
-type FakeRuns = CanvasRuns & { heard(run: LiveRun | undefined): void };
+type FakeRuns = CanvasRuns & {
+  heard(run: LiveRun | undefined): void;
+
+  /** Every run the canvas asked to have put on
+   *  screen. */
+  readonly opened: string[];
+};
 
 function runsSaying(): FakeRuns {
   const listeners: (() => void)[] = [];
+  const opened: string[] = [];
   let live: LiveRun | undefined;
 
   return {
     live: () => live,
+    openRun: async (workflowId) => {
+      opened.push(workflowId);
+    },
     onChanged: (listener) => {
       listeners.push(listener);
 
@@ -207,6 +226,7 @@ function runsSaying(): FakeRuns {
       live = run;
       for (const listener of listeners) listener();
     },
+    opened,
   };
 }
 
@@ -1352,6 +1372,72 @@ describe('the face the Inspector is showing', () => {
     await settled();
 
     expect(lastCanvasInit().inspector.mode).toBe('configure');
+  });
+});
+
+/**
+ * The two doors a card about a run opens.
+ *
+ * Neither writes anything: one puts a recorded value
+ * somewhere it can be read, the other puts the run
+ * itself on screen. Both are answered from what this
+ * canvas is already holding, so a panel naming a run
+ * it is not drawing is a panel that gets nothing.
+ */
+describe('a card about the run on screen', () => {
+  it('opens a recorded output in an editor of its own', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    panel.send({
+      type: 'openOutput',
+      view: 'canvas',
+      workflowId: 'wf_1',
+      functionId: 0,
+    });
+    await settled();
+
+    expect(recorded.shown).toEqual([{ content: '{}', language: 'json' }]);
+  });
+
+  it('opens nothing for a row it is not holding', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    panel.send({
+      type: 'openOutput',
+      view: 'canvas',
+      workflowId: 'wf_1',
+      functionId: 99,
+    });
+    panel.send({
+      type: 'openOutput',
+      view: 'canvas',
+      workflowId: 'wf_somebody_else',
+      functionId: 0,
+    });
+    await settled();
+
+    expect(recorded.shown).toEqual([]);
+  });
+
+  it('opens the run a card points at', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    panel.send({ type: 'openRun', view: 'canvas', workflowId: 'wf_1' });
+    await settled();
+
+    expect(runs.opened).toEqual(['wf_1']);
   });
 });
 

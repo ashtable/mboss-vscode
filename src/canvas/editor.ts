@@ -92,6 +92,18 @@ export type CanvasRuns = {
    *  belongs to. */
   live(): LiveRun | undefined;
 
+  /**
+   * Puts one run on screen in the flight recorder.
+   *
+   * The way out of the column: a card here says what
+   * the run recorded about one block, and the whole
+   * run is a page. The canvas hands over an id and
+   * nothing else — which run the page then reads,
+   * and whether it opens a tab or reveals the one
+   * that is already there, is the store's answer.
+   */
+  openRun(workflowId: string): Promise<void>;
+
   onChanged(listener: () => void): Disposable;
 };
 
@@ -466,6 +478,24 @@ export class CanvasSession {
    * to say so.
    */
   heard(message: Heard<'canvas'>): boolean {
+    // Asked before the proposal gate, because
+    // neither writes the document: what a run
+    // recorded is readable whatever is drawn over
+    // the graph, and a card whose buttons went dead
+    // because somebody else's draft arrived would be
+    // a card nobody could trust.
+    if (message.type === 'openRun') {
+      void this.runs.openRun(message.workflowId);
+
+      return false;
+    }
+
+    if (message.type === 'openOutput') {
+      this.showOutput(message.workflowId, message.functionId);
+
+      return false;
+    }
+
     if (this.live !== undefined) return false;
 
     if (message.type === 'select') {
@@ -579,6 +609,28 @@ export class CanvasSession {
     if (this.run === undefined) return 'configure';
 
     return this.chosenMode ?? 'evidence';
+  }
+
+  /**
+   * A recorded value, in a tab where it can be read.
+   *
+   * Out of the reading this canvas is already
+   * holding, and no further: the row travels with an
+   * id so a panel that has moved on asks about a run
+   * this session is not drawing, and gets nothing.
+   * What that reading holds is what the reading kept
+   * — long outputs are cut before they cross, and
+   * the card says so — so this puts a copy of what
+   * is on screen somewhere it fits rather than
+   * fetching the rest.
+   */
+  private showOutput(workflowId: string, functionId: number): void {
+    if (this.run?.workflowId !== workflowId) return;
+
+    const row = this.run.steps.find((one) => one.functionId === functionId);
+    if (row?.output === undefined) return;
+
+    void this.api.showText(row.output, 'json');
   }
 
   private select(nodeId: string | null): void {

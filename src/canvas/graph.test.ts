@@ -15,6 +15,7 @@ import type { LiveRun } from '../runs/watch.js';
 import { liveStep } from '../test-support/runs.js';
 
 import {
+  runStateOf,
   toReactFlow,
   type CanvasNode,
   type Drawing,
@@ -589,6 +590,39 @@ describe('the state a run puts a block in', () => {
     );
 
     expect(statesOf(nodes)['parse_request']).toBe('selected');
+  });
+
+  /**
+   * And what the run says about that block is still
+   * asked for, by the column beside the graph: the
+   * halo is drawn instead of the run's colour, so
+   * the answer cannot be read back off the block —
+   * it is asked of the same function that painted
+   * the others.
+   */
+  describe('as the column beside it asks', () => {
+    it('is the state the graph paints the block in', () => {
+      const painted = run([
+        ['parse_request', 'done'],
+        ['find_slot', 'failed'],
+      ]);
+
+      expect(runStateOf(ir, painted, 'find_slot')).toBe('failed');
+      expect(runStateOf(ir, painted, 'parse_request')).toBe('done');
+    });
+
+    it('says a block the run may be at is running', () => {
+      expect(
+        runStateOf(ir, run([['parse_request', 'done']]), 'find_slot'),
+      ).toBe('running');
+    });
+
+    it('says nothing about a block no run has been near', () => {
+      expect(
+        runStateOf(ir, run(WHOLE_RUN, 'done'), 'booking_requested'),
+      ).toBeUndefined();
+      expect(runStateOf(ir, undefined, 'find_slot')).toBeUndefined();
+    });
   });
 });
 
