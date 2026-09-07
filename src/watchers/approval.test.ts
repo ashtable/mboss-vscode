@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { fakeHost } from '../../test/doubles/watchHost.js';
 import { WorkflowIRSchema } from '../core/rules.js';
@@ -61,6 +62,7 @@ describe('an approval, as the watchers see it', () => {
       debounceMs: 5,
     });
 
+    const agent = fakeAgent();
     const store = previewStore(
       {
         folders: () => [project],
@@ -69,11 +71,10 @@ describe('an approval, as the watchers see it', () => {
 
           return run.ran ? run.problems : [];
         },
-        notify: async () => {},
-        note: () => {},
         say: () => {},
       },
       fakeTrust(),
+      agent,
     );
     await store.reloadAll();
 
@@ -106,6 +107,7 @@ describe('an approval, as the watchers see it', () => {
       debounceMs: 5,
     });
 
+    const agent = fakeAgent();
     const store = previewStore(
       {
         folders: () => [project],
@@ -114,11 +116,10 @@ describe('an approval, as the watchers see it', () => {
 
           return run.ran ? run.problems : [];
         },
-        notify: async () => {},
-        note: () => {},
         say: () => {},
       },
       fakeTrust(),
+      agent,
     );
     await store.reloadAll();
     await store.approve(proposal.id);

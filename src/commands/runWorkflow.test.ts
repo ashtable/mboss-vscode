@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { sessionLog } from '../runs/sessionLog.js';
 import { runsStore, type RunsDeps, type RunsHost } from '../runs/store.js';
@@ -55,8 +56,6 @@ function runsHost(dir: string): RunsHost {
     projects: () => [dir],
     say: () => undefined,
     setContext: () => undefined,
-    note: () => undefined,
-    notify: async () => undefined,
     copy: async () => undefined,
   };
 }
@@ -78,6 +77,7 @@ function deps(dir: string): RunsDeps {
 
   return {
     host: runsHost(dir),
+    agent: fakeAgent(),
     trust: fakeTrust(),
     open: refused('opened a database'),
     openManagement: refused('opened a fork client'),

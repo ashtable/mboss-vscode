@@ -1,6 +1,5 @@
 import { commands, env, window, workspace } from 'vscode';
 
-import type { AgentPanel } from '../acp/agent.js';
 import { isProject } from '../core/index.js';
 
 import type { RunsHost } from './store.js';
@@ -17,12 +16,12 @@ import type { RunsHost } from './store.js';
  * The store is driven in its own spec without an
  * editor at all.
  *
- * The agent is reached through here for the same
- * reason the preview store reaches it: what mBoss
- * did and what the agent did belong in one column,
- * and neither of them owns the other.
+ * The editor and nothing else. What mBoss did and
+ * what the agent did belong in one column, but the
+ * agent is not the editor — it is handed to the
+ * store beside this, the way `Trust` is.
  */
-export function runsHost(panel: AgentPanel): RunsHost {
+export function runsHost(): RunsHost {
   return {
     projects: () =>
       (workspace.workspaceFolders ?? [])
@@ -35,9 +34,5 @@ export function runsHost(panel: AgentPanel): RunsHost {
 
     setContext: (key, value) =>
       void commands.executeCommand('setContext', key, value),
-
-    note: (entry) => panel.note(entry),
-
-    notify: (text) => panel.send(text),
   };
 }

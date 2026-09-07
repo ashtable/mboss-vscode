@@ -73,11 +73,10 @@ export function activate(context: ExtensionContext): void {
 
         return run.ran ? run.problems : [];
       },
-      notify: (text) => panel.send(text),
-      note: (entry) => panel.note(entry),
       say: (message) => api.info(message),
     },
     trust,
+    panel,
   );
 
   void preview.reloadAll();
@@ -103,7 +102,8 @@ export function activate(context: ExtensionContext): void {
   // and the canvas all draw it, and any of them can
   // be disposed while the others are on screen.
   const runs = runsStore({
-    host: runsHost(panel),
+    host: runsHost(),
+    agent: panel,
     trust,
     open: openDatabase,
     openManagement,
@@ -166,7 +166,7 @@ export function activate(context: ExtensionContext): void {
       runs,
       trust,
       watchers,
-      (entry) => panel.note(entry),
+      panel,
     ),
     AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview),
     RunsListView.register(context.extensionUri, runs, see),

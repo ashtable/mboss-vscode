@@ -102,7 +102,56 @@ export type PanelHost = {
   state: Memento;
 };
 
-export type AgentPanel = {
+/**
+ * The agent, as the rest of the extension speaks to
+ * it.
+ *
+ * Two verbs, because outside this directory that is
+ * all anybody does with one: put a row in the
+ * transcript beside what the agent wrote, and hand
+ * it something to answer. Everything else the panel
+ * can do — its state, its pending edits, cancelling
+ * a turn — belongs to the view that draws it.
+ *
+ * One collaborator rather than a member on four
+ * different host slices, so that the panel is
+ * reached in one shape, a spec fakes it in one
+ * place, and what mBoss did and what the agent did
+ * can be seen going into one column in the order
+ * they happened. Handed to each store beside its
+ * `Trust`, for the same reasons and by the same
+ * hand.
+ *
+ * The panel is its own adapter: `agentPanel` returns
+ * something that is already this, so nothing wraps
+ * it on the way.
+ */
+export type Agent = {
+  /**
+   * Adds an entry the extension wrote itself.
+   *
+   * A proposal applied, a regeneration that failed,
+   * a workflow run — things a person needs to see
+   * in the same column as what the agent did,
+   * because that is the order they happened in.
+   * What tells them apart is the entry's own
+   * provenance.
+   */
+  note(entry: ToolEntry | DiagnosticEntry): void;
+
+  /**
+   * Hands the agent something to answer, as a turn.
+   *
+   * Resolves when the turn is over, or at once where
+   * the agent was busy and the text was queued
+   * behind what it was already doing. Says nothing
+   * and does nothing where the folder is untrusted
+   * or no agent is chosen.
+   */
+  send(text: string): Promise<void>;
+};
+
+export type AgentPanel = Agent & {
   state(): PanelState;
 
   /**
@@ -123,18 +172,6 @@ export type AgentPanel = {
    *  module — trust granted, a setting written. */
   refresh(): void;
 
-  /**
-   * Adds an entry the extension wrote itself.
-   *
-   * A proposal applied, a regeneration that failed,
-   * a workflow run — things a person needs to see
-   * in the same column as what the agent did,
-   * because that is the order they happened in.
-   * What tells them apart is the entry's own
-   * provenance.
-   */
-  note(entry: ToolEntry | DiagnosticEntry): void;
-
   /** Marks one pending file edit kept. Does nothing
    *  to a decision already made, or to an id that
    *  names no file. */
@@ -149,10 +186,6 @@ export type AgentPanel = {
    * written.
    */
   undo(id: string): Promise<void>;
-
-  /** Starts the agent if it is not running, then
-   *  runs one turn. */
-  send(text: string): Promise<void>;
 
   cancel(): Promise<void>;
 

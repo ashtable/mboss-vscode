@@ -1,6 +1,6 @@
 import type { Disposable } from 'vscode';
 
-import type { DiagnosticEntry } from '../acp/transcript.js';
+import type { Agent } from '../acp/agent.js';
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
@@ -43,16 +43,11 @@ import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 /** The slice of the editor the zone needs. */
 export type TestRunHost = {
   projects(): string[];
-  /** Puts what the extension did in the agent's
-   *  transcript, beside what the agent did. */
-  note(entry: DiagnosticEntry): void;
-
-  /** Hands the agent something to answer. */
-  notify(text: string): Promise<void>;
 };
 
 export type TestRunDeps = {
   host: TestRunHost;
+  agent: Agent;
   trust: Trust;
   runner: RunStarter;
   sessionLog: SessionLog;
@@ -363,14 +358,14 @@ export function testRunZone(deps: TestRunDeps): TestRun {
 
       const step = failed.failedStep?.name;
 
-      deps.host.note({
+      deps.agent.note({
         at: 'diagnostic',
         id: `run:${workflowId}`,
         source: `${failed.workflow} · ${workflowId}`,
         rows: [{ at: step, message: said }],
       });
 
-      await deps.host.notify(
+      await deps.agent.send(
         step === undefined
           ? messages.runAskAgentNoStep(failed.workflow, said)
           : messages.runAskAgent(failed.workflow, step, said),

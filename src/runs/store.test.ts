@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import {
   database,
@@ -33,6 +34,7 @@ import { runsStore, type RunsDeps } from './store.js';
 function deps(over: Partial<RunsDeps> = {}): RunsDeps {
   return {
     host: host({ projects: () => [project()] }),
+    agent: fakeAgent(),
     trust: fakeTrust(),
     open: async () => database(),
     openManagement: async () => management(),

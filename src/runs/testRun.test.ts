@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { DiagnosticEntry } from '../acp/transcript.js';
+import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import {
   LEDGER_URL,
@@ -28,6 +28,7 @@ import { testRunZone, type TestRun, type TestRunDeps } from './testRun.js';
 function zone(over: Partial<TestRunDeps> = {}): TestRun {
   return testRunZone({
     host: host({ projects: () => [project()] }),
+    agent: fakeAgent(),
     trust: fakeTrust(),
     runner: async () => ({
       ok: false,
@@ -416,15 +417,10 @@ describe('running it again', () => {
 
 describe('asking the agent why', () => {
   it('notes the failure and hands it over, naming step and error', async () => {
-    const noted: DiagnosticEntry[] = [];
-    const asked: string[] = [];
+    const agent = fakeAgent();
     const owner = follows();
     const shown = zone({
-      host: host({
-        projects: () => [project()],
-        note: (entry) => noted.push(entry),
-        notify: async (text) => void asked.push(text),
-      }),
+      agent,
       runner: echoing().start,
       following: owner.held,
     });
@@ -446,24 +442,30 @@ describe('asking the agent why', () => {
     );
     await shown.askAgent(workflowId);
 
-    expect(noted[0]?.source).toContain(workflowId);
-    expect(noted[0]?.rows[0]?.message).toContain('CDC_PASS');
-    expect(asked[0]).toContain('groom_booking');
-    expect(asked[0]).toContain('find_slot');
-    expect(asked[0]).toContain('CDC_PASS');
+    // The row goes in before the turn is started, so
+    // the column reads in the order things happened —
+    // which one record of both verbs is what makes
+    // assertable.
+    expect(agent.told.map((one) => one.at)).toEqual(['note', 'send']);
+
+    const [row] = agent.noted();
+    expect(row?.at === 'diagnostic' && row.source).toContain(workflowId);
+    expect(row?.at === 'diagnostic' && row.rows[0]?.message).toContain(
+      'CDC_PASS',
+    );
+
+    const [turn] = agent.sent();
+    expect(turn).toContain('groom_booking');
+    expect(turn).toContain('find_slot');
+    expect(turn).toContain('CDC_PASS');
   });
 
   it('says nothing about a run it has never heard of', async () => {
-    const noted: DiagnosticEntry[] = [];
-    const shown = zone({
-      host: host({
-        projects: () => [project()],
-        note: (entry) => noted.push(entry),
-      }),
-    });
+    const agent = fakeAgent();
+    const shown = zone({ agent });
 
     await shown.askAgent('run_nothing');
 
-    expect(noted).toEqual([]);
+    expect(agent.told).toEqual([]);
   });
 });

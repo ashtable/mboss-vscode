@@ -2,8 +2,9 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { fakeAgent, type FakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
-import type { TranscriptEntry } from '../acp/transcript.js';
+import type { Agent } from '../acp/agent.js';
 import { WorkflowIRSchema } from '../core/rules.js';
 import { messages } from '../messages.js';
 import type { Problem } from '../problem.js';
@@ -65,34 +66,33 @@ type Driven = {
   /** Everything the person was told. */
   said: string[];
 
-  /** Everything written into the agent's
-   *  transcript. */
-  noted: TranscriptEntry[];
+  /** The agent, and everything said to it. */
+  agent: FakeAgent;
 };
 
 /** A store over one project, with `over` deciding
- *  which step of an approval fails. */
+ *  which step of an approval fails, and `agent` the
+ *  one the store speaks to. */
 async function drive(
   project: string,
   over: Partial<PreviewHost>,
+  agent: FakeAgent = fakeAgent(),
 ): Promise<Driven> {
   const said: string[] = [];
-  const noted: TranscriptEntry[] = [];
   const store = previewStore(
     {
       folders: () => [project],
       regenerate: async () => [],
-      notify: async () => {},
-      note: (entry) => noted.push(entry),
       say: (message) => said.push(message),
       ...over,
     },
     fakeTrust(),
+    agent,
   );
 
   await store.reloadAll();
 
-  return { store, said, noted };
+  return { store, said, agent };
 }
 
 const failing = (why: string) => async (): Promise<never> => {
@@ -161,9 +161,10 @@ describe('an approval whose codegen throws', () => {
 describe('an approval the agent cannot be told about', () => {
   it('says so, and still offers the Undo', async () => {
     const { project, id } = await projectWithProposal();
-    const driven = await drive(project, {
-      notify: failing('the agent went away'),
-    });
+    const agent = fakeAgent();
+    agent.fails('the agent went away');
+
+    const driven = await drive(project, {}, agent);
 
     await expect(driven.store.approve(id)).resolves.toBeUndefined();
 
@@ -191,7 +192,7 @@ describe('an approval that lands', () => {
 
     await driven.store.approve(id);
 
-    expect(driven.noted).toEqual([
+    expect(driven.agent.noted()).toEqual([
       expect.objectContaining({
         at: 'tool',
         by: 'person',
@@ -211,15 +212,28 @@ describe('an approval that lands', () => {
   it('writes what it did as it does it', async () => {
     const { project, id } = await projectWithProposal();
     const order: string[] = [];
-    const driven = await drive(project, {
-      regenerate: async () => {
-        order.push('regenerated');
 
-        return [found(documentIn(project))];
+    // The one spec that wires its own agent: the
+    // order being asserted runs through a host member
+    // as well as the agent, so both are recorded the
+    // same way rather than being read off two
+    // records and merged.
+    const recording: Agent = {
+      note: (entry) => void order.push(entry.at),
+      send: async () => void order.push('told the agent'),
+    };
+
+    const driven = await drive(
+      project,
+      {
+        regenerate: async () => {
+          order.push('regenerated');
+
+          return [found(documentIn(project))];
+        },
       },
-      notify: async () => void order.push('told the agent'),
-      note: (entry) => order.push(entry.at),
-    });
+      recording as FakeAgent,
+    );
 
     await driven.store.approve(id);
 
@@ -254,7 +268,9 @@ describe('an approval whose regeneration reports errors', () => {
 
     await driven.store.approve(id);
 
-    const diagnostic = driven.noted.find((entry) => entry.at === 'diagnostic');
+    const diagnostic = driven.agent
+      .noted()
+      .find((entry) => entry.at === 'diagnostic');
 
     expect(diagnostic?.at === 'diagnostic' && diagnostic.source).toBe(
       'codegen',
@@ -291,7 +307,9 @@ describe('an approval whose regeneration reports errors', () => {
 
     await driven.store.approve(id);
 
-    const diagnostic = driven.noted.find((entry) => entry.at === 'diagnostic');
+    const diagnostic = driven.agent
+      .noted()
+      .find((entry) => entry.at === 'diagnostic');
 
     expect(diagnostic?.at === 'diagnostic' && diagnostic.rows).toEqual([
       { code: handler.code, message: handler.message },
@@ -318,9 +336,9 @@ describe('an approval whose regeneration reports errors', () => {
 
     await driven.store.approve(id);
 
-    expect(driven.noted.filter((entry) => entry.at === 'diagnostic')).toEqual(
-      [],
-    );
+    expect(
+      driven.agent.noted().filter((entry) => entry.at === 'diagnostic'),
+    ).toEqual([]);
   });
 
   /** Regenerating covers every folder in the
@@ -333,9 +351,9 @@ describe('an approval whose regeneration reports errors', () => {
 
     await driven.store.approve(id);
 
-    expect(driven.noted.filter((entry) => entry.at === 'diagnostic')).toEqual(
-      [],
-    );
+    expect(
+      driven.agent.noted().filter((entry) => entry.at === 'diagnostic'),
+    ).toEqual([]);
   });
 
   /** A regeneration that threw never reported
@@ -348,9 +366,9 @@ describe('an approval whose regeneration reports errors', () => {
 
     await driven.store.approve(id);
 
-    expect(driven.noted.filter((entry) => entry.at === 'diagnostic')).toEqual(
-      [],
-    );
+    expect(
+      driven.agent.noted().filter((entry) => entry.at === 'diagnostic'),
+    ).toEqual([]);
     expect(driven.said.join(' ')).toContain('the lock was held');
   });
 });

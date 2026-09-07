@@ -9,7 +9,8 @@ import {
   type WebviewPanel,
 } from 'vscode';
 
-import { personEdit, type ToolEntry } from '../acp/transcript.js';
+import type { Agent } from '../acp/agent.js';
+import { personEdit } from '../acp/transcript.js';
 import {
   boxesFor,
   checkWorkflow,
@@ -76,17 +77,6 @@ import {
  * editor shows whatever was true when it opened.
  */
 /**
- * Adding a row to the agent's transcript.
- *
- * A function rather than the panel itself: the
- * canvas has nothing to ask an agent and nothing
- * to read back from one. What it has is a change a
- * person made, which belongs in the column beside
- * the changes the agent made.
- */
-export type NoteEntry = (entry: ToolEntry) => void;
-
-/**
  * The run somebody is following, as the canvas
  * reads it.
  *
@@ -146,7 +136,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     private readonly runs: CanvasRuns,
     private readonly trust: Trust,
     private readonly code: CanvasCode,
-    private readonly note: NoteEntry,
+    private readonly agent: Agent,
   ) {}
 
   static register(
@@ -156,7 +146,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     runs: CanvasRuns,
     trust: Trust,
     code: CanvasCode,
-    note: NoteEntry,
+    agent: Agent,
   ): Disposable {
     return window.registerCustomEditorProvider(
       WorkflowCanvasEditor.viewType,
@@ -167,7 +157,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         runs,
         trust,
         code,
-        note,
+        agent,
       ),
       { supportsMultipleEditorsPerDocument: false },
     );
@@ -193,7 +183,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       this.preview,
       this.runs,
       this.trust,
-      this.note,
+      this.agent,
     );
     await session.reread();
 
@@ -321,7 +311,7 @@ export class CanvasSession {
     private readonly preview: PreviewStore,
     private readonly runs: CanvasRuns,
     private readonly trust: Trust,
-    private readonly note: NoteEntry,
+    private readonly agent: Agent,
   ) {}
 
   /**
@@ -727,7 +717,7 @@ export class CanvasSession {
     const made = outcome.assigned;
     if (made === undefined) return;
 
-    this.note(
+    this.agent.note(
       personEdit({
         id: `assign:${made.nodeId}:${baseRevision}`,
         verb: messages.canvasAssignVerb(),

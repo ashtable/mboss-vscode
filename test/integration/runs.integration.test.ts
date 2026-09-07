@@ -8,6 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { openDatabase, openManagement } from '../../src/runs/db.js';
 import { projectSdk } from '../../src/runs/sdk.js';
+import { fakeAgent } from '../doubles/agent.js';
 import { fakeTrust } from '../doubles/trust.js';
 import { sessionLog } from '../../src/runs/sessionLog.js';
 import { runsStore, type RunsStore } from '../../src/runs/store.js';
@@ -303,10 +304,9 @@ describe('a run history, read from a real dbos schema', () => {
         projects: () => [dir],
         say: (message) => said.push(message),
         setContext: () => undefined,
-        note: () => undefined,
-        notify: async () => undefined,
         copy: async () => undefined,
       },
+      agent: fakeAgent(),
       trust: fakeTrust(),
       open: openDatabase,
       openManagement,

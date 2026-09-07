@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { fakeAgent, type FakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { fakeWebview, type FakeWebview } from '../../test/doubles/webview.js';
-import type { ToolEntry } from '../acp/transcript.js';
 import {
   WorkflowIRSchema,
   starterNode,
@@ -72,9 +72,9 @@ type Recorded = {
   written: Written[];
   told: string[];
 
-  /** What the canvas wrote into the agent's
-   *  transcript. */
-  noted: ToolEntry[];
+  /** The agent the canvas speaks to, and what it
+   *  was told. */
+  agent: FakeAgent;
 
   /** Every list somebody was asked to choose
    *  from. */
@@ -90,7 +90,7 @@ type Recorded = {
 function recorder(): Recorded {
   const written: Written[] = [];
   const told: string[] = [];
-  const noted: ToolEntry[] = [];
+  const agent = fakeAgent();
   const asked: { title: string; choices: PickChoice[] }[] = [];
   const watchers: ((document: never) => void)[] = [];
   const answer: { id: string | undefined } = { id: undefined };
@@ -98,7 +98,7 @@ function recorder(): Recorded {
   return {
     written,
     told,
-    noted,
+    agent,
     asked,
     answers: (id) => {
       answer.id = id;
@@ -181,11 +181,10 @@ function previewsIn(folders: string[]): PreviewStore {
     {
       folders: () => folders,
       regenerate: async () => [],
-      notify: async () => {},
-      note: () => {},
       say: (message) => recorded.told.push(message),
     },
     fakeTrust(),
+    fakeAgent(),
   );
 }
 
@@ -272,7 +271,7 @@ async function open(
     runs,
     trusted,
     coded,
-    (entry) => recorded.noted.push(entry),
+    recorded.agent,
   );
 
   await editor.resolveCustomTextEditor(document, panel.panel);
@@ -689,7 +688,7 @@ describe('selecting a node', () => {
       runsSaying(),
       fakeTrust(true),
       codeSaying(),
-      () => {},
+      fakeAgent(),
     ).resolveCustomTextEditor(
       fakeDocument(text, '/project/.mboss/workflows/other.workflow.json'),
       other.panel,
@@ -804,7 +803,7 @@ describe('assigning a function to a block', () => {
     assign('slot_open', 'tryAgain');
     await settled();
 
-    expect(recorded.noted).toEqual([
+    expect(recorded.agent.noted()).toEqual([
       expect.objectContaining({
         at: 'tool',
         by: 'person',
@@ -821,7 +820,7 @@ describe('assigning a function to a block', () => {
     assign('slot_open', 'parseRequest');
     await settled();
 
-    expect(recorded.noted).toEqual([]);
+    expect(recorded.agent.noted()).toEqual([]);
   });
 });
 

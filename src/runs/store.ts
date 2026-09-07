@@ -2,7 +2,7 @@ import { basename } from 'node:path';
 
 import type { Disposable } from 'vscode';
 
-import type { DiagnosticEntry } from '../acp/transcript.js';
+import type { Agent } from '../acp/agent.js';
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
 import type { RunsInit } from '../webview/protocol.js';
@@ -62,13 +62,6 @@ export type RunsHost = {
    *  running. */
   setContext(key: string, value: unknown): void;
 
-  /** Puts what the extension did in the agent's
-   *  transcript, beside what the agent did. */
-  note(entry: DiagnosticEntry): void;
-
-  /** Hands the agent something to answer. */
-  notify(text: string): Promise<void>;
-
   /** Puts text on the clipboard. The clipboard is
    *  the window's, so the store hands text over
    *  rather than reaching for one. */
@@ -77,6 +70,7 @@ export type RunsHost = {
 
 export type RunsDeps = {
   host: RunsHost;
+  agent: Agent;
   trust: Trust;
   open: OpenDatabase;
   openManagement: OpenManagement;
@@ -206,6 +200,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
   });
   const testRun = testRunZone({
     host: deps.host,
+    agent: deps.agent,
     trust: deps.trust,
     runner: deps.runner,
     sessionLog: deps.sessionLog,
