@@ -37,7 +37,7 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
 | Fast host + webview rebuild into `dist/`      | `node src/build.ts`                                                          |
 | Package a `.vsix` (root, gitignored)          | `npm run package`                                                            |
 | Typecheck + ESLint + Prettier check           | `npm run lint`                                                               |
-| Rewrite the l10n bundle from the source       | `npm run l10n`                                                               |
+| Rewrite the generated strings from the source | `npm run strings`                                                            |
 | Typecheck only / format everything            | `npm run typecheck` / `npm run format`                                       |
 | Unit tier                                     | `npm test` (`npm run test:watch` for watch mode)                             |
 | One unit file / one test by name              | `npx vitest run src/watchers/debounce.test.ts -t "costs one run"`            |
@@ -61,8 +61,9 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
   project's own compose), so run one file at a time. It creates and drops only
   the database `mboss_vscode_runs_test`.
 - `prettier --check .` covers Markdown, JSON, YAML and CSS too. After editing
-  `package.nls.json`, run `npm run format`. `l10n/bundle.l10n.json` is not
-  edited: `npm run l10n` writes it, already prettier-shaped.
+  `package.nls.json`, run `npm run format`. Two files are never edited by hand —
+  `l10n/bundle.l10n.json` and `tests/webview/words.json` — because
+  `npm run strings` writes them, already prettier-shaped.
 - There is no `launch.json`; the only way to see the extension in a real window
   is `npm run package` and installing `mboss-vscode-0.0.0.vsix`.
 - CI (`.github/workflows/ci.yml`) runs on `pull_request` only: build:mcp, lint,
@@ -167,7 +168,7 @@ behaviour modules take the editor as an argument:
   list); every entry wraps a **literal**. That rule is load-bearing rather than
   policed: `src/bundle.ts` parses every non-spec `.ts`/`.tsx` under `src/` with
   TypeScript's own parser and **writes** `l10n/bundle.l10n.json` (key === value,
-  sorted) — `npm run l10n`. A `l10n.t` wrapping anything but a literal throws
+  sorted) — `npm run strings`. A `l10n.t` wrapping anything but a literal throws
   `NotALiteral` with the file and line. The bundle is checked in because a
   translator forks it and the VSIX ships it; `l10n.test.ts` asserts only that it
   matches what the source generates, plus the four-file fence. `package.json`
@@ -180,6 +181,13 @@ behaviour modules take the editor as an argument:
   `<View>Strings` types `protocol.ts` derives through type-only imports, with
   `{0}` templates filled by `src/webview/fill.ts`. Nothing under a webview
   entry contains English a user sees.
+- The Playwright fixture is generated too. `src/fixture.ts` bundles the three
+  `words.ts` modules against `test/doubles/vscode.ts` (whose `l10n.t` answers
+  with the source string), calls the six bags and writes
+  `tests/webview/words.json`; `tests/webview/words.ts` is a typed loader over
+  it. `src/words.test.ts` holds the file to what the bags say, building the same
+  bytes without esbuild because the unit tier already resolves `vscode`. Every
+  value in every bag is a plain string, which is what lets JSON carry them.
 - The unit double's `l10n.t` returns the English source, so unit specs pin
   English literals; Playwright specs send the bags in `tests/webview/words.ts`,
   which `src/words.test.ts` holds equal to the host's. Rewording a view's copy
@@ -334,8 +342,12 @@ Three tiers, three configs, and placement decides which runs:
   `acquireVsCodeApi`. `retries: 0`. Colour assertions are literal Chromium
   serialisations on purpose (reading the token back would pass any value).
   Never measure the graph before a locator expectation or `graphAtRest()` has
-  settled it. A spec may import only `src` modules whose transitive graph never
-  touches `vscode` or `@mboss/core` (no alias is configured).
+  settled it. A spec may import no `src` module whose transitive graph value-imports
+  `vscode`: nothing aliases it in this tier and there is no `vscode` on disk, so
+  the import fails to resolve and Playwright reports "No tests found" rather than
+  a failing assertion. `@mboss/core` does resolve here — Playwright honours
+  `tsconfig.json` `paths` — but reaching for it pulls elkjs and ts-morph into a
+  spec, so the browser-safe `src/core/rules.ts` is what a spec should use.
 
 Doubles and helpers: `test/doubles/vscode.ts` (fails loudly for anything not
 added on purpose), `watchHost.ts`, `webview.ts`; `src/test-support/` (exempt
@@ -412,13 +424,14 @@ value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
   `HostMessage` union; a `messages.<name>Strings()` builder; a host caller of
   `mountWebview`; `build.test.ts` / `vsix.test.ts` expect one js+css per entry.
 - **Add a string**: a host sentence is one `messages.ts` entry; a word a
-  webview shows is a line in that view's `words.ts` plus the same line in
-  `tests/webview/words.ts`. Then `npm run l10n` to rewrite the bundle — never
-  edit it by hand. Some copy is duplicated across the two systems on purpose
+  webview shows is one line in that view's `words.ts`. Then `npm run strings`,
+  which rewrites `l10n/bundle.l10n.json` and `tests/webview/words.json` — never
+  edit either by hand. Some copy is duplicated across the two systems on purpose
   (agent names in `package.nls.json` enum descriptions and `messages.agents()`).
 - **Add an Inspector field**: `canvas/inspector/forms.ts` lens + entries in
   `inspectorFields()`/`inspectorOptions()` in `canvas/words.ts`, then
-  `npm run l10n`; `forms.test.ts` asserts every field and option has a word.
+  `npm run strings`; `forms.test.ts` asserts every field and option has a
+  word.
 - **Add a canvas gesture**: a zod schema in `webview/host.ts` and its member
   in `WebviewMessageSchema`; a `Gesture` member and a case in `editFor` in
   `canvas/edits.ts`, with the rule pinned in `edits.test.ts`; the

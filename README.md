@@ -8,7 +8,7 @@ mBoss: Design Durable Apps with DBOS - VS Code Extension
   `.ts`, webview entries in `.tsx`. Unit tests sit beside what they test.
 - `media/` — static assets `package.json` points at.
 - `l10n/` — the English strings for `vscode.l10n.t()` calls, generated from the
-  source by `npm run l10n` and checked in. `package.nls.json`, at the root,
+  source by `npm run strings` and checked in. `package.nls.json`, at the root,
   covers `package.json` instead; the two mechanisms are separate and neither
   falls back to the other.
 - `mboss-core/` — nested submodule, imported as `@mboss/core` through a
