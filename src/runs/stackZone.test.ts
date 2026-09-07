@@ -9,6 +9,7 @@ import {
   stack,
 } from '../test-support/runs.js';
 
+import type { StackStatus } from './stack.js';
 import { stackZone, type Stack, type StackZoneDeps } from './stackZone.js';
 
 /**
@@ -16,6 +17,29 @@ import { stackZone, type Stack, type StackZoneDeps } from './stackZone.js';
  * against a compose controller that only remembers
  * what it was asked.
  */
+
+/** Long before any of these specs ran. */
+const LONG_AGO = Date.parse('2020-01-01T00:00:00Z');
+
+const MINUTE = 60 * 1000;
+
+/** An app container compose says was made at one
+ *  moment. */
+function built(at: number): StackStatus {
+  return {
+    available: true,
+    services: [
+      {
+        service: 'app',
+        state: 'running',
+        health: 'healthy',
+        detail: 'built 12 s ago · :3000',
+        builtAt: at,
+      },
+    ],
+    detail: undefined,
+  };
+}
 
 function zone(over: Partial<StackZoneDeps> = {}): Stack {
   return stackZone({
@@ -106,6 +130,49 @@ describe('the local stack', () => {
     await shown.up();
 
     expect(compose.calls).toEqual([]);
+  });
+
+  it('has no built time before anything has been read', () => {
+    expect(zone().builtAt()).toBeUndefined();
+  });
+
+  /**
+   * Compose does not recreate a container for an
+   * image that came out byte-identical, so a
+   * rebuild that produced no new layers leaves an
+   * old container behind and the code that is
+   * running is still current. The other way round
+   * is the ordinary build: it began, it took a
+   * minute, and the container it made is newer
+   * than the moment it started.
+   */
+  it('takes the later of the image and the command it just ran', async () => {
+    const compose = stack(built(LONG_AGO));
+    const shown = zone({ stack: compose.controller });
+
+    const before = Date.now();
+    await shown.rebuild();
+    const after = Date.now();
+
+    expect(shown.builtAt()).toBeGreaterThanOrEqual(before);
+    expect(shown.builtAt()).toBeLessThanOrEqual(after);
+
+    compose.status = built(after + MINUTE);
+    await shown.read();
+
+    expect(shown.builtAt()).toBe(after + MINUTE);
+  });
+
+  /** A stop makes no container, and dating the
+   *  running code from the moment somebody stopped
+   *  it would call a stale image current. */
+  it('does not date the code from a stop', async () => {
+    const compose = stack(built(LONG_AGO));
+    const shown = zone({ stack: compose.controller });
+
+    await shown.down();
+
+    expect(shown.builtAt()).toBe(LONG_AGO);
   });
 
   it('says why nothing can run, when nothing can', async () => {

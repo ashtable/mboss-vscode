@@ -86,6 +86,18 @@ export type ServiceHealth = {
 
   health: 'healthy' | 'unhealthy' | 'starting' | 'none';
 
+  /**
+   * When compose made the container, for the app
+   * alone.
+   *
+   * The same moment the detail says in words, kept
+   * as a number because whoever asks whether the
+   * running app is behind the workspace compares it
+   * against when those files last changed, and a
+   * sentence cannot be compared with anything.
+   */
+  builtAt?: number;
+
   /** `postgres:17 · :5432`, or for the app,
    *  `built 12 s ago · :3000`. */
   detail: string;
@@ -343,11 +355,19 @@ function isRow(value: unknown): value is PsRow {
 function serviceHealth(row: PsRow, now: number): ServiceHealth {
   const service = row.Service ?? '';
 
+  // Every container was made at some moment, and
+  // only the app's is the code somebody is
+  // editing. A built time on the database would be
+  // compared against their workspace and would call
+  // the app stale for a file newer than postgres.
+  const builtAt = service === APP_SERVICE ? madeAt(row) : undefined;
+
   return {
     service,
     state: stateOf(row.State),
     health: healthOf(row.Health),
-    detail: [headOf(row, service, now), ...ports(row)]
+    builtAt,
+    detail: [headOf(row, service, builtAt, now), ...ports(row)]
       .filter((part) => part !== '')
       .join(' · '),
   };
@@ -380,14 +400,17 @@ function healthOf(health: string | undefined): ServiceHealth['health'] {
  * person acts on; for anything else, the image it
  * runs.
  */
-function headOf(row: PsRow, service: string, now: number): string {
+function headOf(
+  row: PsRow,
+  service: string,
+  builtAt: number | undefined,
+  now: number,
+): string {
   if (service !== APP_SERVICE) return row.Image ?? '';
 
-  const made = madeAt(row);
-
-  return made === undefined || made > now
+  return builtAt === undefined || builtAt > now
     ? ''
-    : messages.stackBuiltAgo(elapsed(now - made));
+    : messages.stackBuiltAgo(elapsed(now - builtAt));
 }
 
 /**
