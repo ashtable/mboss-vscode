@@ -322,6 +322,7 @@ describe('a run history, read from a real dbos schema', () => {
         openFile: async () => undefined,
         conductorConsoleUrl: () => '',
         openExternal: async () => undefined,
+        revealAgent: async () => undefined,
         // Nobody at the keyboard, so the case that
         // reads the question reads it here.
         confirm: async (question) => {

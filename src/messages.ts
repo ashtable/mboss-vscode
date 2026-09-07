@@ -307,6 +307,164 @@ export const messages = {
     ),
 
   /**
+   * The question asked about a run the ledger has,
+   * in three parts.
+   *
+   * Assembled rather than written whole, because a
+   * clause whose fact the evidence does not carry
+   * has to be left out: the record is built not to
+   * invent, and a sentence introducing it that
+   * named a block nobody recorded would undo that
+   * in its first line.
+   */
+  runAskAgentAtBlock: (
+    workflowId: string,
+    workflow: string,
+    title: string,
+    error: string,
+  ) =>
+    l10n.t(
+      'Run `{0}` of `{1}` failed at {2} — {3}.',
+      workflowId,
+      workflow,
+      title,
+      error,
+    ),
+
+  /** The same, where the run threw with no step of
+   *  its own to blame. */
+  runAskAgentWith: (workflowId: string, workflow: string, error: string) =>
+    l10n.t('Run `{0}` of `{1}` failed with {2}.', workflowId, workflow, error),
+
+  /** And a run somebody asked about that recorded
+   *  no failure at all, which the button offers
+   *  because any run the ledger has may be asked
+   *  about. */
+  runAskAgentNoFailure: (
+    workflowId: string,
+    workflow: string,
+    status: string,
+  ) =>
+    l10n.t(
+      'Run `{0}` of `{1}` recorded no failure; DBOS has it as {2}.',
+      workflowId,
+      workflow,
+      status,
+    ),
+
+  /** How hard the block was allowed to try, said
+   *  beside the code it runs. */
+  runAskAgentRetry: (attempts: string) =>
+    l10n.t('retry policy max {0} (configured)', attempts),
+
+  /**
+   * Where the attachment came from, what to prefer
+   * over what, and what is deliberately not
+   * claimed.
+   *
+   * The provenance is not decoration: an agent with
+   * an MCP tool that reads the same two tables has
+   * two accounts of one run, and this is what tells
+   * it which is which. The last clause is the one
+   * that matters most — the document describes the
+   * workspace now and the run carries the version
+   * that ran, and nothing here compares them.
+   */
+  runAskAgentEvidence: (database: string, from: string) =>
+    l10n.t(
+      'The attached mBoss run evidence was assembled by the editor from the local DBOS ledger (`dbos.workflow_status`, `dbos.operation_outputs` at {0}, via {1}); `project_debug` reads the same tables and returns stored errors unparsed, so prefer the attachment for this run and use `project_debug` for others. The saved workflow and manifest describe the workspace now; the run carries the version that ran, and they are not compared. Tell me why, and fix the handler if the fix belongs in `lib/`.',
+      database,
+      from,
+    ),
+
+  /**
+   * The question about a run that never started.
+   *
+   * No ledger clause, because there is no row
+   * anywhere to have read: what travels is this
+   * window's own memory of trying, and saying so is
+   * what stops it reading as a run that ran.
+   */
+  runAskAgentRefused: (workflow: string, detail: string) =>
+    l10n.t(
+      "A run of `{0}` never started — the app refused it with: {1}. The attached mBoss run evidence is this window's own record of the attempt; nothing was written to the ledger, because there was no run to write. Tell me why the request was refused.",
+      workflow,
+      detail,
+    ),
+
+  /**
+   * The row mBoss writes into the transcript when
+   * it reads a run for the agent.
+   *
+   * The agent's own reads are drawn the same way,
+   * which is the point: what mBoss did and what the
+   * agent did belong in one column, and only the
+   * rail says which is which.
+   */
+  runEvidenceVerb: () => l10n.t('Read'),
+
+  runEvidenceTarget: (workflowId: string) =>
+    l10n.t('run {0} · mBoss run evidence', workflowId),
+
+  /** The way from that row to the whole run. */
+  runEvidenceOpenRun: () => l10n.t('Open run'),
+
+  /**
+   * The summary folded under that row, one fact per
+   * line.
+   *
+   * A line whose fact the record does not carry is
+   * not printed at all — never a label with a dash
+   * after it, which is a panel saying it looked and
+   * a reader taking it as an answer.
+   */
+  runEvidenceError: (error: string) => l10n.t('error · {0}', error),
+
+  runEvidenceFailedAt: (operation: string) =>
+    l10n.t('failed at · {0}', operation),
+
+  runEvidenceRetry: (attempts: string) =>
+    l10n.t('retry · max {0} · configured', attempts),
+
+  runEvidenceHandler: (signature: string) => l10n.t('handler · {0}', signature),
+
+  /** An export the last scan of the code behind the
+   *  project never found — somebody renamed it, or
+   *  it is not written yet. */
+  runEvidenceHandlerMissing: (exported: string) =>
+    l10n.t('handler · {0} · not in the last scan of lib/', exported),
+
+  runEvidenceSource: (file: string) => l10n.t('source · {0}', file),
+
+  runEvidenceStatus: (status: string) => l10n.t('status · {0}', status),
+
+  runEvidenceRecovered: (times: string) =>
+    l10n.t('recovered · picked back up {0} times', times),
+
+  runEvidenceVersion: (version: string) => l10n.t('version · {0}', version),
+
+  /** Who read what, and where. The host and the
+   *  database only — the string it came from
+   *  carries a password. */
+  runEvidenceReader: (database: string, from: string) =>
+    l10n.t(
+      'read · dbos.workflow_status, dbos.operation_outputs at {0} via {1}',
+      database,
+      from,
+    ),
+
+  /** How many rows travelled, so a run longer than
+   *  the record carries has a visible gap rather
+   *  than a silent one. */
+  runEvidenceOperations: (carried: string, total: string) =>
+    l10n.t('operations · {0} of {1} carried', carried, total),
+
+  runEvidenceRefused: (workflow: string, at: string) =>
+    l10n.t('refused · {0} at {1}', workflow, at),
+
+  runEvidenceDetail: (detail: string) => l10n.t('detail · {0}', detail),
+
+  /**
    * The line naming what is being read. The host
    * and database only — the string it came from
    * carries a password.

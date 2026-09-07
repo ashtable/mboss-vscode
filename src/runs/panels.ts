@@ -102,9 +102,10 @@ export class RunsListView implements WebviewViewProvider {
 
         if (message.type === 'rerun') void this.store.rerun(message.workflowId);
 
-        if (message.type === 'askAgent') {
-          void this.store.askAgent(message.workflowId);
-        }
+        // The list draws no blocks and no rows, so
+        // the message names neither and the question
+        // is about the whole run.
+        if (message.type === 'askAgent') void this.store.askAgent(message);
 
         if (message.type === 'copyRunId') {
           void this.store.copyRunId(message.workflowId);
@@ -201,6 +202,12 @@ export class SeePanel {
         if (message.type === 'runSelect') {
           void this.store.select(message.workflowId);
         }
+
+        // Whatever the rail had selected travels
+        // with it: a question asked with a row in
+        // front of somebody is a question about that
+        // row.
+        if (message.type === 'askAgent') void this.store.askAgent(message);
 
         if (message.type === 'seeNode') this.store.selectNode(message.nodeId);
         if (message.type === 'seeShow') this.store.showTab(message.tab);

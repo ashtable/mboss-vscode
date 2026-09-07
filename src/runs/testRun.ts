@@ -1,12 +1,21 @@
 import type { Disposable } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
-import type { WorkflowIR } from '../core/rules.js';
+import type { ToolEntry } from '../acp/transcript.js';
+import type { LibManifest, WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
 import type { RunsInit, TestRunProblem } from '../webview/protocol.js';
 
+import type { OpenDatabase } from './db.js';
+import type { EnvName } from './env.js';
+import {
+  assembleRunEvidence,
+  refusedRunEvidence,
+  type AskAgent,
+  type RunEvidence,
+} from './evidence.js';
 import type { Following } from './following.js';
 import { decidedArms } from './operations.js';
 import { readRun } from './reading.js';
@@ -17,7 +26,7 @@ import {
   type SessionLog,
   type SessionRun,
 } from './sessionLog.js';
-import { sessionRowOf } from './view.js';
+import { evidenceLines, evidenceSentence, sessionRowOf } from './view.js';
 import { SETTLED, type LedgerRead, type LiveRun } from './watch.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 
@@ -47,6 +56,11 @@ import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 /** The slice of the editor the zone needs. */
 export type TestRunHost = {
   projects(): string[];
+
+  /** Puts the agent panel where somebody can see
+   *  it. A question handed over in a view nobody is
+   *  looking at is a question nobody was asked. */
+  revealAgent(): Promise<void>;
 };
 
 export type TestRunDeps = {
@@ -60,6 +74,27 @@ export type TestRunDeps = {
    *  This zone says which runs it started and hears
    *  back; it polls nothing itself. */
   following: Following;
+
+  /**
+   * What reading a run out of the ledger takes: a
+   * connection to open, the workflow as it is saved
+   * now, and the last scan of the code behind it.
+   *
+   * The connection is a fresh one rather than the
+   * list's, because this read is open, read, close
+   * — nothing here holds a slot on somebody's
+   * development database while their editor is
+   * open. Where there is none, there is nothing to
+   * read and the question is answered from what
+   * this window remembers instead.
+   */
+  open: OpenDatabase;
+
+  ledger(): { url: string; from: EnvName } | undefined;
+
+  document(name: string): WorkflowIR | undefined;
+
+  manifest(): LibManifest | undefined;
 };
 
 /** What the list draws of this session. */
@@ -117,8 +152,18 @@ export type TestRun = Disposable & {
    *  of those runs did not. */
   refused(workflowId: string, detail: string): void;
 
-  /** Hands a failed run to the agent. */
-  askAgent(workflowId: string): Promise<void>;
+  /**
+   * Hands a run to the agent, with whatever can be
+   * read about it.
+   *
+   * Any run the ledger has, not only one this
+   * window started: the ledger is the durable
+   * record and the session log is a window's
+   * memory, so asking the first and falling back to
+   * the second is what lets somebody ask about a
+   * run from yesterday.
+   */
+  askAgent(ask: AskAgent): Promise<void>;
 
   /** Drops the problem under the input box, quietly:
    *  a stack command that is about to say something
@@ -352,6 +397,87 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     changed();
   };
 
+  /**
+   * The row mBoss writes into the transcript about
+   * a run it read.
+   *
+   * One shape whatever the read came back with,
+   * because a read that answered and a read that
+   * did not are the same event: a reader scanning
+   * the column tells them apart by the status word,
+   * not by meeting two different kinds of row.
+   */
+  const readRow = (
+    workflowId: string,
+    over: Pick<ToolEntry, 'status' | 'body' | 'action'>,
+  ): ToolEntry => ({
+    at: 'tool',
+    id: `evidence:${workflowId}`,
+    by: 'person',
+    kind: 'read',
+    verb: messages.runEvidenceVerb(),
+    target: messages.runEvidenceTarget(workflowId),
+    ...over,
+  });
+
+  /**
+   * The record into the column, the panel onto the
+   * screen, the question to the agent — in that
+   * order.
+   *
+   * The row goes in first so the transcript reads in
+   * the order things happened, and the panel is
+   * revealed before the turn starts so that an
+   * answer arriving quickly still arrives somewhere
+   * somebody is looking. What the row shows is a
+   * summary; the machine-readable copy travels with
+   * the sentence, because a transcript is what a
+   * person reads and a page of JSON in it is not.
+   */
+  const handOver = async (
+    evidence: RunEvidence,
+    workflowId: string,
+  ): Promise<void> => {
+    const target = messages.runEvidenceTarget(workflowId);
+
+    deps.agent.note(
+      readRow(workflowId, {
+        status: 'applied',
+        body: evidenceLines(evidence),
+        // A way out only where there is a run to
+        // open. The id a refused run is filed under
+        // was minted here, and a page for it would
+        // draw nothing.
+        ...(evidence.at === 'refused'
+          ? {}
+          : {
+              action: {
+                label: messages.runEvidenceOpenRun(),
+                posts: 'openRun',
+                workflowId,
+              },
+            }),
+      }),
+    );
+
+    await deps.host.revealAgent();
+
+    await deps.agent.send({
+      text: evidenceSentence(evidence),
+      context: [
+        {
+          // Names what the record is about rather
+          // than somewhere to fetch it from: nothing
+          // serves `mboss://`.
+          uri: `mboss://run-evidence/${workflowId}`,
+          name: target,
+          mimeType: 'application/json',
+          text: JSON.stringify(evidence, null, 2),
+        },
+      ],
+    });
+  };
+
   return {
     refresh: () => {
       readWorkflows();
@@ -442,27 +568,52 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       changed();
     },
 
-    askAgent: async (workflowId) => {
-      const failed = deps.sessionLog.find(workflowId);
-      if (failed === undefined) return;
+    askAgent: async (ask) => {
+      const { workflowId } = ask;
+      const source = deps.ledger();
 
-      const said = failed.failedStep?.error ?? failed.error;
-      if (said === undefined) return;
+      // The ledger first, whatever this window
+      // remembers: it is the durable record, it has
+      // every run rather than this session's, and
+      // what it says about a run this window did
+      // start is the same thing said in more detail.
+      const recorded =
+        source === undefined
+          ? undefined
+          : await assembleRunEvidence(deps, source, ask);
 
-      const step = failed.failedStep?.name;
+      if (recorded !== undefined) return await handOver(recorded, workflowId);
 
-      deps.agent.note({
-        at: 'diagnostic',
-        id: `run:${workflowId}`,
-        source: `${failed.workflow} · ${workflowId}`,
-        rows: [{ at: step, message: said }],
-      });
+      const remembered = deps.sessionLog.find(workflowId);
+      if (remembered === undefined) return;
 
+      // A run the app refused has no row anywhere —
+      // the id it is filed under was minted here and
+      // names nothing in anybody's database — so
+      // this window's memory of trying is the whole
+      // of what there is to hand over.
+      if (remembered.failedStep === undefined) {
+        if (remembered.error === undefined) return;
+
+        return await handOver(refusedRunEvidence(remembered), workflowId);
+      }
+
+      // A read that was made and came back with
+      // nothing is said out loud, because the
+      // sentence after it is thinner than the one a
+      // read would have earned and a reader deserves
+      // to know which they are looking at.
+      if (source !== undefined) {
+        deps.agent.note(readRow(workflowId, { status: 'failed', body: [] }));
+      }
+
+      await deps.host.revealAgent();
       await deps.agent.send({
-        text:
-          step === undefined
-            ? messages.runAskAgentNoStep(failed.workflow, said)
-            : messages.runAskAgent(failed.workflow, step, said),
+        text: messages.runAskAgent(
+          remembered.workflow,
+          remembered.failedStep.name,
+          remembered.failedStep.error,
+        ),
       });
     },
 

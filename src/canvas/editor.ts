@@ -133,6 +133,21 @@ export type CanvasRuns = {
    */
   replayFrom(workflowId: string, nodeId: string): Promise<void>;
 
+  /**
+   * Hands that run to the agent, with the block a
+   * card was showing.
+   *
+   * Any run the ledger has rather than only the one
+   * this canvas is drawing itself against: what is
+   * read about a run is read where the run's rows
+   * are, and the canvas holds no rows at all.
+   */
+  askAgent(ask: {
+    workflowId: string;
+    nodeId?: string;
+    functionId?: number;
+  }): Promise<void>;
+
   onChanged(listener: () => void): Disposable;
 };
 
@@ -562,6 +577,15 @@ export class CanvasSession {
       if (message.nodeId !== undefined) {
         void this.runs.replayFrom(message.workflowId, message.nodeId);
       }
+
+      return false;
+    }
+
+    // A read too, and one whose answer arrives in
+    // another panel entirely — so nothing here is
+    // drawn again and no gate applies.
+    if (message.type === 'askAgent') {
+      void this.runs.askAgent(message);
 
       return false;
     }

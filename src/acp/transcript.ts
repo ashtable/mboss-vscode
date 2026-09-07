@@ -92,6 +92,20 @@ export type ToolEntry = {
 
   /** Anything else the call had to say. */
   body: string[];
+
+  /**
+   * The one place this row leads, where it leads
+   * anywhere.
+   *
+   * Only rows the extension wrote have one: an
+   * agent's tool call is a thing that happened, and
+   * a button under it would be this panel inventing
+   * somewhere for it to go. `posts` is a message
+   * kind rather than a callback because the row
+   * crosses `postMessage` and a function does not
+   * survive being JSON.
+   */
+  action?: { label: string; posts: 'openRun'; workflowId: string };
 };
 
 /**

@@ -12,6 +12,8 @@ import type { Trust } from '../trust.js';
 import type { RunsInit, SeeInit } from '../webview/protocol.js';
 
 import type { OpenDatabase, OpenManagement } from './db.js';
+import { systemDatabaseUrl } from './env.js';
+import type { AskAgent } from './evidence.js';
 import { following } from './following.js';
 import { changedFiles } from './freshness.js';
 import type { ProjectSdk } from './sdk.js';
@@ -115,6 +117,11 @@ export type RunsHost = {
 
   /** Hands a URL to whatever opens links here. */
   openExternal(url: string): Promise<void>;
+
+  /** Puts the agent panel where somebody can see
+   *  it. A question handed over in a view nobody is
+   *  looking at is a question nobody was asked. */
+  revealAgent(): Promise<void>;
 
   /**
    * Puts a question in front of somebody and waits
@@ -233,8 +240,16 @@ export type RunsStore = Disposable & {
    *  same input. */
   rerun(workflowId: string): Promise<void>;
 
-  /** Hands a failed run to the agent. */
-  askAgent(workflowId: string): Promise<void>;
+  /**
+   * Hands a run to the agent, with whatever can be
+   * read about it.
+   *
+   * Any run the ledger has. The block or the row
+   * travels where the surface that asked had one in
+   * front of somebody, because a question asked
+   * from a card is a question about that card.
+   */
+  askAgent(ask: AskAgent): Promise<void>;
 
   /** Puts a run's id where somebody can paste it. */
   copyRunId(workflowId: string): Promise<void>;
@@ -348,6 +363,35 @@ export function runsStore(deps: RunsDeps): RunsStore {
     runner: deps.runner,
     sessionLog: deps.sessionLog,
     following: follow,
+    open: deps.open,
+    // Read here rather than borrowed from the list:
+    // the list's own connection verb records what it
+    // learned in what the panel draws, and asking
+    // the agent about a run is no reason for the
+    // list to change what it says.
+    ledger: () => {
+      const dir = project();
+      if (dir === undefined || !deps.trust.isTrusted()) return undefined;
+
+      const found = systemDatabaseUrl(dir);
+
+      return found.ok ? { url: found.url, from: found.from } : undefined;
+    },
+    document: (name) => {
+      const dir = project();
+
+      return dir === undefined ? undefined : workflowDocument(dir, name);
+    },
+    // The scan type-checks every file in `lib/` and
+    // caches what it found on a source hash, which
+    // is why it is asked only behind trust.
+    manifest: () => {
+      const dir = project();
+
+      return dir === undefined || !deps.trust.isTrusted()
+        ? undefined
+        : manifestFor(dir);
+    },
   });
 
   // One signal for the three, since every reader

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { fakeAgent } from '../../test/doubles/agent.js';
+import { fakeAgent, type FakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import type { WorkflowIR } from '../core/rules.js';
 import {
   LEDGER_URL,
+  RUN_ROW,
   database,
   echoing,
   host,
@@ -38,6 +39,12 @@ function zone(over: Partial<TestRunDeps> = {}): TestRun {
     }),
     sessionLog: sessionLog(),
     following: follows().held,
+    open: async () => database(),
+    ledger: () => ({ url: LEDGER_URL, from: 'DATABASE_URL' }),
+    // A window that has read neither, which is what
+    // every case says unless it hands one over.
+    document: () => undefined,
+    manifest: () => undefined,
     ...over,
   });
 }
@@ -510,14 +517,120 @@ describe('running it again', () => {
   });
 });
 
+/**
+ * Handing a run to the agent.
+ *
+ * The order the readers are asked in is the whole
+ * feature: the ledger first, because it is the
+ * durable record and it holds every run rather
+ * than this window's; then what this window
+ * remembers, which is the only record of a run the
+ * app refused; then the thin sentence, which is
+ * all there is once the read has come back with
+ * nothing.
+ */
 describe('asking the agent why', () => {
-  it('notes the failure and hands it over, naming step and error', async () => {
+  it('reads the ledger and hands over what it recorded', async () => {
+    const agent = fakeAgent();
+    const revealed: number[] = [];
+    const shown = zone({
+      agent,
+      host: host({
+        projects: () => [project()],
+        revealAgent: async () => void revealed.push(1),
+      }),
+    });
+
+    await shown.askAgent({ workflowId: RUN_ROW.workflow_uuid });
+
+    // The row goes in before the turn is started, so
+    // the column reads in the order things happened.
+    expect(agent.told.map((one) => one.at)).toEqual(['note', 'send']);
+    expect(revealed).toEqual([1]);
+
+    const [row] = agent.noted();
+
+    expect(row?.at === 'tool' && row.by).toBe('person');
+    expect(row?.at === 'tool' && row.kind).toBe('read');
+    expect(row?.at === 'tool' && row.status).toBe('applied');
+    expect(row?.at === 'tool' && row.target).toContain(RUN_ROW.workflow_uuid);
+
+    // Folded rather than spelled into the sentence:
+    // the body is a summary a person opens, and the
+    // machine-readable copy travels beside the
+    // prompt.
+    expect(row?.at === 'tool' && row.body.length).toBeGreaterThan(0);
+    expect(row?.at === 'tool' && row.action).toEqual({
+      label: expect.any(String) as string,
+      posts: 'openRun',
+      workflowId: RUN_ROW.workflow_uuid,
+    });
+
+    const handed = JSON.parse(attached(agent)[0] ?? 'null') as {
+      at: string;
+      workflowId: string;
+    };
+
+    expect(handed.at).toBe('run');
+    expect(handed.workflowId).toBe(RUN_ROW.workflow_uuid);
+  });
+
+  /**
+   * The limit this row lifts. Nothing was started
+   * here, so the session log is empty and the ledger
+   * is the only reader with anything to say.
+   */
+  it('answers about a run this window never started', async () => {
+    const agent = fakeAgent();
+    const shown = zone({ agent });
+
+    await shown.askAgent({ workflowId: RUN_ROW.workflow_uuid });
+
+    expect(agent.told.map((one) => one.at)).toEqual(['note', 'send']);
+    expect(shown.render().session).toEqual([]);
+  });
+
+  it('answers refused evidence for a run the ingress refused', async () => {
+    const agent = fakeAgent();
+    const shown = zone({
+      agent,
+      runner: runner(() => ({
+        ok: false,
+        because: 'refused',
+        detail: 'ingress said no',
+      })).start,
+    });
+
+    await shown.runWorkflow('groom_booking', '{}');
+    const workflowId = shown.render().session[0]?.workflowId ?? '';
+
+    await shown.askAgent({ workflowId });
+
+    const handed = JSON.parse(attached(agent)[0] ?? 'null') as { at: string };
+
+    expect(handed.at).toBe('refused');
+    expect(agent.sent()[0]).toContain('ingress said no');
+  });
+
+  /**
+   * A read that was made and answered nothing is a
+   * row of its own. The sentence after it is thinner
+   * than the one above, and saying that the read
+   * failed is what keeps the difference honest.
+   */
+  it('says the thin sentence after a failed read', async () => {
     const agent = fakeAgent();
     const owner = follows();
     const shown = zone({
       agent,
       runner: echoing().start,
       following: owner.held,
+      open: async () => {
+        const db = database();
+        db.fail = 'no route to host';
+
+        return db;
+      },
     });
 
     await shown.runWorkflow('groom_booking', '{}');
@@ -535,35 +648,83 @@ describe('asking the agent why', () => {
         ],
       }),
     );
-    await shown.askAgent(workflowId);
+    await shown.askAgent({ workflowId });
 
-    // The row goes in before the turn is started, so
-    // the column reads in the order things happened —
-    // which one record of both verbs is what makes
-    // assertable.
-    expect(agent.told.map((one) => one.at)).toEqual(['note', 'send']);
+    const [read] = agent.noted();
 
-    const [row] = agent.noted();
-    expect(row?.at === 'diagnostic' && row.source).toContain(workflowId);
-    expect(row?.at === 'diagnostic' && row.rows[0]?.message).toContain(
-      'CDC_PASS',
-    );
+    expect(read?.at === 'tool' && read.status).toBe('failed');
+    expect(read?.at === 'tool' && read.action).toBeUndefined();
+    expect(attached(agent)).toEqual([]);
 
     const [turn] = agent.sent();
+
     expect(turn).toContain('groom_booking');
     expect(turn).toContain('find_slot');
     expect(turn).toContain('CDC_PASS');
   });
 
-  it('says nothing about a run it has never heard of', async () => {
+  it('says nothing when nothing is known', async () => {
     const agent = fakeAgent();
     const shown = zone({ agent });
 
-    await shown.askAgent('run_nothing');
+    await shown.askAgent({ workflowId: 'run_nothing' });
 
     expect(agent.told).toEqual([]);
   });
+
+  /**
+   * Somebody who clicked a block asked about that
+   * block, even on a run that failed somewhere else
+   * — so the object says the subject was chosen
+   * rather than inferred.
+   */
+  it('says the focus was selected when a node was passed', async () => {
+    const agent = fakeAgent();
+    const shown = zone({ agent });
+
+    await shown.askAgent({
+      workflowId: RUN_ROW.workflow_uuid,
+      nodeId: 'parse_request',
+    });
+
+    const handed = JSON.parse(attached(agent)[0] ?? 'null') as {
+      focus: { how: string; nodeId?: string };
+    };
+
+    expect(handed.focus).toEqual({ how: 'selected', nodeId: 'parse_request' });
+  });
+
+  /** No connection string is no read at all, rather
+   *  than a read of nothing. */
+  it('opens nothing in a window with no ledger', async () => {
+    const agent = fakeAgent();
+    const opened: string[] = [];
+    const shown = zone({
+      agent,
+      ledger: () => undefined,
+      open: async (url) => {
+        opened.push(url);
+
+        return database();
+      },
+    });
+
+    await shown.askAgent({ workflowId: RUN_ROW.workflow_uuid });
+
+    expect(opened).toEqual([]);
+    expect(agent.told).toEqual([]);
+  });
 });
+
+/** Every record that travelled beside a sentence,
+ *  as the JSON it was handed over as. */
+function attached(agent: FakeAgent): string[] {
+  return agent.told.flatMap((one) =>
+    one.at === 'send'
+      ? (one.prompt.context ?? []).map((each) => each.text)
+      : [],
+  );
+}
 
 /**
  * What the run was started with, where the ledger

@@ -125,20 +125,25 @@ export function activate(context: ExtensionContext): void {
   });
   const see = new SeePanel(context.extensionUri, runs);
 
-  // The canvas draws a run and offers the way to the
-  // whole of it, which takes both the store that
-  // reads the run and the page that shows one. Put
-  // together here rather than given to the canvas as
-  // two collaborators, because "open this run" is
-  // one thing to have asked for.
+  // Opening a run takes both the store that reads
+  // it and the page that shows one, so the pair is
+  // put together once here. Two surfaces ask for it
+  // — a card on the canvas, and a row mBoss wrote
+  // into the transcript — and neither has any
+  // business holding both halves.
+  const openRun = async (workflowId: string): Promise<void> => {
+    await runs.select(workflowId);
+    see.show();
+  };
+
+  // The canvas draws a run and offers the ways out
+  // of it: the whole run, a replay, and the agent.
   const canvasRuns: CanvasRuns = {
     live: () => runs.live(),
     decided: (ir) => runs.decided(ir),
-    openRun: async (workflowId) => {
-      await runs.select(workflowId);
-      see.show();
-    },
+    openRun,
     replayFrom: (workflowId, nodeId) => runs.replay(workflowId, { nodeId }),
+    askAgent: (ask) => runs.askAgent(ask),
     onChanged: (listener) => runs.onChanged(listener),
   };
 
@@ -194,7 +199,13 @@ export function activate(context: ExtensionContext): void {
       watchers,
       panel,
     ),
-    AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview),
+    AgentSidebarView.register(
+      context.extensionUri,
+      panel,
+      pickAgent,
+      preview,
+      openRun,
+    ),
     RunsListView.register(context.extensionUri, runs, see),
     { dispose: () => see.dispose() },
     { dispose: () => gallery.dispose() },

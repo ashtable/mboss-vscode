@@ -385,16 +385,28 @@ const Rerun = z.object({
   workflowId: z.string(),
 });
 
-/** Somebody wants the agent to look at a failed
- *  run. */
+/**
+ * Somebody wants the agent to look at a run.
+ *
+ * The run always, and the part of it the surface
+ * had in front of them: a block where a card was
+ * showing one, a row where a trace was. Both are
+ * optional and neither is required, because a
+ * question about a whole run is a question somebody
+ * can ask — the list draws no blocks and no rows,
+ * and names neither.
+ */
 const AskAgent = z.object({
   type: z.literal('askAgent'),
   workflowId: z.string(),
+  nodeId: z.string().optional(),
+  functionId: z.number().int().optional(),
 });
 
 /** Somebody opened a run in the flight recorder:
- *  one of this session's, from the list, or the one
- *  a canvas is drawing itself against. */
+ *  one of this session's, from the list, from a
+ *  transcript row, or the one a canvas is drawing
+ *  itself against. */
 const OpenRun = z.object({
   type: z.literal('openRun'),
   workflowId: z.string(),
@@ -545,6 +557,7 @@ const SCHEMAS = {
     OpenErrorLocation,
     OpenOutput,
     OpenRun,
+    AskAgent,
     ReplayFrom,
     Connect,
     AddNode,
@@ -565,6 +578,7 @@ const SCHEMAS = {
     Undo,
     KeepFile,
     UndoFile,
+    OpenRun,
   ]),
   runs: z.discriminatedUnion('type', [
     Ready,
@@ -590,6 +604,7 @@ const SCHEMAS = {
     OpenFunction,
     OpenErrorLocation,
     OpenOutput,
+    AskAgent,
     ReplayFrom,
     SeeShow,
     SeeNode,

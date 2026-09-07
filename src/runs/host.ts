@@ -11,6 +11,7 @@ import {
 
 import { WorkflowCanvasEditor } from '../canvas/editor.js';
 import { isProject } from '../core/index.js';
+import { AgentSidebarView } from '../sidebar/view.js';
 
 import type { RunsHost } from './store.js';
 
@@ -88,6 +89,17 @@ export function runsHost(): RunsHost {
         .trim(),
 
     openExternal: async (url) => void (await env.openExternal(Uri.parse(url))),
+
+    // The view's own generated command, which
+    // reveals the container and the view inside it.
+    // Nothing is done about focus: the question has
+    // already been asked, and taking the caret out
+    // of whatever somebody was reading would be the
+    // panel deciding they had finished with it.
+    revealAgent: async () =>
+      void (await commands.executeCommand(
+        `${AgentSidebarView.viewType}.focus`,
+      )),
 
     /**
      * The one question this extension asks in a

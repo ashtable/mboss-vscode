@@ -183,8 +183,8 @@ describe('what each view may say', () => {
     selectWorkflow: ['runs'],
     runWorkflow: ['runs'],
     rerun: ['runs'],
-    askAgent: ['runs'],
-    openRun: ['runs', 'canvas'],
+    askAgent: ['runs', 'see', 'canvas'],
+    openRun: ['runs', 'canvas', 'sidebar'],
     openProduction: ['runs'],
     replayRun: ['runs'],
 

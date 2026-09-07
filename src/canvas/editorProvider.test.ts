@@ -222,6 +222,10 @@ type FakeRuns = CanvasRuns & {
   /** Every document the canvas asked for the
    *  decided arms of. */
   readonly asked: WorkflowIR[];
+
+  /** Every run it handed to the agent, as
+   *  `<run> <block>`. */
+  readonly handed: string[];
 };
 
 function runsSaying(arms: Record<string, string> = {}): FakeRuns {
@@ -229,6 +233,7 @@ function runsSaying(arms: Record<string, string> = {}): FakeRuns {
   const opened: string[] = [];
   const offered: string[] = [];
   const asked: WorkflowIR[] = [];
+  const handed: string[] = [];
   let live: LiveRun | undefined;
 
   return {
@@ -244,6 +249,9 @@ function runsSaying(arms: Record<string, string> = {}): FakeRuns {
     replayFrom: async (workflowId, nodeId) => {
       offered.push(`${workflowId} ${nodeId}`);
     },
+    askAgent: async (ask) => {
+      handed.push(`${ask.workflowId} ${ask.nodeId ?? ''}`.trim());
+    },
     onChanged: (listener) => {
       listeners.push(listener);
 
@@ -256,6 +264,7 @@ function runsSaying(arms: Record<string, string> = {}): FakeRuns {
     opened,
     offered,
     asked,
+    handed,
   };
 }
 

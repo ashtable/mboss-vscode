@@ -35,6 +35,17 @@ export class AgentSidebarView implements WebviewViewProvider {
     private readonly panel: AgentPanel,
     private readonly chooseAgent: () => Promise<void>,
     private readonly preview: PreviewStore,
+
+    /**
+     * The way from a row in the transcript to the
+     * run it names.
+     *
+     * Handed over rather than reached for: this
+     * view has no run store and no run page, and a
+     * row mBoss wrote about a run is the one thing
+     * in this column that leads anywhere.
+     */
+    private readonly openRun: (workflowId: string) => Promise<void>,
   ) {}
 
   static register(
@@ -42,10 +53,11 @@ export class AgentSidebarView implements WebviewViewProvider {
     panel: AgentPanel,
     chooseAgent: () => Promise<void>,
     preview: PreviewStore,
+    openRun: (workflowId: string) => Promise<void>,
   ): Disposable {
     return window.registerWebviewViewProvider(
       AgentSidebarView.viewType,
-      new AgentSidebarView(extensionUri, panel, chooseAgent, preview),
+      new AgentSidebarView(extensionUri, panel, chooseAgent, preview, openRun),
     );
   }
 
@@ -82,6 +94,7 @@ export class AgentSidebarView implements WebviewViewProvider {
         if (message.type === 'undo') void this.preview.undo();
         if (message.type === 'keepFile') this.panel.keep(message.id);
         if (message.type === 'undoFile') void this.panel.undo(message.id);
+        if (message.type === 'openRun') void this.openRun(message.workflowId);
       },
     });
   }

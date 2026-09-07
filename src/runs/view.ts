@@ -20,6 +20,12 @@ import type {
   TraceOpView,
 } from '../webview/protocol.js';
 
+import type {
+  OperationEvidence,
+  RecordedRunEvidence,
+  RefusedRunEvidence,
+  RunEvidence,
+} from './evidence.js';
 import type { Lineage, LineageRun } from './openRun.js';
 import { seeWords } from './words.js';
 import { decidedArms, groupsOf, type TraceGroup } from './operations.js';
@@ -837,4 +843,182 @@ function cut(value: string): string {
  *  panel, and keeps the numbers readable. */
 function round(fraction: number): number {
   return Math.round(fraction * 10_000) / 10_000;
+}
+
+/**
+ * The run evidence, said twice: once as a summary
+ * a person reads in the transcript, and once as
+ * the sentence the agent is asked.
+ *
+ * Both are assembled clause by clause from what the
+ * record carries. A fact the record does not have
+ * is left out rather than printed as a label with
+ * nothing after it — the record is built not to
+ * invent, and words wrapped around it may not
+ * either.
+ */
+
+/** The summary folded under the transcript row. */
+export function evidenceLines(evidence: RunEvidence): string[] {
+  return evidence.at === 'refused'
+    ? refusedLines(evidence)
+    : recordedLines(evidence);
+}
+
+/** What the agent is asked, with the record
+ *  attached. */
+export function evidenceSentence(evidence: RunEvidence): string {
+  if (evidence.at === 'refused') {
+    return messages.runAskAgentRefused(evidence.workflow, evidence.detail);
+  }
+
+  return [
+    headlineOf(evidence),
+    codeBehind(evidence),
+    messages.runAskAgentEvidence(
+      evidence.reader.database,
+      evidence.reader.from,
+    ),
+  ]
+    .filter((clause) => clause !== undefined)
+    .join(' ');
+}
+
+/**
+ * Which run failed, and where.
+ *
+ * A block where the record names one, the run
+ * itself where it does not, and neither where the
+ * run recorded no failure at all — any run the
+ * ledger has can be asked about, and one that
+ * succeeded has to be described as one.
+ */
+function headlineOf(evidence: RecordedRunEvidence): string {
+  const said = observed(evidence);
+
+  if (said === undefined) {
+    return messages.runAskAgentNoFailure(
+      evidence.workflowId,
+      evidence.workflow,
+      evidence.status,
+    );
+  }
+
+  const title = evidence.node?.title ?? evidence.failedStep?.name;
+
+  return title === undefined
+    ? messages.runAskAgentWith(evidence.workflowId, evidence.workflow, said)
+    : messages.runAskAgentAtBlock(
+        evidence.workflowId,
+        evidence.workflow,
+        title,
+        said,
+      );
+}
+
+/**
+ * The code the block runs and how hard it was
+ * allowed to try, in the one line a person would
+ * have read off the card.
+ *
+ * Joined rather than templated, so that a block
+ * with no handler, or a handler the last scan
+ * never found, simply says less.
+ */
+function codeBehind(evidence: RecordedRunEvidence): string | undefined {
+  const parts: string[] = [];
+  const handler = evidence.handler;
+  const retry = evidence.node?.retry;
+
+  if (handler !== undefined) parts.push(`ƒ ${handler.export}`);
+  if (handler?.file !== undefined) parts.push(handler.file);
+
+  if (retry !== undefined && retry.declared) {
+    parts.push(messages.runAskAgentRetry(String(retry.maxAttempts)));
+  }
+
+  return parts.length === 0 ? undefined : `${parts.join(' · ')}.`;
+}
+
+/** One run, as the summary lists it. */
+function recordedLines(evidence: RecordedRunEvidence): string[] {
+  const said = observed(evidence);
+  const handler = evidence.handler;
+  const retry = evidence.node?.retry;
+
+  return [
+    said === undefined ? undefined : messages.runEvidenceError(said),
+    evidence.failedStep === undefined
+      ? undefined
+      : messages.runEvidenceFailedAt(operationText(evidence.failedStep)),
+    retry === undefined || !retry.declared
+      ? undefined
+      : messages.runEvidenceRetry(String(retry.maxAttempts)),
+    handler === undefined
+      ? undefined
+      : handler.inManifest
+        ? messages.runEvidenceHandler(handler.signature ?? handler.export)
+        : messages.runEvidenceHandlerMissing(handler.export),
+    handler?.file === undefined
+      ? undefined
+      : messages.runEvidenceSource(
+          handler.line === undefined
+            ? handler.file
+            : `${handler.file}:${String(handler.line)}`,
+        ),
+    messages.runEvidenceStatus(evidence.status),
+    evidence.recoveryAttempts === 0
+      ? undefined
+      : messages.runEvidenceRecovered(String(evidence.recoveryAttempts)),
+    evidence.applicationVersion === undefined
+      ? undefined
+      : messages.runEvidenceVersion(evidence.applicationVersion),
+    messages.runEvidenceReader(evidence.reader.database, evidence.reader.from),
+    messages.runEvidenceOperations(
+      String(evidence.operations.length),
+      String(evidence.operationsTotal),
+    ),
+  ].filter((line) => line !== undefined);
+}
+
+/** A run that never started, as the summary lists
+ *  it: what it was going to be, when, and why not. */
+function refusedLines(evidence: RefusedRunEvidence): string[] {
+  return [
+    messages.runEvidenceRefused(evidence.workflow, evidence.refusedAt),
+    ...(evidence.detail === ''
+      ? []
+      : [messages.runEvidenceDetail(evidence.detail)]),
+  ];
+}
+
+/**
+ * The failure in one line: the class where the
+ * record kept one, and the sentence either way.
+ *
+ * The run's own error first, because that is the
+ * column DBOS writes when a run ends badly; the
+ * failed row's is what a run still in flight has.
+ */
+function observed(evidence: RecordedRunEvidence): string | undefined {
+  const error = evidence.error ?? evidence.failedStep?.error;
+
+  if (error === undefined) return undefined;
+
+  return error.name === undefined
+    ? error.message
+    : `${error.name}: ${error.message}`;
+}
+
+/** One recorded row, named the way the trace names
+ *  it — by what ran and which row it was. */
+function operationText(operation: OperationEvidence): string {
+  const spent =
+    operation.durationMs === undefined
+      ? undefined
+      : duration(operation.durationMs);
+
+  return [`${operation.name} · #${String(operation.functionId)}`, spent]
+    .filter((part) => part !== undefined)
+    .join(' · ');
 }

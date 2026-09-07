@@ -61,6 +61,7 @@ function runsHost(dir: string): RunsHost {
     openFile: async () => undefined,
     conductorConsoleUrl: () => '',
     openExternal: async () => undefined,
+    revealAgent: async () => undefined,
     confirm: async () => ({ at: 'nothing' }),
   };
 }

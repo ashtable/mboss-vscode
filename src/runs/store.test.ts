@@ -357,7 +357,7 @@ async function exercise(store: RunsStore): Promise<void> {
   await store.runWorkflow('groom_booking', '{}');
   await store.rerun('wf_c9d2f3');
   await store.copyRunId('wf_c9d2f3');
-  await store.askAgent('wf_c9d2f3');
+  await store.askAgent({ workflowId: 'wf_c9d2f3' });
   await store.stackUp();
   await store.stackRebuild();
   await store.stackDown();
@@ -374,6 +374,36 @@ async function exercise(store: RunsStore): Promise<void> {
  * neither. What must not differ is what happens
  * next.
  */
+/**
+ * Reading a run for the agent is the zone's, and is
+ * asked there. What is asked here is the wiring: the
+ * store is what hands that zone the project's
+ * connection string, its saved documents and the
+ * scan of its code, and a run this window never
+ * started is the case that proves all three are
+ * read from the project rather than from the
+ * session.
+ */
+describe('handing a run to the agent', () => {
+  it('reads a run the list never started, against the project on disk', async () => {
+    const agent = fakeAgent();
+    const store = runsStore(deps({ agent }));
+
+    await store.askAgent({ workflowId: 'wf_c9d2f3' });
+
+    const turn = agent.told.find((one) => one.at === 'send');
+    const carried = turn?.at === 'send' ? (turn.prompt.context ?? []) : [];
+    const handed = JSON.parse(carried[0]?.text ?? 'null') as {
+      workflow: string;
+      document: { found: boolean; revision?: number };
+    };
+
+    expect(agent.told.map((one) => one.at)).toEqual(['note', 'send']);
+    expect(handed.workflow).toBe('groom_booking');
+    expect(handed.document).toEqual({ found: true, revision: 1 });
+  });
+});
+
 describe('the doors a replay comes through', () => {
   function asking(): { asked: ReplayQuestion[]; store: RunsStore } {
     const asked: ReplayQuestion[] = [];
