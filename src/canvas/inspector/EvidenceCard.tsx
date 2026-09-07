@@ -187,7 +187,7 @@ function BlockCard({
       {row === undefined ? (
         <Nothing strings={strings} block={block} rounds={found.rounds} />
       ) : (
-        <Recorded strings={strings} run={run} nodeId={block.id} row={row} />
+        <Recorded strings={strings} run={run} row={row} />
       )}
 
       {policy === undefined ? null : (
@@ -210,7 +210,138 @@ function BlockCard({
           ) : null}
         </>
       )}
+
+      {/* Under everything the run recorded, because
+          what is on the card is what a person
+          decides with. Offered against a row and
+          not against a block: a block the run never
+          reached has nothing to replay from and
+          nothing to be asked about. */}
+      {row === undefined ? null : (
+        <Actions strings={strings} run={run} block={block} row={row} />
+      )}
     </section>
+  );
+}
+
+/**
+ * The ways on from a step, in the order somebody
+ * reaches for them.
+ *
+ * The code first — this is an editor, and the fix
+ * is where a person is going — then the line it
+ * broke on, then a second run from here, then the
+ * agent. Each carries the block, and the two that
+ * start something carry the run as well: a card may
+ * be drawing a run the extension has moved past,
+ * and which run is meant is not a question this
+ * column gets to answer.
+ *
+ * The same four wherever the card is mounted. A
+ * door that appeared on the canvas and not on the
+ * run page would make one of them the real one.
+ */
+function Actions({
+  strings,
+  run,
+  block,
+  row,
+}: {
+  strings: InspectorStrings;
+  run: LiveRun;
+  block: EvidenceBlock;
+  row: EvidenceRow;
+}) {
+  const frame = row.error?.frame;
+
+  return (
+    <>
+      <div className="evidence-actions">
+        {/* Only where the block has code behind it.
+            A wait, a loop and an undecided branch
+            run nothing anybody wrote, and a door to
+            a file that does not exist is worse than
+            no door. */}
+        {block.handler === undefined ? null : (
+          <button
+            type="button"
+            className={row.state === 'failed' ? 'btn primary' : 'btn brand'}
+            data-evidence-action="openFunction"
+            onClick={() =>
+              postToHost({ type: 'openFunction', nodeId: block.id })
+            }
+          >
+            {strings.openHandler}
+          </button>
+        )}
+
+        {/* Only where the stack named a file in the
+            project's own code. Most failures name
+            the SDK and the generated workflow and
+            nothing else, and there is no line to go
+            to for one of those. */}
+        {frame === undefined ? null : (
+          <button
+            type="button"
+            className="btn quiet"
+            data-evidence-action="openErrorLocation"
+            onClick={() =>
+              postToHost({
+                type: 'openErrorLocation',
+                nodeId: block.id,
+                functionId: row.functionId,
+              })
+            }
+          >
+            {strings.openErrorLocation}
+          </button>
+        )}
+
+        {/* The block and not the row: a block that
+            ran more than once has several of them,
+            and which one a replay would start from
+            is decided where the run's rows are. */}
+        <button
+          type="button"
+          className="btn secondary"
+          data-evidence-action="replayFrom"
+          onClick={() =>
+            postToHost({
+              type: 'replayFrom',
+              workflowId: run.workflowId,
+              nodeId: block.id,
+            })
+          }
+        >
+          {strings.replayFrom}
+        </button>
+
+        <button
+          type="button"
+          className="btn quiet"
+          data-evidence-action="askAgent"
+          onClick={() =>
+            postToHost({
+              type: 'askAgent',
+              workflowId: run.workflowId,
+              nodeId: block.id,
+            })
+          }
+        >
+          {strings.askAgent}
+        </button>
+      </div>
+
+      {/* The line is a fact about the image, not
+          about the folder on screen, and saying so
+          is what keeps it from being read as a
+          promise about the file it opens. */}
+      {frame === undefined ? null : (
+        <div data-evidence-field="errorLocation">
+          <p className="hint">{strings.errorLocationFrom}</p>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -302,12 +433,10 @@ function Parts({
 function Recorded({
   strings,
   run,
-  nodeId,
   row,
 }: {
   strings: InspectorStrings;
   run: LiveRun;
-  nodeId: string;
   row: EvidenceRow;
 }) {
   const timed = row.startedAt !== undefined || row.completedAt !== undefined;
@@ -330,38 +459,6 @@ function Recorded({
             </>
           ) : null}
         </p>
-      )}
-
-      {/* Only where the stack named a file in the
-          project's own code. Most failures name the
-          SDK and the generated workflow and nothing
-          else, and there is no line to go to for
-          one of those. */}
-      {row.error?.frame === undefined ? null : (
-        <div data-evidence-field="errorLocation">
-          <div className="evidence-actions">
-            <button
-              type="button"
-              className="btn quiet"
-              data-evidence-action="openErrorLocation"
-              onClick={() =>
-                postToHost({
-                  type: 'openErrorLocation',
-                  nodeId,
-                  functionId: row.functionId,
-                })
-              }
-            >
-              {strings.openErrorLocation}
-            </button>
-          </div>
-
-          {/* The line is a fact about the image, not
-              about the folder on screen, and saying
-              so is what keeps it from being read as
-              a promise about the file it opens. */}
-          <p className="hint">{strings.errorLocationFrom}</p>
-        </div>
       )}
 
       {row.restored ? (

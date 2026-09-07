@@ -2536,6 +2536,76 @@ test.describe('the Inspector column', () => {
     });
 
     /**
+     * The ways on from a recorded step, in the order
+     * somebody reaches for them: the code, the line
+     * it broke on, a second run from here, and the
+     * agent.
+     *
+     * Every one of them carries the block, and the
+     * two that start something carry the run as
+     * well — a panel may be drawing a run the
+     * extension has since moved past, and which run
+     * is being asked about is not a question a card
+     * gets to answer from memory.
+     */
+    test('offers the four ways on from a failed step', async ({ page }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW_IN_LIB]),
+        }),
+      );
+
+      await expect(
+        page.locator('.evidence-actions [data-evidence-action]'),
+      ).toHaveText([
+        inspectorStrings.openHandler,
+        inspectorStrings.openErrorLocation,
+        inspectorStrings.replayFrom,
+        inspectorStrings.askAgent,
+      ]);
+
+      await page.locator('[data-evidence-action="openFunction"]').click();
+      await page.locator('[data-evidence-action="replayFrom"]').click();
+      await page.locator('[data-evidence-action="askAgent"]').click();
+
+      expect(await harness.postedOfType('openFunction')).toEqual([
+        { type: 'openFunction', nodeId: 'find_slot' },
+      ]);
+      expect(await harness.postedOfType('replayFrom')).toEqual([
+        { type: 'replayFrom', workflowId: 'wf_1', nodeId: 'find_slot' },
+      ]);
+      expect(await harness.postedOfType('askAgent')).toEqual([
+        { type: 'askAgent', workflowId: 'wf_1', nodeId: 'find_slot' },
+      ]);
+    });
+
+    /** The other three stay: only the line is
+     *  conditional, and a step that broke somewhere
+     *  nobody here wrote is still a step to replay
+     *  or ask about. */
+    test('keeps the other three ways on where there is no line', async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW]),
+        }),
+      );
+
+      await expect(
+        page.locator('.evidence-actions [data-evidence-action]'),
+      ).toHaveText([
+        inspectorStrings.openHandler,
+        inspectorStrings.replayFrom,
+        inspectorStrings.askAgent,
+      ]);
+    });
+
+    /**
      * What the run was started with is a fact about
      * the run and is drawn here and nowhere else —
      * which is the other half of the rule the first

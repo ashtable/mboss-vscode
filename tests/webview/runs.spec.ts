@@ -1794,6 +1794,35 @@ test.describe('one run in detail', () => {
   });
 
   /**
+   * The rest of the card's doors are the same ones
+   * the canvas draws, because it is the same card:
+   * the code the block runs and the agent are
+   * reached from wherever somebody is standing when
+   * they ask.
+   */
+  test('reaches the code and the agent from the rail', async ({ page }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: GRAPH,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+      ),
+    );
+
+    await page.locator('.rail [data-evidence-action="openFunction"]').click();
+    await page.locator('.rail [data-evidence-action="askAgent"]').click();
+
+    expect(await harness.postedOfType('openFunction')).toEqual([
+      { type: 'openFunction', nodeId: 'find_slot' },
+    ]);
+    expect(await harness.postedOfType('askAgent')).toEqual([
+      { type: 'askAgent', workflowId: 'wf_c9d2f3', nodeId: 'find_slot' },
+    ]);
+  });
+
+  /**
    * Cancel is meaningless once a run has stopped and
    * Resume is meaningless while one is still going,
    * so the two can never be offered together.
@@ -2405,7 +2434,16 @@ const GRAPH: SeeGraph = {
     name: 'groom_booking',
     nodes: [
       { id: 'parse_request', kind: 'step', title: 'Parse', config: {} },
-      { id: 'find_slot', kind: 'step', title: 'Find a slot', config: {} },
+      {
+        id: 'find_slot',
+        kind: 'step',
+        title: 'Find a slot',
+        config: {},
+        // The one node with code behind it: the
+        // card's way into it is offered where there
+        // is something to open and nowhere else.
+        handler: { export: 'findSlot' },
+      },
     ],
     edges: [
       {

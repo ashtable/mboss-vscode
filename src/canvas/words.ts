@@ -318,6 +318,13 @@ export const inspectorWords = once(() => ({
     'every configured try failed · DBOS recorded DBOSMaxStepRetriesError',
   ),
 
+  // The way into the code a block runs, offered on
+  // a card the way it is offered on the other face.
+  // Spelled out rather than borrowing the picker's
+  // `open ƒ`: that one sits at the end of a line of
+  // code and this one stands in a row of buttons.
+  openHandler: l10n.t('Open function'),
+
   // The second door out of a failure, drawn only
   // where the stack named a file in the project's
   // own `lib/`. Its own button rather than a
@@ -335,6 +342,18 @@ export const inspectorWords = once(() => ({
   errorLocationFrom: l10n.t(
     'line from the image that ran · edited since? rebuild to be sure',
   ),
+
+  // A second run from this block, leaving the run
+  // on screen exactly where it is. "From here"
+  // rather than "again": what a replay picks is
+  // where to start, and everything before that is
+  // carried over rather than done twice.
+  replayFrom: l10n.t('Replay from here'),
+
+  // The run and the block go to the agent, and the
+  // answer comes back in the sidebar rather than in
+  // this column.
+  askAgent: l10n.t('Ask agent'),
 
   rowsLabel: l10n.t('rows · as recorded'),
   nothingRecorded: l10n.t('nothing recorded here yet'),
