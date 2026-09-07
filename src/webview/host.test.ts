@@ -252,6 +252,31 @@ describe('what each view may say', () => {
   });
 
   /**
+   * A drop is one gesture or the other. Splicing
+   * decides where the block sits without anybody
+   * being asked which way out of a block to leave
+   * by, so a message claiming to be both used to
+   * make the host ask a question and then throw the
+   * answer away. It does not parse now.
+   */
+  it("refuses a drop that is both a splice and a wire's end", () => {
+    const canvas = messageSchemaFor('canvas');
+    const drop = { type: 'addNode', ...SAMPLE['addNode'] };
+
+    expect(canvas.safeParse({ ...drop, spliceEdge: 'e2' }).success).toBe(true);
+    expect(
+      canvas.safeParse({ ...drop, connectFrom: { node: 'find_slot' } }).success,
+    ).toBe(true);
+    expect(
+      canvas.safeParse({
+        ...drop,
+        spliceEdge: 'e2',
+        connectFrom: { node: 'find_slot' },
+      }).success,
+    ).toBe(false);
+  });
+
+  /**
    * And the table covers every kind the registry
    * carries, so a kind added without a row here
    * fails rather than going unchecked.

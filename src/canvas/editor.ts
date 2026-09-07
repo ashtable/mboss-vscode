@@ -40,10 +40,8 @@ import type {
 
 import {
   editFor,
-  waysOutOf,
   type EditMessage,
   type EditOutcome,
-  type Gesture,
   type WayOut,
   type WayTaken,
 } from './edits.js';
@@ -458,31 +456,31 @@ export class CanvasSession {
   heard(message: Heard<'canvas'>): boolean {
     if (this.live !== undefined) return false;
 
-    switch (message.type) {
-      case 'select':
-        this.select(message.nodeId);
+    if (message.type === 'select') {
+      this.select(message.nodeId);
 
-        return true;
-      case 'text':
-        this.replaceText(message.text);
-
-        return false;
-      case 'connect':
-      case 'addNode':
-      case 'move':
-      case 'arrange':
-      case 'delete':
-      case 'edit':
-      case 'assign':
-        // Two of these may have to ask which way out
-        // of a block the new wire leaves by, so all of
-        // them answer later. What they do when they
-        // land is write the document, and the panel is
-        // drawn again from that rather than from here.
-        void this.perform(message);
-
-        return false;
+      return true;
     }
+
+    if (message.type === 'text') {
+      this.replaceText(message.text);
+
+      return false;
+    }
+
+    // Everything else this panel says is an edit, and
+    // the compiler is what says so: what is left after
+    // those two is `EditMessage` exactly, so a new
+    // message that is not an edit stops compiling here
+    // rather than being quietly performed. An edit may
+    // have to ask which way out of a block a new wire
+    // leaves by, so it answers later; what it does
+    // when it lands is write the document, and the
+    // panel is drawn again from that rather than from
+    // here.
+    void this.perform(message);
+
+    return false;
   }
 
   /**
@@ -605,25 +603,52 @@ export class CanvasSession {
    * file.
    */
   private async perform(message: EditMessage): Promise<void> {
-    if (this.live !== undefined) return;
-    if (this.current(message.baseRevision) === undefined) return;
+    const asked = this.attempt(message);
+    if (asked === undefined) return;
 
-    const gesture = await this.resolved(message);
-    if (gesture === undefined) return;
+    if (asked.at !== 'asks') {
+      this.land(asked, message.baseRevision);
+
+      return;
+    }
+
+    const way = await this.wayTaken(asked);
+    if (way === undefined) return;
 
     // Choosing a port is time in which the document
-    // can move, so the question is asked again.
-    const ir = this.current(message.baseRevision);
-    if (ir === undefined) return;
+    // can move, so the whole edit is worked out again
+    // against the document as it is now — which is
+    // also what re-checks the base revision.
+    const settled = this.attempt(message, way);
+    if (settled === undefined || settled.at === 'asks') return;
 
-    this.land(
-      editFor(gesture, {
+    this.land(settled, message.baseRevision);
+  }
+
+  /**
+   * What this message comes to over the document as
+   * it stands, or nothing where there is no document
+   * to edit or the revision it was made against is
+   * not the one on disk.
+   */
+  private attempt(
+    message: EditMessage,
+    answered?: WayTaken,
+  ): EditOutcome | undefined {
+    if (this.live !== undefined) return undefined;
+
+    const ir = this.current(message.baseRevision);
+    if (ir === undefined) return undefined;
+
+    return editFor(
+      message,
+      {
         ir,
         boxes: this.boxes,
         manifest: this.manifest,
         labels: paletteLabels(),
-      }),
-      message.baseRevision,
+      },
+      answered,
     );
   }
 
@@ -646,87 +671,28 @@ export class CanvasSession {
   }
 
   /**
-   * The gesture a message is, once the questions it
-   * leaves open are answered.
+   * The rule's question, put to somebody.
    *
-   * Two messages name the block a wire leaves and no
-   * port, because a block has one dot to leave by
-   * however many ways out it has. Which way out the
-   * wire takes is asked here, and nothing where it
-   * was asked and nobody answered — which takes the
-   * whole edit down with it: a wire has to leave by
-   * something, and picking one on somebody's behalf
-   * would write a document they did not ask for.
+   * Which ways out there are, and whether there is
+   * anything worth asking, is the rule's answer —
+   * this only turns it into rows and carries one back.
+   * Nobody answering takes the whole edit down with
+   * it: a wire has to leave by something, and picking
+   * one on somebody's behalf would write a document
+   * they did not ask for.
    */
-  private async resolved(message: EditMessage): Promise<Gesture | undefined> {
-    switch (message.type) {
-      case 'connect': {
-        const from = await this.wayTaken(message.from.node);
-
-        return from === undefined
-          ? undefined
-          : { type: 'connect', from, to: message.to };
-      }
-      case 'addNode': {
-        const from = message.connectFrom;
-        const way =
-          from === undefined ? undefined : await this.wayTaken(from.node);
-
-        if (from !== undefined && way === undefined) return undefined;
-
-        return {
-          type: 'addNode',
-          kind: message.kind,
-          position: message.position,
-          spliceEdge: message.spliceEdge,
-          connectFrom: way,
-        };
-      }
-      case 'move':
-        return { type: 'move', positions: message.positions };
-      case 'arrange':
-        return { type: 'arrange' };
-      case 'delete':
-        return {
-          type: 'delete',
-          nodeIds: message.nodeIds,
-          edgeIds: message.edgeIds,
-        };
-      case 'edit':
-        return { type: 'edit', node: message.node };
-      case 'assign':
-        return {
-          type: 'assign',
-          nodeId: message.nodeId,
-          export: message.export,
-        };
-    }
-  }
-
-  /**
-   * Which way out of a block a new wire leaves by,
-   * asked against the ports the document says that
-   * block has — and where there is only one, there
-   * is nothing to ask.
-   */
-  private async wayTaken(nodeId: string): Promise<WayTaken | undefined> {
-    const node = this.nodeAt(nodeId);
+  private async wayTaken(
+    asked: Extract<EditOutcome, { at: 'asks' }>,
+  ): Promise<WayTaken | undefined> {
+    const node = this.nodeAt(asked.node);
     if (node === undefined) return undefined;
-
-    const ways = waysOutOf(node);
-
-    if (ways.length < 2) {
-      const only = ways[0];
-
-      return only === undefined ? undefined : { node: nodeId, port: only.port };
-    }
 
     const port = await this.api.pick(
       messages.canvasChoosePort(),
-      ways.map((way) => choiceOf(way, node)),
+      asked.ways.map((way) => choiceOf(way, node)),
     );
 
-    return port === undefined ? undefined : { node: nodeId, port };
+    return port === undefined ? undefined : { node: asked.node, port };
   }
 
   /**
@@ -742,7 +708,10 @@ export class CanvasSession {
    * said out loud, and a row about it would claim
    * the document changed.
    */
-  private land(outcome: EditOutcome, baseRevision: number): void {
+  private land(
+    outcome: Exclude<EditOutcome, { at: 'asks' }>,
+    baseRevision: number,
+  ): void {
     if (outcome.at === 'nothing') return;
 
     if (outcome.at === 'refused') {

@@ -19,6 +19,7 @@ import {
   type EditContext,
   type EditOutcome,
   type Gesture,
+  type WayTaken,
 } from './edits.js';
 import { paletteLabels } from './words.js';
 
@@ -104,16 +105,18 @@ function deciding(nodeId: string, exported: string): WorkflowIR {
 }
 
 describe('a wire drawn between two blocks', () => {
-  const connect = (
-    from: Gesture & { type: 'connect' } extends infer G
-      ? G extends { from: infer F }
-        ? F
-        : never
-      : never,
-  ) =>
+  /** The wire, with the way out already answered —
+   *  which is what the session does once somebody
+   *  has picked one. */
+  const connect = (from: WayTaken) =>
     editFor(
-      { type: 'connect', from, to: { node: 'book_appointment' } },
+      {
+        type: 'connect',
+        from: { node: from.node },
+        to: { node: 'book_appointment' },
+      },
       context(),
+      from,
     );
 
   it('is written from the block, by the way out that was taken', () => {
@@ -138,6 +141,64 @@ describe('a wire drawn between two blocks', () => {
     expect(connect({ node: 'no_such_node', port: 'out' })).toEqual({
       at: 'nothing',
     });
+  });
+});
+
+/**
+ * Which way out a wire takes is a fact about the
+ * document, so the rule is what decides whether
+ * there is anything to ask — and answers with the
+ * question rather than with an edit. Nobody here has
+ * a picker, which is the point: the whole rule can be
+ * asked without one.
+ */
+describe('a wire that has to be told which way out it takes', () => {
+  const unanswered = (node: string) =>
+    editFor(
+      { type: 'connect', from: { node }, to: { node: 'book_appointment' } },
+      context(),
+    );
+
+  it('asks, where the block has more than one way out', () => {
+    expect(unanswered('slot_open')).toEqual({
+      at: 'asks',
+      node: 'slot_open',
+      ways: [
+        { port: 'yes', decides: 'true' },
+        { port: 'no', fallThrough: true },
+      ],
+    });
+  });
+
+  /** A question with a single answer is not a
+   *  question, so the wire is simply written. */
+  it('asks nothing where the block has only one', () => {
+    const written = next(unanswered('find_slot'));
+
+    expect(written.edges.at(-1)).toMatchObject({
+      from: { node: 'find_slot', port: 'out' },
+    });
+  });
+
+  it('asks nothing about a block that is not there', () => {
+    expect(unanswered('no_such_node')).toEqual({ at: 'nothing' });
+  });
+
+  /** A drop that goes into a wire leaves by nothing
+   *  — the wire it splits already says where it
+   *  sits — so there is nothing to ask about it. */
+  it('asks nothing of a block dropped into a wire', () => {
+    const spliced = editFor(
+      {
+        type: 'addNode',
+        kind: 'step',
+        position: { x: 320, y: 480 },
+        spliceEdge: 'e2',
+      },
+      context(),
+    );
+
+    expect(spliced.at).toBe('next');
   });
 });
 
@@ -172,10 +233,12 @@ describe('a block dropped on the canvas', () => {
   const drop = (
     over: Partial<Extract<Gesture, { type: 'addNode' }>> = {},
     with_ = context(),
+    answered?: WayTaken,
   ): EditOutcome =>
     editFor(
       { type: 'addNode', kind: 'step', position: { x: 320, y: 480 }, ...over },
       with_,
+      answered,
     );
 
   it("is written where it was dropped, with the palette's word for a name", () => {
@@ -243,7 +306,10 @@ describe('a block dropped on the canvas', () => {
 
   it('is written with the wire that reached it, in one edit', () => {
     const written = next(
-      drop({ connectFrom: { node: 'find_slot', port: 'out' } }),
+      drop({ connectFrom: { node: 'find_slot' } }, context(), {
+        node: 'find_slot',
+        port: 'out',
+      }),
     );
     const added = written.nodes.at(-1)!;
 

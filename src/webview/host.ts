@@ -81,14 +81,26 @@ const Connect = z.object({
  * looking for, and the two are written together.
  * The port is the host's question there too.
  */
-const AddNode = z.object({
-  type: z.literal('addNode'),
-  baseRevision: z.number().int(),
-  kind: NodeKindSchema,
-  position: PositionSchema,
-  spliceEdge: z.string().optional(),
-  connectFrom: z.object({ node: z.string() }).optional(),
-});
+const AddNode = z
+  .object({
+    type: z.literal('addNode'),
+    baseRevision: z.number().int(),
+    kind: NodeKindSchema,
+    position: PositionSchema,
+    spliceEdge: z.string().optional(),
+    connectFrom: z.object({ node: z.string() }).optional(),
+  })
+  // Never both. A drop is one gesture or the other,
+  // and the two handlers that send this are disjoint
+  // — but a panel is a frame running scripts, and a
+  // message carrying both used to make the host ask
+  // which way out of a block to leave by and then
+  // throw the answer away, because splicing decides
+  // where the block sits without needing one.
+  .refine(
+    (sent) => sent.spliceEdge === undefined || sent.connectFrom === undefined,
+    'a block goes into a wire or comes off a port, never both',
+  );
 
 /**
  * Somebody moved a block.

@@ -58,13 +58,13 @@ export type EditMessage = Extract<WebviewMessage, { type: Gesture['type'] }>;
  *
  * Derived from the message schema rather than
  * spelled again, so that a new field the panel
- * sends is a field this module sees. The two
- * differences are the two ports the session has
- * already resolved.
+ * sends is a field this module sees — and a message
+ * is one of these already, since the only
+ * difference is a field the rule does not read.
  */
 export type Gesture =
-  | (Omit<Sent<'connect'>, 'from'> & { from: WayTaken })
-  | (Omit<Sent<'addNode'>, 'connectFrom'> & { connectFrom?: WayTaken })
+  | Sent<'connect'>
+  | Sent<'addNode'>
   | Sent<'move'>
   | Sent<'arrange'>
   | Sent<'delete'>
@@ -119,6 +119,17 @@ export type EditOutcome =
        *  transcript. */
       assigned?: Assigned;
     }
+  | {
+      at: 'asks';
+
+      /** The block the wire leaves. */
+      node: string;
+
+      /** What it may leave by, in the order they are
+       *  offered. Whoever asks turns these into rows
+       *  and answers with one of their ports. */
+      ways: WayOut[];
+    }
   | { at: 'refused'; because: 'unparseable-node' }
   | {
       at: 'refused';
@@ -155,14 +166,47 @@ export type WayOut = {
 
 const NOTHING: EditOutcome = { at: 'nothing' };
 
-/** The edit a gesture is, over the document as it
- *  stands. */
-export function editFor(gesture: Gesture, context: EditContext): EditOutcome {
+/**
+ * The edit a gesture is, over the document as it
+ * stands.
+ *
+ * Two gestures draw a wire out of a block, and a
+ * block has one dot to leave by however many ways
+ * out it has — so which way out is a question, and
+ * this is what asks it. `answered` is what came
+ * back; without one, a gesture that needs an answer
+ * comes back as `asks` rather than being decided
+ * here. Which gestures need one is a fact about the
+ * document, so it is worked out where the document
+ * is, and the session only carries the question to
+ * somebody and the answer back.
+ */
+export function editFor(
+  gesture: Gesture,
+  context: EditContext,
+  answered?: WayTaken,
+): EditOutcome {
   switch (gesture.type) {
-    case 'connect':
-      return connected(gesture, context.ir);
-    case 'addNode':
-      return added(gesture, context);
+    case 'connect': {
+      const from = wayFrom(gesture.from.node, context.ir, answered);
+
+      return from === undefined
+        ? NOTHING
+        : from.at === 'asks'
+          ? from
+          : connected({ from: from.way, to: gesture.to }, context.ir);
+    }
+    case 'addNode': {
+      if (gesture.connectFrom === undefined) return added(gesture, context);
+
+      const from = wayFrom(gesture.connectFrom.node, context.ir, answered);
+
+      return from === undefined
+        ? NOTHING
+        : from.at === 'asks'
+          ? from
+          : added(gesture, context, from.way);
+    }
     case 'move':
       return moved(gesture, context);
     case 'arrange':
@@ -174,6 +218,38 @@ export function editFor(gesture: Gesture, context: EditContext): EditOutcome {
     case 'assign':
       return assigned(gesture, context);
   }
+}
+
+/**
+ * The way out a wire from this block takes, or the
+ * question that has to be answered before it can.
+ *
+ * A block nobody can find, or one with nothing to
+ * leave by, takes the whole gesture down with it:
+ * a wire has to leave by something. One way out is
+ * taken without asking, because a question with a
+ * single answer is not a question.
+ */
+function wayFrom(
+  nodeId: string,
+  ir: WorkflowIR,
+  answered: WayTaken | undefined,
+):
+  | { at: 'took'; way: WayTaken }
+  | Extract<EditOutcome, { at: 'asks' }>
+  | undefined {
+  if (answered !== undefined) return { at: 'took', way: answered };
+
+  const node = ir.nodes.find((one) => one.id === nodeId);
+  if (node === undefined) return undefined;
+
+  const ways = waysOutOf(node);
+  const [only] = ways;
+  if (only === undefined) return undefined;
+
+  return ways.length === 1
+    ? { at: 'took', way: { node: nodeId, port: only.port } }
+    : { at: 'asks', node: nodeId, ways };
 }
 
 /** The ways out of a block, in the order they are
@@ -199,14 +275,14 @@ export function waysOutOf(node: WorkflowNode): WayOut[] {
  * said which way out it takes.
  */
 function connected(
-  gesture: Extract<Gesture, { type: 'connect' }>,
+  drawn: { from: WayTaken; to: { node: string } },
   ir: WorkflowIR,
 ): EditOutcome {
-  if (!ir.nodes.some((node) => node.id === gesture.from.node)) return NOTHING;
+  if (!ir.nodes.some((node) => node.id === drawn.from.node)) return NOTHING;
 
   return {
     at: 'next',
-    ir: { ...ir, edges: [...ir.edges, wireBetween(ir, gesture)] },
+    ir: { ...ir, edges: [...ir.edges, wireBetween(ir, drawn)] },
   };
 }
 
@@ -234,6 +310,7 @@ function connected(
 function added(
   gesture: Extract<Gesture, { type: 'addNode' }>,
   { ir, boxes, labels }: EditContext,
+  from?: WayTaken,
 ): EditOutcome {
   const id = starterId(ir, gesture.kind);
   const block = {
@@ -244,13 +321,16 @@ function added(
   const pinned = pin(ir, boxes);
   const placed = { ...pinned, nodes: [...pinned.nodes, block] };
 
+  // Three cases and no order between them: the
+  // message schema refuses a drop that claims to be
+  // both a splice and a wire's end, so this is not a
+  // rule about which wins.
   if (gesture.spliceEdge !== undefined) {
     const next = spliced(placed, gesture.spliceEdge, block);
 
     return next === undefined ? NOTHING : { at: 'next', ir: next, select: id };
   }
 
-  const from = gesture.connectFrom;
   if (from === undefined) return { at: 'next', ir: placed, select: id };
 
   return {
