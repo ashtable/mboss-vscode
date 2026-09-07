@@ -433,7 +433,14 @@ function Picker({
           ) : (
             <>
               <span data-picker-value>{`${field.value} ▾`}</span>{' '}
-              <button type="button" className="picker-open" data-open-function>
+              <button
+                type="button"
+                className="picker-open"
+                data-open-function
+                onClick={() =>
+                  postToHost({ type: 'openFunction', nodeId: node.id })
+                }
+              >
                 {strings.openFunction}
               </button>
             </>

@@ -172,6 +172,17 @@ export class SeePanel {
         if (message.type === 'openWorkflow') {
           void this.store.openWorkflow(message.workflowId);
         }
+
+        // The block travels and the run does not: a
+        // page draws exactly one run, and which one
+        // that is has already been read here.
+        if (message.type === 'openFunction') {
+          const shown = this.store.detail();
+
+          if (shown !== undefined) {
+            void this.store.openFunction(shown.run.workflowId, message.nodeId);
+          }
+        }
       },
     });
 

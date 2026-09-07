@@ -150,6 +150,7 @@ describe('what each view may say', () => {
 
     select: ['canvas'],
     inspectorMode: ['canvas'],
+    openFunction: ['canvas', 'see'],
     openOutput: ['canvas', 'see'],
     connect: ['canvas'],
     addNode: ['canvas'],
@@ -202,6 +203,7 @@ describe('what each view may say', () => {
 
     select: { nodeId: 'find_slot' },
     inspectorMode: { mode: 'evidence' },
+    openFunction: { nodeId: 'find_slot' },
     openOutput: { workflowId: 'wf_c9d2f3', functionId: 2 },
     connect: {
       baseRevision: 3,

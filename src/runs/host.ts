@@ -1,4 +1,13 @@
-import { commands, env, Uri, ViewColumn, window, workspace } from 'vscode';
+import {
+  commands,
+  env,
+  Position,
+  Range,
+  Uri,
+  ViewColumn,
+  window,
+  workspace,
+} from 'vscode';
 
 import { WorkflowCanvasEditor } from '../canvas/editor.js';
 import { isProject } from '../core/index.js';
@@ -47,6 +56,25 @@ export function runsHost(): RunsHost {
         WorkflowCanvasEditor.viewType,
         ViewColumn.Beside,
       )),
+
+    // Over rather than beside: the code a block runs
+    // is where somebody is going to be for a while,
+    // and a run page is what they came from rather
+    // than something to read it against. Lines are
+    // 1-based everywhere but in VS Code's own
+    // positions, and that is turned around here.
+    openFile: async (path, at) => {
+      const document = await workspace.openTextDocument(path);
+      const caret = new Position(
+        at === undefined ? 0 : at.line - 1,
+        at?.column ?? 0,
+      );
+
+      await window.showTextDocument(document, {
+        selection: new Range(caret, caret),
+        preview: false,
+      });
+    },
 
     // Trimmed here, at the seam where the raw
     // setting is read, so that everything downstream

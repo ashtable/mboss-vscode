@@ -26,6 +26,7 @@ import type {
   WorkflowNode,
 } from '../core/rules.js';
 import { messages } from '../messages.js';
+import { openHandler } from '../openHandler.js';
 import type { PreviewModel } from '../preview/model.js';
 import type { PreviewStore } from '../preview/store.js';
 import { canvasPreview } from '../preview/view.js';
@@ -496,6 +497,17 @@ export class CanvasSession {
       return false;
     }
 
+    // A read as well, and one about the project
+    // rather than about this document: opening the
+    // code behind a block changes nothing here, so
+    // it does not go through the revision gate that
+    // every edit does.
+    if (message.type === 'openFunction') {
+      void this.showFunction(message.nodeId);
+
+      return false;
+    }
+
     if (this.live !== undefined) return false;
 
     if (message.type === 'select') {
@@ -631,6 +643,29 @@ export class CanvasSession {
     if (row?.output === undefined) return;
 
     void this.api.showText(row.output, 'json');
+  }
+
+  /**
+   * The code a block runs, in a tab of its own.
+   *
+   * Answered from what this canvas is already
+   * holding — the document on screen and the scan it
+   * has read — so a window nobody has trusted, where
+   * there is no scan, opens nothing rather than
+   * running one to answer a click.
+   */
+  private async showFunction(nodeId: string): Promise<void> {
+    const project = projectOf(this.document.uri.fsPath);
+    const node = this.nodeAt(nodeId);
+
+    if (project === undefined || node === undefined) return;
+    if (this.manifest === undefined) return;
+
+    const unknown = await openHandler(this.api, project, this.manifest, node);
+
+    if (unknown !== undefined) {
+      this.api.info(messages.openFunctionUnknown(unknown));
+    }
   }
 
   private select(nodeId: string | null): void {

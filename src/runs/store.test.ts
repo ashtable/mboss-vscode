@@ -1,13 +1,18 @@
+import { existsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { messages } from '../messages.js';
+import { makeProject, writeWorkflow } from '../test-support/project.js';
 import {
   database,
   echoing,
   management,
   host,
+  LEDGER_URL,
   project,
   runner,
   stack,
@@ -346,6 +351,7 @@ async function exercise(store: RunsStore): Promise<void> {
   await store.setFilter('failed');
   await store.select('wf_c9d2f3');
   await store.openWorkflow('wf_c9d2f3');
+  await store.openFunction('wf_c9d2f3', 'find_slot');
   await store.runWorkflow('groom_booking', '{}');
   await store.rerun('wf_c9d2f3');
   await store.copyRunId('wf_c9d2f3');
@@ -374,5 +380,106 @@ describe('a run id somebody wanted', () => {
     await store.copyRunId('wf_c9d2f3');
 
     expect(copied).toEqual(['wf_c9d2f3']);
+  });
+});
+
+/**
+ * The way from a block on the run page to the code
+ * it runs.
+ *
+ * The page draws a run, and a run recorded the name
+ * of the workflow it was a run of — so which
+ * document a block belongs to, and which function
+ * that block names, is worked out here from what
+ * the project has saved rather than asked of the
+ * panel. The code-behind is what knows where that
+ * function is.
+ */
+describe('the way to the code a block runs', () => {
+  /** A project with a workflow the ledger's run is
+   *  a run of, and the `.env` the ledger is read
+   *  through. */
+  async function readable(over: { lib?: 'lib' } = {}): Promise<string> {
+    const dir = await makeProject(over);
+
+    writeWorkflow(dir, 'groom_booking');
+    writeFileSync(join(dir, '.env'), `DATABASE_URL=${LEDGER_URL}\n`, 'utf8');
+
+    return dir;
+  }
+
+  /** A host that writes down every file it was
+   *  asked to open and everything it was told to
+   *  say. */
+  function watching(dir: string): {
+    opened: { path: string; at?: { line: number; column?: number } }[];
+    said: string[];
+    host: RunsHost;
+  } {
+    const opened: { path: string; at?: { line: number; column?: number } }[] =
+      [];
+    const said: string[] = [];
+
+    return {
+      opened,
+      said,
+      host: host({
+        projects: () => [dir],
+        say: (message) => void said.push(message),
+        openFile: async (path, at) => void opened.push({ path, at }),
+      }),
+    };
+  }
+
+  it("opens a block's function through the run's saved document", async () => {
+    const dir = await readable({ lib: 'lib' });
+    const watched = watching(dir);
+    const store = runsStore(deps({ host: watched.host }));
+
+    await store.openFunction('wf_c9d2f3', 'find_slot');
+
+    expect(watched.opened).toEqual([
+      { path: join(dir, 'lib', 'findSlot.ts'), at: { line: 6 } },
+    ]);
+    expect(watched.said).toEqual([]);
+  });
+
+  /**
+   * A workflow drawn before its code exists is the
+   * ordinary state of one, and agents write these
+   * documents too — so a block naming a function
+   * the scan never found says which name that was
+   * rather than opening nothing.
+   */
+  /**
+   * Reading the code-behind type-checks every file
+   * in a project and writes the manifest it found
+   * inside it, so it is one of the seams a window
+   * nobody has trusted may not reach — asked here
+   * rather than left to the ledger read that happens
+   * to come first.
+   */
+  it('scans nothing in a window nobody has trusted', async () => {
+    const dir = await readable({ lib: 'lib' });
+    const watched = watching(dir);
+    const store = runsStore(
+      deps({ host: watched.host, trust: fakeTrust(false) }),
+    );
+
+    await store.openFunction('wf_c9d2f3', 'find_slot');
+
+    expect(watched.opened).toEqual([]);
+    expect(existsSync(join(dir, '.mboss', 'manifest.json'))).toBe(false);
+  });
+
+  it('says which function the code-behind has not got', async () => {
+    const dir = await readable();
+    const watched = watching(dir);
+    const store = runsStore(deps({ host: watched.host }));
+
+    await store.openFunction('wf_c9d2f3', 'find_slot');
+
+    expect(watched.opened).toEqual([]);
+    expect(watched.said).toEqual([messages.openFunctionUnknown('findSlot')]);
   });
 });

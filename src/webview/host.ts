@@ -68,6 +68,20 @@ const InspectorModePicked = z.object({
 });
 
 /**
+ * Somebody asked to read the code a block runs.
+ *
+ * The block and nothing else. Where that function
+ * is, and whether the project's code-behind has one
+ * of that name at all, is the extension's answer:
+ * the panel holds a drawing and the manifest is not
+ * in it.
+ */
+const OpenFunction = z.object({
+  type: z.literal('openFunction'),
+  nodeId: z.string(),
+});
+
+/**
  * Somebody asked to read a whole recorded output
  * somewhere it fits.
  *
@@ -481,6 +495,7 @@ const SCHEMAS = {
     Ready,
     Select,
     InspectorModePicked,
+    OpenFunction,
     OpenOutput,
     OpenRun,
     Connect,
@@ -522,6 +537,7 @@ const SCHEMAS = {
   see: z.discriminatedUnion('type', [
     Ready,
     StepSelect,
+    OpenFunction,
     OpenOutput,
     Replay,
     SeeShow,

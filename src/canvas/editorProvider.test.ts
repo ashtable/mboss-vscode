@@ -76,6 +76,10 @@ type Recorded = {
    *  of its own. */
   shown: { content: string; language: string }[];
 
+  /** Every file opened, and where the caret was put
+   *  in it. */
+  opened: { path: string; at?: { line: number; column?: number } }[];
+
   /** The agent the canvas speaks to, and what it
    *  was told. */
   agent: FakeAgent;
@@ -95,6 +99,7 @@ function recorder(): Recorded {
   const written: Written[] = [];
   const told: string[] = [];
   const shown: { content: string; language: string }[] = [];
+  const opened: Recorded['opened'] = [];
   const agent = fakeAgent();
   const asked: { title: string; choices: PickChoice[] }[] = [];
   const watchers: ((document: never) => void)[] = [];
@@ -104,6 +109,7 @@ function recorder(): Recorded {
     written,
     told,
     shown,
+    opened,
     agent,
     asked,
     answers: (id) => {
@@ -117,6 +123,9 @@ function recorder(): Recorded {
       run: () => Promise.resolve(),
       showText: async (content, language) => {
         shown.push({ content, language });
+      },
+      openFile: async (path, at) => {
+        opened.push({ path, at });
       },
       pick: (title, choices) => {
         asked.push({ title, choices });
@@ -868,6 +877,64 @@ describe('assigning a function to a block', () => {
     await settled();
 
     expect(recorded.agent.noted()).toEqual([]);
+  });
+});
+
+/**
+ * The way from a block on the canvas to the code it
+ * runs.
+ *
+ * A read and not an edit, so it goes nowhere near
+ * the revision gate: the document is not changed by
+ * looking at the function behind it, and refusing
+ * this because a panel was drawn a moment ago would
+ * be refusing to open a file.
+ *
+ * Where the function is comes out of a real scan of
+ * the copied code-behind, which is what makes the
+ * line worth asserting at all.
+ */
+describe('the way to the code a block runs', () => {
+  let scanned: string;
+
+  /** The canvas over a project whose code-behind
+   *  has been read. */
+  async function openScanned(): Promise<void> {
+    scanned = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(scanned, 'groom_booking');
+
+    await open(fakeDocument(readFileSync(path, 'utf8'), path));
+    await until(() => lastCanvasInit().manifest !== undefined);
+  }
+
+  it("opens a block's function through the editor's own bag", async () => {
+    await openScanned();
+
+    panel.send({ type: 'openFunction', view: 'canvas', nodeId: 'find_slot' });
+    await settled();
+
+    expect(recorded.opened).toEqual([
+      { path: `${scanned}/lib/findSlot.ts`, at: { line: 6 } },
+    ]);
+  });
+
+  /** A block nobody has put a function behind has no
+   *  code to open, and saying so would be
+   *  complaining about a workflow part way through
+   *  being drawn. */
+  it('opens nothing for a block that runs no function', async () => {
+    await openScanned();
+    const before = recorded.told.length;
+
+    panel.send({
+      type: 'openFunction',
+      view: 'canvas',
+      nodeId: 'send_confirmation',
+    });
+    await settled();
+
+    expect(recorded.opened).toEqual([]);
+    expect(recorded.told.slice(before)).toEqual([]);
   });
 });
 

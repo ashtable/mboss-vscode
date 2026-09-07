@@ -76,6 +76,24 @@ export type VsCodeApi = {
    */
   showText(content: string, language: string): Promise<void>;
 
+  /**
+   * Opens a file somebody asked to read, with the
+   * caret on a line of it.
+   *
+   * Not a preview tab: this is somewhere a person
+   * was sent on purpose, and a preview tab is the
+   * one that disappears the moment they open
+   * anything else.
+   *
+   * The line is 1-based, the way a manifest, a
+   * compiler and an editor's own gutter all count
+   * them. Turning that into the editor's own
+   * zero-based position is done here, at the seam,
+   * so that nothing upstream has to know VS Code
+   * counts from a different place.
+   */
+  openFile(path: string, at?: { line: number; column?: number }): Promise<void>;
+
   /** Every change to any open document, whoever
    *  made it. */
   onDocumentChanged(listener: (document: TextDocument) => void): Disposable;
@@ -130,6 +148,26 @@ export function vsCodeApi(): VsCodeApi {
       const document = await workspace.openTextDocument({ content, language });
 
       await window.showTextDocument(document, { preview: false });
+    },
+    openFile: async (path, at) => {
+      const document = await workspace.openTextDocument(path);
+
+      // A zero-width range rather than a selection
+      // with something in it: this puts somebody
+      // where the code is, and highlighting a line
+      // they did not ask to have highlighted would
+      // be an edit waiting to happen. No line at all
+      // means the top, which is the honest answer
+      // for a manifest that never recorded one.
+      const caret = new Position(
+        at === undefined ? 0 : at.line - 1,
+        at?.column ?? 0,
+      );
+
+      await window.showTextDocument(document, {
+        selection: new Range(caret, caret),
+        preview: false,
+      });
     },
     onDocumentChanged: (listener) =>
       workspace.onDidChangeTextDocument((event) => listener(event.document)),

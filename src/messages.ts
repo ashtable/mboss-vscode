@@ -331,6 +331,22 @@ export const messages = {
       name,
     ),
 
+  /**
+   * A block naming a function the last scan of the
+   * project's code-behind never found.
+   *
+   * Ordinary rather than broken: a workflow is
+   * usually drawn before its code is written, and
+   * agents write these documents too. So this names
+   * the export and stops, which is what somebody
+   * needs to go and write it.
+   */
+  openFunctionUnknown: (exported: string) =>
+    l10n.t(
+      "This project's code-behind has no function named {0} to open. Write it in lib/, or point the block at one that exists.",
+      exported,
+    ),
+
   /** The boundary the design draws, drawn where a
    *  person can see it. */
   runsScope: () =>

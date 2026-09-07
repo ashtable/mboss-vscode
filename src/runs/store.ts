@@ -3,8 +3,10 @@ import { basename } from 'node:path';
 import type { Disposable } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
+import { manifestFor } from '../core/index.js';
 import { emitter } from '../emitter.js';
 import { messages } from '../messages.js';
+import { openHandler } from '../openHandler.js';
 import type { Trust } from '../trust.js';
 import type { RunsInit, SeeInit } from '../webview/protocol.js';
 
@@ -14,7 +16,7 @@ import type { ProjectSdk } from './sdk.js';
 import { runHistory } from './history.js';
 import { openRunZone } from './openRun.js';
 import { runQuery, type RunFilter } from './queries.js';
-import { toRun, type WorkflowStatusRow } from './rows.js';
+import { toRun, type Run, type WorkflowStatusRow } from './rows.js';
 import type { RunStarter } from './runner.js';
 import type { SessionLog } from './sessionLog.js';
 import type { StackController } from './stack.js';
@@ -23,7 +25,7 @@ import { testRunZone } from './testRun.js';
 import type { SeeView } from './view.js';
 
 import type { LiveRun, RunWatch } from './watch.js';
-import { projectWorkflows } from './workflows.js';
+import { projectWorkflows, workflowDocument } from './workflows.js';
 import { runsWords } from './words.js';
 
 export type { StackAction } from './stack.js';
@@ -75,6 +77,11 @@ export type RunsHost = {
   /** Opens a workflow document in the canvas, beside
    *  whatever the person is reading. */
   openCanvas(path: string): Promise<void>;
+
+  /** Opens a file with the caret on a line of it,
+   *  counting lines from one the way the manifest
+   *  and the editor's gutter both do. */
+  openFile(path: string, at?: { line: number; column?: number }): Promise<void>;
 
   /**
    * The DBOS Conductor console this project is
@@ -191,6 +198,18 @@ export type RunsStore = Disposable & {
   openWorkflow(workflowId: string): Promise<void>;
 
   /**
+   * Opens the code the block runs, out of the
+   * document the run was a run of.
+   *
+   * By run id and block id, which is what the page
+   * has: a block is a name in a document, and which
+   * document that is comes from what the run
+   * recorded. Nothing is repainted — a file opening
+   * in a tab says everything there is to say.
+   */
+  openFunction(workflowId: string, nodeId: string): Promise<void>;
+
+  /**
    * Opens the Conductor console for what this
    * project deploys.
    *
@@ -285,6 +304,32 @@ export function runsStore(deps: RunsDeps): RunsStore {
     await command();
   };
 
+  /**
+   * One run, read again by id rather than taken
+   * from whatever the page is showing: what a
+   * caller names is a run, and which workflow that
+   * run was a run of is the ledger's answer.
+   *
+   * A database that would not answer and a run
+   * nobody has come back the same way, because they
+   * come to the same thing for every caller here:
+   * there is nothing to open. Why is the list's to
+   * say, and the list says it the next time it is
+   * drawn.
+   */
+  const runById = async (workflowId: string): Promise<Run | undefined> => {
+    const url = history.connection();
+    if (url === undefined) return undefined;
+
+    return await history.read(url, async (db) => {
+      const one = runQuery(workflowId);
+      const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
+      const row = rows[0];
+
+      return row === undefined ? undefined : toRun(row);
+    });
+  };
+
   return {
     list: () => {
       const dir = project();
@@ -348,35 +393,11 @@ export function runsStore(deps: RunsDeps): RunsStore {
     askAgent: testRun.askAgent,
     copyRunId: (workflowId) => deps.host.copy(workflowId),
 
-    /**
-     * The run is read again by id rather than taken
-     * from whatever the page is showing: what a
-     * caller names is a run, and which workflow that
-     * run was a run of is the ledger's answer.
-     *
-     * Nothing is repainted. What the read learned
-     * about the database is the list's to say, and
-     * the list says it the next time it is drawn.
-     */
     openWorkflow: async (workflowId) => {
       const dir = project();
       if (dir === undefined) return;
 
-      const url = history.connection();
-      if (url === undefined) return;
-
-      const found = await history.read(url, async (db) => {
-        const one = runQuery(workflowId);
-        const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
-        const row = rows[0];
-
-        return row === undefined ? undefined : toRun(row);
-      });
-
-      // A database that would not answer and a run
-      // nobody has come to the same thing here:
-      // there is no document to go to, and why is
-      // the list's to say rather than this one's.
+      const found = await runById(workflowId);
       if (found === undefined) return;
 
       const saved = projectWorkflows(dir).find(
@@ -388,6 +409,50 @@ export function runsStore(deps: RunsDeps): RunsStore {
       }
 
       await deps.host.openCanvas(saved.path);
+    },
+
+    /**
+     * The block is looked up in the document as it
+     * is saved now rather than in the drawing the
+     * page was laid out from: somebody following a
+     * block to its code wants the function it runs
+     * today, and a block the document no longer has
+     * has no code to go to.
+     *
+     * Both this and the canvas end up in the same
+     * place, because where a function lives is the
+     * code-behind's answer and there is one of
+     * those per project.
+     */
+    openFunction: async (workflowId, nodeId) => {
+      const dir = project();
+      if (dir === undefined) return;
+
+      // Reading the code-behind type-checks every
+      // file in it and caches what it found inside
+      // the project, so it is asked here as well as
+      // at the ledger rather than left to the read
+      // that happens to come first.
+      if (!deps.trust.isTrusted()) return;
+
+      const found = await runById(workflowId);
+      if (found === undefined) return;
+
+      const document = workflowDocument(dir, found.name);
+      const node = document?.nodes.find((one) => one.id === nodeId);
+      if (node === undefined) return;
+
+      // Asked only once there is a block to open,
+      // because the answer costs a type-check of
+      // every file in the project.
+      const manifest = manifestFor(dir);
+      if (manifest === undefined) return;
+
+      const unknown = await openHandler(deps.host, dir, manifest, node);
+
+      if (unknown !== undefined) {
+        deps.host.say(messages.openFunctionUnknown(unknown));
+      }
     },
 
     // Whatever the setting holds, unchanged: it is

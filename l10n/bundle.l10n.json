@@ -152,6 +152,7 @@
   "This project has no workflow named {0} to open. The run still reads; only its drawing is missing.": "This project has no workflow named {0} to open. The run still reads; only its drawing is missing.",
   "This project has no workflow that can be started by hand.": "This project has no workflow that can be started by hand.",
   "This project's .env names no EVENTS_SECRET, so the app will not accept a run.": "This project's .env names no EVENTS_SECRET, so the app will not accept a run.",
+  "This project's code-behind has no function named {0} to open. Write it in lib/, or point the block at one that exists.": "This project's code-behind has no function named {0} to open. Write it in lib/, or point the block at one that exists.",
   "This project's mBoss server and skill are not the ones this extension ships.": "This project's mBoss server and skill are not the ones this extension ships.",
   "Trace": "Trace",
   "Transaction": "Transaction",

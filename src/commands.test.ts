@@ -59,6 +59,9 @@ function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
     showText: async () => {
       throw new Error('no command puts a text in a tab of its own');
     },
+    openFile: async () => {
+      throw new Error('no command opens a file of its own');
+    },
     onDocumentChanged: () => ({ dispose: () => {} }),
   };
 }

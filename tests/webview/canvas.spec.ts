@@ -2753,6 +2753,23 @@ test.describe('the function picker', () => {
       `${manifest.functions.length - fitting('slot_open').length} incompatible functions hidden · show`,
     );
   });
+
+  /**
+   * The way out of the column and into the code.
+   * The block travels and nothing else: where that
+   * function is written, and whether the project's
+   * code-behind still has one of that name, is the
+   * extension's answer rather than the panel's.
+   */
+  test('asks for the code the block already runs', async ({ page }) => {
+    const harness = await openPicker(page, 'find_slot');
+
+    await page.locator('[data-open-function]').click();
+
+    expect(await harness.postedOfType('openFunction')).toEqual([
+      { type: 'openFunction', nodeId: 'find_slot' },
+    ]);
+  });
 });
 
 /**

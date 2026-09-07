@@ -162,6 +162,7 @@ export function host(over: Partial<RunsHost> = {}): RunsHost {
     setContext: () => undefined,
     copy: async () => undefined,
     openCanvas: async () => undefined,
+    openFile: async () => undefined,
     // No Conductor, because that is the window every
     // spec here is about unless it says otherwise.
     conductorConsoleUrl: () => '',

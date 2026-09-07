@@ -306,6 +306,7 @@ describe('a run history, read from a real dbos schema', () => {
         setContext: () => undefined,
         copy: async () => undefined,
         openCanvas: async () => undefined,
+        openFile: async () => undefined,
         conductorConsoleUrl: () => '',
         openExternal: async () => undefined,
       },
