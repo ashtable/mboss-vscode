@@ -55,7 +55,10 @@ const COMPOSE_FILE = 'docker-compose.yml';
  * image listens on, both as the scaffold's compose
  * file names them.
  */
-const APP_SERVICE = 'app';
+/** Compose's name for the container the workflows
+ *  run in, which is the one whose state decides
+ *  whether anything can be started at all. */
+export const APP_SERVICE = 'app';
 const APP_PORT = '3000';
 
 /**

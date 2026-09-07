@@ -767,6 +767,12 @@ export type SeeChip = {
   restored: boolean;
 
   failed: boolean;
+
+  /** Whether a replay may start here, and why not
+   *  when it may not. */
+  replayable: boolean;
+
+  because: string | undefined;
 };
 
 /**

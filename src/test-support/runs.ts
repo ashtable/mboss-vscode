@@ -167,6 +167,9 @@ export function host(over: Partial<RunsHost> = {}): RunsHost {
     // spec here is about unless it says otherwise.
     conductorConsoleUrl: () => '',
     openExternal: async () => undefined,
+    // Nobody at the keyboard, which is what a spec
+    // that has not said otherwise means.
+    confirm: async () => ({ at: 'nothing' }),
     ...over,
   };
 }

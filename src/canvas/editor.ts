@@ -120,6 +120,19 @@ export type CanvasRuns = {
    */
   openRun(workflowId: string): Promise<void>;
 
+  /**
+   * Offers a replay of that run from that block.
+   *
+   * A block and not a row: a card here is one
+   * block's turn, and a block that ran more than
+   * once has several rows behind it. Which of them a
+   * replay would start from, and whether it may
+   * start at all, is decided where the run's rows
+   * are — the canvas holds a drawing and none of
+   * them.
+   */
+  replayFrom(workflowId: string, nodeId: string): Promise<void>;
+
   onChanged(listener: () => void): Disposable;
 };
 
@@ -535,6 +548,20 @@ export class CanvasSession {
 
     if (message.type === 'openErrorLocation') {
       void this.showErrorLocation(message.nodeId, message.functionId);
+
+      return false;
+    }
+
+    // A write into the project's database rather
+    // than into this document, so it goes through
+    // neither the proposal gate nor the revision
+    // one. The block is all that travels; every
+    // question about the run is answered where the
+    // run's rows are.
+    if (message.type === 'replayFrom') {
+      if (message.nodeId !== undefined) {
+        void this.runs.replayFrom(message.workflowId, message.nodeId);
+      }
 
       return false;
     }

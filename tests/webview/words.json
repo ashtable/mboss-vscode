@@ -308,7 +308,8 @@
     "rerunSameInput": "Rerun with same input",
     "resendEvent": "Send the event again",
     "openRun": "Open run",
-    "askAgentWhy": "Ask agent why"
+    "askAgentWhy": "Ask agent why",
+    "replayRun": "Replay this run"
   },
   "seeWords": {
     "heading": "Run",
@@ -326,7 +327,7 @@
       "output": "output",
       "committedAt": "committed"
     },
-    "replay": "⟲ Replay from this step",
+    "replay": "↺ Replay From Here",
     "tabs": {
       "graph": "Graph",
       "trace": "Trace"

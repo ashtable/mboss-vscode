@@ -151,6 +151,8 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
       name,
       restored: index < 2,
       failed: false,
+      replayable: true,
+      because: undefined,
     })),
     timeline: {
       bars: STEP_NAMES.map((name, index) => ({
@@ -1369,13 +1371,73 @@ test.describe('one run in detail', () => {
     const harness = await showRun(page, seeInit());
 
     await expect(page.locator('[data-replay]')).toHaveText(
-      '⟲ Replay from this step',
+      '↺ Replay From Here',
     );
     await page.locator('[data-replay]').click();
 
-    expect(await harness.postedOfType('replay')).toEqual([
-      { type: 'replay', functionId: 2 },
+    expect(await harness.postedOfType('replayFrom')).toEqual([
+      { type: 'replayFrom', workflowId: 'wf_c9d2f3', functionId: 2 },
     ]);
+  });
+
+  /**
+   * A row DBOS wrote for itself, a row inside a
+   * wait, a row the run is still sitting on: none of
+   * them is a point a replay can begin at, and each
+   * has a reason a person can act on. The reason is
+   * the row's title rather than a gap where the
+   * button was.
+   */
+  test('says why a row is not offered as a boundary', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          groups: GROUPS,
+          // The SDK's own rows are drawn only where
+          // somebody asked for them, and one of them
+          // is the case.
+          showRaw: true,
+          chips: [
+            {
+              functionId: 0,
+              name: 'parse_request',
+              restored: false,
+              failed: false,
+              replayable: true,
+              because: undefined,
+            },
+            {
+              functionId: 1,
+              name: 'find_slot',
+              restored: false,
+              failed: false,
+              replayable: false,
+              because: 'The run is sitting here now.',
+            },
+          ],
+        }),
+        'trace',
+      ),
+    );
+
+    // The SDK's own row: withheld, and it already
+    // says whose row it is, so that sentence stays
+    // the one on it.
+    await expect(page.locator('[data-trace-op="2"]')).toHaveAttribute(
+      'data-replayable',
+      'false',
+    );
+
+    const row = page.locator('[data-trace-op="3"]');
+
+    await expect(row).toHaveAttribute('data-replayable', 'false');
+    await expect(row).toHaveAttribute('title', 'The run is sitting here now.');
+
+    const chip = page.locator('[data-chip="1"]');
+
+    await expect(chip).toHaveAttribute('data-replayable', 'false');
+    await expect(chip).toHaveAttribute('title', 'The run is sitting here now.');
   });
 
   test('changes which step a replay would start from', async ({ page }) => {
@@ -1411,6 +1473,16 @@ test.describe('one run in detail', () => {
 
     await expect(page.locator('[data-replay-note]')).toContainText('wf_fork1');
     await expect(page.locator('[data-replay-note]')).toContainText('v0.5.0');
+  });
+
+  test('replays a whole run from the list', async ({ page }) => {
+    const harness = await showList(page, runsInit());
+
+    await page.locator('[data-replay-run="wf_c9d2f3"]').click();
+
+    expect(await harness.postedOfType('replayRun')).toEqual([
+      { type: 'replayRun', workflowId: 'wf_c9d2f3' },
+    ]);
   });
 
   test('offers no replay before a step has been picked', async ({ page }) => {
@@ -1991,8 +2063,10 @@ const GROUPS: TraceGroupView[] = [
         outputCut: false,
         error: undefined,
         restored: false,
-        replayable: true,
-        because: undefined,
+        replayable: false,
+        because:
+          'DBOS wrote this row for itself. A replay starts from a step ' +
+          'the workflow recorded.',
         childWorkflowId: undefined,
       },
     ],
@@ -2015,8 +2089,8 @@ const GROUPS: TraceGroupView[] = [
         outputCut: false,
         error: undefined,
         restored: true,
-        replayable: true,
-        because: undefined,
+        replayable: false,
+        because: 'The run is sitting here now.',
         childWorkflowId: undefined,
       },
     ],

@@ -20,6 +20,7 @@ import {
   STEP_ROW,
 } from '../test-support/runs.js';
 
+import type { ReplayQuestion } from './replayZone.js';
 import { sessionLog } from './sessionLog.js';
 import {
   runsStore,
@@ -365,6 +366,78 @@ async function exercise(store: RunsStore): Promise<void> {
   store.see();
   store.dispose();
 }
+
+/**
+ * Three surfaces offer a replay and none of them
+ * holds the same thing: the canvas names a block,
+ * the run page names a row, and the list names
+ * neither. What must not differ is what happens
+ * next.
+ */
+describe('the doors a replay comes through', () => {
+  function asking(): { asked: ReplayQuestion[]; store: RunsStore } {
+    const asked: ReplayQuestion[] = [];
+
+    return {
+      asked,
+      store: runsStore(
+        deps({
+          host: host({
+            projects: () => [project()],
+            confirm: async (question) => {
+              asked.push(question);
+
+              return { at: 'nothing' };
+            },
+          }),
+        }),
+      ),
+    };
+  }
+
+  it('reaches one replay method from all three doors', async () => {
+    const canvas = asking();
+    const page = asking();
+    const list = asking();
+
+    await canvas.store.replay('wf_c9d2f3', { nodeId: 'parse_request' });
+    await page.store.replay('wf_c9d2f3', { functionId: 0 });
+    await list.store.replayRun('wf_c9d2f3');
+
+    // The same run, read the same way, refused for
+    // the same reason and said in the same words.
+    expect(canvas.asked).toHaveLength(1);
+    expect(page.asked.map((one) => one.detail)).toEqual(
+      canvas.asked.map((one) => one.detail),
+    );
+    expect(list.asked.map((one) => one.detail)).toEqual(
+      canvas.asked.map((one) => one.detail),
+    );
+  });
+
+  /** Forking writes into the project's database and
+   *  sets code running. */
+  it('asks nothing in a window nobody has trusted', async () => {
+    const asked: ReplayQuestion[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          projects: () => [project()],
+          confirm: async (question) => {
+            asked.push(question);
+
+            return { at: 'nothing' };
+          },
+        }),
+        trust: fakeTrust(false),
+      }),
+    );
+
+    await store.replayRun('wf_c9d2f3');
+
+    expect(asked).toEqual([]);
+  });
+});
 
 describe('a run id somebody wanted', () => {
   /**

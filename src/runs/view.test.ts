@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { WorkflowIR } from '../core/rules.js';
+import { messages } from '../messages.js';
 import type { SeeRun } from '../webview/protocol.js';
 
 import type { Run, Step } from './rows.js';
@@ -695,6 +696,54 @@ describe('one run, as the run page draws it', () => {
 
     return shown;
   }
+
+  /**
+   * Every row a person can see carries whether a
+   * replay may begin there, so a chip or a trace row
+   * with no button says why instead of leaving a
+   * gap.
+   */
+  it('says which rows a replay could start from', () => {
+    const shown = page();
+
+    expect(
+      shown.groups
+        .flatMap((group) => group.operations)
+        .map((one) => [one.name, one.replayable]),
+    ).toEqual([
+      ['parse_request', true],
+      ['find_slot', true],
+    ]);
+    expect(shown.chips.map((chip) => chip.replayable)).toEqual([true, true]);
+  });
+
+  it('says why a row is not one', () => {
+    const shown = page({
+      steps: [
+        { ...step(0, 0, 1000), name: 'parse_request' },
+        { ...step(1, 1000, 2000), name: 'DBOS.sleep' },
+      ],
+      raw: true,
+    });
+    const rows = shown.groups.flatMap((group) => group.operations);
+    const withheld = rows.find((one) => one.name === 'DBOS.sleep');
+
+    expect(withheld?.replayable).toBe(false);
+    expect(withheld?.because).toBe(messages.replayRowSdkOwned());
+  });
+
+  /**
+   * The rule is asked of a drawing, so a page with
+   * no document beside it can offer no point at all
+   * — and says so rather than offering every row.
+   */
+  it('offers no point at all without a document', () => {
+    const shown = page({ ir: undefined, boxes: undefined });
+    const rows = shown.groups.flatMap((group) => group.operations);
+
+    expect(rows.map((one) => one.replayable)).toEqual([false, false]);
+    expect(rows[0]?.because).toBe(messages.replayNotOffered());
+  });
 
   it('carries the groups, the graph, the selection and the input', () => {
     const shown = page({ selectedNode: 'find_slot', following: 'following' });

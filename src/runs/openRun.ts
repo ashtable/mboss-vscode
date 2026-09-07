@@ -3,17 +3,11 @@ import type { Disposable } from 'vscode';
 import { boxesFor } from '../core/index.js';
 import { ownerOf } from '../core/rules.js';
 import { emitter } from '../emitter.js';
-import { messages } from '../messages.js';
-import type { Trust } from '../trust.js';
 import type { SeeInit } from '../webview/protocol.js';
 
-import type { Database, OpenManagement } from './db.js';
-import { detailOf } from './failure.js';
+import type { Database } from './db.js';
 import type { Following } from './following.js';
-import type { ManagementClient } from './manage.js';
 import { runQuery, stepsQuery } from './queries.js';
-import { replayFrom, type Replay } from './replay.js';
-import { newRunId } from './runner.js';
 import {
   toRun,
   toStep,
@@ -57,11 +51,6 @@ import { workflowDocument } from './workflows.js';
  * being read, and the list is what says it.
  */
 
-/** The slice of the editor this needs. */
-export type OpenRunHost = {
-  say(message: string): void;
-};
-
 /**
  * The ledger, as the run page borrows it.
  *
@@ -80,10 +69,6 @@ export type LedgerAccess = {
 };
 
 export type OpenRunDeps = {
-  host: OpenRunHost;
-  trust: Trust;
-  openManagement: OpenManagement;
-
   /** Which DBOS a project runs, so the page knows
    *  whether the rows the wake lines are read off
    *  are recorded at all. */
@@ -126,12 +111,17 @@ export type OpenRun = Disposable & {
   again(): Promise<void>;
 
   /**
-   * Forks from a step. Answers whether the ledger
-   * moved, so that whoever also draws the list can
-   * read it again — there is a run in it now that
-   * was not there a moment ago.
+   * Puts what a replay did on the page.
+   *
+   * The page holds the sentence; the replay itself
+   * is decided and made a long way from here,
+   * because it is offered from a canvas and from the
+   * list as well and none of those has a run page
+   * open. What this page owns is that the sentence
+   * survives a refresh and goes when a different run
+   * is opened.
    */
-  replay(functionId: number): Promise<boolean>;
+  note(said: string): void;
 
   /** The whole page, in the words it draws. */
   see(): SeeInit;
@@ -339,53 +329,12 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
       await open(id);
     },
 
-    replay: async (functionId) => {
-      const reading = shown;
-      if (reading === undefined || !deps.trust.isTrusted()) return false;
+    note: (said) => {
+      if (shown === undefined) return;
 
-      const url = deps.ledger.connection();
-      if (url === undefined) {
-        changed();
-
-        return false;
-      }
-
-      // Named here rather than left to DBOS, which
-      // mints one and hands it back only once the
-      // run exists. An id in hand before the call
-      // is what lets a run be on screen while the
-      // fork is still in flight.
-      const outcome = await forkedFrom(
-        deps,
-        url,
-        reading.run,
-        functionId,
-        newRunId(),
-      );
-
-      note =
-        outcome.at === 'refused'
-          ? messages.replayRefused(outcome.detail)
-          : outcome.movedFrom === undefined
-            ? messages.replayStarted(
-                outcome.workflowId,
-                outcome.applicationVersion,
-              )
-            : messages.replayStartedNewer(
-                outcome.workflowId,
-                outcome.applicationVersion,
-                outcome.movedFrom,
-              );
-
-      // Said in the notification area as well as on
-      // the page: a fork is a new run that nothing
-      // on screen is showing yet, and the sentence
-      // names the version it is waiting for.
-      deps.host.say(note);
-      shown = { ...reading, note };
+      note = said;
+      shown = { ...shown, note };
       changed();
-
-      return outcome.at !== 'refused';
     },
 
     see: () => seeInit(shown, showing),
@@ -437,32 +386,6 @@ function recordsTimings(sdk: ProjectSdk): boolean {
   if (minor !== RECORDS_TIMINGS[1]) return minor > RECORDS_TIMINGS[1];
 
   return patch >= RECORDS_TIMINGS[2];
-}
-
-/**
- * Opening the client is itself a connection, and a
- * database that is down refuses it before there is
- * anything to fork — so the failure has to become
- * the same sentence the fork's own would.
- */
-async function forkedFrom(
-  deps: OpenRunDeps,
-  url: string,
-  run: Run,
-  functionId: number,
-  workflowId: string,
-): Promise<Replay> {
-  let client: ManagementClient;
-
-  try {
-    client = await deps.openManagement(url);
-  } catch (cause) {
-    return { at: 'refused', detail: detailOf(cause) };
-  }
-
-  return await replayFrom(client, run, functionId, {
-    newWorkflowID: workflowId,
-  });
 }
 
 /** The step a replay starts from unless somebody

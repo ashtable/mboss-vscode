@@ -138,6 +138,7 @@ export function activate(context: ExtensionContext): void {
       await runs.select(workflowId);
       see.show();
     },
+    replayFrom: (workflowId, nodeId) => runs.replay(workflowId, { nodeId }),
     onChanged: (listener) => runs.onChanged(listener),
   };
 

@@ -73,7 +73,10 @@ export {
 
 export type {
   PatternGroup,
+  RecordedRow,
+  ReplayBoundary,
   TraceMatch,
+  Unoffered,
   UsePatternOutcome,
   WorkflowPattern,
 } from '@mboss/core';

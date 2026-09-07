@@ -3,7 +3,7 @@ import { basename } from 'node:path';
 import type { Disposable } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
-import { manifestFor } from '../core/index.js';
+import { compileInputs, manifestFor } from '../core/index.js';
 import type { WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import { messages } from '../messages.js';
@@ -13,11 +13,27 @@ import type { RunsInit, SeeInit } from '../webview/protocol.js';
 
 import type { OpenDatabase, OpenManagement } from './db.js';
 import { following } from './following.js';
+import { changedFiles } from './freshness.js';
 import type { ProjectSdk } from './sdk.js';
 import { runHistory } from './history.js';
 import { openRunZone } from './openRun.js';
-import { runQuery, type RunFilter } from './queries.js';
-import { stepError, toRun, type Run, type WorkflowStatusRow } from './rows.js';
+import { runQuery, stepsQuery, type RunFilter } from './queries.js';
+import {
+  offerReplay,
+  type ReplayAnswer,
+  type ReplayDeps,
+  type ReplayPick,
+  type ReplayQuestion,
+} from './replayZone.js';
+import {
+  stepError,
+  toRun,
+  toStep,
+  type OperationOutputRow,
+  type Run,
+  type Step,
+  type WorkflowStatusRow,
+} from './rows.js';
 import type { RunStarter } from './runner.js';
 import type { SessionLog } from './sessionLog.js';
 import type { StackController } from './stack.js';
@@ -30,6 +46,7 @@ import { projectWorkflows, workflowDocument } from './workflows.js';
 import { runsWords } from './words.js';
 
 export type { StackAction } from './stack.js';
+export type { ReplayPick } from './replayZone.js';
 
 /**
  * What the window knows about a project's runs,
@@ -98,6 +115,21 @@ export type RunsHost = {
 
   /** Hands a URL to whatever opens links here. */
   openExternal(url: string): Promise<void>;
+
+  /**
+   * Puts a question in front of somebody and waits
+   * for the answer.
+   *
+   * A modal rather than anything a panel draws: a
+   * replay writes into somebody's run history and
+   * sets code running, and the two lists it is
+   * decided on have to be read before the click,
+   * not after it. One verb for all three doors, and
+   * the quick pick behind `Choose…` is inside it —
+   * so the editor is asked once however the
+   * question was reached.
+   */
+  confirm(question: ReplayQuestion): Promise<ReplayAnswer>;
 };
 
 export type RunsDeps = {
@@ -166,7 +198,23 @@ export type RunsStore = Disposable & {
   /** Which step the rail describes and a replay
    *  would fork from. */
   selectStep(functionId: number): void;
-  replay(functionId: number): Promise<void>;
+
+  /**
+   * Offers a replay of one run from one of its
+   * points, and makes it if somebody says yes.
+   *
+   * By run id and a pick rather than by a step,
+   * because three surfaces reach this and only one
+   * of them has a row in front of it: the canvas
+   * names a block, the run page names a row, and the
+   * list names neither.
+   */
+  replay(workflowId: string, picked: ReplayPick): Promise<void>;
+
+  /** The same, from wherever the run's own default
+   *  boundary is — where it failed, else where it
+   *  began. */
+  replayRun(workflowId: string): Promise<void>;
 
   stackUp(): Promise<void>;
   stackDown(): Promise<void>;
@@ -283,9 +331,6 @@ export function runsStore(deps: RunsDeps): RunsStore {
   // own — what a read learns about somebody's
   // database is the list's to say.
   const openRun = openRunZone({
-    host: deps.host,
-    trust: deps.trust,
-    openManagement: deps.openManagement,
     projectSdk: deps.projectSdk,
     following: follow,
     project: () => deps.host.projects()[0],
@@ -348,6 +393,111 @@ export function runsStore(deps: RunsDeps): RunsStore {
     });
   };
 
+  /**
+   * The same run with every row it wrote, which is
+   * what deciding a replay is asked of.
+   *
+   * Read again rather than taken from whatever the
+   * page is showing: a replay is offered from the
+   * list and from a canvas as well, and neither of
+   * those has read a run's rows at all.
+   */
+  const ledgerFor = async (
+    workflowId: string,
+  ): Promise<{ run: Run; steps: Step[] } | undefined> => {
+    const url = history.connection();
+    if (url === undefined) return undefined;
+
+    return await history.read(url, async (db) => {
+      const one = runQuery(workflowId);
+      const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
+      const row = rows[0];
+      if (row === undefined) return undefined;
+
+      const steps = stepsQuery(workflowId);
+
+      return {
+        run: toRun(row),
+        steps: (
+          await db.query<OperationOutputRow>(steps.text, steps.values)
+        ).map(toStep),
+      };
+    });
+  };
+
+  /**
+   * Everything deciding a replay reads and does,
+   * assembled once.
+   *
+   * Once rather than per call because it is a bag of
+   * closures over the zones, and every one of them
+   * asks its question again when it is called — the
+   * project, the connection and the stack are all
+   * read fresh inside the decision rather than
+   * captured here.
+   */
+  const replayDeps: ReplayDeps = {
+    project,
+    connection: () => history.connection(),
+    openManagement: deps.openManagement,
+    document: async (name) => {
+      const dir = project();
+
+      return dir === undefined ? undefined : workflowDocument(dir, name);
+    },
+    compileInputs,
+    projectSdk: deps.projectSdk,
+    walk: changedFiles,
+    stack,
+    confirm: (question) => deps.host.confirm(question),
+    follow: testRun.follow,
+    refused: testRun.refused,
+  };
+
+  /**
+   * One replay, whichever door it came through.
+   *
+   * The sentence goes to the notification area
+   * always and onto the run page only when the page
+   * is showing the run that was forked from — a
+   * replay started from a canvas or from the list
+   * says nothing about whatever else is open.
+   */
+  const replay = async (
+    workflowId: string,
+    picked?: ReplayPick,
+  ): Promise<void> => {
+    // Forking writes into the project's database and
+    // sets code running, which is the decision
+    // workspace trust exists to make.
+    if (!deps.trust.isTrusted()) return;
+
+    const found = await ledgerFor(workflowId);
+    if (found === undefined) return;
+
+    const outcome = await offerReplay(
+      replayDeps,
+      found.run,
+      found.steps,
+      picked,
+    );
+
+    // The one thing still on the table when a replay
+    // is not: a fresh run of the same workflow, which
+    // only a run this window started has the input
+    // for.
+    if (outcome.at === 'again') return await testRun.rerun(workflowId);
+
+    if (outcome.note !== undefined) {
+      deps.host.say(outcome.note);
+      if (openRun.workflowId() === workflowId) openRun.note(outcome.note);
+    }
+
+    // The list has a run in it now that was not there
+    // a moment ago.
+    if (outcome.at === 'forked') await history.refresh();
+  };
+
   return {
     list: () => {
       const dir = project();
@@ -394,13 +544,8 @@ export function runsStore(deps: RunsDeps): RunsStore {
     refreshWorkflows: testRun.refreshWorkflows,
     selectStep: openRun.step,
 
-    replay: async (functionId) => {
-      // The list has a run in it now that was not
-      // there a moment ago — which is the list's
-      // business rather than the page's, so the two
-      // are composed here.
-      if (await openRun.replay(functionId)) await history.refresh();
-    },
+    replay,
+    replayRun: (workflowId) => replay(workflowId),
 
     stackUp: () => stacking(stack.up),
     stackDown: () => stacking(stack.down),

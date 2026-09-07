@@ -535,6 +535,154 @@ export const messages = {
     l10n.t('That replay did not start: {0}', detail),
 
   /**
+   * The modal a replay is offered through.
+   *
+   * The two lists are the whole of it. What a replay
+   * costs is that some of the run is reused and the
+   * rest runs again, and a person deciding whether
+   * to press the button is deciding about exactly
+   * those two lists — so they are drawn, not
+   * summarised.
+   */
+  replayTitle: (block: string) => l10n.t('Replay from {0}?', block),
+
+  /** The same question about a run no point could be
+   *  named in, which is every refusal. */
+  replayRunTitle: (id: string) => l10n.t('Replay run {0}?', id),
+  replayBody: () =>
+    l10n.t(
+      'Creates a new DBOS execution from this step. Earlier durable results are reused, not re-executed.',
+    ),
+  replayReused: () => l10n.t('reused · recorded'),
+  replayReusedNothing: () =>
+    l10n.t("nothing — this is the run's first durable operation"),
+  replayWillExecute: () => l10n.t('will execute'),
+
+  /**
+   * Where the list stops.
+   *
+   * A branch's way out is a value nothing recorded,
+   * so what runs after it is not something anybody
+   * here can know. The block that decides is named
+   * instead of the blocks it might reach.
+   */
+  replayDecides: (block: string) => l10n.t('then {0} decides', block),
+
+  replayHint: () =>
+    l10n.t(
+      "resolves to the durable operation's DBOS function id · available while the structure before this point is unchanged — structural edits need a new run",
+    ),
+
+  /** The buttons. `Cancel` is the modal's own. */
+  replayDo: () => l10n.t('Replay'),
+  replayRebuildFirst: () => l10n.t('Rebuild and replay'),
+  replayStartFirst: () => l10n.t('Start and replay'),
+  replayChoose: () => l10n.t('Choose…'),
+  replayChoosing: () =>
+    l10n.t('Which recorded point should the replay start from?'),
+  replayRunAgain: () => l10n.t('Run again'),
+
+  /**
+   * What the running app is, against what is on
+   * disk.
+   *
+   * A replay executes the image, not the folder
+   * somebody is editing, so a fix that has not been
+   * built answers exactly as the failure did. The
+   * file that is newest is named because it is the
+   * one they just saved.
+   */
+  replayStackStale: (path: string) =>
+    l10n.t('The running app was built before your change to {0}.', path),
+  replayStackDown: () =>
+    l10n.t('The local stack is not running. The replay starts when it is.'),
+  replayStackUnknown: () =>
+    l10n.t('Nothing here says when the running app was built.'),
+  replayRebuildFailed: () =>
+    l10n.t('The app did not come back up, so nothing was replayed.'),
+  replayOnBuild: (seconds: string) =>
+    l10n.t('It runs on the app built {0} s ago.', seconds),
+
+  /**
+   * The seven ways a replay is not on offer.
+   *
+   * Each names the one thing that would change the
+   * answer, because a refusal a person cannot act on
+   * is a refusal that reads as a bug.
+   */
+  replayNoDocument: (name: string) =>
+    l10n.t('This project has no workflow named {0} to replay against.', name),
+  replayNoLockfile: () =>
+    l10n.t(
+      'This project has no package-lock.json, so which DBOS it runs is unknown.',
+    ),
+  replaySdkNewer: (extension: string, project: string) =>
+    l10n.t(
+      'This extension reads DBOS {0} and the project runs {1}. Update the project first.',
+      extension,
+      project,
+    ),
+  replaySdkMajor: (extension: string, project: string) =>
+    l10n.t(
+      'This extension reads DBOS {0} and the project runs {1}, which is a different major version.',
+      extension,
+      project,
+    ),
+  replayNotOffered: () =>
+    l10n.t('That row is not a point a replay can start from.'),
+
+  /** Row 14's diagnostic is what says which document
+   *  was refused and why, so this points at it
+   *  rather than repeating it. */
+  replayGeneratedBehind: (name: string) =>
+    l10n.t(
+      'The code generated for {0} is not what the document says. See the Problems panel.',
+      name,
+    ),
+
+  /**
+   * The one refusal that is about the run rather
+   * than the project.
+   *
+   * DBOS compares the recorded name at each function
+   * id as it replays, so a fork carrying rows the
+   * current code would not write ends in an error
+   * the moment it runs. Both names are said, because
+   * which pair disagreed is the whole of what
+   * changed.
+   */
+  replayStructureChanged: (
+    block: string,
+    at: number,
+    recorded: string,
+    expected: string,
+  ) =>
+    l10n.t(
+      'The workflow structure before {0} changed: step {1} recorded `{2}`, and the workflow now records `{3}` there. Start a new run instead.',
+      block,
+      at,
+      recorded,
+      expected,
+    ),
+
+  /** Why one recorded row is not a boundary, said on
+   *  the row itself. */
+  replayRowSdkOwned: () =>
+    l10n.t(
+      'DBOS wrote this row for itself. A replay starts from a step the workflow recorded.',
+    ),
+  replayRowInsideWait: () =>
+    l10n.t(
+      'Starting here would hand the new run an answer that came back for the old one.',
+    ),
+  replayRowLinkScoped: (block: string) =>
+    l10n.t(
+      'The link this wait opens names the run it was minted for. Replay from {0} instead.',
+      block,
+    ),
+  replayRowParkedHere: () => l10n.t('The run is sitting here now.'),
+
+  /**
    * `mBoss: Run Workflow…`'s two questions: which
    * one, then what to send it. The picker offers
    * only what can be started this way — a scheduled

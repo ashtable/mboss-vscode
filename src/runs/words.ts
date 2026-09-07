@@ -95,6 +95,11 @@ export const runsWords = once(() => ({
   resendEvent: l10n.t('Send the event again'),
   openRun: l10n.t('Open run'),
   askAgentWhy: l10n.t('Ask agent why'),
+
+  /** The list draws no rows and no blocks of a run,
+   *  so the point a replay starts from is the run's
+   *  own default. */
+  replayRun: l10n.t('Replay this run'),
 }));
 
 export const seeWords = once(() => ({
@@ -116,11 +121,12 @@ export const seeWords = once(() => ({
     committedAt: l10n.t('committed'),
   },
 
-  // The design fixes this one, glyph and all: it
-  // is the only thing this view lets anybody do,
-  // and the mark is what says it is a repeat
-  // rather than a new run.
-  replay: l10n.t('⟲ Replay from this step'),
+  // The glyph is fixed, and it is the mark that
+  // says this is a repeat rather than a new run.
+  // "from here" rather than "from this step",
+  // because a person picks a block on the graph as
+  // often as a row in the trace.
+  replay: l10n.t('↺ Replay From Here'),
 
   /** The two views of one run. */
   tabs: {

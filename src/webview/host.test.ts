@@ -107,11 +107,13 @@ describe('a mounted webview', () => {
     const heard: Heard<'see'>[] = [];
     const { frame } = mounted({ heard: (message) => heard.push(message) });
 
-    frame.send({ type: 'replay', functionId: 3 });
+    frame.send({ type: 'replayFrom', workflowId: 'wf_c9d2f3', functionId: 3 });
     frame.send({ type: 'stackUp' });
     frame.send('nonsense');
 
-    expect(heard).toEqual([{ type: 'replay', functionId: 3 }]);
+    expect(heard).toEqual([
+      { type: 'replayFrom', workflowId: 'wf_c9d2f3', functionId: 3 },
+    ]);
   });
 });
 
@@ -184,9 +186,10 @@ describe('what each view may say', () => {
     askAgent: ['runs'],
     openRun: ['runs', 'canvas'],
     openProduction: ['runs'],
+    replayRun: ['runs'],
 
     stepSelect: ['see'],
-    replay: ['see'],
+    replayFrom: ['canvas', 'see'],
     seeShow: ['see'],
     seeNode: ['see'],
     seeRaw: ['see'],
@@ -246,9 +249,10 @@ describe('what each view may say', () => {
     askAgent: { workflowId: 'wf_c9d2f3' },
     openRun: { workflowId: 'wf_c9d2f3' },
     openProduction: {},
+    replayRun: { workflowId: 'wf_c9d2f3' },
 
     stepSelect: { functionId: 2 },
-    replay: { functionId: 2 },
+    replayFrom: { workflowId: 'wf_c9d2f3', functionId: 2 },
     seeShow: { tab: 'trace' },
     seeNode: { nodeId: 'find_slot' },
     seeRaw: { raw: true },
@@ -289,6 +293,26 @@ describe('what each view may say', () => {
    * make the host ask a question and then throw the
    * answer away. It does not parse now.
    */
+  /**
+   * A canvas has a block and no row; the run page
+   * has a row. A message naming neither addresses
+   * nothing at all.
+   */
+  it('refuses a replay that names neither a block nor a row', () => {
+    const see = messageSchemaFor('see');
+
+    expect(
+      see.safeParse({ type: 'replayFrom', workflowId: 'wf_c9d2f3' }).success,
+    ).toBe(false);
+    expect(
+      see.safeParse({
+        type: 'replayFrom',
+        workflowId: 'wf_c9d2f3',
+        nodeId: 'refund_payment',
+      }).success,
+    ).toBe(true);
+  });
+
   it("refuses a drop that is both a splice and a wire's end", () => {
     const canvas = messageSchemaFor('canvas');
     const drop = { type: 'addNode', ...SAMPLE['addNode'] };

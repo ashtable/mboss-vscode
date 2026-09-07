@@ -7,6 +7,11 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { openDatabase, openManagement } from '../../src/runs/db.js';
+import { replayFrom } from '../../src/runs/replay.js';
+import type {
+  ReplayAnswer,
+  ReplayQuestion,
+} from '../../src/runs/replayZone.js';
 import { projectSdk } from '../../src/runs/sdk.js';
 import { fakeAgent } from '../doubles/agent.js';
 import { fakeTrust } from '../doubles/trust.js';
@@ -246,6 +251,12 @@ function project(): string {
 describe('a run history, read from a real dbos schema', () => {
   let store: RunsStore;
   let said: string[];
+
+  /** What the modal answers, since there is nobody
+   *  here to press a button, and what it was
+   *  asked. */
+  let confirmed: ReplayAnswer;
+  let asked: ReplayQuestion[];
   let sleeping: Recorded[];
   let parked: Recorded[];
 
@@ -298,6 +309,8 @@ describe('a run history, read from a real dbos schema', () => {
     await DBOS.shutdown({ deregister: false });
 
     said = [];
+    asked = [];
+    confirmed = { at: 'nothing' };
     const dir = project();
     store = runsStore({
       host: {
@@ -309,6 +322,13 @@ describe('a run history, read from a real dbos schema', () => {
         openFile: async () => undefined,
         conductorConsoleUrl: () => '',
         openExternal: async () => undefined,
+        // Nobody at the keyboard, so the case that
+        // reads the question reads it here.
+        confirm: async (question) => {
+          asked.push(question);
+
+          return confirmed;
+        },
       },
       agent: fakeAgent(),
       trust: fakeTrust(),
@@ -503,19 +523,65 @@ describe('a run history, read from a real dbos schema', () => {
   });
 
   /**
-   * The done-when, against the real client: a replay
-   * writes a new run that DBOS marks as forked from
-   * this one. It sits `ENQUEUED` because nothing is
-   * running to pick it up, which is exactly what the
-   * note beside the button says.
+   * The runs in this suite are workflows registered
+   * by hand under one `DBOS.launch()`, so the
+   * project they were read from has no document for
+   * any of them — which is a refusal a person can
+   * act on rather than a fork that would end in an
+   * error the moment it ran.
    */
-  it('forks a run when a step is replayed', async () => {
+  it('refuses a replay of a run this project has no document for', async () => {
     await store.refresh();
     await store.select(FAILED_RUN);
-    await store.replay(1);
+    await store.replay(FAILED_RUN, { functionId: 1 });
 
-    expect(said).toHaveLength(1);
-    expect(said[0]).toContain('Replaying as ');
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.detail).toContain('has no workflow named');
+    expect(asked[0]?.actions.map((one) => one.at)).toEqual(['again']);
+
+    const forked = await openDatabase(SYSTEM_DATABASE_URL);
+    try {
+      expect(
+        await forked.query(
+          'SELECT workflow_uuid FROM dbos.workflow_status ' +
+            'WHERE forked_from = $1',
+          [FAILED_RUN],
+        ),
+      ).toEqual([]);
+    } finally {
+      await forked.close();
+    }
+  });
+
+  /**
+   * The fork itself, against the real client: a new
+   * run that DBOS marks as forked from this one. It
+   * sits `ENQUEUED` because nothing is running to
+   * pick it up, which is exactly what the note
+   * beside the button says.
+   *
+   * Driven through the write rather than through the
+   * decision above it, because a decision that says
+   * yes needs a scaffolded project with generated
+   * code — which is the compose-backed harness in
+   * `stack.integration.test.ts`, not this one.
+   */
+  it('forks a run through the real management client', async () => {
+    await store.refresh();
+    await store.select(FAILED_RUN);
+
+    const run = store.detail()?.run;
+    expect(run).toBeDefined();
+    if (run === undefined) return;
+
+    const outcome = await replayFrom(
+      await openManagement(SYSTEM_DATABASE_URL),
+      run,
+      1,
+      { newWorkflowID: `${FAILED_RUN}_fork` },
+    );
+
+    expect(outcome.at).toBe('forked');
 
     const forked = await openDatabase(SYSTEM_DATABASE_URL);
     try {
@@ -525,8 +591,9 @@ describe('a run history, read from a real dbos schema', () => {
         [FAILED_RUN],
       );
 
-      expect(rows).toHaveLength(1);
-      expect(said[0]).toContain(rows[0]?.workflow_uuid ?? 'no fork');
+      expect(rows.map((row) => row.workflow_uuid)).toEqual([
+        `${FAILED_RUN}_fork`,
+      ]);
     } finally {
       await forked.close();
     }

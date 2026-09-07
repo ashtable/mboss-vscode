@@ -10,8 +10,29 @@ import {
 
 import { mountWebview, type Mount } from '../webview/host.js';
 
-import type { RunsStore } from './store.js';
+import type { ReplayPick, RunsStore } from './store.js';
 import { runsWords, seeWords } from './words.js';
+
+/**
+ * Where a replay would start, as the message names
+ * it.
+ *
+ * A row wins over a block: the page has both once
+ * somebody has clicked a trace row, and the row is
+ * the more exact of the two. The schema has already
+ * refused a message naming neither, and this says
+ * so rather than inventing a block id nothing has.
+ */
+function pointIn(said: {
+  nodeId?: string;
+  functionId?: number;
+}): ReplayPick | undefined {
+  if (said.functionId !== undefined) {
+    return { functionId: said.functionId };
+  }
+
+  return said.nodeId === undefined ? undefined : { nodeId: said.nodeId };
+}
 
 /**
  * The two surfaces a run history has.
@@ -89,6 +110,10 @@ export class RunsListView implements WebviewViewProvider {
           void this.store.copyRunId(message.workflowId);
         }
 
+        if (message.type === 'replayRun') {
+          void this.store.replayRun(message.workflowId);
+        }
+
         if (message.type === 'openProduction') {
           void this.store.openProduction();
         }
@@ -161,8 +186,13 @@ export class SeePanel {
           this.store.selectStep(message.functionId);
         }
 
-        if (message.type === 'replay')
-          void this.store.replay(message.functionId);
+        if (message.type === 'replayFrom') {
+          const point = pointIn(message);
+
+          if (point !== undefined) {
+            void this.store.replay(message.workflowId, point);
+          }
+        }
 
         if (message.type === 'seeNode') this.store.selectNode(message.nodeId);
         if (message.type === 'seeShow') this.store.showTab(message.tab);

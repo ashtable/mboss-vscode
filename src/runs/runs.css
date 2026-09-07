@@ -486,6 +486,13 @@ body {
   opacity: 1;
 }
 
+/* Under the copy button rather than beside it: the
+   row is narrow and two glyphs in a line across the
+   top of it would sit over the id. */
+.run-replay {
+  top: calc(var(--space-2) + 18px);
+}
+
 .run-copy:hover {
   color: var(--ink);
   background: var(--surface-2);

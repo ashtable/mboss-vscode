@@ -88,5 +88,45 @@ export function runsHost(): RunsHost {
         .trim(),
 
     openExternal: async (url) => void (await env.openExternal(Uri.parse(url))),
+
+    /**
+     * The one question this extension asks in a
+     * dialog.
+     *
+     * Modal, because a replay writes into somebody's
+     * run history and starts code, and the two lists
+     * it is decided on have to be in front of them
+     * rather than behind a click. Cancel is the
+     * dialog's own and is never among the actions.
+     *
+     * `Choose…` opens the quick pick from here
+     * rather than answering the caller with "they
+     * want to choose", so that one verb covers the
+     * whole question however it was reached.
+     */
+    confirm: async (question) => {
+      const picked = await window.showInformationMessage(
+        question.title,
+        { modal: true, detail: question.detail },
+        ...question.actions.map((action) => action.label),
+      );
+
+      const chosen = question.actions.find((action) => action.label === picked);
+
+      if (chosen === undefined) return { at: 'nothing' };
+      if (chosen.at !== 'choose') return { at: chosen.at };
+
+      const point = await window.showQuickPick(
+        question.boundaries.map((one) => ({
+          label: one.label,
+          functionId: one.functionId,
+        })),
+        { title: question.choosing },
+      );
+
+      return point === undefined
+        ? { at: 'nothing' }
+        : { at: 'choose', functionId: point.functionId };
+    },
   };
 }

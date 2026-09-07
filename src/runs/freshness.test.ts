@@ -1,8 +1,15 @@
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { IMAGE_INPUTS, freshness, type Walker } from './freshness.js';
+import {
+  IMAGE_INPUTS,
+  changedFiles,
+  freshness,
+  type Walker,
+} from './freshness.js';
 
 /**
  * Whether the running image is behind the
@@ -130,5 +137,58 @@ describe('whether the running image is behind the workspace', () => {
     freshness(walk, PROJECT, BUILT);
 
     expect(walked).toEqual(IMAGE_INPUTS.map((input) => at(input)));
+  });
+});
+
+/**
+ * The other half: where the numbers above come
+ * from.
+ *
+ * A real directory, because the whole point of this
+ * one is that it reads a disk — a fake here would
+ * make the case a statement about the fake.
+ */
+describe('walking one of the inputs', () => {
+  /** A moment far enough back that nothing about
+   *  how fast a temporary directory is written can
+   *  reach it. */
+  const STAMPED = Date.parse('2026-01-01T12:00:00Z');
+
+  it('answers when each file under a directory changed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mboss-walk-'));
+
+    mkdirSync(join(dir, 'lib', 'billing'), { recursive: true });
+    writeFileSync(join(dir, 'lib', 'refund.ts'), '', 'utf8');
+    writeFileSync(join(dir, 'lib', 'billing', 'card.ts'), '', 'utf8');
+
+    for (const path of ['lib/refund.ts', 'lib/billing/card.ts']) {
+      utimesSync(join(dir, path), STAMPED / 1000, STAMPED / 1000);
+    }
+
+    expect(
+      [...changedFiles(join(dir, 'lib'))].sort((a, b) =>
+        a.path.localeCompare(b.path),
+      ),
+    ).toEqual([
+      { path: join(dir, 'lib', 'billing', 'card.ts'), changedAt: STAMPED },
+      { path: join(dir, 'lib', 'refund.ts'), changedAt: STAMPED },
+    ]);
+  });
+
+  it('answers about a single file as one entry', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mboss-walk-'));
+    const path = join(dir, '.env');
+
+    writeFileSync(path, 'DATABASE_URL=postgres://x\n', 'utf8');
+    utimesSync(path, STAMPED / 1000, STAMPED / 1000);
+
+    expect(changedFiles(path)).toEqual([{ path, changedAt: STAMPED }]);
+  });
+
+  /** A project with no `prisma/` is a project. */
+  it('answers nothing about a path the project has not got', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mboss-walk-'));
+
+    expect(changedFiles(join(dir, 'prisma'))).toEqual([]);
   });
 });

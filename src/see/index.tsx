@@ -275,7 +275,11 @@ function Run({
           disabled={run.selectedStep === undefined}
           onClick={() => {
             if (run.selectedStep !== undefined) {
-              postToHost({ type: 'replay', functionId: run.selectedStep });
+              postToHost({
+                type: 'replayFrom',
+                workflowId: run.workflowId,
+                functionId: run.selectedStep,
+              });
             }
           }}
         >
@@ -311,7 +315,9 @@ function Chip({
       data-chip={chip.functionId}
       data-restored={String(chip.restored)}
       data-failed={String(chip.failed)}
+      data-replayable={String(chip.replayable)}
       aria-current={selected}
+      title={chip.because}
       onClick={() =>
         postToHost({ type: 'stepSelect', functionId: chip.functionId })
       }

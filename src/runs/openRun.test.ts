@@ -9,7 +9,6 @@ import {
   host,
   liveRun,
   liveStep,
-  management,
   project,
   watcher,
 } from '../test-support/runs.js';
@@ -67,9 +66,6 @@ function page(
   const list = runHistory({ host: editor, trust, open: async () => db });
 
   const open = openRunZone({
-    host: editor,
-    trust,
-    openManagement: async () => management(),
     projectSdk: () => ({ ok: true, version: '4.27.6' }),
     following: follows().held,
     project: () => editor.projects()[0],
@@ -343,52 +339,40 @@ describe('what a reader keeps', () => {
   });
 });
 
-describe('replaying a step', () => {
-  it('forks the run the page is showing, from the step clicked', async () => {
-    const client = management();
-    const said: string[] = [];
-    const { open } = page(database(), {
-      host: host({
-        projects: () => [project()],
-        say: (message) => said.push(message),
-      }),
-      openManagement: async () => client,
-    });
+describe('what a replay left on the page', () => {
+  /**
+   * The replay itself is decided and made a long
+   * way from here — it is offered from a canvas and
+   * from the list as well, and neither of those has
+   * a run page open. What this page owns is that the
+   * sentence is on it, survives a refresh, and goes
+   * when a different run is opened.
+   */
+  it('says what the last replay did', async () => {
+    const { open } = page(database());
 
     await open.open('wf_c9d2f3');
-    const moved = await open.replay(0);
+    open.note('Replaying as wf_fork1.');
 
-    expect(said[0]).toContain('wf_fork1');
-    expect(said[0]).toContain('v0.4.1');
-    expect(client.destroy).toHaveBeenCalledTimes(1);
-
-    // The list now has a run in it that was not there
-    // a moment ago, which is what this answers.
-    expect(moved).toBe(true);
+    expect(open.see().run?.note).toBe('Replaying as wf_fork1.');
   });
 
-  it('does nothing at all before a run has been picked', async () => {
-    const client = management();
-    const { open } = page(database(), { openManagement: async () => client });
+  it('keeps it when the same run is read again', async () => {
+    const { open } = page(database());
 
-    expect(await open.replay(0)).toBe(false);
-    expect(client.destroy).not.toHaveBeenCalled();
+    await open.open('wf_c9d2f3');
+    open.note('Replaying as wf_fork1.');
+    await open.again();
+
+    expect(open.see().run?.note).toBe('Replaying as wf_fork1.');
   });
 
-  /**
-   * Forking writes a row into the project's
-   * database and sets code running, which is the
-   * same decision trust covers everywhere else.
-   */
-  it('does nothing in a window nobody has trusted', async () => {
-    const client = management();
-    const { open } = page(database(), {
-      trust: fakeTrust(false),
-      openManagement: async () => client,
-    });
+  it('says nothing before a run has been picked', () => {
+    const { open } = page(database());
 
-    expect(await open.replay(0)).toBe(false);
-    expect(client.destroy).not.toHaveBeenCalled();
+    open.note('Replaying as wf_fork1.');
+
+    expect(open.see().run).toBeUndefined();
   });
 });
 

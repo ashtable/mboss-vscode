@@ -505,6 +505,23 @@ function List({ state }: { state: RunsInit }) {
           >
             ⧉
           </button>
+
+          {/* No row and no block travels: the list
+              draws neither, so where the replay
+              starts is the run's own default and the
+              extension is what works it out. */}
+          <button
+            type="button"
+            className="run-copy run-replay"
+            data-replay-run={row.workflowId}
+            title={state.strings.replayRun}
+            aria-label={state.strings.replayRun}
+            onClick={() =>
+              postToHost({ type: 'replayRun', workflowId: row.workflowId })
+            }
+          >
+            ↺
+          </button>
         </li>
       ))}
     </ol>

@@ -6,8 +6,29 @@ import { promisify } from 'node:util';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import {
+  compileWorkflows,
+  matchTrace,
+  traceGrammar,
+} from '../../src/core/index.js';
+import { openDatabase } from '../../src/runs/db.js';
+import { projectEnv, systemDatabaseUrl } from '../../src/runs/env.js';
+import { runQuery, stepsQuery } from '../../src/runs/queries.js';
+import {
+  toRun,
+  toStep,
+  type OperationOutputRow,
+  type Step,
+  type WorkflowStatusRow,
+} from '../../src/runs/rows.js';
+import { startRun } from '../../src/runs/runner.js';
 import { dockerStack, type StackController } from '../../src/runs/stack.js';
-import { makeProject } from '../../src/test-support/project.js';
+import { workflowDocument } from '../../src/runs/workflows.js';
+import {
+  copyLib,
+  makeProject,
+  writeWorkflow,
+} from '../../src/test-support/project.js';
 
 /**
  * The stack controller, against real docker.
@@ -38,6 +59,26 @@ import { makeProject } from '../../src/test-support/project.js';
 
 const run = promisify(execFile);
 
+/**
+ * A run that ends, with a branch in it.
+ *
+ * One arm is taken and the other records nothing at
+ * all, which is the case the grammar has to accept
+ * without being told which way the run went.
+ */
+const WORKFLOW = 'decision_yes_no';
+
+const CLAIM = {
+  claimId: 'c-1',
+  amount: 42,
+  submitter: { email: 'ada@example.com', name: 'Ada' },
+  memo: 'taxi',
+};
+
+/** Long enough for a container to accept the event
+ *  and a two-step workflow to finish. */
+const A_RUN = 60 * 1000;
+
 /** A cold `npm ci` inside a fresh image, on top of
  *  a base image this machine may not have yet. */
 const A_BUILD = 20 * 60 * 1000;
@@ -51,6 +92,15 @@ describe("a scaffolded project's own stack", () => {
     async () => {
       project = await makeProject();
       stack = dockerStack({ append: (text) => void logged.push(text) });
+
+      // A workflow with its code behind it, compiled
+      // before the image is built: the container
+      // installs and compiles what is on disk, so a
+      // document applied afterwards is a document
+      // the running app has never heard of.
+      copyLib(project, 'lib');
+      writeWorkflow(project, WORKFLOW);
+      expect((await compileWorkflows(project)).ok).toBe(true);
 
       // The image runs `npm ci`, which needs a
       // lockfile the scaffold does not write: what
@@ -125,4 +175,121 @@ describe("a scaffolded project's own stack", () => {
     },
     A_BUILD,
   );
+
+  /**
+   * What DBOS actually writes, against the grammar
+   * a replay is offered on.
+   *
+   * The grammar is a second reading of the same plan
+   * the emitter writes from, and every claim it
+   * makes is a claim about what the SDK records —
+   * which no fake can say. A run through a real
+   * container is the only evidence that a replay
+   * offered from one of these rows would not end in
+   * an error the moment it ran.
+   *
+   * `approval_flow`'s parked hole is not exercised
+   * here: it declares the same event topic as this
+   * one, and its approval mails through Twilio,
+   * which this harness has no credentials for.
+   */
+  it(
+    'accepts the rows a real run wrote, arm and all',
+    async () => {
+      const started = await startRun(
+        {
+          stack,
+          env: projectEnv,
+          open: openDatabase,
+          fetch: globalThis.fetch,
+        },
+        {
+          project,
+          workflow: WORKFLOW,
+          trigger: { mode: 'event', topic: 'expense.filed' },
+          input: CLAIM,
+        },
+      );
+
+      expect(started.ok).toBe(true);
+      if (!started.ok) return;
+
+      const url = systemDatabaseUrl(project);
+      expect(url.ok).toBe(true);
+      if (!url.ok) return;
+
+      const ledger = await openDatabase(url.url);
+
+      try {
+        const finished = await settled(ledger, started.workflowId);
+
+        expect(finished.run.status).toBe('SUCCESS');
+
+        // What the POST carried, read back out of the
+        // column the ledger stored it in.
+        expect(finished.run.input).toEqual({
+          shape: 'payload',
+          value: CLAIM,
+        });
+
+        const ir = workflowDocument(project, WORKFLOW);
+        expect(ir).toBeDefined();
+        if (ir === undefined) return;
+
+        // Every row, so the walk covers the whole
+        // recording rather than a prefix of it.
+        expect(
+          matchTrace(
+            traceGrammar(ir),
+            finished.steps.map((step) => ({
+              functionId: step.functionId,
+              name: step.name,
+              completedAt: step.completedAt,
+              failed: step.error !== undefined,
+            })),
+            finished.steps.length,
+          ),
+        ).toEqual({ ok: true });
+
+        // And one arm ran while the other recorded
+        // nothing, which is what the grammar had to
+        // accept without evidence either way.
+        const names = finished.steps.map((step) => step.name);
+
+        expect(names).toContain('pay_claim');
+        expect(names).not.toContain('file_refusal');
+      } finally {
+        await ledger.close();
+      }
+    },
+    A_RUN,
+  );
 });
+
+/** The run once it has stopped moving, read the way
+ *  the panel reads one. */
+async function settled(
+  ledger: Awaited<ReturnType<typeof openDatabase>>,
+  workflowId: string,
+): Promise<{ run: ReturnType<typeof toRun>; steps: Step[] }> {
+  for (let tries = 0; tries < 120; tries += 1) {
+    const one = runQuery(workflowId);
+    const rows = await ledger.query<WorkflowStatusRow>(one.text, one.values);
+    const row = rows[0];
+
+    if (row !== undefined && row.completed_at !== null) {
+      const steps = stepsQuery(workflowId);
+
+      return {
+        run: toRun(row),
+        steps: (
+          await ledger.query<OperationOutputRow>(steps.text, steps.values)
+        ).map(toStep),
+      };
+    }
+
+    await new Promise((wake) => setTimeout(wake, 250));
+  }
+
+  throw new Error(`${workflowId} never finished`);
+}

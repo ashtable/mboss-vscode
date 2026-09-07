@@ -417,18 +417,41 @@ const StepSelect = z.object({
 });
 
 /**
- * Somebody asked for a run to be forked from one
- * of its steps.
+ * Somebody asked for a run to be forked from a
+ * point it recorded.
  *
- * The step travels with the click for the same
+ * The run travels with the click for the same
  * reason a proposal id does: the panel may be
- * drawing a step the extension has since moved
- * past, and the extension is what decides which
- * run this is about.
+ * drawing a run the extension has since moved past,
+ * and the extension is what decides which run this
+ * is about.
+ *
+ * Both ways of naming the point are optional and at
+ * least one is required, because the two surfaces
+ * that send this hold different things. A canvas has
+ * a block in its column and no row at all; the run
+ * page has a row somebody clicked in a trace. Which
+ * of the two a block's several rows a replay starts
+ * from is the extension's answer, not the panel's.
  */
-const Replay = z.object({
-  type: z.literal('replay'),
-  functionId: z.number().int(),
+const ReplayFrom = z
+  .object({
+    type: z.literal('replayFrom'),
+    workflowId: z.string(),
+    nodeId: z.string().optional(),
+    functionId: z.number().int().optional(),
+  })
+  .refine(
+    (sent) => sent.nodeId !== undefined || sent.functionId !== undefined,
+    'a replay starts from a block or from a row it recorded',
+  );
+
+/** The same, from wherever the run's own default
+ *  point is: the list draws no rows and no blocks,
+ *  so it names neither. */
+const ReplayRun = z.object({
+  type: z.literal('replayRun'),
+  workflowId: z.string(),
 });
 
 /**
@@ -521,6 +544,7 @@ const SCHEMAS = {
     OpenErrorLocation,
     OpenOutput,
     OpenRun,
+    ReplayFrom,
     Connect,
     AddNode,
     Move,
@@ -556,6 +580,7 @@ const SCHEMAS = {
     OpenRun,
     OpenProduction,
     CopyRunId,
+    ReplayRun,
   ]),
   see: z.discriminatedUnion('type', [
     Ready,
@@ -563,7 +588,7 @@ const SCHEMAS = {
     OpenFunction,
     OpenErrorLocation,
     OpenOutput,
-    Replay,
+    ReplayFrom,
     SeeShow,
     SeeNode,
     SeeRaw,

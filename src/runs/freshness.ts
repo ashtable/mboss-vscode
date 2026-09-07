@@ -1,3 +1,4 @@
+import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -108,4 +109,32 @@ export function freshness(
   }
 
   return newest === undefined ? { at: 'fresh' } : { at: 'stale', newest };
+}
+
+/**
+ * The one walk that reads a real disk.
+ *
+ * The adapter beside the rule, the way every other
+ * seam in this extension is arranged: the answer
+ * above is arithmetic over numbers, and this is
+ * where the numbers come from. A path that is not
+ * there is no entries rather than a failure — a
+ * project with no `prisma/` is a project, and a
+ * missing input is one fewer thing that can be
+ * stale.
+ *
+ * Called only with the entries `IMAGE_INPUTS`
+ * names, which is what keeps `node_modules` out of
+ * it.
+ */
+export function changedFiles(dir: string): readonly Changed[] {
+  try {
+    const entry = statSync(dir);
+
+    if (!entry.isDirectory()) return [{ path: dir, changedAt: entry.mtimeMs }];
+
+    return readdirSync(dir).flatMap((name) => changedFiles(join(dir, name)));
+  } catch {
+    return [];
+  }
 }

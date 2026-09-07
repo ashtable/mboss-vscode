@@ -1,4 +1,5 @@
 import { paletteLabels, canvasWords } from '../canvas/words.js';
+import { replayBoundaries, type Unoffered } from '../core/index.js';
 import { ownerOf, type NodeBox, type WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
 import { fine } from '../webview/time.js';
@@ -20,6 +21,7 @@ import type {
 
 import { seeWords } from './words.js';
 import { decidedArms, groupsOf, type TraceGroup } from './operations.js';
+import { replayRowReason } from './replayZone.js';
 import { readRun, type Operation, type Reading } from './reading.js';
 import { hasRecovered, recoveriesOf, type Run, type Step } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
@@ -158,6 +160,13 @@ function seeRun(view: SeeView): SeeRun {
   );
   const graph = graphOf(view, reading.steps);
 
+  // Which rows a replay could start from, asked once
+  // for the page: the rule is core's and it is asked
+  // of the document as it is saved now, so a run
+  // whose workflow is gone offers nothing rather
+  // than everything.
+  const points = boundariesOf(view);
+
   // The chart and the strip above it are about what
   // the workflow did, so the SDK's own rows are not
   // drawn on either. The reading still holds them,
@@ -185,7 +194,7 @@ function seeRun(view: SeeView): SeeRun {
     ),
     span: spanOf(run),
     recovered: recoveredBanner(run, reading),
-    chips: drawn.map(chipOf),
+    chips: drawn.map((step) => chipOf(step, points)),
     timeline: chartOf(reading, drawn),
     raw: steps.map(rawRowOf),
     rail: railOf(run),
@@ -198,7 +207,7 @@ function seeRun(view: SeeView): SeeRun {
       graph === undefined ? messages.runGraphMissing(run.name) : undefined,
     live: liveRunOf(run, reading),
     groups: groupsOf(reading.steps, { timing: view.timing ?? false }).map(
-      (group) => groupOf(group, view),
+      (group) => groupOf(group, view, points),
     ),
     selected: {
       nodeId: view.selectedNode,
@@ -252,7 +261,11 @@ function graphOf(
  * as a single collapsible called after whatever
  * happened to run first.
  */
-function groupOf(group: TraceGroup, view: SeeView): TraceGroupView {
+function groupOf(
+  group: TraceGroup,
+  view: SeeView,
+  points: ReplayPoints,
+): TraceGroupView {
   const node = view.ir?.nodes.find((one) => one.id === group.nodeId);
   const failed = group.operations.some((one) => one.state === 'failed');
 
@@ -268,7 +281,7 @@ function groupOf(group: TraceGroup, view: SeeView): TraceGroupView {
       failed ||
       (group.nodeId !== undefined && group.nodeId === view.selectedNode),
     failed,
-    operations: group.operations.map(opOf),
+    operations: group.operations.map((one) => opOf(one, points)),
   };
 }
 
@@ -320,7 +333,7 @@ function qualifierOf(group: TraceGroup): string | undefined {
     : messages.runGroupRound(group.round);
 }
 
-function opOf(operation: Operation): TraceOpView {
+function opOf(operation: Operation, points: ReplayPoints): TraceOpView {
   return {
     functionId: operation.functionId,
     name: operation.name,
@@ -334,11 +347,67 @@ function opOf(operation: Operation): TraceOpView {
     outputCut: operation.outputCut,
     error: operation.error?.message,
     restored: operation.restored,
-    // Every row is replayable until something says
-    // otherwise, which nothing does yet.
-    replayable: true,
-    because: undefined,
+    ...offerOf(points, operation.functionId),
     childWorkflowId: operation.childWorkflowId,
+  };
+}
+
+/**
+ * Which rows a replay may start from, and why the
+ * rest may not.
+ *
+ * Nothing at all where the project no longer has
+ * the document: the rule is asked of a drawing, and
+ * a page with no drawing beside it cannot honestly
+ * offer any point.
+ */
+type ReplayPoints = {
+  offered: ReadonlySet<number>;
+  withheld: Map<number, Unoffered>;
+  ir: WorkflowIR | undefined;
+};
+
+function boundariesOf(view: SeeView): ReplayPoints {
+  const ir = view.ir;
+
+  if (ir === undefined) {
+    return { offered: new Set(), withheld: new Map(), ir: undefined };
+  }
+
+  const found = replayBoundaries(
+    ir,
+    view.steps.map((step) => ({
+      functionId: step.functionId,
+      name: step.name,
+      completedAt: step.completedAt,
+      failed: step.error !== undefined,
+    })),
+  );
+
+  return {
+    offered: new Set(found.offered.map((one) => one.functionId)),
+    withheld: new Map(found.unoffered.map((one) => [one.functionId, one])),
+    ir,
+  };
+}
+
+/** What one row says about being replayed from. */
+function offerOf(
+  points: ReplayPoints,
+  functionId: number,
+): { replayable: boolean; because: string | undefined } {
+  if (points.offered.has(functionId)) {
+    return { replayable: true, because: undefined };
+  }
+
+  const withheld = points.withheld.get(functionId);
+
+  return {
+    replayable: false,
+    because:
+      withheld === undefined
+        ? messages.replayNotOffered()
+        : replayRowReason(withheld, points.ir),
   };
 }
 
@@ -524,12 +593,13 @@ function recoveredBanner(run: Run, reading: Reading): SeeRun['recovered'] {
   };
 }
 
-function chipOf(step: Operation): SeeChip {
+function chipOf(step: Operation, points: ReplayPoints): SeeChip {
   return {
     functionId: step.functionId,
     name: step.name,
     restored: step.restored,
     failed: step.error !== undefined,
+    ...offerOf(points, step.functionId),
   };
 }
 
