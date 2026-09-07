@@ -106,12 +106,22 @@ behaviour modules take the editor as an argument:
   `commands/newProject.ts`, `PanelHost` in `acp/agent.ts`, `RunsHost` in
   `runs/store.ts`, `WatchHost` in `watchers/host.ts`, `PreviewHost` in
   `preview/store.ts`, …) and a factory in the directory's `host.ts` closes over
-  `workspace`/`window`, reading folders and settings fresh on every call.
+  `workspace`/`window`, reading folders and settings fresh on every call —
+  except `PreviewHost`, whose `regenerate` is the watchers rather than the
+  editor, so `extension.ts` assembles it and `src/preview/` has no `host.ts`.
 - Workspace trust is on no host. `src/trust.ts` (`Trust`: `isTrusted()`,
   `onGranted()`) is one collaborator handed to every store beside its host;
   `workspaceTrust()` is the one adapter that asks `workspace.isTrusted`, and
   `test/doubles/trust.ts` (`fakeTrust(trusted)`, with `grant()`) is its one
   double. `src/trust.test.ts` pins that the adapter asks on every call.
+- The agent is on no host either, for the same reasons. `Agent`
+  (`note()`, `send()`, declared in `acp/agent.ts`) is one collaborator handed to
+  the preview store, the runs store and the canvas beside their `Trust`; the
+  panel is its own adapter, since `agentPanel()` already returns something that
+  is one. `test/doubles/agent.ts` (`fakeAgent()`, with `told`, `noted()`,
+  `sent()` and `fails()`) is its one double, and it records both verbs in **one**
+  list — what mBoss did and what the agent did go into one column, so the order
+  across the two is the thing worth asserting.
 - `src/vscodeApi.ts` (`VsCodeApi`: info / run / pick / replaceDocument /
   onDocumentChanged) is the general-purpose seam used by `commands.ts` and the
   canvas editor.
@@ -223,7 +233,8 @@ behaviour modules take the editor as an argument:
 
 `src/extension.ts` decides nothing: it constructs each long-lived object once,
 hands it its collaborators (structural slices — the canvas takes `Watchers`
-and `RunsStore` as `CanvasCode`/`CanvasRuns`, and `Trust` as itself), builds
+and `RunsStore` as `CanvasCode`/`CanvasRuns`, and `Trust` and `Agent` as
+themselves; the panel goes over whole rather than as a closure), builds
 the command table with `commandHandlers()` in `src/commands.ts` (a pure record;
 `commands.test.ts` asserts its keys equal `contributes.commands`), registers
 providers and holds the disposables. `activationEvents` is `[]`.
@@ -356,7 +367,7 @@ Three tiers, three configs, and placement decides which runs:
   spec, so the browser-safe `src/core/rules.ts` is what a spec should use.
 
 Doubles and helpers: `test/doubles/vscode.ts` (fails loudly for anything not
-added on purpose), `watchHost.ts`, `webview.ts`; `src/test-support/` (exempt
+added on purpose), `trust.ts`, `agent.ts`, `watchHost.ts`, `webview.ts`; `src/test-support/` (exempt
 from the boundary greps): `project.ts` scaffolds a real project with core and
 copies fixtures from `mboss-core/fixtures/` (the submodule worktree must be at
 the pinned commit — bump commits move it together with the gitlink), `vendor.ts`,
