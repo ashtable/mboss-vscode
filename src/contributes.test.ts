@@ -63,9 +63,13 @@ describe('commands', () => {
 
   const palette = commands.filter((entry) => !isSideBar(entry.command));
 
-  it('offers exactly the nine the design names', () => {
+  it('offers exactly the ten the design names', () => {
     expect(palette.map((entry) => entry.command)).toEqual([
       'mboss.newProject',
+      // Beside the command that makes a project,
+      // because starting a workflow from a pattern
+      // is the same kind of act one step in.
+      'mboss.newWorkflow',
       'mboss.openRuns',
       'mboss.generateCode',
       'mboss.openAgentSidebar',
@@ -166,6 +170,7 @@ describe('commands', () => {
   it('shows the titles a user reads in the palette', () => {
     expect(palette.map((entry) => resolved(entry.title))).toEqual([
       'New Project',
+      'New Workflow…',
       'Open Runs',
       'Generate Code',
       'Open Agent Sidebar',

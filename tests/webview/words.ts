@@ -37,4 +37,5 @@ export const {
   sidebarWords,
   runsWords,
   seeWords,
+  galleryWords,
 } = sent;

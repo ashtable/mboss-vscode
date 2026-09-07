@@ -64,6 +64,90 @@ export const messages = {
   newProjectFailed: (detail: string) =>
     l10n.t('The project was not created: {0}', detail),
 
+  /**
+   * Starting a workflow writes a document and a
+   * handler file per block into somebody's folder,
+   * which is the decision workspace trust exists to
+   * make. The gallery still opens without it: it is
+   * a catalog, and refusing to draw one explains
+   * less than refusing to write.
+   */
+  newWorkflowNeedsTrust: () =>
+    l10n.t(
+      'Starting a workflow writes a document and its handlers into a folder, so it waits until you trust this window.',
+    ),
+
+  newWorkflowNeedsProject: () =>
+    l10n.t('Open an mBoss project to start a workflow in it.'),
+
+  newWorkflowNameTitle: () => l10n.t('What is the workflow called?'),
+
+  /**
+   * The rule is core's, because the name is the
+   * document's file name, the generated function's
+   * name and the name every run is recorded
+   * against all at once.
+   */
+  newWorkflowNameRefused: () =>
+    l10n.t(
+      'Lower-case letters, digits and underscores, starting with a letter.',
+    ),
+
+  /** Said under the name box while somebody types,
+   *  and again if the file turns up between the
+   *  question and the write. */
+  workflowNameTaken: (name: string) =>
+    l10n.t('This project already has a workflow named {0}.', name),
+
+  newWorkflowWorking: (name: string) => l10n.t('Starting {0}…', name),
+
+  /**
+   * A pattern brings its handlers with it under
+   * names it chose, so a file already at one of
+   * those names is not something a different
+   * workflow name would get around.
+   */
+  patternCodeExists: (path: string) =>
+    l10n.t(
+      'The pattern brings its own {0}, and this project already has one. Nothing was written.',
+      path,
+    ),
+
+  newWorkflowRefused: (detail: string) =>
+    l10n.t('That workflow was not started: {0}', detail),
+
+  /**
+   * The handlers go in before the document, so a
+   * refused apply is the one refusal that leaves
+   * files behind. Nobody can clean up files they
+   * were not told about.
+   */
+  newWorkflowLeftBehind: (files: string) =>
+    l10n.t('Its handlers were written first and are still there: {0}', files),
+
+  /**
+   * What landed, and where the code behind it is.
+   *
+   * It says the handlers are in `lib/` and stops
+   * there: nothing has been generated yet, and a
+   * sentence promising generated code would point
+   * somebody at a file that is not there until the
+   * next save.
+   */
+  newWorkflowCreated: (name: string, handlers: number) =>
+    l10n.t(
+      '{0} is on the canvas with its {1} handlers in lib/.',
+      name,
+      handlers,
+    ),
+
+  /** The one thing a pattern does that reaches
+   *  outside the machine it was started on. */
+  newWorkflowSendsMail: () =>
+    l10n.t(
+      'Its approval and email blocks send real mail — set TWILIO_* in .env, or point TWILIO_EMAIL_BASE_URL at a sink, before running it.',
+    ),
+
   vendorRefreshOffer: () =>
     l10n.t(
       "This project's mBoss server and skill are not the ones this extension ships.",

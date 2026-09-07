@@ -57,7 +57,7 @@ describe('the runtime strings', () => {
   });
 
   /**
-   * Four tables and nothing else. A sentence
+   * Five tables and nothing else. A sentence
    * resolved in a module of its own would still
    * reach the bundle, and would be one nobody knows
    * where to look for.
@@ -65,6 +65,7 @@ describe('the runtime strings', () => {
   it('is resolved only in the string tables', () => {
     expect(extract(REPO_ROOT).files).toEqual([
       'src/canvas/words.ts',
+      'src/gallery/words.ts',
       'src/messages.ts',
       'src/runs/words.ts',
       'src/sidebar/words.ts',

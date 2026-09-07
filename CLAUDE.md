@@ -4,12 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-The mBoss VS Code extension ("Design Durable Apps with DBOS"). It contributes four
+The mBoss VS Code extension ("Design Durable Apps with DBOS"). It contributes five
 React webviews — the **workflow canvas** (a custom editor for
 `**/.mboss/workflows/*.workflow.json`), the **agent sidebar** (an Agent Client
 Protocol client that drives claude-code / codex / gemini / a custom command), the
-**Runs** list (a project's DBOS run history read from the project's own Postgres)
-and the **See** panel (one run in detail) — and it ships an MCP server bundle plus
+**Runs** list (a project's DBOS run history read from the project's own Postgres),
+the **See** panel (one run in detail) and the **gallery** (the patterns a workflow
+can be started from) — and it ships an MCP server bundle plus
 an Agent Skill that it copies into every project it creates or refreshes.
 
 Three nested git submodules, each pinned to a version branch in `.gitmodules`
@@ -75,8 +76,8 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
 
 `src/build.ts` makes two esbuild calls because `platform` is per build: the
 host (`src/extension.ts` → `dist/extension.cjs`, CommonJS, `@mboss/core`
-aliased, `vscode` + DBOS/elk optional requires external) and the four webviews
-(`src/{canvas,sidebar,runs,see}/index.tsx` → `dist/webview/<name>.{js,css}`,
+aliased, `vscode` + DBOS/elk optional requires external) and the five webviews
+(`src/{canvas,sidebar,runs,see,gallery}/index.tsx` → `dist/webview/<name>.{js,css}`,
 ESM, browser, **no alias, no externals but `*.woff2`**). `WEBVIEW_ENTRIES` is
 typed against `WebviewName` in `src/webview/entry.ts`.
 
@@ -90,8 +91,9 @@ typed against `WebviewName` in `src/webview/entry.ts`.
   builtin or `process.env`. Enforcement is the browser esbuild call failing to
   resolve, plus `src/build.test.ts` scanning the output.
 - `dist/` also carries assets the host needs beside the bundle: `webview/fonts`
-  (the CSP allows only self-hosted fonts), `app/` + `workflows/index.ts` (core's
-  scaffold templates, read via `import.meta.dirname`), `node_modules/@types/node`
+  (the CSP allows only self-hosted fonts), `app/` + `workflows/index.ts` +
+  `library/` (core's scaffold templates and its pattern library, read via
+  `import.meta.dirname`), `node_modules/@types/node`
   (core's manifest scan resolves it at module load — without it the extension
   does not activate), `mcp/` and `skill/`. `.vscodeignore` excludes by
   directory, never by extension, because `dist/` ships `.ts` templates.
@@ -126,9 +128,9 @@ behaviour modules take the editor as an argument:
   onDocumentChanged) is the general-purpose seam used by `commands.ts` and the
   canvas editor.
 - Only editor plumbing value-imports `vscode`: `extension.ts`, `messages.ts`,
-  `trust.ts`, the three `words.ts`, `vscodeApi.ts`, `statusBar.ts`, the providers
-  (`sidebar/view.ts`, `runs/panels.ts`, `canvas/editor.ts`),
-  `webview/host.ts`, every `host.ts`, and `acp/fs.ts`. `import type { Disposable } from 'vscode'` is fine anywhere.
+  `trust.ts`, the four `words.ts`, `vscodeApi.ts`, `statusBar.ts`, the providers
+  (`sidebar/view.ts`, `runs/panels.ts`, `canvas/editor.ts`,
+  `gallery/panel.ts`), `webview/host.ts`, every `host.ts`, and `acp/fs.ts`. `import type { Disposable } from 'vscode'` is fine anywhere.
 - `src/webview/host.ts` is a different kind of `host.ts`: the host side of the
   webview protocol (see below).
 - A second stand-in exists: the `DRIVER` script in
@@ -173,27 +175,27 @@ behaviour modules take the editor as an argument:
 
 ### Strings
 
-- `src/messages.ts` and the three `words.ts` modules (`canvas/`, `sidebar/`,
-  `runs/`) are the only files that call `l10n.t` (`l10n.test.ts` fences the
-  list); every entry wraps a **literal**. That rule is load-bearing rather than
+- `src/messages.ts` and the four `words.ts` modules (`canvas/`, `gallery/`,
+  `runs/`, `sidebar/`) are the only files that call `l10n.t` (`l10n.test.ts`
+  fences the list); every entry wraps a **literal**. That rule is load-bearing rather than
   policed: `src/bundle.ts` parses every non-spec `.ts`/`.tsx` under `src/` with
   TypeScript's own parser and **writes** `l10n/bundle.l10n.json` (key === value,
   sorted) — `npm run strings`. A `l10n.t` wrapping anything but a literal throws
   `NotALiteral` with the file and line. The bundle is checked in because a
   translator forks it and the VSIX ships it; `l10n.test.ts` asserts only that it
-  matches what the source generates, plus the four-file fence. `package.json`
+  matches what the source generates, plus the five-file fence. `package.json`
   strings go through `%key%` + `package.nls.json` (`src/nls.test.ts`, both
   directions); the two mechanisms share nothing and neither falls back to the
   other.
 - Webviews have no `l10n`: their words travel in the init message as bags
   built once by the view's `words.ts` (`canvasWords`, `inspectorWords`,
-  `sidebarWords`, `runsWords`, `seeWords`), whose return types are the
+  `sidebarWords`, `runsWords`, `seeWords`, `galleryWords`), whose return types are the
   `<View>Strings` types `protocol.ts` derives through type-only imports, with
   `{0}` templates filled by `src/webview/fill.ts`. Nothing under a webview
   entry contains English a user sees.
-- The Playwright fixture is generated too. `src/fixture.ts` bundles the three
+- The Playwright fixture is generated too. `src/fixture.ts` bundles the four
   `words.ts` modules against `test/doubles/vscode.ts` (whose `l10n.t` answers
-  with the source string), calls the six bags and writes
+  with the source string), calls the seven bags and writes
   `tests/webview/words.json`; `tests/webview/words.ts` is a typed loader over
   it. `src/words.test.ts` holds the file to what the bags say, building the same
   bytes without esbuild because the unit tier already resolves `vscode`. Every
@@ -219,7 +221,7 @@ behaviour modules take the editor as an argument:
   `mountView` in `src/webview/mount.tsx`.
 - Host → webview is trusted and is always one whole `init` (the `HostMessage`
   union in `protocol.ts`), re-sent on every change. `protocol.ts` is a
-  declaration file rather than a module — four near-disjoint regions, one per
+  declaration file rather than a module — five near-disjoint regions, one per
   view, plus the union and `isHostMessageFor` — and it imports **only leaves**:
   a type it needs must come from a module that does not import it back, which
   is why `StackAction` lives in `runs/stack.ts` beside the commands it names
@@ -357,6 +359,12 @@ none of that.
   with nothing — asked when the event arrives and again when the debounced run
   fires — so an approval, an undo or the canvas's own write costs one
   generation (`approval.test.ts`).
+- **`gallery/`** — the patterns a workflow can start from, read out of core's
+  library on every mount. `panel.ts` holds both the flow (`gallery(deps)`:
+  trust, `projects()[0]`, one name question, core's write, one sentence) and
+  the `GalleryPanel` that mounts it, disposed the moment a document exists.
+  It compiles nothing, scans nothing and never claims generated code exists —
+  the handlers land in `lib/` and the next save is what generates.
 - **`vendor/`** — `shippedVendor` reads `dist/mcp` + `dist/skill`; `newProject`
   scaffolds through core with the bundle and copies the skill to both
   `.mboss/skills/mboss` and `.claude/skills/mboss`; `offerVendorRefresh` at

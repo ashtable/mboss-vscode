@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { canvasWords, inspectorWords, paletteLabels } from './canvas/words.js';
 import { FIXTURE_PATH, fixtureText } from './fixture.js';
+import { galleryWords } from './gallery/words.js';
 import { runsWords, seeWords } from './runs/words.js';
 import { sidebarWords } from './sidebar/words.js';
 import { REPO_ROOT } from './test-support/repo.js';
@@ -39,6 +40,7 @@ describe('the words the views are sent', () => {
         sidebarWords: sidebarWords(),
         runsWords: runsWords(),
         seeWords: seeWords(),
+        galleryWords: galleryWords(),
       }),
     );
   });

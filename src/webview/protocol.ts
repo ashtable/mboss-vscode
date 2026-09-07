@@ -1,6 +1,7 @@
 import type { PanelStatus } from '../acp/agent.js';
 import type { PermissionPrompt, TranscriptEntry } from '../acp/transcript.js';
 import type { canvasWords, inspectorWords } from '../canvas/words.js';
+import type { galleryWords } from '../gallery/words.js';
 import type {
   Diagnostic,
   LibManifest,
@@ -50,7 +51,8 @@ import type { sidebarWords } from '../sidebar/words.js';
  */
 
 /** Sent whenever the host has state to show. */
-export type HostMessage = CanvasInit | SidebarInit | RunsInit | SeeInit;
+export type HostMessage =
+  CanvasInit | SidebarInit | RunsInit | SeeInit | GalleryInit;
 
 export type CanvasInit = {
   type: 'init';
@@ -780,6 +782,72 @@ export type SeeRawRow = {
 };
 
 export type SeeStrings = ReturnType<typeof seeWords>;
+
+/**
+ * The patterns a workflow can be started from.
+ *
+ * A catalog and nothing else: the view draws what
+ * arrives and posts back which card was chosen.
+ * What a pattern is made of, whether the project
+ * can take it and what it is called once it lands
+ * are all worked out in the host, because all
+ * three are questions about a folder a frame
+ * cannot see.
+ */
+export type GalleryInit = {
+  type: 'init';
+  view: 'gallery';
+  strings: GalleryStrings;
+
+  /** The shelves, in the order they are read. */
+  groups: GalleryShelf[];
+};
+
+/**
+ * One shelf of the gallery.
+ *
+ * The shelf travels as its id and the view looks
+ * its name up among the words, so a card and its
+ * heading cannot end up in different languages.
+ * The three are spelled out here rather than
+ * imported from the library that defines them:
+ * this file may import only modules that do not
+ * import it back, and the pattern library reaches
+ * the whole of core.
+ */
+export type GalleryShelf = {
+  group: 'ai' | 'backend' | 'devops';
+  cards: GalleryCard[];
+};
+
+/**
+ * One pattern, as a card.
+ *
+ * `glyphs` are the first four kinds the document
+ * uses, in the order it uses them, so the run of
+ * icons reads as the beginning of the workflow
+ * rather than as a legend. They are the palette's
+ * own ten and no others.
+ */
+export type GalleryCard = {
+  /** The directory the pattern ships in, and the
+   *  name the workflow is offered under. */
+  name: string;
+
+  title: string;
+
+  summary: string;
+
+  tags: string[];
+
+  glyphs: NodeKind[];
+
+  /** The one pattern to open when showing somebody
+   *  what mBoss is. True on exactly one card. */
+  demo: boolean;
+};
+
+export type GalleryStrings = ReturnType<typeof galleryWords>;
 
 /**
  * Whether a message on a webview's channel is one

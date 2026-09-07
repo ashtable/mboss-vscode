@@ -35,6 +35,23 @@ export enum StatusBarAlignment {
   Right = 2,
 }
 
+/**
+ * The columns a panel can be opened in, as the real
+ * module numbers them.
+ *
+ * Here because the modules that create a webview
+ * panel name one at load time, and a spec driving
+ * anything else in those files still has to be able
+ * to import them.
+ */
+export enum ViewColumn {
+  Active = -1,
+  Beside = -2,
+  One = 1,
+  Two = 2,
+  Three = 3,
+}
+
 export const Uri = {
   joinPath(base: { path: string }, ...parts: string[]) {
     const path = [base.path, ...parts].join('/');

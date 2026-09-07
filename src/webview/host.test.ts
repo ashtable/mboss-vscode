@@ -117,7 +117,13 @@ describe('a mounted webview', () => {
 
 describe('what each view may say', () => {
   it('always includes that it has mounted', () => {
-    for (const view of ['canvas', 'sidebar', 'runs', 'see'] as const) {
+    for (const view of [
+      'canvas',
+      'sidebar',
+      'runs',
+      'see',
+      'gallery',
+    ] as const) {
       expect(messageSchemaFor(view).safeParse({ type: 'ready' }).success).toBe(
         true,
       );
@@ -140,7 +146,7 @@ describe('what each view may say', () => {
    * run page and the list both open a run.
    */
   const POSTS: Record<string, readonly WebviewName[]> = {
-    ready: ['canvas', 'sidebar', 'runs', 'see'],
+    ready: ['canvas', 'sidebar', 'runs', 'see', 'gallery'],
 
     select: ['canvas'],
     connect: ['canvas'],
@@ -182,6 +188,9 @@ describe('what each view may say', () => {
     seeRaw: ['see'],
     seeRefresh: ['see'],
     openWorkflow: ['see'],
+
+    usePattern: ['gallery'],
+    startBlank: ['gallery'],
   };
 
   /** One message of each kind that ought to parse
@@ -237,9 +246,18 @@ describe('what each view may say', () => {
     seeRaw: { raw: true },
     seeRefresh: {},
     openWorkflow: { workflowId: 'wf_c9d2f3' },
+
+    usePattern: { name: 'refund_approval' },
+    startBlank: {},
   };
 
-  const VIEWS: readonly WebviewName[] = ['canvas', 'sidebar', 'runs', 'see'];
+  const VIEWS: readonly WebviewName[] = [
+    'canvas',
+    'sidebar',
+    'runs',
+    'see',
+    'gallery',
+  ];
 
   it('parses on exactly the views the registry lists', () => {
     for (const [kind, views] of Object.entries(POSTS)) {

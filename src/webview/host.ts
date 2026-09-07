@@ -1,7 +1,11 @@
 import { Uri, type Disposable, type Webview } from 'vscode';
 import { z } from 'zod';
 
-import { NodeKindSchema, PositionSchema } from '../core/rules.js';
+import {
+  NodeKindSchema,
+  PositionSchema,
+  WorkflowNameSchema,
+} from '../core/rules.js';
 import { RUN_FILTERS } from '../runs/queries.js';
 
 import { pageNonce, webviewPage } from './html.js';
@@ -408,6 +412,26 @@ const OpenWorkflow = z.object({
 });
 
 /**
+ * Somebody chose a pattern to start a workflow
+ * from.
+ *
+ * The pattern's own name and nothing else. It is
+ * parsed as a workflow name because that is what a
+ * pattern's directory is called and what the
+ * document it writes will be filed under — and
+ * because a name a frame invented is looked up in
+ * the library rather than joined onto a path.
+ */
+const UsePattern = z.object({
+  type: z.literal('usePattern'),
+  name: WorkflowNameSchema,
+});
+
+/** Somebody asked for an empty canvas instead of a
+ *  pattern. */
+const StartBlank = z.object({ type: z.literal('startBlank') });
+
+/**
  * What each view may say, `ready` included.
  *
  * One union per view rather than one for all four,
@@ -468,6 +492,7 @@ const SCHEMAS = {
     SeeRefresh,
     OpenWorkflow,
   ]),
+  gallery: z.discriminatedUnion('type', [Ready, UsePattern, StartBlank]),
 };
 
 /** What one view may say. */

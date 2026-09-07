@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path';
 
 import type {
   CanvasStrings,
+  GalleryStrings,
   InspectorStrings,
   RunsStrings,
   SeeStrings,
@@ -48,6 +49,7 @@ export type Bags = {
   sidebarWords: SidebarStrings;
   runsWords: RunsStrings;
   seeWords: SeeStrings;
+  galleryWords: GalleryStrings;
 };
 
 /**
@@ -67,6 +69,7 @@ export function fixtureText(bags: Bags): string {
     sidebarWords: bags.sidebarWords,
     runsWords: bags.runsWords,
     seeWords: bags.seeWords,
+    galleryWords: bags.galleryWords,
   };
 
   return `${JSON.stringify(ordered, null, 2)}\n`;
@@ -97,6 +100,7 @@ async function evaluated(root: string): Promise<Bags> {
         `  from './src/canvas/words.ts';`,
         `export { runsWords, seeWords } from './src/runs/words.ts';`,
         `export { sidebarWords } from './src/sidebar/words.ts';`,
+        `export { galleryWords } from './src/gallery/words.ts';`,
       ].join('\n'),
       resolveDir: root,
       loader: 'ts',
@@ -125,6 +129,7 @@ async function evaluated(root: string): Promise<Bags> {
     sidebarWords: () => SidebarStrings;
     runsWords: () => RunsStrings;
     seeWords: () => SeeStrings;
+    galleryWords: () => GalleryStrings;
   };
 
   return {
@@ -134,6 +139,7 @@ async function evaluated(root: string): Promise<Bags> {
     sidebarWords: held.sidebarWords(),
     runsWords: held.runsWords(),
     seeWords: held.seeWords(),
+    galleryWords: held.galleryWords(),
   };
 }
 
@@ -144,5 +150,5 @@ if (process.argv[1] === import.meta.filename) {
   const text = fixtureText(await evaluated(root));
 
   writeFileSync(join(root, FIXTURE_PATH), text, 'utf8');
-  process.stdout.write(`${FIXTURE_PATH} — 6 bags\n`);
+  process.stdout.write(`${FIXTURE_PATH} — 7 bags\n`);
 }

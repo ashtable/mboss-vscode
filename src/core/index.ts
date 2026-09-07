@@ -5,7 +5,10 @@ import {
   MBOSS_DIRNAME,
   ProjectNameSchema,
   WorkflowIRSchema,
+  WorkflowNameSchema,
   applyProposal,
+  applySpec,
+  blankSpec as blankWorkflowSpec,
   compileProject,
   listProposals,
   loadOrScan,
@@ -15,7 +18,9 @@ import {
   readWorkflow as readWorkflowFile,
   scaffoldProject,
   undo,
+  usePattern as writePattern,
   validateWorkflow,
+  workflowFile,
   workflowsDir,
   type ApplyError,
   type CompileResult,
@@ -24,7 +29,9 @@ import {
   type NodeBox,
   type Proposal,
   type ScaffoldOptions,
+  type UsePatternOutcome,
   type WorkflowIR,
+  type WorkflowPattern,
 } from '@mboss/core';
 
 export { STALE_LOCK_MS } from '@mboss/core';
@@ -64,7 +71,12 @@ export {
   WorkflowNameSchema,
 } from '@mboss/core';
 
-export type { TraceMatch, UsePatternOutcome } from '@mboss/core';
+export type {
+  PatternGroup,
+  TraceMatch,
+  UsePatternOutcome,
+  WorkflowPattern,
+} from '@mboss/core';
 
 /**
  * The one module that talks to `@mboss/core`.
@@ -504,6 +516,116 @@ export async function hasSnapshot(
   name: string,
 ): Promise<boolean> {
   return (await newestSnapshot(mbossDirOf(project), name)) !== undefined;
+}
+
+/**
+ * What came of starting a workflow the gallery
+ * offered.
+ *
+ * One shape for both doors, because a person who
+ * pressed Use and a person who pressed Create are
+ * owed the same four answers, and the gallery
+ * would otherwise carry two switches that say the
+ * same things.
+ *
+ * `written` is on the refusal as well as on the
+ * success. A pattern's handlers are written before
+ * its document, so an apply that refuses is the
+ * one refusal that leaves files behind — and
+ * nobody can clean up files they were not told
+ * about.
+ */
+export type Started =
+  | { at: 'started'; path: string; written: string[] }
+  | { at: 'nameTaken'; name: string }
+  | { at: 'codeInTheWay'; path: string }
+  | { at: 'refused'; detail: string; written: string[] };
+
+/**
+ * Writes a pattern into a project under a name of
+ * somebody's choosing.
+ *
+ * Core does the writing, and does it in the order
+ * that leaves a refusal recoverable. What is added
+ * here is only the extension's own vocabulary for
+ * how it went.
+ */
+export async function startFromPattern(
+  project: string,
+  pattern: WorkflowPattern,
+  name: string,
+): Promise<Started> {
+  return startedFrom(await writePattern(project, { pattern, name }));
+}
+
+/**
+ * The other door: an empty canvas with a way in.
+ *
+ * No handlers to write, so this is core's apply on
+ * its own. The existence check that a pattern gets
+ * for free is made here for the same reason core
+ * makes it — so that "there is already one of
+ * those" reads as itself rather than as a revision
+ * conflict.
+ */
+export async function startBlankWorkflow(
+  project: string,
+  name: string,
+): Promise<Started> {
+  const mbossDir = mbossDirOf(project);
+
+  // Hoisted, because the path below is built by
+  // parsing the name and throws on one no document
+  // could be filed under — where every other
+  // refusal here is data. This is the refusal core
+  // would have made, made one line earlier.
+  if (!isWorkflowName(name)) {
+    return {
+      at: 'refused',
+      detail: detailOf({ code: 'WORKFLOW_NOT_FOUND', name }),
+      written: [],
+    };
+  }
+
+  const path = workflowFile(mbossDir, name);
+  if (existsSync(path)) return { at: 'nameTaken', name };
+
+  const outcome = await applySpec(mbossDir, {
+    name,
+    spec: blankWorkflowSpec(name),
+    baseRevision: null,
+  });
+
+  return outcome.ok
+    ? { at: 'started', path, written: [] }
+    : { at: 'refused', detail: detailOf(outcome.error), written: [] };
+}
+
+/** Whether a name is one a workflow document could
+ *  be filed under at all. */
+export function isWorkflowName(name: string): boolean {
+  return WorkflowNameSchema.safeParse(name).success;
+}
+
+/** Core's answer, in the extension's words. */
+function startedFrom(outcome: UsePatternOutcome): Started {
+  if (outcome.ok) {
+    return { at: 'started', path: outcome.path, written: outcome.written };
+  }
+
+  if (outcome.code === 'WORKFLOW_EXISTS') {
+    return { at: 'nameTaken', name: outcome.name };
+  }
+
+  if (outcome.code === 'LIB_FILE_EXISTS') {
+    return { at: 'codeInTheWay', path: outcome.path };
+  }
+
+  return {
+    at: 'refused',
+    detail: detailOf(outcome.error),
+    written: outcome.written,
+  };
 }
 
 /**

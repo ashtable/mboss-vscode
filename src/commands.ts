@@ -29,6 +29,7 @@ export function commandHandlers(
   api: VsCodeApi,
   generateCode: () => Promise<CodegenRun>,
   newProject: () => Promise<void>,
+  newWorkflow: () => Promise<void>,
   chooseAgent: () => Promise<void>,
   refreshRuns: () => Promise<void>,
   startStack: () => Promise<void>,
@@ -38,6 +39,15 @@ export function commandHandlers(
 ): Record<string, () => Promise<void>> {
   return {
     'mboss.newProject': newProject,
+
+    // Beside it, because starting a workflow from a
+    // pattern is the same kind of act one step in.
+    // It is in the palette where cancel, resume and
+    // replay are not: those each need a row
+    // somebody picked first, and this needs
+    // nothing.
+    'mboss.newWorkflow': newWorkflow,
+
     // The second that reveals rather than describes.
     // Which run to open is a click in the list, not
     // a palette entry that would have to ask.

@@ -9,6 +9,8 @@ import { projectHost, runWorkflowHost } from './commands/host.js';
 import { newProject, offerVendorRefresh } from './commands/newProject.js';
 import { runWorkflowCommand } from './commands/runWorkflow.js';
 import { isProject } from './core/index.js';
+import { galleryHost } from './gallery/host.js';
+import { GalleryPanel } from './gallery/panel.js';
 import { previewStore } from './preview/store.js';
 import { openDatabase, openManagement } from './runs/db.js';
 import { projectSdk } from './runs/sdk.js';
@@ -123,10 +125,17 @@ export function activate(context: ExtensionContext): void {
   });
   const see = new SeePanel(context.extensionUri, runs);
 
+  // The shelf of workflows to start from. Held here
+  // rather than by the command, so that running it
+  // twice reveals the one panel rather than opening
+  // a second.
+  const gallery = new GalleryPanel(context.extensionUri, galleryHost(), trust);
+
   const handlers = commandHandlers(
     api,
     () => watchers.generateNow(),
     newProject(projects, vendor, trust),
+    async () => gallery.show(),
     pickAgent,
     () => runs.refresh(),
     () => runs.stackUp(),
@@ -171,6 +180,7 @@ export function activate(context: ExtensionContext): void {
     AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview),
     RunsListView.register(context.extensionUri, runs, see),
     { dispose: () => see.dispose() },
+    { dispose: () => gallery.dispose() },
     { dispose: () => panel.dispose() },
     preview,
     runs,

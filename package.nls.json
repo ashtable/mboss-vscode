@@ -3,6 +3,7 @@
   "extension.description": "Design durable apps with DBOS.",
   "commands.category": "mBoss",
   "commands.newProject.title": "New Project",
+  "commands.newWorkflow.title": "New Workflow…",
   "commands.openRuns.title": "Open Runs",
   "commands.generateCode.title": "Generate Code",
   "commands.openAgentSidebar.title": "Open Agent Sidebar",

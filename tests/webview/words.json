@@ -284,5 +284,22 @@
     "workflowInput": "WORKFLOW INPUT",
     "asRecorded": "as recorded",
     "editWorkflow": "Edit workflow"
+  },
+  "galleryWords": {
+    "heading": "New workflow",
+    "hint": "Every pattern is a workflow document, built from the blocks in the palette.",
+    "blank": {
+      "title": "Start blank",
+      "body": "An empty canvas with a webhook trigger. Every pattern below is the same kind of document, already drawn.",
+      "action": "Create"
+    },
+    "groups": {
+      "ai": "AI & agents",
+      "backend": "Backend",
+      "devops": "DevOps"
+    },
+    "use": "Use →",
+    "demo": "DEMO",
+    "more": "More patterns land here as they are written."
   }
 }

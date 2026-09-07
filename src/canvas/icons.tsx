@@ -105,9 +105,23 @@ const PATHS: Record<NodeKind, readonly string[]> = {
   codeStep: ['m16 18 6-6-6-6', 'm8 6-6 6 6 6'],
 };
 
-export function NodeIcon({ kind, tone }: { kind: NodeKind; tone: Tone }) {
+/**
+ * `size` is left off on the canvas, which draws the
+ * tile at its full 28px. The two smaller ones are
+ * for the surfaces that name a block rather than
+ * draw it — a trace row, a gallery card.
+ */
+export function NodeIcon({
+  kind,
+  tone,
+  size,
+}: {
+  kind: NodeKind;
+  tone: Tone;
+  size?: 'sm' | 'md';
+}) {
   return (
-    <span className="node-icon" data-tone={tone}>
+    <span className="node-icon" data-tone={tone} data-size={size}>
       <svg
         viewBox="0 0 24 24"
         fill="none"

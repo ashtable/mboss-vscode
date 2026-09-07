@@ -35,6 +35,7 @@ export {
   PositionSchema,
   RetrySchema,
   WorkflowIRSchema,
+  WorkflowNameSchema,
   carryPositions,
   deleteNode,
   nextEdgeId,

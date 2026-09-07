@@ -35,6 +35,11 @@
         "category": "%commands.category%"
       },
       {
+        "command": "mboss.newWorkflow",
+        "title": "%commands.newWorkflow.title%",
+        "category": "%commands.category%"
+      },
+      {
         "command": "mboss.openRuns",
         "title": "%commands.openRuns.title%",
         "category": "%commands.category%"
