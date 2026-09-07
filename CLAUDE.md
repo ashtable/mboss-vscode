@@ -243,12 +243,18 @@ none of that.
   command). Every gesture is a message; every edit lands through
   `api.replaceDocument` so VS Code keeps undo/dirty/save. A **gesture** is
   what the panel sent; an **edit** is the pure function of the document it
-  becomes, worked out in `edits.ts`: `editFor(gesture, context)` takes the
-  document, its boxes, the manifest and the palette labels and answers
-  `next` / `refused` / `nothing`; `waysOutOf` says which ports a wire may
-  leave by. `CanvasSession` is gate, compute, write: it refuses a stale
-  `baseRevision` first, asks the picker which way out a wire takes, calls
-  `editFor`, then says the sentence, selects, notes and writes.
+  becomes, worked out in `edits.ts`: `editFor(gesture, context, answered?)`
+  takes the document, its boxes, the manifest and the palette labels and answers
+  `next` / `refused` / `nothing` / **`asks`**; `waysOutOf` says which ports a
+  wire may leave by. `CanvasSession` is gate, compute, ask, compute, write: it
+  refuses a stale `baseRevision` first, calls `editFor`, and where that answers
+  `asks` — the block and its ways out — puts the question through the picker and
+  calls `editFor` again with the answer, re-reading the document because the
+  question took time. Which gestures need asking is the rule's answer, not the
+  session's: one way out is settled without anybody being asked, and the schema
+  refuses a drop that is both a splice and a wire's end, so no gesture can be
+  asked a question its rule would then discard. Then it says the sentence,
+  selects, notes and writes.
   `CanvasInit.editing` is the one place a view reads whether it may edit and
   against which revision (absent over an unreadable file or a live proposal),
   and `inspector.selected` is an id: the column reads a block's fields and
