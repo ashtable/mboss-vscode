@@ -141,6 +141,7 @@ export function activate(context: ExtensionContext): void {
   const canvasRuns: CanvasRuns = {
     live: () => runs.live(),
     decided: (ir) => runs.decided(ir),
+    output: (workflowId, functionId) => runs.output(workflowId, functionId),
     openRun,
     replayFrom: (workflowId, nodeId) => runs.replay(workflowId, { nodeId }),
     askAgent: (ask) => runs.askAgent(ask),

@@ -188,6 +188,11 @@ export type RunsStore = Disposable & {
    *  one has been followed. */
   live(): LiveRun | undefined;
 
+  /** The whole of what one of that run's rows
+   *  recorded, for a panel that was sent only the
+   *  front of it. */
+  output(workflowId: string, functionId: number): string | undefined;
+
   /** Which way out each decided block of that run
    *  took, read against the document whoever is
    *  drawing hands in. */
@@ -583,6 +588,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     see: openRun.see,
     detail: openRun.reading,
     live: testRun.live,
+    output: testRun.output,
     decided: testRun.decided,
 
     refresh: async () => {

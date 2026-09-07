@@ -301,7 +301,7 @@ export function watcher(): {
 
   return {
     armed,
-    say: (workflowId, run, read = ledgerRead(run)) => {
+    say: (workflowId, run, read = ledgerReadOf(run)) => {
       for (const held of armed) {
         if (held.workflowId === workflowId) held.onChange(run, read);
       }
@@ -363,8 +363,13 @@ export function liveStep(over: Partial<LiveStep> = {}): LiveStep {
  * The rows a tick would have read to produce a
  * reading, for a double that is only pretending to
  * have read any.
+ *
+ * Named for what it builds rather than for what it
+ * is: `runs/evidence.ts` has a `ledgerRead` of its
+ * own that asks a real database, and two different
+ * things must not share one name.
  */
-function ledgerRead(run: LiveRun): LedgerRead {
+export function ledgerReadOf(run: LiveRun): LedgerRead {
   return {
     run: {
       workflowId: run.workflowId,

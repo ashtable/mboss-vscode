@@ -17,6 +17,7 @@ import { previewStore, type PreviewStore } from '../preview/store.js';
 import { makeProject, writeWorkflow } from '../test-support/project.js';
 import { fileExists } from '../test-support/repo.js';
 import { propose, specOf } from '../test-support/proposals.js';
+import { OUTPUT_KEPT } from '../runs/rows.js';
 import type { LiveRun } from '../runs/watch.js';
 import { liveStep } from '../test-support/runs.js';
 import type { Trust } from '../trust.js';
@@ -228,7 +229,10 @@ type FakeRuns = CanvasRuns & {
   readonly handed: string[];
 };
 
-function runsSaying(arms: Record<string, string> = {}): FakeRuns {
+function runsSaying(
+  arms: Record<string, string> = {},
+  outputs: Record<number, string> = {},
+): FakeRuns {
   const listeners: (() => void)[] = [];
   const opened: string[] = [];
   const offered: string[] = [];
@@ -243,6 +247,8 @@ function runsSaying(arms: Record<string, string> = {}): FakeRuns {
 
       return new Map(Object.entries(arms));
     },
+    output: (workflowId, functionId) =>
+      workflowId === live?.workflowId ? outputs[functionId] : undefined,
     openRun: async (workflowId) => {
       opened.push(workflowId);
     },
@@ -1642,11 +1648,24 @@ describe('the face the Inspector is showing', () => {
  * it is not drawing is a panel that gets nothing.
  */
 describe('a card about the run on screen', () => {
-  it('opens a recorded output in an editor of its own', async () => {
-    const runs = runsSaying();
+  /**
+   * The whole value, and not the copy the card was
+   * drawn from. What crosses to a panel is cut at
+   * 2000 characters and the card says so out loud;
+   * an Open that re-served the cut would be the one
+   * way a flight recorder lies.
+   */
+  it('opens the whole stored value in an editor of its own', async () => {
+    const whole = `{"note":"${'x'.repeat(OUTPUT_KEPT)}"}`;
+    const runs = runsSaying({}, { 0: whole });
     await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
 
-    runs.heard(runOf('groom_booking'));
+    runs.heard({
+      ...runOf('groom_booking'),
+      steps: [
+        liveStep({ output: whole.slice(0, OUTPUT_KEPT), outputCut: true }),
+      ],
+    });
     await settled();
 
     panel.send({
@@ -1657,7 +1676,7 @@ describe('a card about the run on screen', () => {
     });
     await settled();
 
-    expect(recorded.shown).toEqual([{ content: '{}', language: 'json' }]);
+    expect(recorded.shown).toEqual([{ content: whole, language: 'json' }]);
   });
 
   it('opens nothing for a row it is not holding', async () => {

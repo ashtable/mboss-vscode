@@ -175,6 +175,19 @@ export type TestRun = Disposable & {
   live(): LiveRun | undefined;
 
   /**
+   * The whole of what one of that run's rows
+   * recorded, as the ledger holds it.
+   *
+   * What crosses to a panel is cut at 2000
+   * characters, and a card drawn from that copy
+   * says so. The rows the same tick read are still
+   * here, so opening a value somewhere it fits can
+   * give back all of it rather than the front of it
+   * again.
+   */
+  output(workflowId: string, functionId: number): string | undefined;
+
+  /**
    * Which way out each decided block of that run
    * took, read against the document the asker is
    * drawing.
@@ -622,6 +635,11 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     },
 
     live: () => live,
+
+    output: (workflowId, functionId) =>
+      ledger?.run.workflowId === workflowId
+        ? ledger.steps.find((step) => step.functionId === functionId)?.output
+        : undefined,
 
     decided: (ir) =>
       ledger === undefined

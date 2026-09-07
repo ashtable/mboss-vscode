@@ -9,6 +9,7 @@ import {
   database,
   echoing,
   host,
+  ledgerReadOf,
   liveRun,
   liveStep,
   project,
@@ -16,6 +17,8 @@ import {
   watcher,
 } from '../test-support/runs.js';
 
+import { OUTPUT_KEPT } from './rows.js';
+import type { LiveRun } from './watch.js';
 import { sessionLog, type SessionRun } from './sessionLog.js';
 import { following, type Following } from './following.js';
 import { testRunZone, type TestRun, type TestRunDeps } from './testRun.js';
@@ -899,5 +902,74 @@ describe('the arms a followed run decided', () => {
 
   it('decides nothing before a run has said anything', () => {
     expect(zone().decided(BRANCHING).size).toBe(0);
+  });
+});
+
+/**
+ * The whole of a value a run recorded, for a panel
+ * that was only sent the front of it.
+ *
+ * What crosses to a webview is cut at 2000
+ * characters and the card says so out loud. The
+ * rows the same tick read are still here, whole, so
+ * an Open that re-served the cut would be this
+ * window lying about what the step returned when it
+ * has the answer in hand.
+ */
+describe('the value behind a row a followed run wrote', () => {
+  const WHOLE = `{"note":"${'x'.repeat(OUTPUT_KEPT)}"}`;
+
+  /** The same run twice: what the panel was sent,
+   *  and what the ledger holds. */
+  const cut = (workflowId: string): LiveRun =>
+    liveRun({
+      workflowId,
+      steps: [
+        liveStep({ output: WHOLE.slice(0, OUTPUT_KEPT), outputCut: true }),
+      ],
+    });
+
+  const stored = (workflowId: string): LiveRun =>
+    liveRun({ workflowId, steps: [liveStep({ output: WHOLE })] });
+
+  it('hands back the whole value rather than the cut one', async () => {
+    const owner = follows();
+    const shown = zone({ runner: echoing().start, following: owner.held });
+
+    await shown.runWorkflow('groom_booking', '{}');
+    const workflowId = shown.render().session[0]?.workflowId ?? '';
+
+    owner.watch.say(
+      workflowId,
+      cut(workflowId),
+      ledgerReadOf(stored(workflowId)),
+    );
+
+    expect(shown.live()?.steps[0]?.output).toHaveLength(OUTPUT_KEPT);
+    expect(shown.output(workflowId, 0)).toBe(WHOLE);
+  });
+
+  /** A panel that has moved on asks about a run
+   *  this zone is not following, and gets nothing
+   *  rather than another run's value. */
+  it('says nothing about a run it is not following', async () => {
+    const owner = follows();
+    const shown = zone({ runner: echoing().start, following: owner.held });
+
+    await shown.runWorkflow('groom_booking', '{}');
+    const workflowId = shown.render().session[0]?.workflowId ?? '';
+
+    owner.watch.say(
+      workflowId,
+      cut(workflowId),
+      ledgerReadOf(stored(workflowId)),
+    );
+
+    expect(shown.output('wf_somebody_elses', 0)).toBeUndefined();
+    expect(shown.output(workflowId, 99)).toBeUndefined();
+  });
+
+  it('says nothing before a run has said anything', () => {
+    expect(zone().output('wf_1', 0)).toBeUndefined();
   });
 });

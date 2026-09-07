@@ -109,6 +109,20 @@ export type CanvasRuns = {
   decided(ir: WorkflowIR): ReadonlyMap<string, string>;
 
   /**
+   * The whole of what one of that run's rows
+   * recorded.
+   *
+   * Asked of the store rather than read off the
+   * run this canvas is holding: what crosses to a
+   * panel is cut at 2000 characters and the card
+   * says so, and a door that opened the cut again
+   * would be the one way a flight recorder lies.
+   * The store still has the rows the same tick
+   * read.
+   */
+  output(workflowId: string, functionId: number): string | undefined;
+
+  /**
    * Puts one run on screen in the flight recorder.
    *
    * The way out of the column: a card here says what
@@ -708,23 +722,26 @@ export class CanvasSession {
   /**
    * A recorded value, in a tab where it can be read.
    *
-   * Out of the reading this canvas is already
-   * holding, and no further: the row travels with an
-   * id so a panel that has moved on asks about a run
-   * this session is not drawing, and gets nothing.
-   * What that reading holds is what the reading kept
-   * — long outputs are cut before they cross, and
-   * the card says so — so this puts a copy of what
-   * is on screen somewhere it fits rather than
-   * fetching the rest.
+   * The row travels with an id, so a panel that has
+   * moved on asks about a run this session is not
+   * drawing and gets nothing. What it gets back
+   * where the ids agree is the whole value: the
+   * copy this canvas draws from was cut before it
+   * crossed, and the card said so, so the door
+   * beside that sentence has to open the rest of it
+   * rather than the same front again.
+   *
+   * A row the ledger recorded no value for has
+   * nothing to open, and an empty tab over it would
+   * say there was something there.
    */
   private showOutput(workflowId: string, functionId: number): void {
     if (this.run?.workflowId !== workflowId) return;
 
-    const row = this.run.steps.find((one) => one.functionId === functionId);
-    if (row?.output === undefined) return;
+    const stored = this.runs.output(workflowId, functionId);
+    if (stored === undefined) return;
 
-    void this.api.showText(row.output, 'json');
+    void this.api.showText(stored, 'json');
   }
 
   /**
