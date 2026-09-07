@@ -478,7 +478,15 @@ describe('the evidence a run hands the agent', () => {
     expect(JSON.stringify(found)).not.toContain('hunter2');
   });
 
-  it('answers nothing when the ledger has no such run', async () => {
+  /**
+   * And says which nothing it is. A run the ledger
+   * has no row for is a fact about the run; a
+   * database that would not answer is a fact about
+   * this window. The transcript says one of those
+   * out loud, so the two cannot come back as the
+   * same answer.
+   */
+  it('says a run the ledger has no row for is absent', async () => {
     const { deps, db } = reading();
     db.rows = [];
 
@@ -486,7 +494,7 @@ describe('the evidence a run hands the agent', () => {
       workflowId: 'wf_gone',
     });
 
-    expect(found).toBeUndefined();
+    expect(found).toEqual({ at: 'absent' });
   });
 
   /**
@@ -509,7 +517,7 @@ describe('the evidence a run hands the agent', () => {
       workflowId: RUN_ROW.workflow_uuid,
     });
 
-    expect(failed).toBeUndefined();
+    expect(failed).toEqual({ at: 'unreachable' });
     expect(db.closed).toBe(2);
   });
 });

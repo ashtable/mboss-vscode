@@ -720,6 +720,51 @@ describe('asking the agent why', () => {
     expect(turn).toContain('CDC_PASS');
   });
 
+  /**
+   * And a read that was made and found nothing is
+   * not a failed read.
+   *
+   * The ledger has no row under that id, which is a
+   * fact about the run rather than about this
+   * window. Saying the read failed would be the
+   * column telling somebody deciding whether to
+   * trust a run that the database would not answer
+   * when it answered perfectly well.
+   */
+  it('claims no failed read where the ledger simply has no row', async () => {
+    const agent = fakeAgent();
+    const owner = follows();
+    const shown = zone({
+      agent,
+      runner: echoing().start,
+      following: owner.held,
+    });
+
+    await shown.runWorkflow('groom_booking', '{}');
+    const workflowId = shown.render().session[0]?.workflowId ?? '';
+
+    owner.watch.say(
+      workflowId,
+      liveRun({
+        workflowId,
+        outcome: 'failed',
+        status: 'ERROR',
+        error: 'login failed — CDC_PASS rotated',
+        steps: [
+          liveStep({ name: 'find_slot', nodeId: 'find_slot', state: 'failed' }),
+        ],
+      }),
+    );
+    await shown.askAgent({ workflowId });
+
+    // The thin sentence still goes, because this
+    // window watched the run fail and that is worth
+    // handing over. What does not go is a row
+    // saying a read failed.
+    expect(agent.told.map((one) => one.at)).toEqual(['send']);
+    expect(agent.sent()[0]).toContain('find_slot');
+  });
+
   it('says nothing when nothing is known', async () => {
     const agent = fakeAgent();
     const shown = zone({ agent });

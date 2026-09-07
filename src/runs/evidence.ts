@@ -75,6 +75,17 @@ export type AskAgent = {
 
 export type RunEvidence = RecordedRunEvidence | RefusedRunEvidence;
 
+/**
+ * What a read of the ledger for one run came back
+ * with: the run, or which kind of nothing.
+ *
+ * `absent` is a successful read of a ledger that
+ * has no such run. `unreachable` is a read that
+ * could not be made at all.
+ */
+export type RunEvidenceRead =
+  RecordedRunEvidence | { at: 'absent' } | { at: 'unreachable' };
+
 /** A run the ledger has rows for. */
 export type RecordedRunEvidence = {
   at: 'run';
@@ -273,8 +284,16 @@ export type EvidenceDeps = {
 };
 
 /**
- * The run, read and assembled — or nothing, where
- * the ledger has no such row or would not answer.
+ * The run, read and assembled — or which kind of
+ * nothing the read came back with.
+ *
+ * The two nothings are different sentences to a
+ * person: a run the ledger holds no row for is a
+ * fact about the run, and a database that would not
+ * answer is a fact about this window. Whoever asked
+ * writes one of them into a transcript somebody
+ * reads and may act on, so they cannot arrive here
+ * as one answer.
  *
  * Nothing here throws. Whoever asked has other ways
  * to answer a question about a run, and an
@@ -284,9 +303,9 @@ export async function assembleRunEvidence(
   deps: EvidenceDeps,
   ledger: { url: string; from: EnvName },
   ask: AskAgent,
-): Promise<RunEvidence | undefined> {
+): Promise<RunEvidenceRead> {
   const found = await ledgerRead(deps.open, ledger.url, ask.workflowId);
-  if (found === undefined) return undefined;
+  if (found.at !== 'read') return found;
 
   // One clock, read once: the moment the object says
   // it was assembled is the same moment its rows
@@ -387,17 +406,19 @@ export function refusedRunEvidence(run: SessionRun): RefusedRunEvidence {
  * The run and its rows, from a connection opened
  * for exactly this.
  *
- * Nothing distinguishes a row that is not there
- * from a database that would not answer: both mean
- * this reader has nothing to hand over, and
- * whoever asked has another way to answer or does
- * not.
+ * A row that is not there and a database that would
+ * not answer are told apart, because they are told
+ * apart where this is read: one of them earns a
+ * sentence saying the read failed, and the other is
+ * an ordinary answer to an ordinary question.
  */
 async function ledgerRead(
   open: OpenDatabase,
   url: string,
   workflowId: string,
-): Promise<{ run: Run; steps: Step[] } | undefined> {
+): Promise<
+  { at: 'read'; run: Run; steps: Step[] } | { at: 'absent' | 'unreachable' }
+> {
   let db: Database | undefined;
 
   try {
@@ -406,18 +427,19 @@ async function ledgerRead(
     const one = runQuery(workflowId);
     const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
     const row = rows[0];
-    if (row === undefined) return undefined;
+    if (row === undefined) return { at: 'absent' };
 
     const recorded = stepsQuery(workflowId);
 
     return {
+      at: 'read',
       run: toRun(row),
       steps: (
         await db.query<OperationOutputRow>(recorded.text, recorded.values)
       ).map(toStep),
     };
   } catch {
-    return undefined;
+    return { at: 'unreachable' };
   } finally {
     await db?.close().catch(() => undefined);
   }

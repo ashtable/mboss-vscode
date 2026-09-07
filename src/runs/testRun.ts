@@ -590,12 +590,14 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       // every run rather than this session's, and
       // what it says about a run this window did
       // start is the same thing said in more detail.
+      // No connection string is no read at all,
+      // rather than a read that answered nothing.
       const recorded =
         source === undefined
-          ? undefined
+          ? { at: 'unasked' as const }
           : await assembleRunEvidence(deps, source, ask);
 
-      if (recorded !== undefined) return await handOver(recorded, workflowId);
+      if (recorded.at === 'run') return await handOver(recorded, workflowId);
 
       const remembered = deps.sessionLog.find(workflowId);
       if (remembered === undefined) return;
@@ -611,12 +613,20 @@ export function testRunZone(deps: TestRunDeps): TestRun {
         return await handOver(refusedRunEvidence(remembered), workflowId);
       }
 
-      // A read that was made and came back with
-      // nothing is said out loud, because the
-      // sentence after it is thinner than the one a
-      // read would have earned and a reader deserves
-      // to know which they are looking at.
-      if (source !== undefined) {
+      // A read that could not be made is said out
+      // loud, because the sentence after it is
+      // thinner than the one a read would have
+      // earned and a reader deserves to know which
+      // they are looking at.
+      //
+      // Only that one. A read that was made and
+      // found no row under this id answered its
+      // question perfectly well — the ledger has no
+      // such run — and a column saying it failed
+      // would send somebody deciding whether to
+      // trust a run off after a database that is
+      // fine.
+      if (recorded.at === 'unreachable') {
         deps.agent.note(readRow(workflowId, { status: 'failed', body: [] }));
       }
 
