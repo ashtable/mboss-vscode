@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   openAgentSession,
   type AgentSession,
+  type ContentBlock,
   type PermissionAnswer,
   type PermissionRequest,
   type SessionUpdate,
@@ -29,6 +30,12 @@ export const PEER_SCRIPT = fileURLToPath(
   new URL('../../test/fixtures/scripted-peer.mjs', import.meta.url),
 );
 
+/** A turn that is nothing but what somebody typed
+ *  — what most of these specs are prompting with. */
+export function sentence(text: string): ContentBlock[] {
+  return [{ type: 'text', text }];
+}
+
 /** Everything the peer wrote down about the client. */
 export type Heard = {
   initialize?: {
@@ -36,7 +43,12 @@ export type Heard = {
     clientCapabilities?: Record<string, unknown>;
   };
   sessionNew?: { cwd: string; mcpServers: unknown[] };
-  prompt?: { sessionId: string };
+
+  // The peer records `session/prompt`'s whole
+  // parameters, so the blocks are already in the
+  // file; naming them here is what lets a spec read
+  // back what actually crossed the wire.
+  prompt?: { sessionId: string; prompt: ContentBlock[] };
   permission?: { outcome: unknown };
   cancelled?: { sessionId: string };
   probe?: unknown;

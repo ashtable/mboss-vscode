@@ -223,7 +223,7 @@ export function previewStore(
                 agent.note(codegenDiagnostic(id, model.workflow, errors));
               }
             },
-            notify: (text) => tried(() => agent.send(text)),
+            notify: (text) => tried(() => agent.send({ text })),
           },
           id,
         );

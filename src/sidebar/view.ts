@@ -68,7 +68,9 @@ export class AgentSidebarView implements WebviewViewProvider {
         (repaint) => this.preview.onChanged(repaint),
       ],
       heard: (message) => {
-        if (message.type === 'prompt') void this.panel.send(message.text);
+        if (message.type === 'prompt') {
+          void this.panel.send({ text: message.text });
+        }
         if (message.type === 'cancel') void this.panel.cancel();
         if (message.type === 'chooseAgent') void this.chooseAgent();
         if (message.type === 'permission') {

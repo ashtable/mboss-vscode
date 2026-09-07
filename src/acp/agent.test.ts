@@ -130,7 +130,7 @@ describe('one turn', () => {
     expect(driven.spawns()).toBe(0);
 
     answerWith(driven, 'yes', 'allow_once');
-    await driven.panel.send('wire the booking flow');
+    await driven.panel.send({ text: 'wire the booking flow' });
 
     expect(driven.seen).toEqual([
       'spawning',
@@ -146,7 +146,7 @@ describe('one turn', () => {
     const driven = drive();
 
     answerWith(driven, 'yes', 'allow_once');
-    await driven.panel.send('wire the booking flow');
+    await driven.panel.send({ text: 'wire the booking flow' });
 
     const transcript = driven.panel.state().transcript;
 
@@ -171,6 +171,40 @@ describe('one turn', () => {
     expect(file?.path).toBe('/project/lib/twilioChat.ts');
     expect(file?.added).toBe(1);
     expect(file?.isNew).toBe(true);
+  });
+
+  /**
+   * A turn is a prompt object now rather than a
+   * sentence, and from a person's side nothing
+   * changed: the transcript shows what they asked,
+   * not the machine-readable record mBoss attached
+   * to it. A column that read back a page of JSON
+   * would be a column nobody reads.
+   */
+  it('sends a prompt the way it used to send a string', async () => {
+    const driven = drive();
+
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send({
+      text: 'why did it fail?',
+      context: [
+        {
+          uri: 'mboss://run-evidence/wf_c9d2f3',
+          name: 'run wf_c9d2f3 · mBoss run evidence',
+          mimeType: 'application/json',
+          text: '{"at":"run","workflowId":"wf_c9d2f3"}',
+        },
+      ],
+    });
+
+    expect(
+      driven.panel
+        .state()
+        .transcript.filter(
+          (entry) => entry.at === 'message' && entry.from === 'user',
+        )
+        .map((entry) => (entry.at === 'message' ? entry.text : '')),
+    ).toEqual(['why did it fail?']);
   });
 
   /**
@@ -214,8 +248,8 @@ describe('a second turn', () => {
     const driven = drive();
 
     answerWith(driven, 'yes', 'allow_once');
-    await driven.panel.send('first');
-    await driven.panel.send('second');
+    await driven.panel.send({ text: 'first' });
+    await driven.panel.send({ text: 'second' });
 
     expect(driven.spawns()).toBe(1);
     expect(
@@ -237,13 +271,13 @@ describe('a second turn', () => {
     const driven = drive();
 
     answerWith(driven, 'yes-always', 'allow_always');
-    await driven.panel.send('first');
+    await driven.panel.send({ text: 'first' });
 
     expect(driven.stored[REMEMBERED_KEY]).toEqual({ edit: 'allow' });
 
     const asked = driven.seen.length;
 
-    await driven.panel.send('second');
+    await driven.panel.send({ text: 'second' });
 
     expect(driven.seen.slice(asked)).not.toContain('awaiting-permission');
   });
@@ -253,7 +287,7 @@ describe('before there is anything to talk to', () => {
   it('starts nothing in a window that is not trusted', async () => {
     const driven = drive({}, fakeTrust(false));
 
-    await driven.panel.send('wire it');
+    await driven.panel.send({ text: 'wire it' });
 
     expect(driven.panel.state().status).toBe('untrusted');
     expect(driven.panel.state().transcript).toEqual([]);
@@ -262,7 +296,7 @@ describe('before there is anything to talk to', () => {
   it('starts nothing with no agent chosen', async () => {
     const driven = drive({ chosen: () => undefined });
 
-    await driven.panel.send('wire it');
+    await driven.panel.send({ text: 'wire it' });
 
     expect(driven.panel.state().status).toBe('no-agent');
     expect(driven.panel.state().transcript).toEqual([]);
@@ -271,7 +305,7 @@ describe('before there is anything to talk to', () => {
   it('starts nothing with no folder open', async () => {
     const driven = drive({ project: () => undefined });
 
-    await driven.panel.send('wire it');
+    await driven.panel.send({ text: 'wire it' });
 
     expect(driven.panel.state().status).toBe('no-project');
   });
@@ -287,7 +321,7 @@ describe('changing agents', () => {
     const driven = drive();
 
     answerWith(driven, 'yes', 'allow_once');
-    await driven.panel.send('wire it');
+    await driven.panel.send({ text: 'wire it' });
 
     driven.panel.reset();
 
@@ -313,7 +347,7 @@ describe('an answer the panel did not offer', () => {
       void driven.panel.answer('made-up', 'allow_always');
     });
 
-    const turn = driven.panel.send('wire it');
+    const turn = driven.panel.send({ text: 'wire it' });
 
     await waitUntil(
       () => driven.panel.state().status === 'awaiting-permission',
@@ -396,7 +430,7 @@ describe('a second prompt mid-turn', () => {
       if (sent || driven.panel.state().status !== status) return;
 
       sent = true;
-      void driven.panel.send(text);
+      void driven.panel.send({ text });
     });
   };
 
@@ -405,7 +439,7 @@ describe('a second prompt mid-turn', () => {
 
     sendDuring(driven, 'awaiting-permission', 'while you are at it');
     answerWith(driven, 'yes', 'allow_once');
-    await driven.panel.send('wire it');
+    await driven.panel.send({ text: 'wire it' });
 
     expect(said(driven)).toEqual(['wire it', 'while you are at it']);
   });
@@ -415,9 +449,37 @@ describe('a second prompt mid-turn', () => {
 
     sendDuring(driven, 'streaming', 'while you are at it');
     answerWith(driven, 'yes', 'allow_once');
-    await driven.panel.send('wire it');
+    await driven.panel.send({ text: 'wire it' });
 
     expect(said(driven)).toEqual(['wire it', 'while you are at it']);
+  });
+
+  /**
+   * Two arriving during one turn is the case an
+   * approval makes: applying writes the document
+   * and then tells the agent, while the turn that
+   * proposed it is still finishing. Last-in-first
+   * would answer the newer question against the
+   * older one's state.
+   */
+  it('drains queued prompts oldest first', async () => {
+    const driven = drive();
+    let queued = false;
+
+    driven.panel.onChanged(() => {
+      if (queued || driven.panel.state().status !== 'awaiting-permission') {
+        return;
+      }
+
+      queued = true;
+      void driven.panel.send({ text: 'and this' });
+      void driven.panel.send({ text: 'and then this' });
+    });
+
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send({ text: 'wire it' });
+
+    expect(said(driven)).toEqual(['wire it', 'and this', 'and then this']);
   });
 
   /** One conversation, not two: the waiting prompt
@@ -427,7 +489,7 @@ describe('a second prompt mid-turn', () => {
 
     sendDuring(driven, 'awaiting-permission', 'while you are at it');
     answerWith(driven, 'yes', 'allow_once');
-    await driven.panel.send('wire it');
+    await driven.panel.send({ text: 'wire it' });
 
     expect(driven.spawns()).toBe(1);
   });
@@ -447,9 +509,9 @@ describe('a second prompt mid-turn', () => {
 
     answerWith(driven, 'yes', 'allow_once');
 
-    const first = driven.panel.send('wire it');
+    const first = driven.panel.send({ text: 'wire it' });
     expect(driven.panel.state().status).toBe('spawning');
-    const second = driven.panel.send('while you are at it');
+    const second = driven.panel.send({ text: 'while you are at it' });
 
     await Promise.all([first, second]);
 
@@ -476,14 +538,14 @@ describe('a second prompt mid-turn', () => {
 
     answerWith(driven, 'yes', 'allow_once');
 
-    const first = driven.panel.send('wire it');
-    const second = driven.panel.send('while you are at it');
+    const first = driven.panel.send({ text: 'wire it' });
+    const second = driven.panel.send({ text: 'while you are at it' });
     await Promise.all([first, second]);
 
     expect(driven.panel.state().status).toBe('failed');
 
     launch = { command: process.execPath, args: [PEER_SCRIPT] };
-    await driven.panel.send('later');
+    await driven.panel.send({ text: 'later' });
 
     expect(said(driven)).toEqual(['later']);
   });
@@ -518,7 +580,7 @@ describe('keeping and undoing a file edit', () => {
     const driven = drive({ files });
 
     answerWith(driven, 'yes', 'allow_once');
-    await driven.panel.send('wire the booking flow');
+    await driven.panel.send({ text: 'wire the booking flow' });
 
     return { driven, id: (fileEntry(driven) as FileEditEntry).id };
   }

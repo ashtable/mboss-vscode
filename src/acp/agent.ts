@@ -17,6 +17,7 @@ import {
   toolKey,
   type Memento,
 } from './permissions.js';
+import { promptBlocks, type AgentPrompt } from './prompt.js';
 import type { AgentCommand, AgentId } from './registry.js';
 import {
   IDLE,
@@ -142,13 +143,19 @@ export type Agent = {
   /**
    * Hands the agent something to answer, as a turn.
    *
+   * A sentence, and whatever mBoss read out of a
+   * run to go with it. The two travel separately as
+   * far as the wire, because whether the agent will
+   * take a record as a block of its own is
+   * something only the session knows.
+   *
    * Resolves when the turn is over, or at once where
-   * the agent was busy and the text was queued
+   * the agent was busy and the prompt was queued
    * behind what it was already doing. Says nothing
    * and does nothing where the folder is untrusted
    * or no agent is chosen.
    */
-  send(text: string): Promise<void>;
+  send(prompt: AgentPrompt): Promise<void>;
 };
 
 export type AgentPanel = Agent & {
@@ -223,7 +230,7 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
    * approval that wrote the document, regenerated
    * the project, and never told the agent.
    */
-  let queued: string[] = [];
+  let queued: AgentPrompt[] = [];
 
   const changed = changes.fire;
 
@@ -310,7 +317,7 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
     }
   };
 
-  const send = async (text: string): Promise<void> => {
+  const send = async (prompt: AgentPrompt): Promise<void> => {
     const project = host.project();
     const chosen = host.chosen();
 
@@ -324,7 +331,7 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
     const sending = sendingWhile(session);
 
     if (sending === 'queue') {
-      queued.push(text);
+      queued.push(prompt);
 
       return;
     }
@@ -342,12 +349,16 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
       return;
     }
 
-    transcript = said(transcript, text);
+    // Only the sentence goes in the column. What
+    // mBoss attached is a page of JSON assembled for
+    // the agent to read, and a transcript is what a
+    // person reads.
+    transcript = said(transcript, prompt.text);
     move({ is: 'prompted' });
     changed();
 
     try {
-      await live.prompt(text);
+      await live.prompt(promptBlocks(prompt, live.accepts));
     } finally {
       move({ is: 'turnEnded' });
     }

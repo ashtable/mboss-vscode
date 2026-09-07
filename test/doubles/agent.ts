@@ -1,4 +1,5 @@
 import type { Agent } from '../../src/acp/agent.js';
+import type { AgentPrompt } from '../../src/acp/prompt.js';
 import type { DiagnosticEntry, ToolEntry } from '../../src/acp/transcript.js';
 
 /**
@@ -13,7 +14,7 @@ import type { DiagnosticEntry, ToolEntry } from '../../src/acp/transcript.js';
  */
 export type Told =
   | { at: 'note'; entry: ToolEntry | DiagnosticEntry }
-  | { at: 'send'; text: string };
+  | { at: 'send'; prompt: AgentPrompt };
 
 export type FakeAgent = Agent & {
   /** Everything said to it, in the order it was
@@ -24,7 +25,8 @@ export type FakeAgent = Agent & {
    *  what went into the column. */
   noted(): (ToolEntry | DiagnosticEntry)[];
 
-  /** Just the turns. */
+  /** Just the sentences. What was attached to one
+   *  is on the `told` entry beside it. */
   sent(): string[];
 
   /**
@@ -47,7 +49,8 @@ export function fakeAgent(): FakeAgent {
 
     noted: () => told.flatMap((one) => (one.at === 'note' ? [one.entry] : [])),
 
-    sent: () => told.flatMap((one) => (one.at === 'send' ? [one.text] : [])),
+    sent: () =>
+      told.flatMap((one) => (one.at === 'send' ? [one.prompt.text] : [])),
 
     fails: (reason) => {
       failure = reason;
@@ -57,8 +60,8 @@ export function fakeAgent(): FakeAgent {
       told.push({ at: 'note', entry });
     },
 
-    send: (text) => {
-      told.push({ at: 'send', text });
+    send: (prompt) => {
+      told.push({ at: 'send', prompt });
 
       return failure === undefined
         ? Promise.resolve()

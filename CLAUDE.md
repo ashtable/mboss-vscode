@@ -299,6 +299,11 @@ none of that.
 - **`acp/`** — `connection.ts` is the only importer of
   `@agentclientprotocol/sdk` (content-regex enforced; the version is pinned
   exactly by `sdk.test.ts`). `agent.ts` holds one session per window,
+  `prompt.ts` is the pure module that turns an `AgentPrompt` (a sentence plus
+  whatever mBoss read out of a run) into content blocks — the record rides as
+  its own `resource` block where the agent advertised
+  `promptCapabilities.embeddedContext` at the handshake, and fenced into the
+  sentence where it did not, which is the default,
   `diff.ts` counts and lists a file edit's changes,
   `transcript.ts` folds updates into entries and writes the extension's own
   rows (`personEdit`, `said`), `session.ts` is the pure state machine and says whether a prompt may go now

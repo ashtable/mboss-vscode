@@ -458,11 +458,12 @@ export function testRunZone(deps: TestRunDeps): TestRun {
         rows: [{ at: step, message: said }],
       });
 
-      await deps.agent.send(
-        step === undefined
-          ? messages.runAskAgentNoStep(failed.workflow, said)
-          : messages.runAskAgent(failed.workflow, step, said),
-      );
+      await deps.agent.send({
+        text:
+          step === undefined
+            ? messages.runAskAgentNoStep(failed.workflow, said)
+            : messages.runAskAgent(failed.workflow, step, said),
+      });
     },
 
     clearProblem: () => {

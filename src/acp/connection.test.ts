@@ -9,11 +9,13 @@ import {
   closePeers,
   drivePeer,
   scratchDir,
+  sentence,
   waitFor,
 } from '../test-support/peer.js';
 
 import { AgentStartError, openAgentSession } from './connection.js';
 import type { PermissionAnswer } from './connection.js';
+import { promptBlocks, type PromptContext } from './prompt.js';
 
 /**
  * The connection module, against a real process
@@ -72,6 +74,26 @@ describe('starting a session', () => {
 
     expect(driven.heard().initialize?.protocolVersion).toBe(1);
   });
+
+  /**
+   * An agent that said nothing about embedded
+   * context has not said it takes any. Defaulting
+   * the other way would put a resource block in
+   * front of an agent that never offered to read
+   * one, which is a prompt that arrives as
+   * nothing at all.
+   */
+  it('reads back what the agent said it accepts', async () => {
+    const quiet = await drivePeer();
+
+    expect(quiet.session.accepts).toEqual({ embeddedContext: false });
+
+    const embedding = await drivePeer({
+      env: { PEER_EMBEDDED_CONTEXT: '1' },
+    });
+
+    expect(embedding.session.accepts).toEqual({ embeddedContext: true });
+  });
 });
 
 describe('a handshake that does not agree', () => {
@@ -120,7 +142,7 @@ describe('a turn', () => {
   it('streams what the agent says, in order', async () => {
     const driven = await drivePeer();
 
-    expect(await driven.session.prompt('wire the booking flow')).toBe(
+    expect(await driven.session.prompt(sentence('wire the booking flow'))).toBe(
       'end_turn',
     );
 
@@ -142,7 +164,7 @@ describe('a turn', () => {
   it('surfaces every option with its kind', async () => {
     const driven = await drivePeer();
 
-    await driven.session.prompt('wire it');
+    await driven.session.prompt(sentence('wire it'));
 
     expect(driven.asked).toHaveLength(1);
     expect(driven.asked[0]?.toolCall.toolCallId).toBe('call-1');
@@ -158,11 +180,66 @@ describe('a turn', () => {
       answer: async () => ({ optionId: 'yes-always' }),
     });
 
-    await driven.session.prompt('wire it');
+    await driven.session.prompt(sentence('wire it'));
 
     expect(driven.heard().permission).toEqual({
       outcome: { outcome: 'selected', optionId: 'yes-always' },
     });
+  });
+});
+
+/**
+ * The record mBoss attaches to a question, going
+ * down a real pipe.
+ *
+ * `promptBlocks` is proved on its own next door.
+ * What only a running peer can answer is whether
+ * the blocks it builds survive the trip — an array
+ * with a resource in it is a shape the client has
+ * never sent before, and a spec that stopped at
+ * the function would not notice the SDK dropping
+ * it on the floor.
+ */
+describe('a prompt with evidence attached', () => {
+  const EVIDENCE: PromptContext = {
+    uri: 'mboss://run-evidence/wf_c9d2f3',
+    name: 'run wf_c9d2f3 · mBoss run evidence',
+    mimeType: 'application/json',
+    text: '{"at":"run","workflowId":"wf_c9d2f3","status":"ERROR"}',
+  };
+
+  const asking = { text: 'Why did it fail?', context: [EVIDENCE] };
+
+  it('carries a text block and a resource when the agent advertised embedded context', async () => {
+    const driven = await drivePeer({ env: { PEER_EMBEDDED_CONTEXT: '1' } });
+
+    await driven.session.prompt(promptBlocks(asking, driven.session.accepts));
+
+    expect(driven.heard().prompt?.prompt).toEqual([
+      { type: 'text', text: 'Why did it fail?' },
+      {
+        type: 'resource',
+        resource: {
+          uri: 'mboss://run-evidence/wf_c9d2f3',
+          mimeType: 'application/json',
+          text: '{"at":"run","workflowId":"wf_c9d2f3","status":"ERROR"}',
+        },
+      },
+    ]);
+  });
+
+  it('carries one text block with the JSON fenced when it did not', async () => {
+    const driven = await drivePeer();
+
+    await driven.session.prompt(promptBlocks(asking, driven.session.accepts));
+
+    const blocks = driven.heard().prompt?.prompt ?? [];
+    const [only] = blocks;
+
+    expect(blocks).toHaveLength(1);
+    expect(only?.type).toBe('text');
+    expect(only?.type === 'text' && only.text).toContain('Why did it fail?');
+    expect(only?.type === 'text' && only.text).toContain(EVIDENCE.text);
   });
 });
 
@@ -172,7 +249,7 @@ describe('what the agent asks the editor for', () => {
       env: { PEER_PROBE: 'read', PEER_PATH: '/project/lib/twilioChat.ts' },
     });
 
-    await driven.session.prompt('read it');
+    await driven.session.prompt(sentence('read it'));
 
     expect(driven.files.read).toEqual(['/project/lib/twilioChat.ts']);
     expect(driven.heard().probe).toEqual({
@@ -185,7 +262,7 @@ describe('what the agent asks the editor for', () => {
       env: { PEER_PROBE: 'write', PEER_PATH: '/project/lib/twilioChat.ts' },
     });
 
-    await driven.session.prompt('write it');
+    await driven.session.prompt(sentence('write it'));
 
     expect(driven.files.wrote).toEqual([
       { path: '/project/lib/twilioChat.ts', content: 'written\n' },
@@ -207,7 +284,7 @@ describe('cancelling a turn', () => {
       answer: () => new Promise<PermissionAnswer>(() => {}),
     });
 
-    const turn = driven.session.prompt('wire it');
+    const turn = driven.session.prompt(sentence('wire it'));
 
     await waitFor(() => driven.asked.length === 1);
     await driven.session.cancel();

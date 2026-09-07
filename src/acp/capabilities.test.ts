@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { closePeers, drivePeer } from '../test-support/peer.js';
+import { closePeers, drivePeer, sentence } from '../test-support/peer.js';
 
 import { CLIENT_CAPABILITIES } from './connection.js';
 
@@ -59,7 +59,7 @@ describe('an agent that asks anyway', () => {
   it('is told the method does not exist', async () => {
     const driven = await drivePeer({ env: { PEER_PROBE: 'terminal' } });
 
-    await driven.session.prompt('run something');
+    await driven.session.prompt(sentence('run something'));
 
     expect(driven.heard().probe).toMatchObject({ code: -32601 });
   });
@@ -67,7 +67,7 @@ describe('an agent that asks anyway', () => {
   it('is not given a terminal by accident', async () => {
     const driven = await drivePeer({ env: { PEER_PROBE: 'terminal' } });
 
-    await driven.session.prompt('run something');
+    await driven.session.prompt(sentence('run something'));
 
     expect(driven.heard().probe).not.toHaveProperty('terminalId');
   });
