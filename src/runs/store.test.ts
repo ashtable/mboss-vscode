@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
+import { messages } from '../messages.js';
 import {
   database,
   echoing,
@@ -14,7 +15,12 @@ import {
 } from '../test-support/runs.js';
 
 import { sessionLog } from './sessionLog.js';
-import { runsStore, type RunsDeps } from './store.js';
+import {
+  runsStore,
+  type RunsDeps,
+  type RunsHost,
+  type RunsStore,
+} from './store.js';
 
 /**
  * The one door the panels, the commands and the
@@ -183,6 +189,175 @@ describe('one door for three zones', () => {
     expect(watch.armed.map((held) => held.stopped)).toEqual([true]);
   });
 });
+
+describe('the way back to the workflow', () => {
+  /**
+   * The run page's door back to Build. Which column
+   * the document opens in is the editor's answer,
+   * not the store's; what the store decides is
+   * which file a run's recorded name resolves to.
+   */
+  it('opens the workflow a run belongs to, beside', async () => {
+    const dir = project();
+    const opened: string[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          projects: () => [dir],
+          openCanvas: async (path) => void opened.push(path),
+        }),
+      }),
+    );
+
+    await store.openWorkflow('wf_c9d2f3');
+
+    expect(opened).toEqual([
+      `${dir}/.mboss/workflows/groom_booking.workflow.json`,
+    ]);
+  });
+
+  /**
+   * A run of a workflow the project no longer has.
+   * The run still reads; only the drawing is gone,
+   * and saying so beats opening nothing.
+   */
+  it('says the document is gone when it is', async () => {
+    const said: string[] = [];
+    const opened: string[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          projects: () => [project({ workflows: ['expense_claim'] })],
+          say: (message) => void said.push(message),
+          openCanvas: async (path) => void opened.push(path),
+        }),
+      }),
+    );
+
+    await store.openWorkflow('wf_c9d2f3');
+
+    expect(said).toEqual([messages.runNoDocument('groom_booking')]);
+    expect(opened).toEqual([]);
+  });
+});
+
+describe('the console for what is deployed', () => {
+  /**
+   * Whatever the setting says, unchanged: this is
+   * somebody's own Conductor address and the
+   * extension has no opinion about its shape.
+   */
+  it('opens the Conductor console verbatim', async () => {
+    const opened: string[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          conductorConsoleUrl: () => 'https://console.dbos.dev/app/groom-shop',
+          openExternal: async (url) => void opened.push(url),
+        }),
+      }),
+    );
+
+    await store.openProduction();
+
+    expect(opened).toEqual(['https://console.dbos.dev/app/groom-shop']);
+  });
+
+  it('opens nothing when the setting is unset', async () => {
+    const opened: string[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          conductorConsoleUrl: () => '',
+          openExternal: async (url) => void opened.push(url),
+        }),
+      }),
+    );
+
+    await store.openProduction();
+
+    expect(opened).toEqual([]);
+  });
+
+  /**
+   * Conductor is a licence this product does not
+   * need, so the setting may change exactly one
+   * thing: whether the footer offers the link. Every
+   * other door reaches the editor the same way with
+   * it set and with it empty.
+   */
+  it('behaves identically with the Conductor URL unset', async () => {
+    const dir = project();
+    const withConsole = recording(
+      dir,
+      'https://console.dbos.dev/app/groom-shop',
+    );
+    const without = recording(dir, '');
+
+    await exercise(runsStore(deps({ host: withConsole.host })));
+    await exercise(runsStore(deps({ host: without.host })));
+
+    expect(without.calls).toEqual(withConsole.calls);
+
+    // And the run was a real one, so that the case
+    // cannot pass by exercising nothing.
+    expect(without.calls.some((call) => call.startsWith('openCanvas '))).toBe(
+      true,
+    );
+  });
+});
+
+/**
+ * A host that writes down what it was asked to do.
+ *
+ * The answer `conductorConsoleUrl` gives is the one
+ * thing the two windows differ by, so the verb is
+ * recorded and its answer is not.
+ */
+function recording(
+  dir: string,
+  consoleUrl: string,
+): { calls: string[]; host: RunsHost } {
+  const calls: string[] = [];
+
+  return {
+    calls,
+    host: host({
+      projects: () => [dir],
+      say: (message) => void calls.push(`say ${message}`),
+      copy: async (text) => void calls.push(`copy ${text}`),
+      setContext: (key, value) =>
+        void calls.push(`setContext ${key} ${String(value)}`),
+      openCanvas: async (path) => void calls.push(`openCanvas ${path}`),
+      conductorConsoleUrl: () => {
+        calls.push('conductorConsoleUrl');
+
+        return consoleUrl;
+      },
+      openExternal: async (url) => void calls.push(`openExternal ${url}`),
+    }),
+  };
+}
+
+/** Every door the store has, apart from the one
+ *  the setting is about. */
+async function exercise(store: RunsStore): Promise<void> {
+  await store.refresh();
+  await store.setFilter('failed');
+  await store.select('wf_c9d2f3');
+  await store.openWorkflow('wf_c9d2f3');
+  await store.runWorkflow('groom_booking', '{}');
+  await store.rerun('wf_c9d2f3');
+  await store.copyRunId('wf_c9d2f3');
+  await store.askAgent('wf_c9d2f3');
+  await store.stackUp();
+  await store.stackRebuild();
+  await store.stackDown();
+  await store.refreshRun();
+  store.list();
+  store.see();
+  store.dispose();
+}
 
 describe('a run id somebody wanted', () => {
   /**

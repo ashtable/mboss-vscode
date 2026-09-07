@@ -1,5 +1,6 @@
-import { commands, env, window, workspace } from 'vscode';
+import { commands, env, Uri, ViewColumn, window, workspace } from 'vscode';
 
+import { WorkflowCanvasEditor } from '../canvas/editor.js';
 import { isProject } from '../core/index.js';
 
 import type { RunsHost } from './store.js';
@@ -34,5 +35,29 @@ export function runsHost(): RunsHost {
 
     setContext: (key, value) =>
       void commands.executeCommand('setContext', key, value),
+
+    // Beside rather than over: somebody following a
+    // run back to the document it came from is
+    // comparing the two, and the tab they came from
+    // has to stay where it was.
+    openCanvas: async (path) =>
+      void (await commands.executeCommand(
+        'vscode.openWith',
+        Uri.file(path),
+        WorkflowCanvasEditor.viewType,
+        ViewColumn.Beside,
+      )),
+
+    // Trimmed here, at the seam where the raw
+    // setting is read, so that everything downstream
+    // has one thing to check: an address, or
+    // nothing.
+    conductorConsoleUrl: () =>
+      workspace
+        .getConfiguration('mboss')
+        .get('conductor.consoleUrl', '')
+        .trim(),
+
+    openExternal: async (url) => void (await env.openExternal(Uri.parse(url))),
   };
 }

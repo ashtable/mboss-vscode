@@ -184,6 +184,12 @@
           "default": [],
           "description": "%configuration.agent.args.description%",
           "scope": "resource"
+        },
+        "mboss.conductor.consoleUrl": {
+          "type": "string",
+          "default": "",
+          "description": "%configuration.conductor.consoleUrl.description%",
+          "scope": "resource"
         }
       }
     },

@@ -88,6 +88,10 @@ export class RunsListView implements WebviewViewProvider {
         if (message.type === 'copyRunId') {
           void this.store.copyRunId(message.workflowId);
         }
+
+        if (message.type === 'openProduction') {
+          void this.store.openProduction();
+        }
       },
     });
 
@@ -164,6 +168,10 @@ export class SeePanel {
         if (message.type === 'seeShow') this.store.showTab(message.tab);
         if (message.type === 'seeRaw') this.store.showRaw(message.raw);
         if (message.type === 'seeRefresh') void this.store.refreshRun();
+
+        if (message.type === 'openWorkflow') {
+          void this.store.openWorkflow(message.workflowId);
+        }
       },
     });
 

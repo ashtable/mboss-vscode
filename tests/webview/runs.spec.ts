@@ -115,6 +115,7 @@ function runsInit(over: Partial<RunsInit> = {}): RunsInit {
     },
     live: undefined,
     session: [],
+    production: { configured: false },
     ...over,
   };
 }
@@ -796,6 +797,32 @@ test.describe('the footer', () => {
     await expect(page.locator('.runs-foot')).toContainText(
       'dbos.workflow_status',
     );
+  });
+
+  /**
+   * Conductor is a licence this product does not
+   * need, so a window that has none is never told
+   * about one. The line is provenance — where runs
+   * other than these live — and belongs beside the
+   * ledger it names rather than beside Run or
+   * Rebuild.
+   */
+  test('offers Conductor only when it is configured', async ({ page }) => {
+    const harness = await showList(page, runsInit());
+
+    await expect(page.locator('[data-production="configured"]')).toHaveCount(0);
+    await expect(page.locator('[data-open-production]')).toHaveCount(0);
+
+    await harness.show(runsInit({ production: { configured: true } }));
+
+    await expect(page.locator('[data-production="configured"]')).toContainText(
+      'DBOS Conductor · configured',
+    );
+    await page.locator('[data-open-production]').click();
+
+    expect(await harness.postedOfType('openProduction')).toEqual([
+      { type: 'openProduction' },
+    ]);
   });
 });
 

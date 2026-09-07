@@ -230,6 +230,23 @@ export const messages = {
   runsSource: (database: string) =>
     l10n.t('dbos.workflow_status · {0}', database),
 
+  /**
+   * A run of a workflow this project no longer
+   * saves.
+   *
+   * Somebody renamed the document, or deleted it,
+   * or the run came from an app this folder is not
+   * the source of. The run still happened and its
+   * trace still reads — only the drawing is gone,
+   * so this says which one rather than opening
+   * nothing.
+   */
+  runNoDocument: (name: string) =>
+    l10n.t(
+      'This project has no workflow named {0} to open. The run still reads; only its drawing is missing.',
+      name,
+    ),
+
   /** The boundary the design draws, drawn where a
    *  person can see it. */
   runsScope: () =>

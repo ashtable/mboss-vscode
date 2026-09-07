@@ -612,3 +612,33 @@ body {
   color: color-mix(in srgb, var(--ink) 50%, transparent);
   overflow-wrap: anywhere;
 }
+
+/* A fact about somewhere else, and the one link to
+   it. It reads as provenance rather than as a
+   control, which is why it sits under the lines
+   naming where these runs came from and not beside
+   Run or Rebuild. */
+.state-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: color-mix(in srgb, var(--ink) 50%, transparent);
+}
+
+.state-block > button {
+  border: none;
+  background: transparent;
+  color: var(--brand);
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: var(--text-xs);
+  padding: 0;
+  cursor: pointer;
+}
+
+.state-block > button:hover {
+  text-decoration: underline;
+}

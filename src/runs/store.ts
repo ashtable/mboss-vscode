@@ -4,6 +4,7 @@ import type { Disposable } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
 import { emitter } from '../emitter.js';
+import { messages } from '../messages.js';
 import type { Trust } from '../trust.js';
 import type { RunsInit, SeeInit } from '../webview/protocol.js';
 
@@ -12,7 +13,8 @@ import { following } from './following.js';
 import type { ProjectSdk } from './sdk.js';
 import { runHistory } from './history.js';
 import { openRunZone } from './openRun.js';
-import type { RunFilter } from './queries.js';
+import { runQuery, type RunFilter } from './queries.js';
+import { toRun, type WorkflowStatusRow } from './rows.js';
 import type { RunStarter } from './runner.js';
 import type { SessionLog } from './sessionLog.js';
 import type { StackController } from './stack.js';
@@ -21,6 +23,7 @@ import { testRunZone } from './testRun.js';
 import type { SeeView } from './view.js';
 
 import type { LiveRun, RunWatch } from './watch.js';
+import { projectWorkflows } from './workflows.js';
 import { runsWords } from './words.js';
 
 export type { StackAction } from './stack.js';
@@ -68,6 +71,25 @@ export type RunsHost = {
    *  the window's, so the store hands text over
    *  rather than reaching for one. */
   copy(text: string): Promise<void>;
+
+  /** Opens a workflow document in the canvas, beside
+   *  whatever the person is reading. */
+  openCanvas(path: string): Promise<void>;
+
+  /**
+   * The DBOS Conductor console this project is
+   * deployed to, or the empty string for the
+   * windows that have none.
+   *
+   * Read on every call rather than at activation,
+   * like every other setting on a host: somebody
+   * pasting an address into their settings should
+   * not have to reload the window.
+   */
+  conductorConsoleUrl(): string;
+
+  /** Hands a URL to whatever opens links here. */
+  openExternal(url: string): Promise<void>;
 };
 
 export type RunsDeps = {
@@ -155,6 +177,28 @@ export type RunsStore = Disposable & {
 
   /** Puts a run's id where somebody can paste it. */
   copyRunId(workflowId: string): Promise<void>;
+
+  /**
+   * Opens the workflow a run was a run of, to
+   * edit.
+   *
+   * By id rather than by name, because the page and
+   * the list both name a run and neither holds the
+   * document. What the run recorded is a name; which
+   * file that is, and whether the project still has
+   * one, is answered here.
+   */
+  openWorkflow(workflowId: string): Promise<void>;
+
+  /**
+   * Opens the Conductor console for what this
+   * project deploys.
+   *
+   * Nothing at all in a window with no console
+   * configured, which is every window until somebody
+   * buys one — the local loop is whole without it.
+   */
+  openProduction(): Promise<void>;
 
   /** The run page: which block, which view, whether
    *  the SDK's own rows are shown, and reading it
@@ -257,6 +301,9 @@ export function runsStore(deps: RunsDeps): RunsStore {
         selected: openRun.workflowId(),
         stack: stack.render(),
         ...testRun.render(),
+        // Whether, not where: the address stays on
+        // this side of `postMessage`.
+        production: { configured: deps.host.conductorConsoleUrl() !== '' },
       };
     },
 
@@ -300,6 +347,60 @@ export function runsStore(deps: RunsDeps): RunsStore {
     rerun: testRun.rerun,
     askAgent: testRun.askAgent,
     copyRunId: (workflowId) => deps.host.copy(workflowId),
+
+    /**
+     * The run is read again by id rather than taken
+     * from whatever the page is showing: what a
+     * caller names is a run, and which workflow that
+     * run was a run of is the ledger's answer.
+     *
+     * Nothing is repainted. What the read learned
+     * about the database is the list's to say, and
+     * the list says it the next time it is drawn.
+     */
+    openWorkflow: async (workflowId) => {
+      const dir = project();
+      if (dir === undefined) return;
+
+      const url = history.connection();
+      if (url === undefined) return;
+
+      const found = await history.read(url, async (db) => {
+        const one = runQuery(workflowId);
+        const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
+        const row = rows[0];
+
+        return row === undefined ? undefined : toRun(row);
+      });
+
+      // A database that would not answer and a run
+      // nobody has come to the same thing here:
+      // there is no document to go to, and why is
+      // the list's to say rather than this one's.
+      if (found === undefined) return;
+
+      const saved = projectWorkflows(dir).find(
+        (one) => one.name === found.name,
+      );
+
+      if (saved === undefined) {
+        return void deps.host.say(messages.runNoDocument(found.name));
+      }
+
+      await deps.host.openCanvas(saved.path);
+    },
+
+    // Whatever the setting holds, unchanged: it is
+    // somebody's own console and this has no opinion
+    // about its shape. Empty is every window that
+    // never bought one, and there the door does
+    // nothing rather than apologising.
+    openProduction: async () => {
+      const url = deps.host.conductorConsoleUrl();
+      if (url === '') return;
+
+      await deps.host.openExternal(url);
+    },
 
     selectNode: openRun.node,
     showTab: openRun.tab,

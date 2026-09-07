@@ -63,6 +63,12 @@ export const runsWords = once(() => ({
     'held in the extension host for this session · durable truth stays in postgres: dbos.workflow_status',
   ),
 
+  /** Where the runs that are not these live. Drawn
+   *  only where a console is configured, and the
+   *  link is the whole of the integration. */
+  conductorConfigured: l10n.t('DBOS Conductor · configured'),
+  openProduction: l10n.t('Open production in Conductor ↗'),
+
   localStack: l10n.t('Local Stack'),
   stackUp: l10n.t('Start'),
   stackDown: l10n.t('Stop'),
@@ -157,4 +163,9 @@ export const seeWords = once(() => ({
    *  came from. */
   workflowInput: l10n.t('WORKFLOW INPUT'),
   asRecorded: l10n.t('as recorded'),
+
+  /** The way back to Build. It opens the document
+   *  and projects nothing onto it: the canvas keeps
+   *  drawing whatever run the window is following. */
+  editWorkflow: l10n.t('Edit workflow'),
 }));

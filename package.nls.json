@@ -24,5 +24,6 @@
   "configuration.agent.id.custom": "Any program that speaks the Agent Client Protocol, named below",
   "configuration.agent.command.description": "The program to start for the custom agent. Ignored unless mboss.agent.id is custom.",
   "configuration.agent.args.description": "Arguments passed to the custom agent, one per entry, exactly as written.",
+  "configuration.conductor.consoleUrl.description": "The DBOS Conductor console for this project's deployed app, opened from the Runs panel. Leave it empty if you have no Conductor: everything mBoss does runs against the local stack either way.",
   "capabilities.untrustedWorkspaces.description": "Viewing and editing a workflow works in a restricted window. Generating code, running a coding agent, reading a project's run history and starting its local stack all execute or connect to workspace-supplied things, so they stay disabled until you trust the folder."
 }

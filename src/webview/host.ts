@@ -325,6 +325,17 @@ const OpenRun = z.object({
   workflowId: z.string(),
 });
 
+/**
+ * Somebody wants the console for the app this
+ * project deploys to.
+ *
+ * No address travels: which console, and whether
+ * there is one at all, is a setting the extension
+ * reads. The panel only knows that one is
+ * configured.
+ */
+const OpenProduction = z.object({ type: z.literal('openProduction') });
+
 /** Somebody picked the step the rail describes. */
 const StepSelect = z.object({
   type: z.literal('stepSelect'),
@@ -383,6 +394,20 @@ const SeeRaw = z.object({
 const SeeRefresh = z.object({ type: z.literal('seeRefresh') });
 
 /**
+ * Somebody wants the workflow this run was a run
+ * of, open to edit.
+ *
+ * The run's id rather than the document's path: the
+ * page draws what the extension last read, and
+ * which file that run's name resolves to is the
+ * extension's answer rather than the panel's.
+ */
+const OpenWorkflow = z.object({
+  type: z.literal('openWorkflow'),
+  workflowId: z.string(),
+});
+
+/**
  * What each view may say, `ready` included.
  *
  * One union per view rather than one for all four,
@@ -430,6 +455,7 @@ const SCHEMAS = {
     Rerun,
     AskAgent,
     OpenRun,
+    OpenProduction,
     CopyRunId,
   ]),
   see: z.discriminatedUnion('type', [
@@ -440,6 +466,7 @@ const SCHEMAS = {
     SeeNode,
     SeeRaw,
     SeeRefresh,
+    OpenWorkflow,
   ]),
 };
 

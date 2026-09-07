@@ -314,6 +314,18 @@ export type RunsInit = {
   /** What this window has set going, newest
    *  first. */
   session: SessionRow[];
+
+  /**
+   * Whether a DBOS Conductor console is configured
+   * for this project.
+   *
+   * A boolean and never the address: the panel's
+   * only decision is whether to offer the link, and
+   * which console somebody deploys to is the
+   * extension's to hold — a webview draws what it is
+   * told and posts back that the link was pressed.
+   */
+  production: { configured: boolean };
 };
 
 /**

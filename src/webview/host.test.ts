@@ -173,6 +173,7 @@ describe('what each view may say', () => {
     rerun: ['runs'],
     askAgent: ['runs'],
     openRun: ['runs'],
+    openProduction: ['runs'],
 
     stepSelect: ['see'],
     replay: ['see'],
@@ -180,6 +181,7 @@ describe('what each view may say', () => {
     seeNode: ['see'],
     seeRaw: ['see'],
     seeRefresh: ['see'],
+    openWorkflow: ['see'],
   };
 
   /** One message of each kind that ought to parse
@@ -226,6 +228,7 @@ describe('what each view may say', () => {
     rerun: { workflowId: 'wf_c9d2f3' },
     askAgent: { workflowId: 'wf_c9d2f3' },
     openRun: { workflowId: 'wf_c9d2f3' },
+    openProduction: {},
 
     stepSelect: { functionId: 2 },
     replay: { functionId: 2 },
@@ -233,6 +236,7 @@ describe('what each view may say', () => {
     seeNode: { nodeId: 'find_slot' },
     seeRaw: { raw: true },
     seeRefresh: {},
+    openWorkflow: { workflowId: 'wf_c9d2f3' },
   };
 
   const VIEWS: readonly WebviewName[] = ['canvas', 'sidebar', 'runs', 'see'];

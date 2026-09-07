@@ -161,6 +161,11 @@ export function host(over: Partial<RunsHost> = {}): RunsHost {
     say: () => undefined,
     setContext: () => undefined,
     copy: async () => undefined,
+    openCanvas: async () => undefined,
+    // No Conductor, because that is the window every
+    // spec here is about unless it says otherwise.
+    conductorConsoleUrl: () => '',
+    openExternal: async () => undefined,
     ...over,
   };
 }

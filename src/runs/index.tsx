@@ -115,6 +115,18 @@ function Runs(state: RunsInit) {
         )}
         <p>{strings.scope}</p>
         <p>{strings.sessionScope}</p>
+        {state.production.configured ? (
+          <div className="state-block" data-production="configured">
+            <span>{strings.conductorConfigured}</span>
+            <button
+              type="button"
+              data-open-production
+              onClick={() => postToHost({ type: 'openProduction' })}
+            >
+              {strings.openProduction}
+            </button>
+          </div>
+        ) : null}
       </footer>
     </div>
   );

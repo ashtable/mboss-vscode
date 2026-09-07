@@ -57,6 +57,9 @@ function runsHost(dir: string): RunsHost {
     say: () => undefined,
     setContext: () => undefined,
     copy: async () => undefined,
+    openCanvas: async () => undefined,
+    conductorConsoleUrl: () => '',
+    openExternal: async () => undefined,
   };
 }
 

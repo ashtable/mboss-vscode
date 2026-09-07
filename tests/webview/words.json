@@ -223,6 +223,8 @@
     "scope": "Local runs only. Deployed apps are DBOS Conductor's.",
     "projection": "local only · projected from the local DBOS ledger: dbos.workflow_status + dbos.operation_outputs",
     "sessionScope": "held in the extension host for this session · durable truth stays in postgres: dbos.workflow_status",
+    "conductorConfigured": "DBOS Conductor · configured",
+    "openProduction": "Open production in Conductor ↗",
     "localStack": "Local Stack",
     "stackUp": "Start",
     "stackDown": "Stop",
@@ -280,6 +282,7 @@
     "dbosOwned": "DBOS-owned · shown in raw view · grouped by position",
     "unattributed": "not a block in the saved workflow",
     "workflowInput": "WORKFLOW INPUT",
-    "asRecorded": "as recorded"
+    "asRecorded": "as recorded",
+    "editWorkflow": "Edit workflow"
   }
 }
