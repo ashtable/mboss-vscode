@@ -787,6 +787,17 @@ button.lib-fn {
   cursor: pointer;
 }
 
+/* The way to the code a block runs, set beside its
+   name rather than under the list: it is about the
+   function already chosen, not about choosing
+   one. */
+.picker-open {
+  all: unset;
+  color: var(--ink-faint);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
 /* The system's callout: a tinted block, no border
    and no icon. Spent on the two kinds whose
    relationship with their code a person would

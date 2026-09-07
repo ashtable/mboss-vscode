@@ -218,6 +218,13 @@ export const inspectorWords = once(() => ({
   dropHere: l10n.t('drop a ƒ here'),
   end: l10n.t('end'),
   database: l10n.t('app postgres · prisma tx'),
+  openFunction: l10n.t('open ƒ'),
+
+  // What a transaction is told instead of the three
+  // retry fields every other code-running kind
+  // offers.
+  retryPolicy: l10n.t('retry policy'),
+  retry: l10n.t('runs once, inside its own commit'),
 
   /** The two kinds whose relationship with their
    *  code needs saying out loud. */
@@ -263,6 +270,10 @@ function inspectorFields(): Record<string, string> {
     logic: l10n.t('logic'),
     database: l10n.t('database'),
     service: l10n.t('service'),
+
+    retryMaxAttempts: l10n.t('attempts'),
+    retryIntervalSeconds: l10n.t('first retry after, in seconds'),
+    retryBackoffRate: l10n.t('backoff, times'),
 
     mode: l10n.t('run'),
     topic: l10n.t('topic'),

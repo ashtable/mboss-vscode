@@ -71,6 +71,9 @@
       "logic": "logic",
       "database": "database",
       "service": "service",
+      "retryMaxAttempts": "attempts",
+      "retryIntervalSeconds": "first retry after, in seconds",
+      "retryBackoffRate": "backoff, times",
       "mode": "run",
       "topic": "topic",
       "idempotencyKeyPath": "idempotency key path",
@@ -163,6 +166,9 @@
     "dropHere": "drop a ƒ here",
     "end": "end",
     "database": "app postgres · prisma tx",
+    "openFunction": "open ƒ",
+    "retryPolicy": "retry policy",
+    "retry": "runs once, inside its own commit",
     "callouts": {
       "branch": {
         "title": "Branches own no code.",

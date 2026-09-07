@@ -1,9 +1,11 @@
-import type {
-  BranchCase,
-  FormField,
-  NodeKind,
-  Predicate,
-  WorkflowNode,
+import {
+  DEFAULT_RETRY,
+  type BranchCase,
+  type FormField,
+  type NodeKind,
+  type Predicate,
+  type Retry,
+  type WorkflowNode,
 } from '../../core/rules.js';
 
 import {
@@ -86,8 +88,18 @@ function bind(node: WorkflowNode): {
     case 'trigger':
       return bound(node, triggerFields(node));
     case 'step':
-    case 'transaction':
     case 'codeStep':
+      return bound(node, [
+        ...base<typeof node>(),
+        handler<typeof node>(),
+        ...retryFields<typeof node>(),
+      ]);
+    // Its own case now, because it is the one kind
+    // that runs code and carries no retry policy:
+    // the writes and the record that they ran commit
+    // together, so a second attempt is not a thing
+    // the generated code can ask for.
+    case 'transaction':
       return bound(node, [...base<typeof node>(), handler<typeof node>()]);
     case 'apiCall':
       return bound(node, [
@@ -99,6 +111,7 @@ function bind(node: WorkflowNode): {
           (one, value) =>
             replace(one, { config: { ...one.config, service: value } }),
         ),
+        ...retryFields<Of<'apiCall'>>(),
       ]);
     case 'branch':
       return bound(node, branchFields(node));
@@ -160,6 +173,64 @@ function handler<N extends WorkflowNode>(id = 'handler'): Lens<N> {
       value === undefined
         ? dropped(node, 'handler')
         : replace(node, { handler: { export: value } } as Partial<N>),
+  );
+}
+
+/**
+ * How hard a block tries before it gives up.
+ *
+ * The three read through the defaults, so a block
+ * nobody has configured shows the numbers it will
+ * actually run under rather than three blanks. They
+ * write through one shared step, because no single
+ * one of them sees the other two: a field commits
+ * on its own, and what lands in the document is all
+ * three together — or, where they add up to the
+ * defaults, nothing at all.
+ */
+function retryFields<N extends WorkflowNode>(): Lens<N>[] {
+  const merged = (node: N): Retry => ({ ...DEFAULT_RETRY, ...node.retry });
+
+  const written = (node: N, patch: Partial<Retry>): N => {
+    const now = merged(node);
+    const next = { ...now, ...patch };
+
+    // A value written back as it was read leaves the
+    // node alone. That is what keeps a block that
+    // spells its policy out in full from losing it
+    // to a form nobody touched, and a block that
+    // says nothing from growing one. Only a real
+    // change decides between writing the policy and
+    // taking it off.
+    if (samePolicy(next, now)) return node;
+
+    return samePolicy(next, DEFAULT_RETRY)
+      ? dropped(node, 'retry')
+      : replace(node, { retry: next } as Partial<N>);
+  };
+
+  const turned = (id: string, key: keyof Retry): Lens<N> =>
+    count(
+      id,
+      (node) => merged(node)[key],
+      (node, value) =>
+        value === null ? node : written(node, { [key]: value }),
+    );
+
+  return [
+    turned('retryMaxAttempts', 'maxAttempts'),
+    turned('retryIntervalSeconds', 'intervalSeconds'),
+    turned('retryBackoffRate', 'backoffRate'),
+  ];
+}
+
+/** Field by field rather than by serialising both,
+ *  so the answer does not depend on key order. */
+function samePolicy(one: Retry, other: Retry): boolean {
+  return (
+    one.maxAttempts === other.maxAttempts &&
+    one.intervalSeconds === other.intervalSeconds &&
+    one.backoffRate === other.backoffRate
   );
 }
 
@@ -309,7 +380,13 @@ const EXHAUSTED = ['abort', 'continue'] as const;
 function branchFields(node: Of<'branch'>): Lens<Of<'branch'>>[] {
   const decision = [...base<Of<'branch'>>(), handler<Of<'branch'>>('logic')];
 
-  if (node.handler !== undefined) return decision;
+  // A function runs as a step and so has a policy;
+  // predicates are read off the payload the run is
+  // already carrying, and there is nothing to try
+  // again.
+  if (node.handler !== undefined) {
+    return [...decision, ...retryFields<Of<'branch'>>()];
+  }
 
   return [
     ...decision,
@@ -555,6 +632,12 @@ function waitFields(node: Wait): Lens<Wait>[] {
               : { ...one.config, afterMax: value as 'abort' | 'continue' },
         }),
     ),
+
+    // A form or an event is registered and cleared
+    // through steps, which is what the policy is
+    // for. A timer is a sleep, and nothing about it
+    // can fail and be tried again.
+    ...(node.config.source.kind === 'timer' ? [] : retryFields<Wait>()),
   ];
 }
 
@@ -680,6 +763,7 @@ function approvalFields(node: Of<'approval'>): Lens<Of<'approval'>>[] {
           config: optionalCount(node.config, 'timeoutDays', value),
         }),
     ),
+    ...retryFields<Of<'approval'>>(),
   ];
 }
 
@@ -764,6 +848,7 @@ function emailFields(node: Email): Lens<Email>[] {
         replace(one, { config: { ...one.config, bodyMarkdown: value } }),
     ),
     ...attachment,
+    ...retryFields<Email>(),
   ];
 }
 

@@ -717,6 +717,33 @@ describe('an edit from the Inspector column', () => {
     expect(recorded.written).toHaveLength(0);
     expect(recorded.told).toEqual([messages.inspectorEditRefused()]);
   });
+
+  /**
+   * The retry fields are three numbers a person
+   * types, and the catalog bounds all three. The
+   * column does not check them — it has no schema
+   * and no way to say so — so a value out of range
+   * is refused here, the same way every other shape
+   * the column cannot complete is.
+   */
+  it('refuses a retry the schema will not take', async () => {
+    panel.send({
+      type: 'edit',
+      view: 'canvas',
+      baseRevision: ir.revision,
+      node: {
+        id: 'find_slot',
+        kind: 'step',
+        title: 'Find open slot',
+        config: {},
+        retry: { maxAttempts: 0 },
+      },
+    });
+    await settled();
+
+    expect(recorded.written).toHaveLength(0);
+    expect(recorded.told).toEqual([messages.inspectorEditRefused()]);
+  });
 });
 
 /**

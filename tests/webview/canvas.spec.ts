@@ -2004,6 +2004,50 @@ test.describe('the Inspector column', () => {
     expect(await harness.postedOfType('edit')).toEqual([]);
   });
 
+  /**
+   * How hard a block tries, shown as the numbers it
+   * will actually run under. A block that carries
+   * no policy of its own reads the defaults rather
+   * than three empty boxes, so nobody has to know
+   * what an empty box would mean.
+   */
+  test('offers the three retry fields on a step', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ ...showing('find_slot') }));
+
+    await expect(
+      page.locator('[data-field="retryMaxAttempts"] input'),
+    ).toHaveValue('3');
+    await expect(
+      page.locator('[data-field="retryIntervalSeconds"] input'),
+    ).toHaveValue('1');
+    await expect(
+      page.locator('[data-field="retryBackoffRate"] input'),
+    ).toHaveValue('2');
+  });
+
+  /**
+   * And the one kind that has none says why, rather
+   * than leaving the row out and reading as a kind
+   * whose fields somebody forgot.
+   */
+  test('tells a transaction it runs once inside its commit', async ({
+    page,
+  }) => {
+    const harness = await mount(page, 'canvas');
+    await harness.show(canvasInit({ ...showing('record_booking') }));
+
+    await expect(page.locator('[data-field="retry"] .field-name')).toHaveText(
+      inspectorStrings.retryPolicy,
+    );
+    await expect(page.locator('[data-field="retry"] .field-value')).toHaveText(
+      inspectorStrings.retry,
+    );
+    await expect(page.locator('[data-field="retryMaxAttempts"]')).toHaveCount(
+      0,
+    );
+  });
+
   test('says so plainly when the canvas itself is clicked', async ({
     page,
   }) => {

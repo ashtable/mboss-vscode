@@ -185,11 +185,21 @@ function Fields({
         ))}
 
         {form.kind !== 'transaction' ? null : (
-          <Told
-            id="database"
-            name={strings.fields.database}
-            value={strings.database}
-          />
+          <>
+            <Told
+              id="database"
+              name={strings.fields.database}
+              value={strings.database}
+            />
+
+            {/* The one kind with no retry fields.
+                Told rather than left off: eight
+                kinds carry the three fields, and a
+                row that is simply missing from the
+                ninth reads as an oversight instead
+                of as the answer. */}
+            <Told id="retry" name={strings.retryPolicy} value={strings.retry} />
+          </>
         )}
       </dl>
     </div>
@@ -302,11 +312,22 @@ function Picker({
     <div className="field" data-field={field.id} data-control="picker">
       <dt className="field-name text-muted">{strings.fields[field.id]}</dt>
       <dd className="field-value">
-        <p className="picker-value mono" data-picker-value>
+        {/* The value is its own mark, and the way to
+            the code sits outside it: what the caret
+            says can be changed is the name, not the
+            row it is drawn on. */}
+        <p className="picker-value mono">
           {field.value === undefined ? (
-            <span className="picker-nothing">{strings.dropHere}</span>
+            <span className="picker-nothing" data-picker-value>
+              {strings.dropHere}
+            </span>
           ) : (
-            `${field.value} ▾`
+            <>
+              <span data-picker-value>{`${field.value} ▾`}</span>{' '}
+              <button type="button" className="picker-open" data-open-function>
+                {strings.openFunction}
+              </button>
+            </>
           )}
         </p>
 

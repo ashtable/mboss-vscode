@@ -75,12 +75,17 @@ const SAMPLES: readonly WorkflowNode[] = [
     title: 'Something else',
     config: { mode: 'schedule', cron: '*/7 2-5 1,15 * *' },
   }),
+  // The one sample carrying a retry policy that is
+  // not the default one, so that keeping a policy
+  // and dropping it are both reachable from a node
+  // in this list.
   NodeSchema.parse({
     id: 'call_out',
     kind: 'apiCall',
     title: 'Call the provider',
     config: { service: 'stripe' },
     handler: { export: 'chargeCard' },
+    retry: { maxAttempts: 5 },
   }),
   NodeSchema.parse({
     id: 'escape',
@@ -593,6 +598,123 @@ describe('a node’s own fields', () => {
         handlerKinds.includes(node.kind),
       );
     }
+  });
+});
+
+/**
+ * The retry policy, offered on exactly the blocks
+ * whose generated code carries one.
+ *
+ * Which those are is the emitter's answer rather
+ * than a guess: a transaction's writes commit with
+ * the record that they ran, so it runs once and
+ * there is nothing to set; a timer sleeps rather
+ * than calls; a trigger and a loop are not steps at
+ * all; and a branch becomes a step only once a
+ * function is behind it.
+ */
+describe('a block’s retry policy', () => {
+  const RETRY = [
+    'retryMaxAttempts',
+    'retryIntervalSeconds',
+    'retryBackoffRate',
+  ];
+
+  const offered = (id: string): string[] =>
+    fieldsOf(sample(id))
+      .map((field) => field.id)
+      .filter((one) => RETRY.includes(one));
+
+  it('offers three fields on a step', () => {
+    expect(offered('find_slot')).toEqual(RETRY);
+  });
+
+  // One assertion over the rest rather than a test
+  // apiece, so a kind that lost its fields shows up
+  // beside every kind that kept them.
+  it('offers the same three on every other kind the emitter retries', () => {
+    const blocks = {
+      apiCall: 'call_out',
+      codeStep: 'escape',
+      emailSend: 'send_confirmation',
+      approval: 'sign_off',
+      formWait: 'wait_for_form',
+      eventWait: 'await_reply',
+      decidedBranch: 'route_claim',
+    };
+
+    expect(
+      Object.fromEntries(
+        Object.entries(blocks).map(([kind, id]) => [kind, offered(id)]),
+      ),
+    ).toEqual(
+      Object.fromEntries(Object.keys(blocks).map((kind) => [kind, RETRY])),
+    );
+  });
+
+  it('offers none on a transaction', () => {
+    expect(offered('record_booking')).toEqual([]);
+  });
+
+  it('offers none on a trigger', () => {
+    expect(offered('booking_requested')).toEqual([]);
+  });
+
+  it('offers none on a loop', () => {
+    expect(offered('author_loop')).toEqual([]);
+  });
+
+  it('offers none on a timer wait', () => {
+    expect(offered('wait_a_while')).toEqual([]);
+  });
+
+  it('offers none on a predicate branch', () => {
+    expect(offered('reply_decision')).toEqual([]);
+  });
+
+  it('reads 3, 1 and 2 when the block has no retry', () => {
+    const node = sample('parse_request');
+
+    expect(find(node, 'retryMaxAttempts')).toMatchObject({
+      control: 'number',
+      value: 3,
+    });
+    expect(find(node, 'retryIntervalSeconds')).toMatchObject({ value: 1 });
+    expect(find(node, 'retryBackoffRate')).toMatchObject({ value: 2 });
+  });
+
+  it('drops retry when the defaults are written back', () => {
+    const configured = sample('call_out');
+
+    const reset = formToConfig(
+      configured,
+      set(fieldsOf(configured), 'retryMaxAttempts', 3),
+    );
+
+    expect(reset).not.toHaveProperty('retry');
+    expect(() => NodeSchema.parse(reset)).not.toThrow();
+
+    // And a block that never carried a policy does
+    // not grow one from being read and written back.
+    const plain = sample('parse_request');
+
+    expect(formToConfig(plain, fieldsOf(plain))).not.toHaveProperty('retry');
+  });
+
+  it('keeps retry when one field differs from the default', () => {
+    const node = sample('parse_request');
+
+    const edited = formToConfig(
+      node,
+      set(fieldsOf(node), 'retryMaxAttempts', 5),
+    );
+
+    expect(edited.retry).toEqual({
+      maxAttempts: 5,
+      intervalSeconds: 1,
+      backoffRate: 2,
+    });
+    expect(() => NodeSchema.parse(edited)).not.toThrow();
   });
 });
 
