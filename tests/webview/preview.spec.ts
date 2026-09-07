@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { layoutKeyOf } from '../../src/canvas/graph.js';
+import { layoutKeyOf } from '../../src/canvas/placement.js';
 import {
   NODE_PALETTE,
   WorkflowIRSchema,

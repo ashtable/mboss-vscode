@@ -12,7 +12,7 @@ import {
 
 import { DIST } from '../../src/build.js';
 
-import { layoutKeyOf } from '../../src/canvas/graph.js';
+import { layoutKeyOf } from '../../src/canvas/placement.js';
 import { GRID, snap } from '../../src/canvas/grid.js';
 import {
   NODE_PALETTE,

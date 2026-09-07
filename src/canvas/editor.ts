@@ -46,8 +46,7 @@ import {
   type WayOut,
   type WayTaken,
 } from './edits.js';
-import { layoutKeyOf } from './graph.js';
-import { snapped } from './grid.js';
+import { layoutKeyOf, onTheGrid } from './placement.js';
 import { misfitNote } from './misfit.js';
 import {
   canvasWords,
@@ -729,48 +728,6 @@ export class CanvasSession {
       }),
     );
   }
-}
-
-/**
- * The layout, moved onto the grid the canvas works
- * in.
- *
- * The engine spaces a graph on numbers of its own,
- * none of them the canvas's, so a block it laid out
- * sits between two grid lines. The grid rounds where
- * a block ends up rather than how far it moved, so
- * the first arrow press on such a block goes a
- * fraction of a square the way it was pressed and a
- * few pixels sideways as well — and every gesture
- * after that inherits the offset.
- *
- * Rounded here rather than in the panel, because
- * this is the one number both halves read: it is
- * what is drawn, and it is what a first move writes
- * into the document.
- *
- * A block the document itself places is left exactly
- * where it says. That coordinate is somebody's
- * answer rather than the engine's, and a canvas
- * drawing it ten pixels from where the file put it
- * would be telling a different story from the file.
- */
-function onTheGrid(
-  ir: WorkflowIR,
-  boxes: Record<string, NodeBox>,
-): Record<string, NodeBox> {
-  const placed = new Set(
-    ir.nodes
-      .filter((node) => node.position !== undefined)
-      .map((node) => node.id),
-  );
-
-  return Object.fromEntries(
-    Object.entries(boxes).map(([id, box]) => [
-      id,
-      placed.has(id) ? box : { ...box, ...snapped(box) },
-    ]),
-  );
 }
 
 /**

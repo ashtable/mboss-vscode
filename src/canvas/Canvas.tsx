@@ -23,7 +23,6 @@ import {
 } from 'react';
 
 import {
-  nodeSize,
   starterNode,
   type Diagnostic,
   type NodeKind,
@@ -46,7 +45,7 @@ import { kindsReachedFrom, landingsFrom } from './connect/candidates.js';
 import { GhostNode } from './drag/GhostNode.js';
 import { OldSlot, Readout, SnapGuides, type Lift } from './drag/Lift.js';
 import { SpliceGaps } from './drag/SpliceGaps.js';
-import { gapUnder, spliceGaps, type SpliceGap } from './drag/gaps.js';
+import { spliceGaps, type SpliceGap } from './drag/gaps.js';
 import { pastThreshold } from './drag/gesture.js';
 import {
   lineOf,
@@ -56,6 +55,7 @@ import {
   type CanvasNode,
 } from './graph.js';
 import { GRID, guides, movedByGrid } from './grid.js';
+import { landingFor, landsAt, nodesFor, rounded } from './placement.js';
 import { Inspector, showInspectorHeading } from './inspector/Inspector.js';
 import { checkCandidateEdge } from './wiring.js';
 
@@ -363,18 +363,6 @@ function pointerAt(event: MouseEvent | TouchEvent): {
   return { x: at.clientX, y: at.clientY };
 }
 
-/**
- * Where a block put at the end of a wire goes.
- *
- * The wire arrives at the top of it, half way
- * across, because that is where every block takes a
- * wire — so the block hangs below the point the
- * person let go of rather than being centred on it.
- */
-function landsAt(kind: NodeKind, end: Position): Position {
-  return { x: end.x - nodeSize(kind).width / 2, y: end.y };
-}
-
 /** What the graph draws while a block is in flight
  *  over it. */
 type Carrying = {
@@ -392,43 +380,6 @@ type Carrying = {
     at: Position;
   };
 };
-
-/**
- * What the pointer is holding, and where letting go
- * would put it.
- *
- * They are not the same place, and saying so is the
- * point. What is held hangs up and to the left of
- * the pointer, with the arrow on its own corner
- * marking where the pointer actually is — a block is
- * 230 pixels wide, and one drawn centred on the
- * pointer covers the gap it is about to go into.
- *
- * Where it lands is the gap's own slot whenever
- * there is a gap under the pointer. The gap is drawn
- * where the block will be and says as much, so that
- * is the promise to keep; over open canvas there is
- * no promise but the shape being carried, and the
- * block lands exactly there.
- */
-function landingFor(
-  kind: NodeKind,
-  at: Position,
-  gaps: readonly SpliceGap[],
-): { held: Position; lands: Position; gap: SpliceGap | undefined } {
-  const gap = gapUnder(gaps, at);
-  const { width, height } = nodeSize(kind);
-  const held = { x: at.x - width, y: at.y - height };
-
-  return {
-    gap,
-    held,
-    lands:
-      gap === undefined
-        ? held
-        : { x: gap.at.x - width / 2, y: gap.at.y - height / 2 },
-  };
-}
 
 /**
  * The block being carried, as the graph has to draw
@@ -605,11 +556,7 @@ function Graph({
   if (shown.drawn !== drawn) {
     setShown({ key: init.layoutKey, drawn });
     setEdges(drawn.edges);
-    setNodes(
-      shown.key === init.layoutKey
-        ? (held) => whereTheyAre(held, drawn.nodes)
-        : drawn.nodes,
-    );
+    setNodes((held) => nodesFor(held, drawn.nodes, shown.key, init.layoutKey));
   }
 
   const { getNodes, screenToFlowPosition } = useReactFlow<CanvasNode>();
@@ -1050,31 +997,6 @@ function Graph({
       )}
     </section>
   );
-}
-
-/**
- * The blocks as the host has just drawn them, each
- * left where the canvas currently has it.
- *
- * The layout is the same one — that is what a
- * matching key means — so the only block that can be
- * somewhere else is one under a pointer right now,
- * which is exactly the block that must not move.
- */
-function whereTheyAre(held: CanvasNode[], drawn: CanvasNode[]): CanvasNode[] {
-  const at = new Map(held.map((node) => [node.id, node.position]));
-
-  return drawn.map((node) => ({
-    ...node,
-    position: at.get(node.id) ?? node.position,
-  }));
-}
-
-/** A position the document can hold: coordinates are
- *  whole pixels, and nothing draws a fraction of
- *  one. */
-function rounded(at: { x: number; y: number }): { x: number; y: number } {
-  return { x: Math.round(at.x), y: Math.round(at.y) };
 }
 
 /**
