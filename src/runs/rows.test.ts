@@ -8,6 +8,7 @@ import {
   inputIn,
   outputIn,
   recoveriesOf,
+  stepError,
   toCounts,
   toRun,
   toStep,
@@ -355,6 +356,81 @@ describe('what a stored error says', () => {
       message: 'not json at all',
     });
     expect(errorIn(null)).toBeUndefined();
+  });
+});
+
+/**
+ * A stack is written by whatever threw, and most
+ * of what it names is not code anybody in this
+ * project wrote: the SDK's own frames, the
+ * generated workflow, Node's internals. A frame
+ * offered to somebody has to be one they can act
+ * on, so a stack that names none of theirs carries
+ * no frame at all rather than its first line.
+ */
+describe('a failure as a person needs it', () => {
+  it('carries the lib frame a failure came from', () => {
+    expect(
+      stepError({
+        name: 'Error',
+        message: 'boom from lib',
+        stack:
+          'Error: boom from lib\n' +
+          '    at boom (/app/lib/boom.ts:7:11)\n' +
+          '    at DBOS.runStep.name ' +
+          '(/app/src/workflows/boom.workflow.ts:17:52)',
+      })?.frame,
+    ).toEqual({ file: 'lib/boom.ts', line: 7, column: 11 });
+  });
+
+  /**
+   * DBOS's own wrapper over an exhausted step names
+   * only the SDK, and the try underneath it names
+   * the handler — so the frame follows the headline
+   * to the last try rather than being read off the
+   * wrapper.
+   */
+  it('takes the frame from the try the headline came from', () => {
+    expect(
+      stepError({
+        name: 'Error',
+        message: 'Step go_boom has exceeded its maximum of 3 retries.',
+        stack:
+          'Error: Step go_boom has exceeded its maximum of 3 retries.\n' +
+          '    at DBOSExecutor.callStepFunction ' +
+          '(/app/node_modules/@dbos-inc/dbos-sdk/src/dbos-executor.ts:1198:32)',
+        errors: [
+          {
+            name: 'Error',
+            message: 'boom from lib',
+            stack: 'Error: boom from lib\n    at boom (/app/lib/boom.ts:7:11)',
+          },
+        ],
+      })?.frame,
+    ).toEqual({ file: 'lib/boom.ts', line: 7, column: 11 });
+  });
+
+  it('carries no frame for a stack outside lib', () => {
+    expect(
+      stepError({
+        message: 'timed out',
+        stack:
+          'Error: timed out\n' +
+          '    at runStep ' +
+          '(/app/node_modules/@dbos-inc/dbos-sdk/lib/step.js:412:19)\n' +
+          '    at process.processTicksAndRejections ' +
+          '(node:internal/process/task_queues:105:5)',
+      })?.frame,
+    ).toBeUndefined();
+
+    expect(
+      stepError({
+        message: 'timed out',
+        stack:
+          'Error: timed out\n' +
+          '    at refund (/app/src/workflows/refund.workflow.ts:31:9)',
+      })?.frame,
+    ).toBeUndefined();
   });
 });
 

@@ -89,6 +89,8 @@
     "outputCut": "cut at {0} characters",
     "openOutput": "Open",
     "exhausted": "every configured try failed · DBOS recorded DBOSMaxStepRetriesError",
+    "openErrorLocation": "Open error location",
+    "errorLocationFrom": "line from the image that ran · edited since? rebuild to be sure",
     "rowsLabel": "rows · as recorded",
     "nothingRecorded": "nothing recorded here yet",
     "noOwnRow": "no row of its own",

@@ -347,6 +347,24 @@ export const messages = {
       exported,
     ),
 
+  /**
+   * A frame naming a file this workspace no longer
+   * has.
+   *
+   * The frame was captured inside the image the run
+   * executed, so it is a claim about the code that
+   * was built rather than about the code on disk.
+   * The two coming apart is ordinary — a rename, a
+   * move, a run of somebody else's build — so this
+   * names the file and says which of the two is
+   * being talked about.
+   */
+  errorLocationGone: (file: string) =>
+    l10n.t(
+      'This workspace has no {0}. The line came from the image that ran, so the file has been moved or renamed since it was built.',
+      file,
+    ),
+
   /** The boundary the design draws, drawn where a
    *  person can see it. */
   runsScope: () =>

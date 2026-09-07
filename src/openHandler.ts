@@ -1,11 +1,14 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { LibManifest } from './core/rules.js';
+import type { SourceFrame } from './runs/frames.js';
 
 /**
- * Opening the code a block runs.
+ * Opening the code a block runs, and the line a
+ * failure came from.
  *
- * Two surfaces ask for this — the canvas, where a
+ * Two surfaces ask for both — the canvas, where a
  * block is being configured, and the run page,
  * where one is being read about — and they reach
  * the editor through different bags. So the work
@@ -76,6 +79,41 @@ export async function openHandler(
     join(project, found.file),
     found.line === undefined ? undefined : { line: found.line },
   );
+
+  return undefined;
+}
+
+/**
+ * Opens the line a recorded failure came from, and
+ * answers the file it named where this workspace
+ * no longer has one.
+ *
+ * The existence check is the whole difference from
+ * the function above. A manifest names a file the
+ * scan just read; a frame names a file inside the
+ * image that ran, which may have been renamed,
+ * moved or never have been this project's at all —
+ * so the ordinary case of "not there" deserves a
+ * sentence about images and code, not the editor's
+ * own complaint about a path nobody typed.
+ *
+ * A frame is answered with nothing rather than
+ * refused: a failure that named no code anybody
+ * wrote is most failures, and the surfaces draw no
+ * door for one.
+ */
+export async function openSourceFrame(
+  opener: OpensFiles,
+  project: string,
+  frame: SourceFrame | undefined,
+): Promise<string | undefined> {
+  if (frame === undefined) return undefined;
+
+  const path = join(project, frame.file);
+
+  if (!existsSync(path)) return frame.file;
+
+  await opener.openFile(path, { line: frame.line, column: frame.column });
 
   return undefined;
 }

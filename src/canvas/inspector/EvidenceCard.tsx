@@ -176,7 +176,7 @@ function BlockCard({
       {row === undefined ? (
         <Nothing strings={strings} block={block} rounds={found.rounds} />
       ) : (
-        <Recorded strings={strings} run={run} row={row} />
+        <Recorded strings={strings} run={run} nodeId={block.id} row={row} />
       )}
 
       {policy === undefined ? null : (
@@ -291,10 +291,12 @@ function Parts({
 function Recorded({
   strings,
   run,
+  nodeId,
   row,
 }: {
   strings: InspectorStrings;
   run: LiveRun;
+  nodeId: string;
   row: EvidenceRow;
 }) {
   const timed = row.startedAt !== undefined || row.completedAt !== undefined;
@@ -317,6 +319,38 @@ function Recorded({
             </>
           ) : null}
         </p>
+      )}
+
+      {/* Only where the stack named a file in the
+          project's own code. Most failures name the
+          SDK and the generated workflow and nothing
+          else, and there is no line to go to for
+          one of those. */}
+      {row.error?.frame === undefined ? null : (
+        <div data-evidence-field="errorLocation">
+          <div className="evidence-actions">
+            <button
+              type="button"
+              className="btn quiet"
+              data-evidence-action="openErrorLocation"
+              onClick={() =>
+                postToHost({
+                  type: 'openErrorLocation',
+                  nodeId,
+                  functionId: row.functionId,
+                })
+              }
+            >
+              {strings.openErrorLocation}
+            </button>
+          </div>
+
+          {/* The line is a fact about the image, not
+              about the folder on screen, and saying
+              so is what keeps it from being read as
+              a promise about the file it opens. */}
+          <p className="hint">{strings.errorLocationFrom}</p>
+        </div>
       )}
 
       {row.restored ? (

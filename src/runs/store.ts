@@ -6,7 +6,7 @@ import type { Agent } from '../acp/agent.js';
 import { manifestFor } from '../core/index.js';
 import { emitter } from '../emitter.js';
 import { messages } from '../messages.js';
-import { openHandler } from '../openHandler.js';
+import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { Trust } from '../trust.js';
 import type { RunsInit, SeeInit } from '../webview/protocol.js';
 
@@ -16,7 +16,7 @@ import type { ProjectSdk } from './sdk.js';
 import { runHistory } from './history.js';
 import { openRunZone } from './openRun.js';
 import { runQuery, type RunFilter } from './queries.js';
-import { toRun, type Run, type WorkflowStatusRow } from './rows.js';
+import { stepError, toRun, type Run, type WorkflowStatusRow } from './rows.js';
 import type { RunStarter } from './runner.js';
 import type { SessionLog } from './sessionLog.js';
 import type { StackController } from './stack.js';
@@ -208,6 +208,18 @@ export type RunsStore = Disposable & {
    * in a tab says everything there is to say.
    */
   openFunction(workflowId: string, nodeId: string): Promise<void>;
+
+  /**
+   * Opens the line the run recorded a failure at.
+   *
+   * By run id and row, because the page draws one
+   * run and a row id addresses one of its rows on
+   * its own — the block the panel names is what
+   * decides which card carries the door, not which
+   * row this reads. Nothing is repainted: a file
+   * opening says everything there is to say.
+   */
+  openErrorLocation(workflowId: string, functionId: number): Promise<void>;
 
   /**
    * Opens the Conductor console for what this
@@ -452,6 +464,35 @@ export function runsStore(deps: RunsDeps): RunsStore {
 
       if (unknown !== undefined) {
         deps.host.say(messages.openFunctionUnknown(unknown));
+      }
+    },
+
+    /**
+     * Read off the rows the page is already
+     * holding, rather than out of the ledger again:
+     * the frame is part of what the run recorded,
+     * and it arrived with everything else the card
+     * is drawn from.
+     *
+     * The run id is a guard rather than a lookup. A
+     * panel that has moved on names a run this
+     * store is no longer showing, and the right
+     * answer there is nothing at all.
+     */
+    openErrorLocation: async (workflowId, functionId) => {
+      const dir = project();
+      if (dir === undefined) return;
+
+      const shown = openRun.reading();
+      if (shown === undefined || shown.run.workflowId !== workflowId) return;
+
+      const row = shown.steps.find((one) => one.functionId === functionId);
+      const frame = stepError(row?.failure)?.frame;
+
+      const gone = await openSourceFrame(deps.host, dir, frame);
+
+      if (gone !== undefined) {
+        deps.host.say(messages.errorLocationGone(gone));
       }
     },
 

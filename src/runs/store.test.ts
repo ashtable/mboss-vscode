@@ -17,6 +17,7 @@ import {
   runner,
   stack,
   watcher,
+  STEP_ROW,
 } from '../test-support/runs.js';
 
 import { sessionLog } from './sessionLog.js';
@@ -411,11 +412,13 @@ describe('the way to the code a block runs', () => {
   /** A host that writes down every file it was
    *  asked to open and everything it was told to
    *  say. */
-  function watching(dir: string): {
+  type Watched = {
     opened: { path: string; at?: { line: number; column?: number } }[];
     said: string[];
     host: RunsHost;
-  } {
+  };
+
+  function watching(dir: string): Watched {
     const opened: { path: string; at?: { line: number; column?: number } }[] =
       [];
     const said: string[] = [];
@@ -481,5 +484,83 @@ describe('the way to the code a block runs', () => {
 
     expect(watched.opened).toEqual([]);
     expect(watched.said).toEqual([messages.openFunctionUnknown('findSlot')]);
+  });
+
+  /**
+   * The other way in: not the function the block
+   * names, but the line the run recorded a failure
+   * at. The frame comes off the stack the container
+   * wrote, so the file it names is a claim about the
+   * image rather than about this workspace.
+   */
+  describe('the line a failure came from', () => {
+    /** The page, showing a run whose one row failed
+     *  on a line the container recorded. */
+    async function showing(
+      file: string,
+    ): Promise<{ dir: string; store: RunsStore; watched: Watched }> {
+      const dir = await readable({ lib: 'lib' });
+      const watched = watching(dir);
+      const ledger = database();
+
+      ledger.steps = [
+        {
+          ...STEP_ROW,
+          function_id: 4,
+          function_name: 'find_slot',
+          error: JSON.stringify({
+            json: {
+              name: 'SlotTaken',
+              message: 'no slot left',
+              stack:
+                'SlotTaken: no slot left\n' +
+                `    at findSlot (/app/${file}:6:9)`,
+            },
+            __dbos_serializer: 'superjson',
+          }),
+        },
+      ];
+
+      const store = runsStore(
+        deps({ host: watched.host, open: async () => ledger }),
+      );
+
+      await store.select('wf_c9d2f3');
+
+      return { dir, store, watched };
+    }
+
+    it('opens the file the failure came from', async () => {
+      const { dir, store, watched } = await showing('lib/findSlot.ts');
+
+      await store.openErrorLocation('wf_c9d2f3', 4);
+
+      expect(watched.opened).toEqual([
+        { path: join(dir, 'lib', 'findSlot.ts'), at: { line: 6, column: 9 } },
+      ]);
+      expect(watched.said).toEqual([]);
+    });
+
+    it('says the file the failure named is gone', async () => {
+      const { store, watched } = await showing('lib/rescheduleSlot.ts');
+
+      await store.openErrorLocation('wf_c9d2f3', 4);
+
+      expect(watched.opened).toEqual([]);
+      expect(watched.said).toEqual([
+        messages.errorLocationGone('lib/rescheduleSlot.ts'),
+      ]);
+    });
+
+    /** A page that has moved on names a run this
+     *  store is not showing, and gets nothing. */
+    it('opens nothing for a run it is not showing', async () => {
+      const { store, watched } = await showing('lib/findSlot.ts');
+
+      await store.openErrorLocation('wf_somebody_else', 4);
+
+      expect(watched.opened).toEqual([]);
+      expect(watched.said).toEqual([]);
+    });
   });
 });

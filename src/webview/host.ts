@@ -82,6 +82,28 @@ const OpenFunction = z.object({
 });
 
 /**
+ * Somebody asked to read the line a recorded
+ * failure came from.
+ *
+ * The row rather than the block, because a block
+ * that ran more than once failed on one of those
+ * tries and each wrote a stack of its own. The
+ * block travels beside it so the extension can
+ * answer about a panel that has moved on.
+ *
+ * A separate door from the one above on purpose:
+ * where a failure named no code anybody wrote there
+ * is no line to go to, and a single door that fell
+ * back to the function would put somebody somewhere
+ * they did not ask to be.
+ */
+const OpenErrorLocation = z.object({
+  type: z.literal('openErrorLocation'),
+  nodeId: z.string(),
+  functionId: z.number().int(),
+});
+
+/**
  * Somebody asked to read a whole recorded output
  * somewhere it fits.
  *
@@ -496,6 +518,7 @@ const SCHEMAS = {
     Select,
     InspectorModePicked,
     OpenFunction,
+    OpenErrorLocation,
     OpenOutput,
     OpenRun,
     Connect,
@@ -538,6 +561,7 @@ const SCHEMAS = {
     Ready,
     StepSelect,
     OpenFunction,
+    OpenErrorLocation,
     OpenOutput,
     Replay,
     SeeShow,

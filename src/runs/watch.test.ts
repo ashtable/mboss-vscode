@@ -565,8 +565,13 @@ describe('watchRun', () => {
                 {
                   name: 'SlotTaken',
                   message: 'second',
+                  // The path a container writes: the
+                  // app runs from the directory the
+                  // image copied it to, not from
+                  // anywhere on this machine.
                   stack:
-                    'SlotTaken: second\n    at findSlot (lib/slots.ts:14:9)',
+                    'SlotTaken: second\n' +
+                    '    at findSlot (/app/lib/slots.ts:14:9)',
                 },
               ],
             },

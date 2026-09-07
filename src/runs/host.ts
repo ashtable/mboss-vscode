@@ -60,14 +60,15 @@ export function runsHost(): RunsHost {
     // Over rather than beside: the code a block runs
     // is where somebody is going to be for a while,
     // and a run page is what they came from rather
-    // than something to read it against. Lines are
-    // 1-based everywhere but in VS Code's own
-    // positions, and that is turned around here.
+    // than something to read it against. Lines and
+    // columns are 1-based everywhere but in VS
+    // Code's own positions, and that is turned
+    // around here.
     openFile: async (path, at) => {
       const document = await workspace.openTextDocument(path);
       const caret = new Position(
-        at === undefined ? 0 : at.line - 1,
-        at?.column ?? 0,
+        at === undefined ? 0 : Math.max(0, at.line - 1),
+        at?.column === undefined ? 0 : Math.max(0, at.column - 1),
       );
 
       await window.showTextDocument(document, {

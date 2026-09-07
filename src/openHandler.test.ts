@@ -1,7 +1,15 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import type { LibManifest } from './core/rules.js';
-import { openHandler, type OpensFiles } from './openHandler.js';
+import {
+  openHandler,
+  openSourceFrame,
+  type OpensFiles,
+} from './openHandler.js';
 
 /**
  * The way from a block to the code it runs.
@@ -125,6 +133,74 @@ describe('opening the function a block runs', () => {
     const unknown = await openHandler(files, PROJECT, MANIFEST, {});
 
     expect(unknown).toBeUndefined();
+    expect(files.opened).toEqual([]);
+  });
+});
+
+/**
+ * The way from a recorded failure to the line it
+ * came from.
+ *
+ * The frame was written inside a container, against
+ * the copy of the code the image was built from, so
+ * the file it names is a claim about a project
+ * rather than about a disk. Whether this workspace
+ * still has that file is asked here, because a
+ * missing one is a sentence somebody needs — the
+ * code moved, or the image is not this code — and
+ * not an editor error about a path they never
+ * typed.
+ */
+describe('opening the line a failure came from', () => {
+  /** A project with the handler the failure names
+   *  still in it. */
+  function scratch(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'mboss-frame-'));
+
+    mkdirSync(join(dir, 'lib'), { recursive: true });
+    writeFileSync(join(dir, 'lib', 'boom.ts'), 'export const boom = 1;\n');
+
+    return dir;
+  }
+
+  it('opens the file the failure named, at its line', async () => {
+    const files = opener();
+    const project = scratch();
+
+    const gone = await openSourceFrame(files, project, {
+      file: 'lib/boom.ts',
+      line: 7,
+      column: 11,
+    });
+
+    expect(gone).toBeUndefined();
+    expect(files.opened).toEqual([
+      {
+        path: join(project, 'lib', 'boom.ts'),
+        at: { line: 7, column: 11 },
+      },
+    ]);
+  });
+
+  it('says the file the failure named is gone', async () => {
+    const files = opener();
+
+    const gone = await openSourceFrame(files, scratch(), {
+      file: 'lib/refund.ts',
+      line: 4,
+      column: 2,
+    });
+
+    expect(gone).toBe('lib/refund.ts');
+    expect(files.opened).toEqual([]);
+  });
+
+  it('opens nothing when the failure named no file', async () => {
+    const files = opener();
+
+    const gone = await openSourceFrame(files, scratch(), undefined);
+
+    expect(gone).toBeUndefined();
     expect(files.opened).toEqual([]);
   });
 });

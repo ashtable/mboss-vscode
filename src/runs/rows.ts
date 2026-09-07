@@ -1,3 +1,5 @@
+import { libFrameOf, type SourceFrame } from './frames.js';
+
 /**
  * DBOS's columns, and the fields this view draws
  * from them.
@@ -8,6 +10,12 @@
  * panel is blank because a serializer this build
  * has never heard of wrote the bytes.
  */
+
+// Declared beside the parse that produces one and
+// handed on from here, because a frame reaches
+// every reader as a field of a failure rather than
+// on its own.
+export type { SourceFrame } from './frames.js';
 
 /**
  * A `bigint` column as `node-postgres` hands it
@@ -360,10 +368,6 @@ function storedError(value: unknown): StoredError | undefined {
   };
 }
 
-/** Where in the code-behind a failure came from,
- *  read off the stack the error carried. */
-export type SourceFrame = { file: string; line: number; column: number };
-
 /**
  * A failure as a person needs it, rather than as it
  * was stored.
@@ -383,6 +387,15 @@ export type SourceFrame = { file: string; line: number; column: number };
 export type StepError = StoredError & {
   retriesExhausted: boolean;
 
+  /**
+   * Where in the project's own code the failure
+   * came from, where the stack names it.
+   *
+   * Absent far more often than not, and that is the
+   * point: a stack is mostly the SDK, the generated
+   * workflow and Node's internals, and a frame
+   * offered to somebody has to be one they wrote.
+   */
   frame: SourceFrame | undefined;
 };
 
@@ -400,22 +413,10 @@ export function stepError(
     ...(headline.stack === undefined ? {} : { stack: headline.stack }),
     ...(attempts === undefined ? {} : { errors: attempts }),
     retriesExhausted: attempts !== undefined && attempts.length > 0,
-    frame: frameOf(headline.stack),
-  };
-}
 
-/** The first `file:line:column` in a stack, which is
- *  where the throw was. */
-const STACK_FRAME = /(?:\(|\s)([^()\s]+):(\d+):(\d+)\)?/;
-
-function frameOf(stack: string | undefined): SourceFrame | undefined {
-  const found = stack === undefined ? null : STACK_FRAME.exec(stack);
-  if (found === null) return undefined;
-
-  return {
-    file: found[1] ?? '',
-    line: Number(found[2]),
-    column: Number(found[3]),
+    // The headline's stack, so the frame and the
+    // sentence beside it come from the same try.
+    frame: libFrameOf(headline.stack),
   };
 }
 

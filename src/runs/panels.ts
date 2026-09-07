@@ -183,6 +183,22 @@ export class SeePanel {
             void this.store.openFunction(shown.run.workflowId, message.nodeId);
           }
         }
+
+        // The row is the whole address here. The
+        // block travels for the canvas, which holds
+        // a run and draws a card per block; this
+        // page draws one run, and a row id names one
+        // of its rows on its own.
+        if (message.type === 'openErrorLocation') {
+          const shown = this.store.detail();
+
+          if (shown !== undefined) {
+            void this.store.openErrorLocation(
+              shown.run.workflowId,
+              message.functionId,
+            );
+          }
+        }
       },
     });
 

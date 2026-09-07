@@ -159,9 +159,14 @@ export function vsCodeApi(): VsCodeApi {
       // be an edit waiting to happen. No line at all
       // means the top, which is the honest answer
       // for a manifest that never recorded one.
+      //
+      // Both numbers count from one everywhere a
+      // person reads them — a manifest, a stack, the
+      // editor's own gutter — and from zero only in
+      // a `Position`. The turn is made here.
       const caret = new Position(
-        at === undefined ? 0 : at.line - 1,
-        at?.column ?? 0,
+        at === undefined ? 0 : Math.max(0, at.line - 1),
+        at?.column === undefined ? 0 : Math.max(0, at.column - 1),
       );
 
       await window.showTextDocument(document, {

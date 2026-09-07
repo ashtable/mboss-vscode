@@ -872,7 +872,8 @@ const DONE = liveStep({
   output: '{"id":"ord_123","amount":1249}',
 });
 
-/** The same step, having thrown. */
+/** The same step, having thrown somewhere nobody
+ *  in this project wrote — which is most of them. */
 const THREW = liveStep({
   ...DONE,
   state: 'failed',
@@ -882,10 +883,25 @@ const THREW = liveStep({
     message: 'Request timed out after 30 s',
     stack: [
       'StripeTimeoutError: Request timed out after 30 s',
-      '    at refundPayment (/app/lib/refund-payment.ts:18:11)',
+      '    at post (/app/node_modules/stripe/lib/http.js:212:19)',
     ].join('\n'),
     retriesExhausted: false,
     frame: undefined,
+  },
+});
+
+/** And having thrown on a line of the project's own
+ *  code, which is the one case with a line to go
+ *  to. */
+const THREW_IN_LIB = liveStep({
+  ...THREW,
+  error: {
+    ...THREW.error!,
+    stack: [
+      'StripeTimeoutError: Request timed out after 30 s',
+      '    at refundPayment (/app/lib/refund-payment.ts:18:11)',
+    ].join('\n'),
+    frame: { file: 'lib/refund-payment.ts', line: 18, column: 11 },
   },
 });
 
@@ -2324,12 +2340,11 @@ test.describe('the Inspector column', () => {
 
     /**
      * And the way to the line it threw on is offered
-     * only where a frame inside the project's own
-     * code was resolved. Nothing resolves one: the
-     * frame the ledger carries is whatever sat at the
-     * top of the stack, `node_modules` and the SDK
-     * included, and a button that opened one of those
-     * would be worse than no button.
+     * only where the stack named a file in the
+     * project's own `lib/`. Most stacks name the SDK
+     * and the generated workflow and nothing else,
+     * and a button that opened one of those would be
+     * worse than no button.
      */
     test('shows Open Error Location only when the step has a frame', async ({
       page,
@@ -2342,10 +2357,43 @@ test.describe('the Inspector column', () => {
         }),
       );
 
+      const door = page.locator('[data-evidence-action="openErrorLocation"]');
+
       await expect(page.locator('.evidence-error')).toBeVisible();
+      await expect(door).toHaveCount(0);
+
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW_IN_LIB]),
+        }),
+      );
+
+      await expect(door).toHaveText(inspectorStrings.openErrorLocation);
       await expect(
-        page.locator('[data-evidence-action="openErrorLocation"]'),
-      ).toHaveCount(0);
+        page.locator('[data-evidence-field="errorLocation"] .hint'),
+      ).toHaveText(inspectorStrings.errorLocationFrom);
+    });
+
+    /**
+     * The block and the row together. A block that
+     * ran more than once failed on one of those
+     * tries, and each wrote a stack of its own.
+     */
+    test('asks for the line by block and row', async ({ page }) => {
+      const harness = await mount(page, 'canvas');
+      await harness.show(
+        canvasInit({
+          ...showing('find_slot', {}, 'evidence'),
+          run: recording([THREW_IN_LIB]),
+        }),
+      );
+
+      await page.locator('[data-evidence-action="openErrorLocation"]').click();
+
+      expect(await harness.postedOfType('openErrorLocation')).toEqual([
+        { type: 'openErrorLocation', nodeId: 'find_slot', functionId: 3 },
+      ]);
     });
 
     /**

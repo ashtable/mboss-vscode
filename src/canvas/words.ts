@@ -286,6 +286,24 @@ export const inspectorWords = once(() => ({
     'every configured try failed · DBOS recorded DBOSMaxStepRetriesError',
   ),
 
+  // The second door out of a failure, drawn only
+  // where the stack named a file in the project's
+  // own `lib/`. Its own button rather than a
+  // cleverer Open ƒ: most failures name no such
+  // file, and a door that quietly opened the
+  // function instead would put somebody somewhere
+  // they did not ask to be.
+  openErrorLocation: l10n.t('Open error location'),
+
+  // Said under it, because the line is a fact about
+  // the image and not about the folder on screen.
+  // A container runs the code that was copied into
+  // it, so an edit since the build is a line the
+  // frame knows nothing about.
+  errorLocationFrom: l10n.t(
+    'line from the image that ran · edited since? rebuild to be sure',
+  ),
+
   rowsLabel: l10n.t('rows · as recorded'),
   nothingRecorded: l10n.t('nothing recorded here yet'),
 

@@ -26,7 +26,7 @@ import type {
   WorkflowNode,
 } from '../core/rules.js';
 import { messages } from '../messages.js';
-import { openHandler } from '../openHandler.js';
+import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { PreviewModel } from '../preview/model.js';
 import type { PreviewStore } from '../preview/store.js';
 import { canvasPreview } from '../preview/view.js';
@@ -508,6 +508,12 @@ export class CanvasSession {
       return false;
     }
 
+    if (message.type === 'openErrorLocation') {
+      void this.showErrorLocation(message.nodeId, message.functionId);
+
+      return false;
+    }
+
     if (this.live !== undefined) return false;
 
     if (message.type === 'select') {
@@ -665,6 +671,35 @@ export class CanvasSession {
 
     if (unknown !== undefined) {
       this.api.info(messages.openFunctionUnknown(unknown));
+    }
+  }
+
+  /**
+   * The line a recorded failure came from.
+   *
+   * Read off the run this canvas is already
+   * holding, matched on the block and the row
+   * together: a block that ran more than once
+   * failed on one of those tries, and a panel that
+   * has moved on asks about a row this canvas no
+   * longer has. Neither is worth a sentence — there
+   * is simply nothing to go to.
+   */
+  private async showErrorLocation(
+    nodeId: string,
+    functionId: number,
+  ): Promise<void> {
+    const project = projectOf(this.document.uri.fsPath);
+    if (project === undefined) return;
+
+    const row = this.run?.steps.find(
+      (one) => one.nodeId === nodeId && one.functionId === functionId,
+    );
+
+    const gone = await openSourceFrame(this.api, project, row?.error?.frame);
+
+    if (gone !== undefined) {
+      this.api.info(messages.errorLocationGone(gone));
     }
   }
 

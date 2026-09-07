@@ -939,6 +939,133 @@ describe('the way to the code a block runs', () => {
 });
 
 /**
+ * The way from a recorded failure to the line it
+ * came from.
+ *
+ * A second door beside the one above rather than a
+ * cleverer version of it. The frame was captured
+ * inside the image that ran, against the copy of
+ * the code it was built from, so what it names is a
+ * claim about a project — and this workspace may
+ * have moved the file, renamed it, or never have
+ * been the project the image was built from at all.
+ */
+describe('the way to the line a failure came from', () => {
+  /** A run whose one step failed on a line of the
+   *  project's own code. */
+  function failedAt(file: string): LiveRun {
+    return {
+      ...runOf('groom_booking'),
+      steps: [
+        liveStep({
+          name: 'find_slot',
+          nodeId: 'find_slot',
+          state: 'failed',
+          functionId: 3,
+          error: {
+            name: 'SlotTaken',
+            message: 'no slot left',
+            retriesExhausted: false,
+            frame: { file, line: 6, column: 9 },
+          },
+        }),
+      ],
+    };
+  }
+
+  it('opens the file the failure came from', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+    const runs = runsSaying();
+
+    await open(
+      fakeDocument(readFileSync(path, 'utf8'), path),
+      previewsIn([]),
+      fakeTrust(true),
+      runs,
+    );
+
+    runs.heard(failedAt('lib/findSlot.ts'));
+    await settled();
+
+    panel.send({
+      type: 'openErrorLocation',
+      view: 'canvas',
+      nodeId: 'find_slot',
+      functionId: 3,
+    });
+    await settled();
+
+    expect(recorded.opened).toEqual([
+      { path: `${project}/lib/findSlot.ts`, at: { line: 6, column: 9 } },
+    ]);
+  });
+
+  it('says the file the failure named is gone', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+    const runs = runsSaying();
+
+    await open(
+      fakeDocument(readFileSync(path, 'utf8'), path),
+      previewsIn([]),
+      fakeTrust(true),
+      runs,
+    );
+
+    runs.heard(failedAt('lib/rescheduleSlot.ts'));
+    await settled();
+
+    const before = recorded.told.length;
+
+    panel.send({
+      type: 'openErrorLocation',
+      view: 'canvas',
+      nodeId: 'find_slot',
+      functionId: 3,
+    });
+    await settled();
+
+    expect(recorded.opened).toEqual([]);
+    expect(recorded.told.slice(before)).toEqual([
+      messages.errorLocationGone('lib/rescheduleSlot.ts'),
+    ]);
+  });
+
+  /** A panel that has moved on asks about a row this
+   *  canvas is not holding, and gets nothing rather
+   *  than the wrong file. */
+  it('opens nothing for a row it is not holding', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    const path = writeWorkflow(project, 'groom_booking');
+    const runs = runsSaying();
+
+    await open(
+      fakeDocument(readFileSync(path, 'utf8'), path),
+      previewsIn([]),
+      fakeTrust(true),
+      runs,
+    );
+
+    runs.heard(failedAt('lib/findSlot.ts'));
+    await settled();
+
+    const before = recorded.told.length;
+
+    panel.send({
+      type: 'openErrorLocation',
+      view: 'canvas',
+      nodeId: 'find_slot',
+      functionId: 99,
+    });
+    await settled();
+
+    expect(recorded.opened).toEqual([]);
+    expect(recorded.told.slice(before)).toEqual([]);
+  });
+});
+
+/**
  * While an agent's proposal is outstanding, the
  * graph on screen is the proposal's rather than the
  * file's — and a frame running scripts is not
