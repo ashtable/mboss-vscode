@@ -216,6 +216,7 @@ function set(
       case 'picker':
         return { ...field, value: value === null ? undefined : String(value) };
       case 'rows':
+      case 'section':
         return field;
     }
   });

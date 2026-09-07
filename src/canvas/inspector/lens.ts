@@ -12,7 +12,7 @@
  * asking each of them.
  */
 
-/** One editable field, as the webview draws it. */
+/** One row of the form, as the webview draws it. */
 export type InspectorField =
   | { id: string; control: 'text'; value: string }
   | { id: string; control: 'prose'; value: string }
@@ -20,7 +20,10 @@ export type InspectorField =
   | { id: string; control: 'choice'; value: string; options: readonly string[] }
   | { id: string; control: 'flag'; value: boolean }
   | { id: string; control: 'picker'; value: string | undefined }
-  | { id: string; control: 'rows'; rows: InspectorField[][] };
+  | { id: string; control: 'rows'; rows: InspectorField[][] }
+  // The one row nobody edits: a header over the
+  // fields after it, and the fold it opens with.
+  | { id: string; control: 'section'; collapsed: boolean };
 
 /** One field of one subject, both ways. */
 export type Lens<S> = {
@@ -207,6 +210,51 @@ export function rows<S, Item>(
       );
     },
   };
+}
+
+/**
+ * A header the fields after it fold under.
+ *
+ * The one lens that reads nothing off the subject
+ * and writes nothing back into it. Which groups a
+ * person has open is how they are reading the form,
+ * not something the document should remember, so
+ * the fold it opens with is all it carries and the
+ * write is the identity.
+ */
+export function section<S>(id: string, collapsed: boolean): Lens<S> {
+  return {
+    id,
+    read: () => ({ id, control: 'section', collapsed }),
+    write: (subject) => subject,
+  };
+}
+
+/**
+ * The fields to draw, with the folded groups left
+ * out.
+ *
+ * A header owns everything after it until the next
+ * header, so a fold takes out a run of the list
+ * rather than a set of ids somebody has to keep in
+ * step with the form. A field written before the
+ * first header belongs to no group and is always
+ * drawn; a header is always drawn, folded or not,
+ * because it is the way back into what it hides.
+ */
+export function visible(
+  fields: InspectorField[],
+  folded: ReadonlySet<string>,
+): InspectorField[] {
+  let hiding = false;
+
+  return fields.filter((field) => {
+    if (field.control !== 'section') return !hiding;
+
+    hiding = folded.has(field.id);
+
+    return true;
+  });
 }
 
 /** Every lens' answer, in the order they were

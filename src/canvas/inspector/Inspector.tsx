@@ -20,6 +20,7 @@ import { FunctionLines, fitsFor, type LibFit } from '../libFunction.js';
 
 import { Evidence } from './EvidenceCard.js';
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
+import { visible } from './lens.js';
 import { outcomesOf, type DecisionOutcome } from './outcomes.js';
 
 /**
@@ -240,6 +241,30 @@ function Fields({
   const [draft, setDraft] = useState(node);
   const form = configToForm(draft);
 
+  // Which groups are closed. The kind says which
+  // ones start that way and this holds it from
+  // there: a fold is how somebody is reading the
+  // form, so the document is never asked and never
+  // told.
+  const [folded, setFolded] = useState(
+    () =>
+      new Set(
+        form.fields
+          .filter((field) => field.control === 'section' && field.collapsed)
+          .map((field) => field.id),
+      ),
+  );
+
+  const fold = (id: string): void =>
+    setFolded((closed) => {
+      const next = new Set(closed);
+
+      if (closed.has(id)) next.delete(id);
+      else next.add(id);
+
+      return next;
+    });
+
   const commit = (field: InspectorField): void => {
     const next = formToConfig(draft, [field]);
 
@@ -270,26 +295,40 @@ function Fields({
       </p>
 
       <dl className="fields">
-        {form.fields.map((field) =>
-          field.control === 'picker' ? (
-            <Picker
-              key={field.id}
-              strings={strings}
-              misfits={misfits}
-              field={field}
-              node={draft}
-              lib={lib}
-              onAssign={assign}
-            />
-          ) : (
+        {visible(form.fields, folded).map((field) => {
+          if (field.control === 'section')
+            return (
+              <Section
+                key={field.id}
+                id={field.id}
+                name={strings.fields[field.id]}
+                open={!folded.has(field.id)}
+                onFold={() => fold(field.id)}
+              />
+            );
+
+          if (field.control === 'picker')
+            return (
+              <Picker
+                key={field.id}
+                strings={strings}
+                misfits={misfits}
+                field={field}
+                node={draft}
+                lib={lib}
+                onAssign={assign}
+              />
+            );
+
+          return (
             <Row
               key={field.id}
               strings={strings}
               field={field}
               onCommit={commit}
             />
-          ),
-        )}
+          );
+        })}
 
         {outcomesOf(ir, node).map((outcome) => (
           <Outcome key={outcome.value} strings={strings} outcome={outcome} />
@@ -332,6 +371,45 @@ function Row({
       <dd className="field-value">
         <Control strings={strings} field={field} onCommit={onCommit} />
       </dd>
+    </div>
+  );
+}
+
+/**
+ * A group's header, and the way it folds.
+ *
+ * The whole header is the button rather than a
+ * caret beside a label, because what a person is
+ * aiming at is the group and the label is the
+ * biggest thing on the row. `aria-expanded` is the
+ * only place the fold is said out loud, and the
+ * marker is turned by it, so the two cannot
+ * disagree.
+ */
+function Section({
+  id,
+  name,
+  open,
+  onFold,
+}: {
+  id: string;
+  name: string | undefined;
+  open: boolean;
+  onFold: () => void;
+}) {
+  return (
+    <div className="field" data-field={id} data-control="section">
+      <button
+        type="button"
+        className="section-head section-label"
+        aria-expanded={open}
+        onClick={onFold}
+      >
+        <span className="section-mark" aria-hidden="true">
+          ▾
+        </span>
+        {name}
+      </button>
     </div>
   );
 }
@@ -686,6 +764,13 @@ function Control({
     // the project's code-behind and a control here
     // is handed only the field.
     case 'picker':
+      return null;
+
+    // Drawn by the column too: a header spans the
+    // row it is on and folds the ones after it,
+    // neither of which is a value in a field's
+    // second column.
+    case 'section':
       return null;
 
     case 'text':
