@@ -302,14 +302,22 @@ none of that.
   `registry.ts` is the published contract for the `mboss.agent.*` settings.
   `test/fixtures/scripted-peer.mjs` is a hand-written JSON-RPC peer for
   `connection`/`capabilities`/`agent` specs only — do not grow it into an e2e agent.
-- **`runs/`** — `store.ts` is a façade over three zones with their own slots
+- **`runs/`** — `store.ts` is a façade over four zones with their own slots
   and change signals: `history.ts` (the ledger read, the filter, the rows and
-  counts, the picked run and its replay; it also offers the connection string
-  quietly to whoever arms a watch), `stackZone.ts` (what compose says and the
-  three commands) and `testRun.ts` (the saved workflows, the chosen one and
-  its input, starting a run, the live watches, the session rows,
-  ask-the-agent). `list()` composes their renders into `RunsInit` directly;
-  `view.ts` turns a row into words. Each zone's spec builds only that zone's
+  counts; it also offers the connection string quietly to whoever arms a
+  watch), **`openRun.ts`** (the run somebody has open — reading it, the
+  document laid out beside it, arming its watch, what carries over when the
+  same run is read again, which of the two views is on screen, and the
+  replay), `stackZone.ts` (what compose says and the three commands) and
+  `testRun.ts` (the saved workflows, the chosen one and its input, starting a
+  run, the live watches, the session rows, ask-the-agent). The run page reads
+  the same ledger as the list and **borrows the connection** rather than
+  opening one: what a read learns about somebody's database is a fact about
+  the project, so `history.connection()`/`read()` are lent and the list is
+  what says it. `list()` composes their renders into `RunsInit`, adding which
+  row is marked from the open run; `store.see()` is the whole run page, tab
+  and all, so nothing carries the tab separately. `view.ts` turns a row into
+  words. Each zone's spec builds only that zone's
   collaborators from `src/test-support/runs.ts`. Hand-composed parameterised
   `SELECT`s over `dbos.workflow_status` / `dbos.operation_outputs` via `pg`
   (`queries.test.ts` enforces SELECT-only, the `dbos.` prefix and `$n` binds);
