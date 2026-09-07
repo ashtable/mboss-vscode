@@ -527,6 +527,7 @@ function blockOf(graph: SeeGraph, nodeId: string): EvidenceBlock | undefined {
     title: node.title,
     handler: node.handler?.export,
     retry: node.retry,
+    body: node.kind === 'loop' ? node.config.body : undefined,
   };
 }
 

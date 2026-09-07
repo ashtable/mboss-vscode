@@ -164,6 +164,7 @@ export function Inspector({
                   title: node.title,
                   handler: node.handler?.export,
                   retry: node.retry,
+                  body: node.kind === 'loop' ? node.config.body : undefined,
                 }
           }
           runState={runState}

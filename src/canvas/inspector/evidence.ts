@@ -112,10 +112,11 @@ export type BlockEvidence = {
    * How many times round this run went, where it
    * went round at all.
    *
-   * Read off every row's name rather than this
-   * block's, because the block that asks — a loop —
-   * writes no row of its own, and the rows carrying
-   * a round number are the ones inside it.
+   * Read off the names of the rows inside the block
+   * rather than its own, because the block that
+   * asks — a loop — writes no row of its own, and
+   * the rows carrying a round number are the ones
+   * it encloses.
    */
   rounds: number | undefined;
 };
@@ -152,7 +153,23 @@ export type RunCard = {
   applicationVersion: string | undefined;
 };
 
-export function evidenceOf(run: LiveRun, nodeId: string): BlockEvidence {
+/**
+ * What one run recorded about one block.
+ *
+ * `body` is the blocks this one encloses, which
+ * only a loop has and only the document knows: a
+ * recorded row carries the round it ran in and not
+ * the loop that numbered it, so two loops in one
+ * run are two counts that nothing in the ledger
+ * tells apart. Handed in rather than guessed,
+ * because a card asked to guess would answer both
+ * loops with the run's whole set.
+ */
+export function evidenceOf(
+  run: LiveRun,
+  nodeId: string,
+  body: readonly string[] | undefined,
+): BlockEvidence {
   const rows = run.steps
     .filter((step) => step.nodeId === nodeId)
     .map((step) => rowOf(step, nodeId));
@@ -161,7 +178,7 @@ export function evidenceOf(run: LiveRun, nodeId: string): BlockEvidence {
     rows,
     headline: rows.findLast((row) => row.state === 'failed') ?? rows.at(-1),
     waitingSince: parkedSince(rows),
-    rounds: roundsIn(run.steps),
+    rounds: roundsIn(run.steps, body),
   };
 }
 
@@ -218,13 +235,27 @@ function parkedSince(rows: readonly EvidenceRow[]): number | undefined {
   return registered?.completedAt ?? registered?.startedAt;
 }
 
-/** How many distinct rounds the run wrote a row
- *  under, or nothing where it wrote none. */
-function roundsIn(steps: readonly LiveStep[]): number | undefined {
+/**
+ * How many distinct rounds the rows inside a block
+ * were written under, or nothing where the block
+ * encloses none or none of them went round.
+ *
+ * Scoped to the enclosed blocks rather than counted
+ * across the run: a workflow may have two loops,
+ * and a set built from every row would report each
+ * of them the other's rounds as well as its own.
+ */
+function roundsIn(
+  steps: readonly LiveStep[],
+  body: readonly string[] | undefined,
+): number | undefined {
+  if (body === undefined) return undefined;
+
+  const inside = new Set(body);
   const rounds = new Set(
     steps.flatMap((step) => {
       const owner = ownerOf(step.name);
-      if (owner.kind !== 'node') return [];
+      if (owner.kind !== 'node' || !inside.has(owner.nodeId)) return [];
 
       return owner.segments.flatMap((segment) =>
         segment.kind === 'round' ? [segment.round] : [],

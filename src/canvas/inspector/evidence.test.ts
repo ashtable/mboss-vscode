@@ -58,25 +58,22 @@ const RUN = liveRun({
 
 describe('what a run recorded about one block', () => {
   it('groups a block’s rows under it', () => {
-    const found = evidenceOf(RUN, 'pack');
+    const found = evidenceOf(RUN, 'pack', undefined);
 
     expect(found.rows.map((row) => row.functionId)).toEqual([1, 2, 3]);
-    expect(evidenceOf(RUN, 'parse_request').rows).toHaveLength(1);
+    expect(evidenceOf(RUN, 'parse_request', undefined).rows).toHaveLength(1);
   });
 
   it('lists a fan-out’s items', () => {
-    expect(evidenceOf(RUN, 'pack').rows.map((row) => row.part)).toEqual([
-      '[0]',
-      '[1]',
-      '[2]',
-    ]);
+    expect(
+      evidenceOf(RUN, 'pack', undefined).rows.map((row) => row.part),
+    ).toEqual(['[0]', '[1]', '[2]']);
   });
 
   it('lists a loop’s rounds', () => {
-    expect(evidenceOf(RUN, 'find_slot').rows.map((row) => row.part)).toEqual([
-      '.r1',
-      '.r2',
-    ]);
+    expect(
+      evidenceOf(RUN, 'find_slot', undefined).rows.map((row) => row.part),
+    ).toEqual(['.r1', '.r2']);
   });
 
   /**
@@ -88,18 +85,18 @@ describe('what a run recorded about one block', () => {
    * more.
    */
   it('reads a wait’s since from the register row', () => {
-    expect(evidenceOf(RUN, 'await_reply').waitingSince).toBe(8300);
+    expect(evidenceOf(RUN, 'await_reply', undefined).waitingSince).toBe(8300);
   });
 
   /** And says nothing about a block that is not
    *  parked, however many registrations it once
    *  wrote. */
   it('says nothing about a block the run is not parked on', () => {
-    expect(evidenceOf(RUN, 'pack').waitingSince).toBeUndefined();
+    expect(evidenceOf(RUN, 'pack', undefined).waitingSince).toBeUndefined();
   });
 
   it('gives a predicate branch no rows', () => {
-    const found = evidenceOf(RUN, 'reply_decision');
+    const found = evidenceOf(RUN, 'reply_decision', undefined);
 
     expect(found.rows).toEqual([]);
     expect(found.headline).toBeUndefined();
@@ -132,7 +129,7 @@ describe('what a run recorded about one block', () => {
       ],
     });
 
-    const headline = evidenceOf(failed, 'find_slot').headline;
+    const headline = evidenceOf(failed, 'find_slot', undefined).headline;
 
     expect(headline?.error?.message).toBe('timed out again');
     expect(headline?.error?.retriesExhausted).toBe(true);
@@ -146,10 +143,45 @@ describe('what a run recorded about one block', () => {
    * there is.
    */
   it('says a loop has no row of its own', () => {
-    const found = evidenceOf(RUN, 'each_slot');
+    const found = evidenceOf(RUN, 'each_slot', ['find_slot']);
 
     expect(found.rows).toEqual([]);
     expect(found.rounds).toBe(2);
+  });
+
+  /**
+   * Two loops in one workflow are two counts.
+   *
+   * A row carries the round it ran in and not the
+   * loop that numbered it, so which rows belong to
+   * which loop is a question only the document
+   * answers — and the card is handed that answer
+   * rather than counting every round in the run.
+   */
+  it('counts each loop’s rounds inside that loop', () => {
+    const twice = liveRun({
+      steps: [
+        liveStep({ name: 'find_slot.r1', nodeId: 'find_slot', functionId: 0 }),
+        liveStep({ name: 'find_slot.r2', nodeId: 'find_slot', functionId: 1 }),
+        liveStep({ name: 'find_slot.r3', nodeId: 'find_slot', functionId: 2 }),
+        liveStep({ name: 'pack.r1', nodeId: 'pack', functionId: 3 }),
+        liveStep({ name: 'pack.r2', nodeId: 'pack', functionId: 4 }),
+        liveStep({ name: 'pack.r3', nodeId: 'pack', functionId: 5 }),
+        liveStep({ name: 'pack.r4', nodeId: 'pack', functionId: 6 }),
+        liveStep({ name: 'pack.r5', nodeId: 'pack', functionId: 7 }),
+      ],
+    });
+
+    expect(evidenceOf(twice, 'each_slot', ['find_slot']).rounds).toBe(3);
+    expect(evidenceOf(twice, 'each_item', ['pack']).rounds).toBe(5);
+  });
+
+  /** A block that is not a loop is told nothing to
+   *  count in, and a card that drew a number from
+   *  the whole run would be answering about
+   *  somebody else's rows. */
+  it('counts no rounds for a block that encloses none', () => {
+    expect(evidenceOf(RUN, 'find_slot', undefined).rounds).toBeUndefined();
   });
 
   describe('the run-level card', () => {
@@ -203,7 +235,11 @@ describe('a row a replay carried over', () => {
       ],
     });
 
-    expect(evidenceOf(replayed, 'parse_request').headline?.reused).toBe(true);
-    expect(evidenceOf(replayed, 'find_slot').headline?.reused).toBe(false);
+    expect(
+      evidenceOf(replayed, 'parse_request', undefined).headline?.reused,
+    ).toBe(true);
+    expect(evidenceOf(replayed, 'find_slot', undefined).headline?.reused).toBe(
+      false,
+    );
   });
 });

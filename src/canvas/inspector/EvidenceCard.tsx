@@ -56,6 +56,18 @@ export type EvidenceBlock = {
   /** The policy the document gives it, where it
    *  gives one rather than leaving the defaults. */
   retry: Retry | undefined;
+
+  /**
+   * The blocks it encloses, where it is a loop.
+   *
+   * The one thing about the rest of the document
+   * this card is told, and it is told because the
+   * ledger cannot say it: a row records the round
+   * it ran in, not which loop counted it, so a run
+   * with two loops in it has two answers and only
+   * the document knows which rows carry which.
+   */
+  body: readonly string[] | undefined;
 };
 
 export type EvidenceProps = {
@@ -140,7 +152,7 @@ function BlockCard({
   block: EvidenceBlock;
   runState: RunState | undefined;
 }) {
-  const found = evidenceOf(run, block.id);
+  const found = evidenceOf(run, block.id, block.body);
   const row = found.headline;
 
   // The row's own state where there is a row, and
