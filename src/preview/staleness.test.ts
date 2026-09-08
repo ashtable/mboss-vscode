@@ -30,7 +30,7 @@ const groom = WorkflowIRSchema.parse(
 
 const WARNING =
   'The graph changed since this was proposed, so it cannot be applied. ' +
-  'Ask the agent to propose it again.';
+  'Save any open edits, then ask the agent to propose it again.';
 
 let project: string;
 

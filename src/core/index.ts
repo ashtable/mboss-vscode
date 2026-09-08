@@ -460,6 +460,11 @@ export async function currentWorkflow(
   }
 }
 
+/** The workflow file VS Code owns for one name. */
+export function workflowDocument(project: string, name: string): string {
+  return workflowFile(mbossDirOf(project), name);
+}
+
 /**
  * What came of approving a proposal.
  *

@@ -176,7 +176,7 @@
   "The code-behind could not be read: {0}": "The code-behind could not be read: {0}",
   "The event was accepted, but no run of {0} could be found to follow.": "The event was accepted, but no run of {0} could be found to follow.",
   "The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.": "The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.",
-  "The graph changed since this was proposed, so it cannot be applied. Ask the agent to propose it again.": "The graph changed since this was proposed, so it cannot be applied. Ask the agent to propose it again.",
+  "The graph changed since this was proposed, so it cannot be applied. Save any open edits, then ask the agent to propose it again.": "The graph changed since this was proposed, so it cannot be applied. Save any open edits, then ask the agent to propose it again.",
   "The link this wait opens names the run it was minted for. Replay from {0} instead.": "The link this wait opens names the run it was minted for. Replay from {0} instead.",
   "The local stack is not running. The replay starts when it is.": "The local stack is not running. The replay starts when it is.",
   "The mBoss server and skill were not refreshed: {0}": "The mBoss server and skill were not refreshed: {0}",

@@ -8,7 +8,7 @@ import { commandHandlers } from './commands.js';
 import { projectHost, runWorkflowHost } from './commands/host.js';
 import { newProject, offerVendorRefresh } from './commands/newProject.js';
 import { runWorkflowCommand } from './commands/runWorkflow.js';
-import { isProject } from './core/index.js';
+import { isProject, workflowDocument } from './core/index.js';
 import { galleryHost } from './gallery/host.js';
 import { GalleryPanel } from './gallery/panel.js';
 import { previewStore } from './preview/store.js';
@@ -70,6 +70,13 @@ export function activate(context: ExtensionContext): void {
   const preview = previewStore(
     {
       folders: () => editor.folders(),
+      dirtyWorkflow: (project, workflow) => {
+        const path = workflowDocument(project, workflow);
+
+        return workspace.textDocuments.some(
+          (document) => document.uri.fsPath === path && document.isDirty,
+        );
+      },
       regenerate: async () => {
         const run = await watchers.generateNow();
 

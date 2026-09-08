@@ -71,7 +71,7 @@ const BANNER =
 
 const WARNING =
   'The graph changed since this was proposed, so it cannot be applied. ' +
-  'Ask the agent to propose it again.';
+  'Save any open edits, then ask the agent to propose it again.';
 
 /** Two blocks arriving, out of the ten drawn. */
 const PROPOSED = ['twilio_chat', 'await_reply'];
