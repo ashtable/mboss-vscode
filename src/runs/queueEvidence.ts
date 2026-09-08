@@ -292,7 +292,9 @@ function policyIn(row: QueuesRow): QueuePolicy {
       row.partition_rate_limit_max,
       row.partition_rate_limit_period_sec,
     ),
-    minPollingIntervalMs: Number(row.polling_interval_sec) * 1000,
+    // The column is a double; the document stores
+    // this policy in whole milliseconds.
+    minPollingIntervalMs: Math.round(Number(row.polling_interval_sec) * 1000),
   };
 }
 

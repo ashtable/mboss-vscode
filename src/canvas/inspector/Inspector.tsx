@@ -1,4 +1,10 @@
-import { useRef, useState } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 
 import type {
   Diagnostic,
@@ -120,6 +126,16 @@ export function Inspector({
   diagnostics,
 }: InspectorProps) {
   const editing = useEditing();
+  const selectedId = selected?.node.id;
+  const [folded, setFolded] = useState<Set<string>>(() =>
+    selected === undefined ? new Set() : initiallyFolded(selected.node),
+  );
+
+  useEffect(() => {
+    setFolded(
+      selected === undefined ? new Set() : initiallyFolded(selected.node),
+    );
+  }, [selectedId]);
 
   // A block is shown only while it can be edited:
   // the host lets go of the selection while a
@@ -140,6 +156,8 @@ export function Inspector({
         lib={lib}
         misfits={misfits}
         diagnostics={diagnostics}
+        folded={folded}
+        setFolded={setFolded}
       />
     );
 
@@ -238,6 +256,8 @@ function Fields({
   lib,
   misfits,
   diagnostics,
+  folded,
+  setFolded,
 }: {
   strings: InspectorStrings;
   ir: WorkflowIR;
@@ -249,6 +269,8 @@ function Fields({
   lib: LibFunction[] | undefined;
   misfits: Record<HandlerMisfit['kind'], string>;
   diagnostics: Diagnostic[];
+  folded: Set<string>;
+  setFolded: Dispatch<SetStateAction<Set<string>>>;
 }) {
   const [draft, setDraft] = useState(node);
   const form = configToForm(draft);
@@ -266,15 +288,6 @@ function Fields({
   // there: a fold is how somebody is reading the
   // form, so the document is never asked and never
   // told.
-  const [folded, setFolded] = useState(
-    () =>
-      new Set(
-        form.fields
-          .filter((field) => field.control === 'section' && field.collapsed)
-          .map((field) => field.id),
-      ),
-  );
-
   const fold = (id: string): void =>
     setFolded((closed) => {
       const next = new Set(closed);
@@ -382,6 +395,14 @@ function Fields({
         )}
       </dl>
     </>
+  );
+}
+
+function initiallyFolded(node: WorkflowNode): Set<string> {
+  return new Set(
+    configToForm(node)
+      .fields.filter((field) => field.control === 'section' && field.collapsed)
+      .map((field) => field.id),
   );
 }
 

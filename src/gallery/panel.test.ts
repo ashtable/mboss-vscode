@@ -259,12 +259,12 @@ describe('the cards the gallery is sent', () => {
   const cards = shelves.flatMap((shelf) => shelf.cards);
 
   /**
-   * The glyph run is drawn from the same ten kinds
-   * the palette offers. A card naming an eleventh
+   * The glyph run is drawn from every kind the
+   * palette offers. A card naming an unknown kind
    * would draw a hole, and would be the gallery
    * promising a block this product does not have.
    */
-  it('draws every glyph from the ten kinds the palette has', () => {
+  it('draws every glyph from the kinds the palette has', () => {
     const kinds = new Set(Object.keys(paletteLabels()));
 
     expect(cards.length).toBeGreaterThan(0);

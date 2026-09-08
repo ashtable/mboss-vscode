@@ -272,6 +272,15 @@ describe('what the running app registered', () => {
     expect(found.registered).not.toBe('matches');
   });
 
+  it('reads the polling interval as whole milliseconds', async () => {
+    const found = await read(
+      ledger({ registered: queuesRow({ polling_interval_sec: 1.001 }) }),
+      block({ ...PLAIN, minPollingIntervalMs: 1001 }),
+    );
+
+    expect(found.registered).toBe('matches');
+  });
+
   /** `partition_queue` is the SDK's own reading of
    *  the partition limits beside it, so comparing it
    *  would be comparing one of them twice. */

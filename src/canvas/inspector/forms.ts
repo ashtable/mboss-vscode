@@ -526,12 +526,11 @@ function partitioningField(): Lens<Queue> {
  * A rate limit is a count and a period together, or
  * it is nothing at all.
  *
- * The two boxes commit one at a time and neither
- * sees the other, so both write through here. Half
- * a limit is not something a queue can be
- * registered with and the schema has nowhere to
- * hold one, so it leaves the limit off rather than
- * inventing the period nobody typed.
+ * The two boxes commit one at a time, so either can
+ * make the pair with a visible default for the
+ * other. Clearing either one still clears the pair:
+ * half a limit is not something a queue can be
+ * registered with.
  */
 function rateFields(
   per: string,
@@ -555,13 +554,14 @@ function rateFields(
       per,
       (node) => node.config.queue[key]?.limitPerPeriod,
       (node, value) => {
-        const period = node.config.queue[key]?.periodSec;
-
         return written(
           node,
-          value === null || period === undefined
+          value === null
             ? undefined
-            : { limitPerPeriod: value, periodSec: period },
+            : {
+                limitPerPeriod: value,
+                periodSec: node.config.queue[key]?.periodSec ?? 60,
+              },
         );
       },
     ),
@@ -569,13 +569,14 @@ function rateFields(
       sec,
       (node) => node.config.queue[key]?.periodSec,
       (node, value) => {
-        const limit = node.config.queue[key]?.limitPerPeriod;
-
         return written(
           node,
-          value === null || limit === undefined
+          value === null
             ? undefined
-            : { limitPerPeriod: limit, periodSec: value },
+            : {
+                limitPerPeriod: node.config.queue[key]?.limitPerPeriod ?? 1,
+                periodSec: value,
+              },
         );
       },
     ),

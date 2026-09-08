@@ -20,11 +20,11 @@ import { NodeIcon, TONE } from './icons.js';
 /**
  * One block on the canvas.
  *
- * One component for all ten kinds rather than ten,
+ * One component for every kind rather than one per kind,
  * because a block says the same four things
  * whatever it is: which kind it is, what it is
  * called, which code runs there, and what is
- * happening to it. Ten components would be ten
+ * happening to it. Separate components would be
  * copies of this frame around one glyph.
  *
  * Nothing else is drawn. Not the id, not the

@@ -692,22 +692,18 @@ describe('a queue block', () => {
     expect(() => NodeSchema.parse(off)).not.toThrow();
   });
 
-  /**
-   * A count with no period is not a rate limit, and
-   * the schema has nowhere to keep one — so either
-   * half arriving alone leaves the limit off, and
-   * clearing either half of one takes both.
-   */
-  it('writes no rate limit from one half of one', () => {
+  it('builds a rate limit from either field', () => {
     const none = sample('index_pages');
 
-    expect(commit(none, 'rateLimitPer', 100).config).not.toHaveProperty(
-      'queue.rateLimit',
-    );
-    expect(commit(none, 'rateLimitSec', 60).config).not.toHaveProperty(
-      'queue.rateLimit',
-    );
+    expect(commit(none, 'rateLimitPer', 100).config).toMatchObject({
+      queue: { rateLimit: { limitPerPeriod: 100, periodSec: 60 } },
+    });
+    expect(commit(none, 'rateLimitSec', 20).config).toMatchObject({
+      queue: { rateLimit: { limitPerPeriod: 1, periodSec: 20 } },
+    });
+  });
 
+  it('updates or clears a whole rate limit', () => {
     const limited = queueWith({
       queue: { rateLimit: { limitPerPeriod: 100, periodSec: 60 } },
     });

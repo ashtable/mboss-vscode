@@ -1781,8 +1781,8 @@ test.describe('the tile a block’s glyph sits in', () => {
   test('is coloured by the state, never by the kind', async ({ page }) => {
     await openEveryKind(page);
 
-    // Ten kinds, one tone between them. Ten kinds
-    // in ten colours is a legend to memorise, and
+    // Eleven kinds, one tone between them. Eleven
+    // colours would be a legend to memorise, and
     // the block worth finding across a graph is the
     // one something is happening to.
     await expect(page.locator('.node-icon[data-tone="neutral"]')).toHaveCount(
@@ -1872,9 +1872,9 @@ test.describe('the tile a block’s glyph sits in', () => {
     await expect(square).toHaveCSS('border-radius', '6px');
     await expect(square.locator('svg')).toHaveCSS('width', '15px');
 
-    // One weight and one shape of corner across all
-    // ten glyphs. Ten icons drawn at ten weights
-    // reads as ten products rather than one, and it
+    // One weight and one shape of corner across
+    // every glyph. Icons drawn at different weights
+    // read as different products, and it
     // is the sort of thing nobody can name and
     // everybody sees.
     await expect(square.locator('svg')).toHaveCSS('stroke-width', '2px');
@@ -2528,6 +2528,92 @@ test.describe('the Inspector column', () => {
         page.locator('[data-field="advanced"] .section-head'),
       ).toHaveAttribute('aria-expanded', 'false');
       await expect(page.locator('[data-field="onConflict"]')).toHaveCount(0);
+    });
+
+    test('accept a rate limit on a queue that has none', async ({ page }) => {
+      const harness = await openEveryKind(page, showingQueue(INDEXING));
+      const per = page.locator('[data-field="rateLimitPer"] input');
+      const seconds = page.locator('[data-field="rateLimitSec"] input');
+
+      await per.fill('100');
+      await per.press('Enter');
+      await seconds.fill('20');
+      await seconds.press('Enter');
+
+      const edits = await harness.postedOfType('edit');
+      expect(edits.at(-1)?.node).toMatchObject({
+        config: {
+          queue: {
+            rateLimit: { limitPerPeriod: 100, periodSec: 20 },
+          },
+        },
+      });
+    });
+
+    test('keep an open group across queue edits from the host', async ({
+      page,
+    }) => {
+      const partitioned = {
+        ...INDEXING,
+        queue: { ...INDEXING.queue, partitionConcurrency: 2 },
+      };
+      const harness = await openEveryKind(page, showingQueue(partitioned));
+      const advanced = page.locator('[data-field="advanced"] .section-head');
+      await advanced.click();
+
+      const per = page.locator('[data-field="partitionRateLimitPer"] input');
+      await per.fill('30');
+      await per.press('Enter');
+      const firstEdit = (await harness.postedOfType('edit')).at(-1);
+      if (firstEdit === undefined) throw new Error('no edit');
+      expect(firstEdit.node).toMatchObject({
+        config: {
+          queue: {
+            partitionRateLimit: { limitPerPeriod: 30, periodSec: 60 },
+          },
+        },
+      });
+
+      const revised = showingQueue({
+        ...partitioned,
+        queue: {
+          ...partitioned.queue,
+          partitionRateLimit: { limitPerPeriod: 30, periodSec: 60 },
+        },
+      });
+      const document = revised.document;
+      if (document === undefined || !document.ok)
+        throw new Error('no document');
+      await harness.show(
+        canvasInit({
+          document: {
+            ok: true,
+            ir: { ...document.ir, revision: document.ir.revision + 1 },
+          },
+          boxes: everyKindBoxes,
+          inspector: revised.inspector,
+          diagnostics: [],
+        }),
+      );
+
+      await expect(advanced).toHaveAttribute('aria-expanded', 'true');
+      await expect(
+        page.locator('[data-field="minPollingIntervalMs"]'),
+      ).toBeVisible();
+
+      const seconds = page.locator(
+        '[data-field="partitionRateLimitSec"] input',
+      );
+      await seconds.fill('2');
+      await seconds.press('Enter');
+      const secondEdit = (await harness.postedOfType('edit')).at(-1);
+      expect(secondEdit?.node).toMatchObject({
+        config: {
+          queue: {
+            partitionRateLimit: { limitPerPeriod: 30, periodSec: 2 },
+          },
+        },
+      });
     });
 
     /**
@@ -3851,8 +3937,8 @@ test.describe('dragging a block onto the canvas', () => {
 
   /**
    * Every wire offers a gap; one of them is the
-   * offer. Filling all ten in would say the block
-   * was about to go into all ten.
+   * offer. Filling every gap would say the block
+   * was about to go into every one.
    */
   test('offers the splice only where the pointer is', async ({ page }) => {
     await openAtRest(page);
@@ -4864,9 +4950,9 @@ test.describe('the built bundles', () => {
   });
 
   /**
-   * The ten glyphs are paths written out in this
+   * The eleven glyphs are paths written out in this
    * repository. An icon package pulled in beside
-   * them would ship a thousand more to draw ten,
+   * them would ship a thousand more to draw eleven,
    * and the two sets would drift apart the first
    * time either was touched.
    */

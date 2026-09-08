@@ -81,7 +81,7 @@ export type CanvasInit = {
   view: 'canvas';
   strings: CanvasStrings;
 
-  /** What the ten palette entries are called, in
+  /** What the eleven palette entries are called, in
    *  the active locale. */
   paletteLabels: Record<NodeKind, string>;
 
