@@ -320,8 +320,10 @@ describe('the boundary', () => {
     expect(fromIndex.blankSpec).toBe(fromCore.blankSpec);
     expect(fromIndex.patternSpec).toBe(fromCore.patternSpec);
     expect(fromIndex.WorkflowNameSchema).toBe(fromCore.WorkflowNameSchema);
+    expect(fromIndex.APP_DIR).toBe(fromCore.APP_DIR);
     expect(fromIndex.CONTAINER_APP_DIR).toBe(fromCore.CONTAINER_APP_DIR);
     expect(fromIndex.LIB_DIR).toBe(fromCore.LIB_DIR);
+    expect(fromIndex.REGISTRY_FILE).toBe(fromCore.REGISTRY_FILE);
   });
 
   /**
