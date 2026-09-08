@@ -39,6 +39,18 @@ export type PreviewHost = {
   /** Every folder open in this window. */
   folders(): string[];
 
+  /**
+   * Whether VS Code is holding an unsaved version
+   * of this workflow.
+   *
+   * Proposals are revision-checked against files on
+   * disk. A canvas edit lives in the editor's dirty
+   * buffer until somebody saves it, so the saved
+   * revision alone cannot protect that edit from an
+   * approval writing underneath it.
+   */
+  dirtyWorkflow?(project: string, workflow: string): boolean;
+
   /** Regenerates every project, publishes what
    *  that found, and hands it back. */
   regenerate(): Promise<Problem[]>;
@@ -105,7 +117,11 @@ export function previewStore(
   const changed = changes.fire;
 
   const reload = async (project: string): Promise<void> => {
-    const models = await livePreviews(project);
+    const models = (await livePreviews(project)).map((model) =>
+      host.dirtyWorkflow?.(project, model.workflow) === true
+        ? { ...model, stale: true }
+        : model,
+    );
 
     live.set(project, models);
 
@@ -181,6 +197,19 @@ export function previewStore(
       if (found === undefined || !trust.isTrusted()) return;
 
       const { project, model } = found;
+
+      // The card can be drawn while the document is
+      // clean and answered after another editor makes
+      // it dirty. Check again at the write boundary:
+      // core can see the saved revision, but it cannot
+      // see an unsaved buffer that an approval would
+      // otherwise overwrite.
+      if (host.dirtyWorkflow?.(project, model.workflow) === true) {
+        await reload(project);
+        host.say(messages.previewStale());
+
+        return;
+      }
 
       /**
        * What regenerating or telling the agent had

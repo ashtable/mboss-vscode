@@ -844,17 +844,28 @@ test.describe('the shape of the panel', () => {
 
     const log = page.locator('.transcript');
 
-    // At the bottom, not near it: a log that
-    // followed to somewhere short of the end would
-    // hide the line that just arrived.
+    // The last rendered line is visible. Chromium
+    // rounds the scroll range and the fractional
+    // line box at different stages, so compare the
+    // overhang with that line instead of demanding a
+    // particular number of CSS pixels.
     await expect
       .poll(() =>
-        log.evaluate(
-          (element) =>
-            element.scrollHeight - element.scrollTop - element.clientHeight,
-        ),
+        log.evaluate((element) => {
+          const last = element.lastElementChild;
+          if (last === null) return Number.POSITIVE_INFINITY;
+
+          const overhang =
+            last.getBoundingClientRect().bottom -
+            element.getBoundingClientRect().bottom;
+          const lineHeight = Number.parseFloat(
+            getComputedStyle(last).lineHeight,
+          );
+
+          return overhang / lineHeight;
+        }),
       )
-      .toBeLessThanOrEqual(1);
+      .toBeLessThanOrEqual(0.25);
     expect(await log.evaluate((element) => element.scrollTop)).toBeGreaterThan(
       0,
     );

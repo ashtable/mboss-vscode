@@ -1210,7 +1210,7 @@ export const messages = {
    */
   previewStale: () =>
     l10n.t(
-      'The graph changed since this was proposed, so it cannot be applied. Ask the agent to propose it again.',
+      'The graph changed since this was proposed, so it cannot be applied. Save any open edits, then ask the agent to propose it again.',
     ),
 
   previewApplied: (counts: string, revision: number) =>

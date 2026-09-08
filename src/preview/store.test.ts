@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { fakeAgent, type FakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import type { Agent } from '../acp/agent.js';
+import { currentWorkflow, liveProposals } from '../core/index.js';
 import { WorkflowIRSchema } from '../core/rules.js';
 import { messages } from '../messages.js';
 import type { Problem } from '../problem.js';
@@ -114,6 +115,59 @@ function found(file: string, over: Partial<Problem> = {}): Problem {
 function documentIn(project: string): string {
   return join(project, '.mboss', 'workflows', 'groom_booking.workflow.json');
 }
+
+/**
+ * A canvas edit belongs to VS Code's dirty buffer
+ * until it is saved. The proposal engine lives over
+ * files, so without this extra gate a proposal made
+ * against the saved revision can apply underneath a
+ * newer graph the person is still editing. When the
+ * preview then disappears, the canvas keeps drawing
+ * its old buffer and a later save can overwrite the
+ * approved graph.
+ */
+describe('a proposal over an unsaved workflow', () => {
+  it('is stale before the panel can offer Apply', async () => {
+    const { project } = await projectWithProposal();
+    const driven = await drive(project, {
+      dirtyWorkflow: () => true,
+    });
+
+    const card = driven.store.card();
+
+    expect(card?.at).toBe('proposal');
+    expect(card?.at === 'proposal' && card.model.stale).toBe(true);
+  });
+
+  it('checks again at approval time and leaves both edits alone', async () => {
+    const { project, id } = await projectWithProposal();
+    let dirty = false;
+    const driven = await drive(project, {
+      dirtyWorkflow: () => dirty,
+    });
+
+    // The card was drawn while the document was
+    // clean. Another editor changes it before the
+    // click reaches the extension host.
+    expect(driven.store.card()?.at).toBe('proposal');
+    dirty = true;
+
+    await driven.store.approve(id);
+
+    expect((await currentWorkflow(project, 'groom_booking'))?.title).toBe(
+      groom.title,
+    );
+    expect(
+      (await liveProposals(project)).map((proposal) => proposal.id),
+    ).toEqual([id]);
+
+    const card = driven.store.card();
+
+    expect(card?.at).toBe('proposal');
+    expect(card?.at === 'proposal' && card.model.stale).toBe(true);
+    expect(driven.said).toContain(messages.previewStale());
+  });
+});
 
 describe('an approval whose codegen throws', () => {
   it('says so rather than failing where nobody is looking', async () => {
