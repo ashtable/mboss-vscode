@@ -10,7 +10,7 @@ import {
   type WorkflowNode,
 } from '../core/rules.js';
 import type { StepState } from '../runs/reading.js';
-import type { LiveRun, LiveStep } from '../runs/watch.js';
+import type { LiveRun, LiveStep, QueueCounts } from '../runs/watch.js';
 import { filled } from '../webview/fill.js';
 import { fine } from '../webview/time.js';
 
@@ -99,6 +99,31 @@ export type Drawing = {
    */
   waitingSince?: string;
 
+  /**
+   * What a queue block's line says while its
+   * children are moving, with `{0}` for the ones
+   * running now and `{1}` for the ones still to
+   * start.
+   *
+   * Optional for the reason `waitingSince` is: a
+   * reader without the word draws the code behind
+   * the block instead of a template with two holes
+   * in it.
+   */
+  queueCounts?: string;
+
+  /**
+   * The word for anything a surface worked out
+   * rather than read off a row, which the counts
+   * line is titled with.
+   *
+   * Both counts are aggregates over the children's
+   * rows; the block itself recorded neither, and a
+   * line that did not admit it would be read as
+   * something the ledger says.
+   */
+  derived?: string;
+
   /** Blocks an agent is asking for, which the file
    *  does not have. */
   proposed?: readonly string[];
@@ -138,6 +163,17 @@ export type CanvasNodeData = {
    *  a reader with no word for it does not claim to
    *  be saying one. */
   waiting?: boolean;
+
+  /** Or whether it is what this block's children
+   *  are doing. Absent everywhere else, the way
+   *  `waiting` is. */
+  counts?: boolean;
+
+  /** What the line says about itself, where it says
+   *  anything: the whole of a moment that may not
+   *  fit, or the admission that a count was worked
+   *  out rather than recorded. */
+  lineTitle?: string;
 
   state: NodeState;
 
@@ -220,7 +256,12 @@ export function toReactFlow(
         node,
         boxes[node.id],
         stateOf(node.id, arriving, drawing.selected, run.nodes),
-        lineFor(node, drawing, parked.get(node.id)),
+        lineFor(
+          node,
+          drawing,
+          parked.get(node.id),
+          drawing.run?.queues?.[node.id],
+        ),
         drawing.runningDerived,
       ),
     ),
@@ -275,38 +316,92 @@ function toCanvasNode(
       line: line.text,
       state,
       ...(line.waiting ? { waiting: true } : {}),
+      ...(line.counts ? { counts: true } : {}),
+      ...(line.title === undefined ? {} : { lineTitle: line.title }),
       ...(state === 'running' ? { runTitle: runningDerived } : {}),
     },
   };
 }
 
-/** The line under a title, and which of the two
- *  kinds of line it is. */
-type BlockLine = { text: string; waiting: boolean };
+/**
+ * The line under a title, which of the three kinds
+ * of line it is, and what it says about itself.
+ *
+ * The title is settled here rather than in the
+ * component because it is a different sentence for
+ * each kind: the whole of a moment that may not fit
+ * inside the block, or the admission that a pair of
+ * counts was worked out.
+ */
+type BlockLine = {
+  text: string;
+  waiting: boolean;
+  counts: boolean;
+  title: string | undefined;
+};
 
 /**
  * The line a block shows, which is the code behind
- * it until a run is parked there.
+ * it until a run has something to say there.
  *
  * A block the run stopped on is the one somebody
  * came to the canvas about, and when it stopped is
- * what is worth reading there. Written here rather
- * than inside `lineOf`, because that function
- * answers a question about the document alone and a
- * run is not part of the document.
+ * what is worth reading there. A queue block is the
+ * other way round: nothing has stopped, and what is
+ * worth reading is how much of the work is still to
+ * come. Both are written here rather than inside
+ * `lineOf`, because that function answers a question
+ * about the document alone and a run is not part of
+ * the document.
+ *
+ * Parked first. A block cannot be both, and a run
+ * that stopped at one is the more urgent of the two
+ * sentences.
  */
 function lineFor(
   node: WorkflowNode,
   drawing: Drawing,
   since: number | undefined,
+  counts: QueueCounts | undefined,
 ): BlockLine {
-  const word = drawing.waitingSince;
+  const parked = drawing.waitingSince;
 
-  if (since === undefined || word === undefined) {
-    return { text: lineOf(node, drawing), waiting: false };
+  if (since !== undefined && parked !== undefined) {
+    const text = filled(parked, fine(since));
+
+    // A block is the width core laid the graph out
+    // at, and a clock written to the millisecond
+    // does not always fit inside it. Half a moment
+    // is no moment at all, so the whole of it stays
+    // reachable.
+    return { text, waiting: true, counts: false, title: text };
   }
 
-  return { text: filled(word, fine(since)), waiting: true };
+  const counted = drawing.queueCounts;
+
+  // The same "anything still to finish" the tone
+  // turns on, because a block drawn as running with
+  // nothing counted under it would be two answers to
+  // one question.
+  if (
+    counted !== undefined &&
+    counts !== undefined &&
+    counts.active + counts.queued > 0
+  ) {
+    return {
+      text: filled(counted, String(counts.active), String(counts.queued)),
+      waiting: false,
+      counts: true,
+      title: drawing.derived,
+    };
+  }
+
+  return {
+    text: lineOf(node, drawing),
+    waiting: false,
+    counts: false,
+    title: undefined,
+  };
 }
 
 /**
@@ -430,6 +525,15 @@ function tonesOf(
 
   for (const id of ahead.nodes) nodes.set(id, 'running');
 
+  // Last, because what a queue block's children are
+  // doing outranks both the rows and the walk.
+  for (const node of ir.nodes) {
+    if (node.kind !== 'queue') continue;
+
+    const state = queueState(run.queues?.[node.id]);
+    if (state !== undefined) nodes.set(node.id, state);
+  }
+
   const edges = new Map<string, EdgeState>();
 
   for (const edge of ir.edges) {
@@ -452,6 +556,37 @@ function tonesOf(
   }
 
   return { nodes, edges };
+}
+
+/**
+ * What a queue block's children say about it.
+ *
+ * The parent writes a row as each child is handed
+ * to the queue. That row carries no error and is
+ * complete the moment it is written, so the ledger
+ * has the block finished while every child is still
+ * waiting its turn — which is why the counts win
+ * over the rows here rather than filling a gap in
+ * them.
+ *
+ * A row of nothing but zeros says nothing at all.
+ * The counts are one ungrouped aggregate per block,
+ * so a block the run has not reached answers zeros
+ * from the very first tick rather than no row —
+ * and read as a state, that row would tick a block
+ * nothing has happened at and green the wire into
+ * it.
+ */
+function queueState(counts: QueueCounts | undefined): RunState | undefined {
+  if (counts === undefined) return undefined;
+
+  const moving = counts.active + counts.queued;
+  const settled = counts.done + counts.failed;
+
+  if (moving + settled === 0) return undefined;
+  if (moving > 0) return 'running';
+
+  return counts.failed > 0 ? 'failed' : 'done';
 }
 
 /**

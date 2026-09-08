@@ -27,11 +27,16 @@ import {
   type WorkflowIR,
   type WorkflowNode,
 } from '../../src/core/rules.js';
+import type { QueueEvidence } from '../../src/runs/queueEvidence.js';
 import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
-import type { LiveRun, LiveStep } from '../../src/runs/watch.js';
+import type { LiveRun, LiveStep, QueueCounts } from '../../src/runs/watch.js';
 import { liveStep } from '../../src/test-support/runs.js';
 import { filled } from '../../src/webview/fill.js';
-import type { CanvasInit, InspectorMode } from '../../src/webview/protocol.js';
+import type {
+  CanvasInit,
+  InspectorMode,
+  ShownRun,
+} from '../../src/webview/protocol.js';
 
 import { mount, type ThemeKind } from './harness.js';
 import {
@@ -131,10 +136,9 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
  * A block of every kind, in a column.
  *
  * The canonical fixture is a real workflow and so
- * uses six of the ten kinds. Seeing that each kind
- * draws its own glyph takes a document that holds
- * them all, which no workflow anybody would write
- * does.
+ * uses six kinds. Seeing that each kind draws its
+ * own glyph takes a document that holds them all,
+ * which no workflow anybody would write does.
  */
 const everyKind = WorkflowIRSchema.parse({
   $schema: 'https://mboss.dev/schemas/workflow-v1.json',
@@ -162,17 +166,117 @@ function slugOf(kind: NodeKind): string {
 }
 
 /** The column of every kind, on a page. */
-async function openEveryKind(page: Page) {
+async function openEveryKind(page: Page, over: Partial<CanvasInit> = {}) {
   const harness = await mount(page, 'canvas');
   await harness.show(
     canvasInit({
       document: { ok: true, ir: everyKind },
       boxes: everyKindBoxes,
       diagnostics: [],
+      ...over,
     }),
   );
 
   return harness;
+}
+
+/** A queue holding one item back per partition, and
+ *  deduplicating on it — which DBOS refuses. */
+const PARTITIONED = {
+  itemsPath: 'pages',
+  queue: { name: 'document-index', partitionConcurrency: 2 },
+  enqueue: { deduplicationPath: 'documentId' },
+};
+
+/** The same block, unpartitioned and untroubled. */
+const INDEXING = {
+  itemsPath: 'pages',
+  queue: { name: 'document-index', globalConcurrency: 8 },
+  enqueue: { deduplicationPath: 'documentId' },
+};
+
+type Finding = CanvasInit['diagnostics'][number];
+
+/** Both of what core says about `PARTITIONED`, in
+ *  the words the host would send. */
+const NO_PARTITION_KEY: Finding = {
+  code: 'V17',
+  severity: 'error',
+  nodeId: 'queue',
+  message:
+    '`queue` limits its queue per partition, but does not say which ' +
+    'partition an item belongs to. Set the partition path.',
+};
+
+const DEDUPLICATES: Finding = {
+  code: 'V17',
+  severity: 'error',
+  nodeId: 'queue',
+  message:
+    '`queue` deduplicates items on a partitioned queue, which DBOS does ' +
+    'not support. Drop the deduplication path or the partition limits.',
+};
+
+/** The marker a folding header wears. Drawn rather
+ *  than read — it is `aria-hidden` — but it is in
+ *  the header's text all the same. */
+const MARK = '▾';
+
+/**
+ * The every-kind document with its queue block
+ * configured, that block in the column, and
+ * whatever core said about the document.
+ *
+ * The canonical fixture is a real workflow and holds
+ * no queue, so the one form the column groups under
+ * headers is reachable only from the document that
+ * holds one of every kind.
+ */
+function showingQueue(
+  config: object,
+  diagnostics: Finding[] = [],
+): Partial<CanvasInit> {
+  const nodes = everyKind.nodes.map((node) =>
+    node.id === 'queue'
+      ? ({ ...node, handler: { export: 'indexPage' }, config } as WorkflowNode)
+      : node,
+  );
+
+  return {
+    document: { ok: true, ir: { ...everyKind, nodes } },
+    inspector: {
+      strings: inspectorStrings,
+      selected: 'queue',
+      mode: 'configure',
+    },
+    diagnostics,
+  };
+}
+
+/**
+ * A word the host resolved for a field or a group.
+ *
+ * The bags are keyed by id, so a missing one reads
+ * as `undefined` and would quietly become the string
+ * `"undefined"` in an expectation. Asked for here
+ * instead, where a missing word is the failure.
+ */
+function word(bag: Record<string, string>, id: string): string {
+  const said = bag[id];
+  if (said === undefined) throw new Error(`no word for ${id}`);
+
+  return said;
+}
+
+/** How wide the column of field labels resolved to,
+ *  in pixels. */
+async function labelTrack(page: Page): Promise<number> {
+  const tracks = await page
+    .locator('.field[data-control="text"]')
+    .first()
+    .evaluate((field) => getComputedStyle(field).gridTemplateColumns);
+
+  return Number.parseFloat(tracks);
 }
 
 /** What the host sends back once it has been told
@@ -230,7 +334,7 @@ async function openAtRest(page: Page, over: Partial<CanvasInit> = {}) {
 }
 
 test.describe('the palette', () => {
-  test('offers the catalog’s ten kinds, in its order', async ({ page }) => {
+  test('offers every kind the catalog has, in its order', async ({ page }) => {
     await openCanvas(page);
 
     await expect(page.locator('[data-palette-kind]')).toHaveText(
@@ -483,8 +587,8 @@ test.describe('the graph', () => {
 /**
  * The glyph each kind is drawn in, written out.
  *
- * Ten distinct glyphs are not ten right ones: a
- * Loop wearing the Trigger's bolt differs from
+ * Distinct glyphs are not right ones: a Loop
+ * wearing the Trigger's bolt differs from
  * everything else on the canvas and is still
  * wrong. These say which is which, so that
  * changing one is something somebody decides
@@ -532,6 +636,11 @@ const ICON_PATHS: Record<NodeKind, readonly string[]> = {
     'm22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7',
   ],
   codeStep: ['m16 18 6-6-6-6', 'm8 6-6 6 6 6'],
+  queue: [
+    'M2 12q2.5 2 5 0t5 0 5 0 5 0',
+    'M2 19q2.5 2 5 0t5 0 5 0 5 0',
+    'M2 5q2.5 2 5 0t5 0 5 0 5 0',
+  ],
 };
 
 /**
@@ -578,13 +687,31 @@ test.describe('one block', () => {
   });
 
   /**
+   * A kind the graph has no component for is not a
+   * compile error — React Flow draws its own
+   * default node instead, which has none of a
+   * block's parts. So this asks for the face and
+   * not only for the glyph.
+   */
+  test('draws a queue block as a block, not a bare node', async ({ page }) => {
+    await openEveryKind(page);
+
+    const body = nodeBody(page, 'queue');
+
+    await expect(body.locator('.node-title')).toHaveText('Queue');
+    await expect(body.locator('.node-icon path')).toHaveCount(
+      ICON_PATHS.queue.length,
+    );
+  });
+
+  /**
    * A path the browser cannot parse is dropped in
    * silence. The glyph comes out missing a stroke,
    * which reads as a slightly different icon rather
    * than as a broken one, and the console is the
    * only place it is ever mentioned.
    */
-  test('draws all ten without the browser refusing a stroke', async ({
+  test('draws them all without the browser refusing a stroke', async ({
     page,
   }) => {
     const complaints: string[] = [];
@@ -822,6 +949,67 @@ function runOf(
     completedAt: undefined,
     input: undefined,
     forkedFrom: undefined,
+  };
+}
+
+/**
+ * A run of the column of every kind, with the queue
+ * block's children part-way through it.
+ *
+ * No rows at all: the queue block records nothing
+ * about the work its children do, so what its
+ * children are doing is the only thing this run
+ * says about anything.
+ */
+function queuedRun(
+  counts: Partial<QueueCounts>,
+  evidence?: QueueEvidence,
+): ShownRun {
+  return {
+    ...runOf([]),
+    workflow: everyKind.name,
+    queues: {
+      queue: {
+        queued: 0,
+        delayed: 0,
+        active: 0,
+        done: 0,
+        failed: 0,
+        ...counts,
+      },
+    },
+    ...(evidence === undefined ? {} : { queueEvidence: { queue: evidence } }),
+  };
+}
+
+/**
+ * What one read of the whole queue answered with.
+ *
+ * Per selection rather than per tick, so a run that
+ * nobody has opened a queue card on carries none of
+ * it — which is what the card's own case about
+ * saying nothing yet is drawn from.
+ */
+function queueEvidence(over: Partial<QueueEvidence> = {}): QueueEvidence {
+  return {
+    window: {
+      queued: 4,
+      active: 2,
+      started: 74,
+      failedRecently: 2,
+      windowSec: 60,
+    },
+    registered: 'matches',
+    recent: [
+      { workflowId: 'wf_child_1', label: 'doc_7', status: 'PENDING' },
+      {
+        workflowId: 'wf_child_2',
+        label: '…b2c3d4e5',
+        status: 'SUCCESS',
+        completedAt: RECORDED_AT,
+      },
+    ],
+    ...over,
   };
 }
 
@@ -1333,6 +1521,54 @@ test.describe('the mark a run leaves on a block', () => {
     await expect(wireBody(page, 'e4')).toHaveAttribute('data-state', 'active');
     await expect(wireBody(page, 'e5')).toHaveAttribute('data-state', 'active');
   });
+
+  /**
+   * A queue block's own row is written as each child
+   * is handed over and carries no error, so the
+   * ledger has the block finished while the work is
+   * still to come. The children are counted instead,
+   * and the count takes the line under the title —
+   * which is the one place on a block where a
+   * sentence about the run may go.
+   */
+  test('counts what a queue block’s children are doing', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openEveryKind(page, { run: queuedRun({ active: 8, queued: 42 }) });
+
+    const line = nodeLine(page, 'queue');
+
+    await expect(line).toHaveAttribute('data-line', 'counts');
+    await expect(line).toHaveText('8 running · 42 queued');
+    await expect(line).toHaveAttribute('title', canvasStrings.derived);
+    await expect(runMark(page, 'queue')).toHaveAttribute('data-run', 'running');
+
+    // Written at the weight of a fact, like the name
+    // of a function, and not at the fainter weight
+    // the same block wears while it is still asking
+    // for one.
+    const fact = await nodeLine(page, 'trigger').evaluate(
+      (node) => getComputedStyle(node).color,
+    );
+    await expect(line).toHaveCSS('color', fact);
+
+    // In figures that hold their column, because
+    // both numbers change on every tick and a line
+    // that reflowed under them would be the only
+    // thing moving on the canvas.
+    await expect(line).toHaveCSS('font-variant-numeric', 'tabular-nums');
+  });
+
+  /** Nothing left to count is nothing to say, and
+   *  the line goes back to being about the code. */
+  test('gives the line back once nothing is moving', async ({ page }) => {
+    await openEveryKind(page, { run: queuedRun({ done: 12 }) });
+
+    const line = nodeLine(page, 'queue');
+
+    await expect(line).toHaveAttribute('data-line', 'unassigned');
+    await expect(line).toHaveText(`Queue · ${canvasStrings.unassigned}`);
+    await expect(runMark(page, 'queue')).toHaveText('✓');
+  });
 });
 
 /**
@@ -1487,15 +1723,12 @@ test.describe('the colour a wire is drawn in', () => {
     await expect(wireBody(page, 'e2')).toHaveCSS('stroke', 'rgb(238, 93, 104)');
   });
 
-  /** The one wire that means "again", dashed
-   *  whether or not anything is going down it. */
-  test('dashes the one that runs back up the graph', async ({ page }) => {
+  /** The one wire that means "again" stays solid,
+   *  so direction never reads as moving work. */
+  test('keeps the one that runs back up the graph solid', async ({ page }) => {
     await openAtRest(page);
 
-    await expect(wireBody(page, 'e8')).toHaveCSS(
-      'stroke-dasharray',
-      '6px, 5px',
-    );
+    await expect(wireBody(page, 'e8')).toHaveCSS('stroke-dasharray', 'none');
   });
 });
 
@@ -1545,8 +1778,8 @@ test.describe('the tile a block’s glyph sits in', () => {
   test('is coloured by the state, never by the kind', async ({ page }) => {
     await openEveryKind(page);
 
-    // Ten kinds, one tone between them. Ten kinds
-    // in ten colours is a legend to memorise, and
+    // Eleven kinds, one tone between them. Eleven
+    // colours would be a legend to memorise, and
     // the block worth finding across a graph is the
     // one something is happening to.
     await expect(page.locator('.node-icon[data-tone="neutral"]')).toHaveCount(
@@ -1636,9 +1869,9 @@ test.describe('the tile a block’s glyph sits in', () => {
     await expect(square).toHaveCSS('border-radius', '6px');
     await expect(square.locator('svg')).toHaveCSS('width', '15px');
 
-    // One weight and one shape of corner across all
-    // ten glyphs. Ten icons drawn at ten weights
-    // reads as ten products rather than one, and it
+    // One weight and one shape of corner across
+    // every glyph. Icons drawn at different weights
+    // read as different products, and it
     // is the sort of thing nobody can name and
     // everybody sees.
     await expect(square.locator('svg')).toHaveCSS('stroke-width', '2px');
@@ -2259,6 +2492,237 @@ test.describe('the Inspector column', () => {
   });
 
   /**
+   * A queue block's form, which is the only one in
+   * the column grouped under headers.
+   *
+   * It is grouped because it carries two policies
+   * that are not one another's scope — what the
+   * queue is registered with, and what each item's
+   * enqueue is given — and reading them as one list
+   * is how somebody sets a per-partition limit
+   * believing they set the queue's.
+   */
+  test.describe('a queue block’s two policies', () => {
+    test('come as groups, the last of them folded away', async ({ page }) => {
+      await openEveryKind(page, showingQueue(INDEXING));
+
+      await expect(
+        page.locator('[data-control="section"] .section-head'),
+      ).toHaveText([
+        `${MARK}${word(inspectorStrings.fields, 'queuePolicy')}`,
+        `${MARK}${word(inspectorStrings.fields, 'enqueuePolicy')}`,
+        `${MARK}${word(inspectorStrings.fields, 'advanced')}`,
+      ]);
+
+      await expect(page.locator('[data-field="queueName"] input')).toHaveValue(
+        'document-index',
+      );
+      await expect(page.locator('[data-field="itemsPath"] input')).toHaveValue(
+        'pages',
+      );
+
+      await expect(
+        page.locator('[data-field="advanced"] .section-head'),
+      ).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.locator('[data-field="onConflict"]')).toHaveCount(0);
+    });
+
+    test('accept a rate limit on a queue that has none', async ({ page }) => {
+      const harness = await openEveryKind(page, showingQueue(INDEXING));
+      const per = page.locator('[data-field="rateLimitPer"] input');
+      const seconds = page.locator('[data-field="rateLimitSec"] input');
+
+      await per.fill('100');
+      await per.press('Enter');
+      await seconds.fill('20');
+      await seconds.press('Enter');
+
+      const edits = await harness.postedOfType('edit');
+      expect(edits.at(-1)?.node).toMatchObject({
+        config: {
+          queue: {
+            rateLimit: { limitPerPeriod: 100, periodSec: 20 },
+          },
+        },
+      });
+    });
+
+    test('keep an open group across queue edits from the host', async ({
+      page,
+    }) => {
+      const partitioned = {
+        ...INDEXING,
+        queue: { ...INDEXING.queue, partitionConcurrency: 2 },
+      };
+      const harness = await openEveryKind(page, showingQueue(partitioned));
+      const advanced = page.locator('[data-field="advanced"] .section-head');
+      await advanced.click();
+
+      const per = page.locator('[data-field="partitionRateLimitPer"] input');
+      await per.fill('30');
+      await per.press('Enter');
+      const firstEdit = (await harness.postedOfType('edit')).at(-1);
+      if (firstEdit === undefined) throw new Error('no edit');
+      expect(firstEdit.node).toMatchObject({
+        config: {
+          queue: {
+            partitionRateLimit: { limitPerPeriod: 30, periodSec: 60 },
+          },
+        },
+      });
+
+      const revised = showingQueue({
+        ...partitioned,
+        queue: {
+          ...partitioned.queue,
+          partitionRateLimit: { limitPerPeriod: 30, periodSec: 60 },
+        },
+      });
+      const document = revised.document;
+      if (document === undefined || !document.ok)
+        throw new Error('no document');
+      await harness.show(
+        canvasInit({
+          document: {
+            ok: true,
+            ir: { ...document.ir, revision: document.ir.revision + 1 },
+          },
+          boxes: everyKindBoxes,
+          inspector: revised.inspector,
+          diagnostics: [],
+        }),
+      );
+
+      await expect(advanced).toHaveAttribute('aria-expanded', 'true');
+      await expect(
+        page.locator('[data-field="minPollingIntervalMs"]'),
+      ).toBeVisible();
+
+      const seconds = page.locator(
+        '[data-field="partitionRateLimitSec"] input',
+      );
+      await seconds.fill('2');
+      await seconds.press('Enter');
+      const secondEdit = (await harness.postedOfType('edit')).at(-1);
+      expect(secondEdit?.node).toMatchObject({
+        config: {
+          queue: {
+            partitionRateLimit: { limitPerPeriod: 30, periodSec: 2 },
+          },
+        },
+      });
+    });
+
+    /**
+     * What each group needs saying about it, which
+     * is not a fact about any one field in it: which
+     * process a limit holds back, and which two
+     * settings the app refuses together.
+     */
+    test('say under each header what its fields do not', async ({ page }) => {
+      await openEveryKind(page, showingQueue(INDEXING));
+
+      await expect(
+        page.locator('[data-field="queuePolicy"] .field-note'),
+      ).toHaveText(word(inspectorStrings.hints, 'queuePolicy'));
+      await expect(
+        page.locator('[data-field="enqueuePolicy"] .field-note'),
+      ).toHaveText(word(inspectorStrings.hints, 'enqueuePolicy'));
+    });
+
+    /**
+     * The fold, opened and closed.
+     *
+     * A header owns the run of fields after it as
+     * far as the next header — not the whole rest of
+     * the form — and stays on screen either way,
+     * because it is the way back into what it hides.
+     *
+     * Read with the motion off: the marker's turn is
+     * transitioned, and a transform read while that
+     * is still running is the folded matrix in both
+     * states.
+     */
+    test('fold and unfold a group at its header', async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await openEveryKind(page, showingQueue(INDEXING));
+
+      const head = page.locator('[data-field="advanced"] .section-head');
+      const mark = page.locator('[data-field="advanced"] .section-mark');
+
+      await expect(mark).toHaveCSS('transform', 'matrix(0, -1, 1, 0, 0, 0)');
+
+      await head.click();
+
+      await expect(head).toHaveAttribute('aria-expanded', 'true');
+      await expect(mark).toHaveCSS('transform', 'none');
+      await expect(
+        page.locator('[data-field="onConflict"] select'),
+      ).toHaveCount(1);
+
+      await head.click();
+
+      await expect(page.locator('[data-field="onConflict"]')).toHaveCount(0);
+
+      // And a group folded from the top takes its
+      // own fields with it and nobody else's.
+      await page.locator('[data-field="queuePolicy"] .section-head').click();
+
+      await expect(page.locator('[data-field="queueName"]')).toHaveCount(0);
+      await expect(
+        page.locator('[data-field="queuePolicy"] .section-head'),
+      ).toBeVisible();
+      await expect(page.locator('[data-field="itemsPath"] input')).toHaveValue(
+        'pages',
+      );
+    });
+
+    /**
+     * Core reports both of these against the block,
+     * under one rule, at one severity. Only one of
+     * them has a box on this form holding half its
+     * remedy, and that is the one drawn on the box.
+     * The other stays the block's.
+     */
+    test('draw the finding the deduplication path is a way out of', async ({
+      page,
+    }) => {
+      await openEveryKind(
+        page,
+        showingQueue(PARTITIONED, [NO_PARTITION_KEY, DEDUPLICATES]),
+      );
+
+      await expect(
+        page.locator('[data-field="deduplicationPath"] .field-note'),
+      ).toHaveText(DEDUPLICATES.message);
+
+      await expect(page.getByText(NO_PARTITION_KEY.message)).toHaveCount(0);
+    });
+
+    /**
+     * And the labels get the room their scopes need.
+     * `worker concurrency / partition` in the 8.5ch
+     * column every other form is set in is four
+     * stacked fragments beside a one-line box.
+     */
+    test('are labelled in a column wide enough to read', async ({ page }) => {
+      const harness = await openEveryKind(page, showingQueue(INDEXING));
+
+      const labels = page.locator('.fields');
+      await expect(labels).toHaveAttribute('data-labels', 'wide');
+
+      const wide = await labelTrack(page);
+
+      await harness.show(canvasInit({ ...showing('find_slot') }));
+      await expect(page.locator('[data-field="title"] input')).toHaveValue(
+        'Find open slot',
+      );
+
+      expect(wide / (await labelTrack(page))).toBeCloseTo(12 / 8.5, 2);
+    });
+  });
+
+  /**
    * The column asks two questions about one block —
    * what it should do, and what a run recorded about
    * it doing that — and never both at once. Two
@@ -2646,6 +3110,207 @@ test.describe('the Inspector column', () => {
       await expect(
         page.locator('[data-evidence-action="openRun"]'),
       ).toHaveCount(1);
+    });
+  });
+
+  /**
+   * A queue block's card, which is a different card
+   * from every other block's.
+   *
+   * A queue block records no row of its own — the
+   * work is its children's runs — so the card that
+   * draws a block's rows would draw an empty one
+   * here. What there is to say is how many children
+   * are running, what the whole queue is doing, and
+   * whether the app registered the queue the way
+   * the document asks for it.
+   */
+  test.describe('what a run recorded about a queue block', () => {
+    const INDEXED = {
+      itemsPath: 'pages',
+      queue: {
+        name: 'document-index',
+        globalConcurrency: 8,
+        rateLimit: { limitPerPeriod: 5, periodSec: 10 },
+      },
+      enqueue: { deduplicationPath: 'documentId' },
+    };
+
+    /** The every-kind document with its queue block
+     *  configured and its card on screen. */
+    function showingQueueCard(): Partial<CanvasInit> {
+      return {
+        ...showingQueue(INDEXED),
+        inspector: {
+          strings: inspectorStrings,
+          selected: 'queue',
+          mode: 'evidence',
+        },
+      };
+    }
+
+    test('draws a card of its own rather than a block’s rows', async ({
+      page,
+    }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
+      });
+
+      await expect(page.locator('[data-evidence="queue"]')).toHaveCount(1);
+      await expect(page.locator('[data-evidence="block"]')).toHaveCount(0);
+    });
+
+    test('says what this run’s items are doing, and where each figure came from', async ({
+      page,
+    }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
+      });
+
+      await expect(
+        page.locator('[data-evidence-field="queue"] .value'),
+      ).toHaveText('document-index');
+      await expect(
+        page.locator('[data-evidence-field="active"] .value'),
+      ).toHaveText('3 of 8 queue-wide');
+      await expect(
+        page.locator('[data-evidence-field="queued"] .value'),
+      ).toHaveText('12 · 4 delayed');
+      await expect(
+        page.locator('[data-evidence-field="rateLimit"] .value'),
+      ).toHaveText('5 per 10 s');
+
+      await expect(
+        page.locator('[data-evidence-field="active"] .provenance'),
+      ).toHaveText(inspectorStrings.derived);
+      await expect(
+        page.locator('[data-evidence-field="rateLimit"] .provenance'),
+      ).toHaveText(inspectorStrings.configured);
+    });
+
+    /**
+     * The whole queue costs a read of its own, so
+     * until one has been made the card says nothing
+     * about it rather than saying zero.
+     */
+    test('says nothing about the whole queue until a read answers', async ({
+      page,
+    }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3 }),
+      });
+
+      await expect(
+        page.locator('[data-evidence-field="observedStarts"]'),
+      ).toHaveCount(0);
+      await expect(
+        page.locator('[data-evidence-field="registered"]'),
+      ).toHaveCount(0);
+    });
+
+    test('asks for that read when the card is shown', async ({ page }) => {
+      const harness = await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3 }),
+      });
+
+      expect(await harness.postedOfType('inspectQueue')).toEqual([
+        { type: 'inspectQueue', workflowId: 'wf_1', nodeId: 'queue' },
+      ]);
+    });
+
+    test('draws what the read answered, said to be worked out', async ({
+      page,
+    }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3, failed: 1 }, queueEvidence()),
+      });
+
+      await expect(
+        page.locator('[data-evidence-field="observedStarts"] .value'),
+      ).toHaveText('74 in the last 60 s');
+      await expect(
+        page.locator('[data-evidence-field="observedStarts"] .provenance'),
+      ).toHaveText(inspectorStrings.derived);
+      await expect(
+        page.locator('[data-evidence-field="registered"] .value'),
+      ).toHaveText(inspectorStrings.queueMatches);
+
+      // The window sees only the children still on
+      // the queue, so its count of failures is the
+      // errored ones and says so.
+      await expect(
+        page.locator('[data-evidence-field="failed"] .value'),
+      ).toHaveText('1 · 2 errored queue-wide in the window');
+    });
+
+    /**
+     * A rate limit is a registration, not a budget
+     * anybody is spending down: the ledger records
+     * what ran, never what it was allowed to run.
+     * A card drawing `12/50 per 10 s` would be
+     * claiming a number nothing measured, so the
+     * shape itself is what is rejected here.
+     */
+    test('never draws a rate as a budget being spent', async ({ page }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3 }, queueEvidence()),
+      });
+
+      const said =
+        (await page.locator('[data-evidence="queue"]').textContent()) ?? '';
+
+      expect(said).not.toMatch(/\d+ ?\/ ?\d+ per/);
+      expect(said).toContain(inspectorStrings.queueLocal);
+    });
+
+    test('says what the app registered where it is not what the document asks for', async ({
+      page,
+    }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun(
+          { active: 3 },
+          queueEvidence({
+            registered: {
+              registered: {
+                name: 'document-index',
+                globalConcurrency: 4,
+                minPollingIntervalMs: 1000,
+              },
+            },
+          }),
+        ),
+      });
+
+      await expect(
+        page.locator('[data-evidence-field="registered"] .value'),
+      ).toHaveText(
+        filled(
+          inspectorStrings.queueDiffers,
+          'global concurrency 4 · min polling interval 1000 ms',
+        ),
+      );
+    });
+
+    /** The canvas is not the run page, so the way to
+     *  a child is the way to any run: open it. */
+    test('opens the run an item started', async ({ page }) => {
+      const harness = await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3 }, queueEvidence()),
+      });
+
+      await page.locator('[data-queue-item="wf_child_1"]').click();
+
+      expect(await harness.postedOfType('openRun')).toEqual([
+        { type: 'openRun', workflowId: 'wf_child_1' },
+      ]);
     });
   });
 });
@@ -3269,8 +3934,8 @@ test.describe('dragging a block onto the canvas', () => {
 
   /**
    * Every wire offers a gap; one of them is the
-   * offer. Filling all ten in would say the block
-   * was about to go into all ten.
+   * offer. Filling every gap would say the block
+   * was about to go into every one.
    */
   test('offers the splice only where the pointer is', async ({ page }) => {
     await openAtRest(page);
@@ -4282,9 +4947,9 @@ test.describe('the built bundles', () => {
   });
 
   /**
-   * The ten glyphs are paths written out in this
+   * The eleven glyphs are paths written out in this
    * repository. An icon package pulled in beside
-   * them would ship a thousand more to draw ten,
+   * them would ship a thousand more to draw eleven,
    * and the two sets would drift apart the first
    * time either was touched.
    */

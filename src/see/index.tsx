@@ -4,6 +4,7 @@ import {
   type EdgeTypes,
   type NodeTypes,
 } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import { useMemo } from 'react';
 
 import { RunNode } from '../canvas/RunNode.js';
@@ -39,6 +40,7 @@ const nodeTypes: NodeTypes = {
   step: RunNode,
   transaction: RunNode,
   apiCall: RunNode,
+  queue: RunNode,
   branch: RunNode,
   loop: RunNode,
   durableWait: RunNode,
@@ -528,6 +530,7 @@ function blockOf(graph: SeeGraph, nodeId: string): EvidenceBlock | undefined {
     handler: node.handler?.export,
     retry: node.retry,
     body: node.kind === 'loop' ? node.config.body : undefined,
+    queue: node.kind === 'queue' ? node.config.queue : undefined,
   };
 }
 
@@ -788,6 +791,8 @@ function RunGraph({
             labels: graph.labels,
             unassigned: graph.unassigned,
             runningDerived: strings.derived,
+            queueCounts: graph.queueCounts,
+            derived: strings.derived,
             selected: run.selected.nodeId,
             run: run.live,
             decided: new Map(Object.entries(graph.decided)),
@@ -932,10 +937,43 @@ function Group({
         {shown.map((operation) => (
           <li key={operation.functionId}>
             <Operation operation={operation} run={run} strings={strings} />
+
+            {/* Beside the row rather than inside it.
+                The row is already a button that picks
+                the operation, and a button inside a
+                button is one click meaning two
+                things. */}
+            {operation.childWorkflowId === undefined ? null : (
+              <ChildRun id={operation.childWorkflowId} strings={strings} />
+            )}
           </li>
         ))}
       </ol>
     </details>
+  );
+}
+
+/**
+ * The way to the run one item of this block started.
+ *
+ * A queue block hands each item to a workflow of its
+ * own, and this ledger holds only that it did: the
+ * rows for the work itself belong to the other run
+ * and are on the other run's page. The id is the
+ * whole of what there is, so the id is the way
+ * there.
+ */
+function ChildRun({ id, strings }: { id: string; strings: SeeStrings }) {
+  return (
+    <button
+      type="button"
+      className="mono trace-child"
+      data-run-select={id}
+      title={strings.childRun}
+      onClick={() => postToHost({ type: 'runSelect', workflowId: id })}
+    >
+      {id}
+    </button>
   );
 }
 

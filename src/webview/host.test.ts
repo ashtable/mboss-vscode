@@ -195,6 +195,11 @@ describe('what each view may say', () => {
 
     stepSelect: ['see'],
     replayFrom: ['canvas', 'see'],
+
+    // Both surfaces that draw the Inspector's
+    // card, because both can be showing a queue
+    // block when somebody opens it.
+    inspectQueue: ['canvas', 'see'],
     seeShow: ['see'],
     seeNode: ['see'],
     seeRaw: ['see'],
@@ -260,6 +265,7 @@ describe('what each view may say', () => {
 
     stepSelect: { functionId: 2 },
     replayFrom: { workflowId: 'wf_c9d2f3', functionId: 2 },
+    inspectQueue: { workflowId: 'wf_c9d2f3', nodeId: 'index_pages' },
     seeShow: { tab: 'trace' },
     seeNode: { nodeId: 'find_slot' },
     seeRaw: { raw: true },

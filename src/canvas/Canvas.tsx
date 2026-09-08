@@ -87,6 +87,7 @@ const nodeTypes: NodeTypes = {
   step: Node,
   transaction: Node,
   apiCall: Node,
+  queue: Node,
   branch: Node,
   loop: Node,
   durableWait: Node,
@@ -354,6 +355,7 @@ function Workspace({
           }
           lib={init.manifest?.functions}
           misfits={init.strings.misfits}
+          diagnostics={init.diagnostics}
         />
       </div>
     </EditingProvider>
@@ -581,6 +583,8 @@ function Graph({
         unassigned: init.strings.unassigned,
         runningDerived: init.strings.runningDerived,
         waitingSince: init.strings.waitingSince,
+        queueCounts: init.strings.queueCounts,
+        derived: init.strings.derived,
         proposed: preview?.proposed,
         selected,
         run: init.run,
@@ -593,6 +597,8 @@ function Graph({
       init.strings.unassigned,
       init.strings.runningDerived,
       init.strings.waitingSince,
+      init.strings.queueCounts,
+      init.strings.derived,
       preview?.proposed,
       selected,
       init.run,

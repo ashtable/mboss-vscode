@@ -1,5 +1,5 @@
 import type { Database, OpenDatabase } from './db.js';
-import { runQuery, stepsQuery } from './queries.js';
+import { queueCountsQuery, runQuery, stepsQuery } from './queries.js';
 import {
   readRun,
   type LiveOutcome,
@@ -10,6 +10,7 @@ import {
   hasRecovered,
   toRun,
   toStep,
+  type BigIntColumn,
   type OperationOutputRow,
   type Run,
   type RunInput,
@@ -49,6 +50,35 @@ export type { SourceFrame, StepError } from './rows.js';
  */
 export type LiveStep = Omit<Operation, 'owner' | 'segments'>;
 
+/**
+ * One queue block of the workflow being watched:
+ * the block, and the name its children register
+ * under.
+ *
+ * Handed in rather than derived here, because a
+ * watch polls a database and never looked for a
+ * document — the name only the document can give
+ * has to come with the arming.
+ */
+export type QueueNode = { nodeId: string; queuedName: string };
+
+/** What one queue block's children are doing. */
+export type QueueCounts = {
+  /** `ENQUEUED` + `DELAYED`: the block line's
+   *  second number. */
+  queued: number;
+
+  /** `DELAYED` alone. */
+  delayed: number;
+
+  /** `PENDING`: claimed and running. */
+  active: number;
+
+  done: number;
+
+  failed: number;
+};
+
 export type LiveRun = {
   workflowId: string;
 
@@ -60,6 +90,11 @@ export type LiveRun = {
   status: string;
 
   steps: LiveStep[];
+
+  /** What each of this workflow's queue blocks is
+   *  doing, under the block's own id. Absent for a
+   *  workflow that has none. */
+  queues?: Record<string, QueueCounts>;
 
   /** Sticky: once the ledger has said a run was
    *  picked back up, it stays said. */
@@ -119,6 +154,7 @@ export type RunWatch = (
   open: OpenDatabase,
   url: string,
   workflowId: string,
+  queueNodes: readonly QueueNode[],
   onChange: (run: LiveRun, read: LedgerRead) => void,
 ) => RunWatcher;
 
@@ -144,6 +180,7 @@ export function watchRun(
   open: OpenDatabase,
   url: string,
   workflowId: string,
+  queueNodes: readonly QueueNode[],
   onChange: (run: LiveRun, read: LedgerRead) => void,
 ): RunWatcher {
   /**
@@ -209,6 +246,41 @@ export function watchRun(
     return held;
   };
 
+  /**
+   * What every queue block of this run is doing, on
+   * the connection the tick already holds.
+   *
+   * One read per block rather than one for all of
+   * them: a block's children are found through the
+   * name they register under, and a workflow has
+   * one or two queue blocks rather than dozens.
+   *
+   * This is also the only thing a run draining a
+   * queue says while it drains — the parent records
+   * every child start at once and then waits — so
+   * it is what keeps such a run from being read as
+   * having gone quiet.
+   */
+  const queueCountsOn = async (
+    database: Database,
+  ): Promise<Record<string, QueueCounts> | undefined> => {
+    if (queueNodes.length === 0) return undefined;
+
+    const counts: Record<string, QueueCounts> = {};
+
+    for (const node of queueNodes) {
+      const query = queueCountsQuery(workflowId, node.queuedName);
+      const rows = await database.query<QueueCountsRow>(
+        query.text,
+        query.values,
+      );
+
+      counts[node.nodeId] = toQueueCounts(rows[0]);
+    }
+
+    return counts;
+  };
+
   const readTick = async (): Promise<
     { live: LiveRun; read: LedgerRead } | undefined
   > => {
@@ -236,6 +308,8 @@ export function watchRun(
       const run = toRun(row);
       recovered = recovered || hasRecovered(run);
 
+      const queues = await queueCountsOn(database);
+
       // A watch polls a database and never looked
       // for a document, so the grammar's answer
       // about which block a row names is the only
@@ -243,7 +317,10 @@ export function watchRun(
       const reading = readRun(run, recorded, 'unasked', recovered, Date.now());
 
       return {
-        live: liveRunOf(run, reading),
+        live: {
+          ...liveRunOf(run, reading),
+          ...(queues === undefined ? {} : { queues }),
+        },
         read: { run, steps: recorded },
       };
     } catch {
@@ -282,6 +359,34 @@ export function watchRun(
   timer = setTimeout(() => void tick(), 0);
 
   return { stop };
+}
+
+/** A row of the counting statement, as selected. */
+type QueueCountsRow = {
+  queued: BigIntColumn;
+  delayed: BigIntColumn;
+  active: BigIntColumn;
+  done: BigIntColumn;
+  failed: BigIntColumn;
+};
+
+/**
+ * The five numbers, as `node-postgres` hands them
+ * over.
+ *
+ * The statement is an ungrouped aggregate, so it
+ * answers exactly one row — all zeros for a block
+ * the run has not reached yet. The fallback is for
+ * a driver that answered with none at all.
+ */
+function toQueueCounts(row: QueueCountsRow | undefined): QueueCounts {
+  return {
+    queued: Number(row?.queued ?? 0),
+    delayed: Number(row?.delayed ?? 0),
+    active: Number(row?.active ?? 0),
+    done: Number(row?.done ?? 0),
+    failed: Number(row?.failed ?? 0),
+  };
 }
 
 /**

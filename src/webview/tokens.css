@@ -277,7 +277,8 @@ body {
    activity bar re-points it at the side bar's own
    ground, and a rule keyed on a theme class would
    outrank that. */
-body.vscode-dark {
+body.vscode-dark,
+body.vscode-high-contrast {
   --surface: var(--vscode-editorWidget-background, #1b1e26);
   --ink: var(--vscode-foreground, #e7e9f0);
 
@@ -392,6 +393,9 @@ body.vscode-high-contrast-light {
 .value[data-size='large'] {
   font-size: var(--text-xl);
   line-height: 1.15;
+}
+.value[data-size='small'] {
+  font-size: var(--text-sm);
 }
 
 .value-label {
@@ -610,8 +614,9 @@ body.vscode-high-contrast-light {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  font-weight: 600;
   color: var(--ink);
 }
 
@@ -762,6 +767,62 @@ body.vscode-high-contrast-light {
   margin-right: var(--space-1);
 }
 
+/* The items a queue block started, each of them a
+   run of its own. Here with the rest of the
+   evidence family rather than in either view's own
+   sheet, because the card is drawn by the canvas'
+   column and by the run page's rail and only one of
+   those loads the canvas' sheet. */
+.evidence-recent {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.evidence-recent li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+/* The way to the run an item started. A link
+   rather than a button: it is one of a list of
+   them, and a column of buttons at this size reads
+   as a toolbar. */
+.evidence-recent-run {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  font-family: var(--font-mono);
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.evidence-recent-run:hover {
+  text-decoration: underline;
+}
+
+/* DBOS's own word for where the item got to, so it
+   is set apart from the name beside it rather than
+   coloured — the words are the application's and
+   there are more of them than this panel knows. */
+.evidence-recent-state {
+  flex: none;
+  font-size: var(--text-xs);
+  letter-spacing: var(--label-tracking);
+  color: var(--ink-muted);
+}
+
 /* — lineage — */
 
 /* Where a run came from and what it started. Drawn
@@ -783,9 +844,11 @@ body.vscode-high-contrast-light {
 }
 
 .lineage-id {
+  all: unset;
   font-family: var(--font-mono);
   overflow-wrap: anywhere;
   color: var(--ink);
+  cursor: pointer;
 }
 
 .lineage-child {
@@ -941,7 +1004,7 @@ body.vscode-high-contrast-light {
 .node-title {
   margin: 0;
   font-weight: 600;
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;
@@ -966,6 +1029,22 @@ body.vscode-high-contrast-light {
    fact makes the two read alike across a graph. */
 .node-line[data-line='unassigned'] {
   color: var(--ink-faint);
+}
+/* What a block's children are doing, which is a
+   fact about the block and so is written at the
+   weight of one rather than at the fainter weight
+   above it. In figures that hold their column,
+   because both numbers change on every tick and a
+   line reflowing under them would set the block's
+   own words moving each time it did.
+
+   Here rather than in the canvas' own sheet: the
+   block face this line belongs to is drawn by the
+   editor and by the run page, and only one of the
+   two loads that sheet. */
+.node-line[data-line='counts'] {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* What the run did here, at the end of the row

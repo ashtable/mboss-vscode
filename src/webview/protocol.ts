@@ -12,6 +12,7 @@ import type {
 import type { RunFilter } from '../runs/queries.js';
 import type { RunCounts } from '../runs/rows.js';
 import type { ServiceHealth, StackAction } from '../runs/stack.js';
+import type { QueueEvidence } from '../runs/queueEvidence.js';
 import type { LiveOutcome } from '../runs/reading.js';
 import type { SessionVia } from '../runs/sessionLog.js';
 import type { LiveRun } from '../runs/watch.js';
@@ -51,6 +52,26 @@ import type { sidebarWords } from '../sidebar/words.js';
  * rebuild.
  */
 
+/**
+ * The run a view draws.
+ *
+ * What the watch reads every tick, plus what the
+ * host read once because somebody opened a queue
+ * block's card. The second half is per selection
+ * and not per tick — a watch's budget for a queue
+ * block is one query and it is already spent — so
+ * it rides beside the tick's picture rather than
+ * inside it, and a run nobody has asked about
+ * carries none of it.
+ *
+ * Keyed by block id, because a workflow may hold
+ * more than one queue block and a person may have
+ * opened each of them.
+ */
+export type ShownRun = LiveRun & {
+  queueEvidence?: Record<string, QueueEvidence>;
+};
+
 /** Sent whenever the host has state to show. */
 export type HostMessage =
   CanvasInit | SidebarInit | RunsInit | SeeInit | GalleryInit;
@@ -60,7 +81,7 @@ export type CanvasInit = {
   view: 'canvas';
   strings: CanvasStrings;
 
-  /** What the ten palette entries are called, in
+  /** What the eleven palette entries are called, in
    *  the active locale. */
   paletteLabels: Record<NodeKind, string>;
 
@@ -134,7 +155,7 @@ export type CanvasInit = {
    * alone and is patched over blocks that stay
    * where they are.
    */
-  run: LiveRun | undefined;
+  run: ShownRun | undefined;
 
   /**
    * Which way out each decided block took, read
@@ -712,7 +733,7 @@ export type SeeRun = {
    *  state each block is in, and where the frontier
    *  is. The graph is the document; this is the run
    *  drawn onto it. */
-  live: LiveRun | undefined;
+  live: ShownRun | undefined;
 
   /** The trace, in the turns each block took. */
   groups: TraceGroupView[];
@@ -801,6 +822,12 @@ export type SeeGraph = {
   /** The word after the kind of a block that runs
    *  code nobody has named yet. */
   unassigned: string;
+
+  /** What a queue block's line says while its
+   *  children are moving, with `{0}` for the ones
+   *  running now and `{1}` for the ones still to
+   *  start. */
+  queueCounts: string;
 
   /** `workflow as saved · revision 3`, or the
    *  sentence that says there is no document. */

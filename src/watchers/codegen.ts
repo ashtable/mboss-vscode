@@ -1,6 +1,9 @@
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
+  APP_DIR,
+  REGISTRY_FILE,
   checkWorkflow,
   compileWorkflows,
   controlDir,
@@ -12,6 +15,7 @@ import {
 import type { WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
 import type { Problem } from '../problem.js';
+import { QUEUE_SDK, olderThan, projectSdk } from '../runs/sdk.js';
 
 import { scanProject } from './manifest.js';
 
@@ -118,6 +122,11 @@ export async function generate(project: string): Promise<CodegenResult> {
   }
   const ms = Date.now() - started;
 
+  // Only after a compile that wrote a registry.
+  // The checks below read what is on disk, and a
+  // refused compile left the previous run's there.
+  const setup = compiled.ok ? queueSetup(project) : [];
+
   return {
     ms,
     ok: compiled.ok,
@@ -127,8 +136,121 @@ export async function generate(project: string): Promise<CodegenResult> {
       ...problems,
       ...refusals(compiled.failures, documents, problems),
       ...collateral(compiled.failures, documents),
+      ...setup,
     ],
   };
+}
+
+/**
+ * What a project needs around code that has a
+ * queue in it.
+ *
+ * Both of these are about files the compiler does
+ * not own — the boot mBoss wrote once and the lock
+ * npm writes — so neither is put right here. Each
+ * is said on the file it is about, and the next
+ * generation that finds it dealt with stops saying
+ * it.
+ */
+function queueSetup(project: string): Problem[] {
+  if (!declaresQueues(project)) return [];
+
+  return [...unregisteredQueues(project), ...belowFloor(project)];
+}
+
+/** The line a registry with a queue in it carries.
+ *  The empty list is written out in full on a line
+ *  of its own, which is what tells the two apart —
+ *  and a registry from before queues existed has
+ *  neither. */
+const DECLARES_QUEUES = /^export const queues: QueueEntry\[\] = \[$/m;
+
+/**
+ * Whether the registry that was just written has a
+ * queue in it.
+ *
+ * Read back off disk rather than carried out of
+ * the compile, because the file is what the app's
+ * boot imports `queues` from, and that import is
+ * what the sentence below is about.
+ */
+function declaresQueues(project: string): boolean {
+  const registry = contentsOf(join(project, REGISTRY_FILE));
+
+  return registry !== undefined && DECLARES_QUEUES.test(registry);
+}
+
+/** The two lines a boot written before queues
+ *  existed is missing, in the order they go in. */
+const REGISTER_QUEUES = [
+  "import { registerQueues } from './queues.js';",
+  'await registerQueues(queues);',
+].join(' ');
+
+/**
+ * A boot that never registers the queue its runs
+ * enqueue to.
+ *
+ * mBoss writes `src/app/main.ts` when it creates a
+ * project and never again, so a project older than
+ * queues has neither line and nothing here may add
+ * them. A grep rather than a parse: the question
+ * is whether the call is written in the file at
+ * all, and however somebody has moved it around,
+ * that is what the text answers.
+ */
+function unregisteredQueues(project: string): Problem[] {
+  const file = join(project, APP_DIR, 'main.ts');
+  const boot = contentsOf(file);
+
+  // Nothing to say to a boot that is not there to
+  // read. The sentence is two lines to add to this
+  // file, and there is no file.
+  if (boot === undefined || boot.includes('registerQueues(')) return [];
+
+  return [
+    {
+      file,
+      message: messages.codegenQueuesUnregistered(REGISTER_QUEUES),
+      severity: 'error',
+    },
+  ];
+}
+
+/**
+ * A project whose installed SDK is older than the
+ * code a queue block compiles to.
+ *
+ * Read out of the lockfile, because that is what
+ * the image installed, and reported on
+ * `package.json`, because that is the file
+ * somebody changes. A project that never installed
+ * the SDK, and one with no lockfile at all, are
+ * not answers about a version, so nothing is said
+ * about either.
+ */
+function belowFloor(project: string): Problem[] {
+  const sdk = projectSdk(project);
+
+  if (!sdk.ok || !olderThan(sdk.version, QUEUE_SDK)) return [];
+
+  return [
+    {
+      file: join(project, 'package.json'),
+      message: messages.codegenQueuesNeedSdk(sdk.version),
+      severity: 'error',
+    },
+  ];
+}
+
+/** A file, or nothing where there is no reading
+ *  it. */
+function contentsOf(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return undefined;
+  }
 }
 
 /**

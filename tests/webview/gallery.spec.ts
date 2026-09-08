@@ -28,6 +28,15 @@ const RESEARCH: GalleryCard = {
   demo: false,
 };
 
+const INGESTION: GalleryCard = {
+  name: 'document_ingestion_queued',
+  title: 'Document ingestion on a queue',
+  summary: 'Index every page of an upload as its own run, held by a queue.',
+  tags: ['rag', 'queues', 'uploads', 'rate-limits'],
+  glyphs: ['trigger', 'step', 'codeStep', 'queue'],
+  demo: false,
+};
+
 const REFUNDS: GalleryCard = {
   name: 'refund_approval',
   title: 'Refund approval',
@@ -62,7 +71,7 @@ function galleryInit(over: Partial<GalleryInit> = {}): GalleryInit {
     view: 'gallery',
     strings: galleryStrings,
     groups: [
-      { group: 'ai', cards: [RESEARCH] },
+      { group: 'ai', cards: [RESEARCH, INGESTION] },
       { group: 'backend', cards: [REFUNDS] },
       { group: 'devops', cards: [DEPLOYS] },
     ],
@@ -123,6 +132,32 @@ test.describe('the gallery', () => {
     ]);
   });
 
+  /**
+   * The one card whose picture holds a queue block.
+   * The icon table is keyed by kind and read
+   * without a check, so a kind it has no paths for
+   * is an empty tile at best and a view that never
+   * renders at worst.
+   */
+  test('offers the queued pattern in its group', async ({ page }) => {
+    const harness = await mount(page, 'gallery');
+    await harness.show(galleryInit());
+
+    const card = page.locator(
+      '[data-group="ai"] [data-pattern="document_ingestion_queued"]',
+    );
+
+    await expect(
+      card.locator('[data-glyph="queue"] svg path').first(),
+    ).toBeAttached();
+
+    await card.locator('[data-use]').click();
+
+    expect(await harness.postedOfType('usePattern')).toEqual([
+      { type: 'usePattern', name: 'document_ingestion_queued' },
+    ]);
+  });
+
   test('posts startBlank when Create is clicked', async ({ page }) => {
     const harness = await mount(page, 'gallery');
     await harness.show(galleryInit());
@@ -136,12 +171,12 @@ test.describe('the gallery', () => {
 
   /**
    * The run of glyphs is the card's picture of the
-   * workflow, and it is drawn from the same ten
-   * kinds the palette offers. An eleventh would be
-   * the gallery promising a block this product does
-   * not have.
+   * workflow, and it is drawn from the same kinds
+   * the palette offers. One the palette does not
+   * have would be the gallery promising a block
+   * this product cannot draw.
    */
-  test("draws every card's glyphs from the palette's ten kinds", async ({
+  test("draws every card's glyphs from the palette's kinds", async ({
     page,
   }) => {
     const harness = await mount(page, 'gallery');
@@ -153,7 +188,7 @@ test.describe('the gallery', () => {
         nodes.map((node) => node.getAttribute('data-glyph')),
       );
 
-    expect(drawn).toHaveLength(12);
+    expect(drawn).toHaveLength(16);
 
     for (const glyph of drawn) {
       expect(Object.keys(paletteLabels)).toContain(glyph);

@@ -9,7 +9,7 @@ import { emitter } from '../emitter.js';
 import { messages } from '../messages.js';
 import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { Trust } from '../trust.js';
-import type { RunsInit, SeeInit } from '../webview/protocol.js';
+import type { RunsInit, SeeInit, ShownRun } from '../webview/protocol.js';
 
 import type { OpenDatabase, OpenManagement } from './db.js';
 import { systemDatabaseUrl } from './env.js';
@@ -19,6 +19,7 @@ import { changedFiles } from './freshness.js';
 import type { ProjectSdk } from './sdk.js';
 import { runHistory } from './history.js';
 import { openRunZone } from './openRun.js';
+import { queueEvidenceOf, type QueueEvidence } from './queueEvidence.js';
 import { runQuery, stepsQuery, type RunFilter } from './queries.js';
 import {
   offerReplay,
@@ -186,7 +187,20 @@ export type RunsStore = Disposable & {
 
   /** The run a canvas draws itself against, when
    *  one has been followed. */
-  live(): LiveRun | undefined;
+  live(): ShownRun | undefined;
+
+  /**
+   * Reads what one queue block of that run is doing
+   * beyond the run's own share of it.
+   *
+   * Asked once, when somebody opens the block's
+   * card. Held here rather than in either zone
+   * because one read answers both surfaces that
+   * draw that card — the canvas' column and the run
+   * page's rail — and reading it twice would be two
+   * answers to one question.
+   */
+  inspectQueue(workflowId: string, nodeId: string): Promise<void>;
 
   /** The whole of what one of that run's rows
    *  recorded, for a panel that was sent only the
@@ -371,8 +385,22 @@ export function runsStore(deps: RunsDeps): RunsStore {
     open: deps.open,
     watch: deps.watch,
     ledger: () => history.ledger(),
+    document: (name) => {
+      const dir = project();
+
+      return dir === undefined ? undefined : workflowDocument(dir, name);
+    },
+    // Kept by id rather than as a set of rows: the
+    // same run can be both the one a person has
+    // open and one this session started, and two
+    // rows saying so are one run.
     unsettled: () => [
-      ...new Set([...testRun.unsettled(), ...openRun.unsettled()]),
+      ...new Map(
+        [...testRun.unsettled(), ...openRun.unsettled()].map((run) => [
+          run.workflowId,
+          run,
+        ]),
+      ).values(),
     ],
   });
 
@@ -449,6 +477,53 @@ export function runsStore(deps: RunsDeps): RunsStore {
   );
 
   const project = (): string | undefined => deps.host.projects()[0];
+
+  /**
+   * What has been read about a queue block, under
+   * the run it was read about.
+   *
+   * Window memory and nothing more: it is a picture
+   * of somebody else's database at the moment they
+   * asked, and a run read again is read again.
+   */
+  const queueEvidence = new Map<string, Record<string, QueueEvidence>>();
+
+  /** The run a view draws, with whatever was read
+   *  about the queue blocks of it. */
+  const shownRun = (run: LiveRun | undefined): ShownRun | undefined => {
+    if (run === undefined) return undefined;
+
+    const found = queueEvidence.get(run.workflowId);
+
+    return found === undefined ? run : { ...run, queueEvidence: found };
+  };
+
+  /**
+   * The run one of those ids is about, whichever
+   * surface is asking.
+   *
+   * The canvas draws the run this session started
+   * and the run page draws the one somebody opened,
+   * and they need not be the same run — so both
+   * zones are asked, and an id neither of them
+   * holds is a question about a run this window is
+   * not showing.
+   */
+  const runNamed = (
+    workflowId: string,
+  ): { workflowId: string; workflow: string } | undefined => {
+    const started = testRun.live();
+
+    if (started?.workflowId === workflowId) {
+      return { workflowId, workflow: started.workflow };
+    }
+
+    const opened = openRun.reading()?.run;
+
+    return opened?.workflowId === workflowId
+      ? { workflowId, workflow: opened.name }
+      : undefined;
+  };
 
   /** A stack command, with the problem under the
    *  input box let go of first: Rebuild is what one
@@ -585,9 +660,66 @@ export function runsStore(deps: RunsDeps): RunsStore {
       };
     },
 
-    see: openRun.see,
+    /**
+     * The page, with what was read about any queue
+     * block of the run it is showing put back on
+     * the run it draws.
+     *
+     * Composed here for the reason the list's
+     * marked row is: the read is the store's and
+     * the projection is the zone's, and the zone
+     * that owns the page never asked the question.
+     */
+    see: () => {
+      const page = openRun.see();
+      const run = page.run;
+
+      return run?.live === undefined
+        ? page
+        : { ...page, run: { ...run, live: shownRun(run.live) } };
+    },
+
     detail: openRun.reading,
-    live: testRun.live,
+    live: () => shownRun(testRun.live()),
+
+    /**
+     * One read, kept under the run it was about.
+     *
+     * Nothing is said when the block is not a queue
+     * or the run is not one this window is showing:
+     * a frame may ask about anything, and an answer
+     * about a document this window does not have
+     * would be an answer nobody could check.
+     */
+    inspectQueue: async (workflowId, nodeId) => {
+      const url = history.ledger();
+      const run = runNamed(workflowId);
+      const dir = project();
+      if (url === undefined || run === undefined || dir === undefined) return;
+
+      const ir = workflowDocument(dir, run.workflow);
+      const node = ir?.nodes.find((one) => one.id === nodeId);
+      if (node?.kind !== 'queue') return;
+
+      let found: QueueEvidence;
+
+      try {
+        found = await queueEvidenceOf(deps.open, url, run, node);
+      } catch {
+        // A database that would not answer says
+        // nothing here. The list is what reports on
+        // somebody's database, and a card asking
+        // about a queue is no reason for it to
+        // change what it says.
+        return;
+      }
+
+      queueEvidence.set(workflowId, {
+        ...queueEvidence.get(workflowId),
+        [nodeId]: found,
+      });
+      changes.fire();
+    },
     output: testRun.output,
     decided: testRun.decided,
 

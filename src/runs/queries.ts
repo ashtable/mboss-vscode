@@ -63,6 +63,20 @@ export const FAILED_STATUSES = [
 ] as const;
 
 /**
+ * What counts as still on the queue.
+ *
+ * A delayed child has not been claimed by
+ * anything either — it is waiting out a delay
+ * rather than waiting for a worker — so the
+ * second number on a queue block counts both.
+ * `delayed` counts it once more on its own,
+ * because a block whose items are all sitting out
+ * a delay is a different thing from one whose
+ * items are all waiting for room.
+ */
+export const QUEUED_STATUSES = ['ENQUEUED', 'DELAYED'] as const;
+
+/**
  * What every read of a run selects.
  *
  * An array rather than a joined string, because the
@@ -105,6 +119,26 @@ const SDK_UNPREFIXED = [...SDK_OPERATIONS].filter(
   (name) => !name.startsWith('DBOS.'),
 );
 
+/**
+ * What one item of a queue block is drawn from.
+ *
+ * Qualified, because this is the only read that
+ * joins two tables of DBOS's own and both of them
+ * carry an `error` and a `serialization`.
+ */
+const QUEUE_ITEM_COLUMNS = [
+  's.workflow_uuid',
+  's.status',
+  's.created_at',
+  's.started_at_epoch_ms',
+  's.completed_at',
+  's.error',
+  's.serialization',
+  's.recovery_attempts',
+  's.deduplication_id',
+  's.queue_partition_key',
+].join(', ');
+
 const STEP_COLUMNS = [
   'function_id',
   'function_name',
@@ -115,6 +149,20 @@ const STEP_COLUMNS = [
   'child_workflow_id',
   'serialization',
 ].join(', ');
+
+/**
+ * The fence that keeps the list to the runs
+ * somebody started.
+ *
+ * A queue block's children are runs of their own
+ * in the same table, so a run of fifty items would
+ * otherwise be fifty rows above the run that
+ * started them, and the counts over the segmented
+ * control would say the same. A child is reached
+ * from the block that started it, and the reads
+ * that open one run by id do not carry this.
+ */
+const TOP_LEVEL = 'parent_workflow_id IS NULL';
 
 /**
  * The runs one filter shows, newest first.
@@ -190,7 +238,7 @@ export function countsQuery(): Query {
       'SELECT count(*) AS all_runs, ' +
       'count(*) FILTER (WHERE status = ANY($1)) AS failed_runs, ' +
       'count(*) FILTER (WHERE recovery_attempts > $2) AS recovered_runs ' +
-      'FROM dbos.workflow_status',
+      `FROM dbos.workflow_status WHERE ${TOP_LEVEL}`,
     values: [FAILED_STATUSES, FIRST_DISPATCH],
   };
 }
@@ -227,7 +275,7 @@ export function latestRunQuery(workflow: string, since: number): Query {
   return {
     text:
       'SELECT workflow_uuid FROM dbos.workflow_status ' +
-      'WHERE name = $1 AND created_at >= $2 ' +
+      `WHERE name = $1 AND created_at >= $2 AND ${TOP_LEVEL} ` +
       'ORDER BY created_at DESC LIMIT 1',
     values: [workflow, since],
   };
@@ -282,6 +330,121 @@ export function stepsQuery(workflowId: string): Query {
   };
 }
 
+/**
+ * The children one queue block started, found
+ * through the starts the parent recorded.
+ *
+ * Never through the child's own
+ * `parent_workflow_id`: where a colliding item
+ * returns the run that already exists, that child
+ * was started by an earlier run and its parent
+ * column names that one — so a read by parent
+ * would miss exactly the items deduplication is
+ * for.
+ *
+ * `$2` is the name the block's children are
+ * registered under, which is what the parent
+ * recorded its start of each of them as.
+ */
+const BLOCK_CHILDREN =
+  'FROM dbos.operation_outputs o ' +
+  'JOIN dbos.workflow_status s ' +
+  'ON s.workflow_uuid = o.child_workflow_id ' +
+  'WHERE o.workflow_uuid = $1 AND o.function_name = $2';
+
+/**
+ * The most recent items one queue block started.
+ *
+ * Ordered by the number the parent gave the start
+ * and never by time, for the reason the step read
+ * is: a row restored from the ledger keeps the
+ * timestamps it was first written with.
+ */
+export function queueItemsQuery(
+  parentId: string,
+  queuedName: string,
+  limit: number,
+): Query {
+  return {
+    text:
+      `SELECT ${QUEUE_ITEM_COLUMNS} ${BLOCK_CHILDREN} ` +
+      'ORDER BY o.function_id DESC LIMIT $3',
+    values: [parentId, queuedName, limit],
+  };
+}
+
+/** What one queue block is doing, in the five
+ *  numbers its line and its card are drawn from. */
+export function queueCountsQuery(parentId: string, queuedName: string): Query {
+  return {
+    text:
+      'SELECT count(*) FILTER (WHERE s.status = ANY($3)) AS queued, ' +
+      "count(*) FILTER (WHERE s.status = 'DELAYED') AS delayed, " +
+      "count(*) FILTER (WHERE s.status = 'PENDING') AS active, " +
+      "count(*) FILTER (WHERE s.status = 'SUCCESS') AS done, " +
+      'count(*) FILTER (WHERE s.status = ANY($4)) AS failed ' +
+      BLOCK_CHILDREN,
+    values: [parentId, queuedName, QUEUED_STATUSES, FAILED_STATUSES],
+  };
+}
+
+/**
+ * What a whole queue is doing, across every
+ * workflow that enqueues onto it.
+ *
+ * The failed set bound here is `ERROR` alone,
+ * where the block's own counts bind all three.
+ * DBOS clears `queue_name` and
+ * `started_at_epoch_ms` together on exactly the
+ * two failures that are not `ERROR` — a cancel and
+ * a dead-letter each do both — while a success or
+ * an error leaves both alone. So this window is
+ * over the children still on the queue: it counts
+ * the errored ones and no others, and its
+ * `started` count loses a child later cancelled or
+ * dead-lettered. Binding the whole failed set here
+ * would promise a coverage the column cannot give.
+ * The block's own counts are immune, because they
+ * find their children through the parent's
+ * child-start rows rather than through
+ * `queue_name`.
+ */
+export function queueWindowQuery(
+  queueName: string,
+  sinceEpochMs: number,
+): Query {
+  return {
+    text:
+      'SELECT count(*) FILTER (WHERE status = ANY($2)) AS queued, ' +
+      "count(*) FILTER (WHERE status = 'PENDING') AS active, " +
+      'count(*) FILTER (WHERE started_at_epoch_ms >= $3) AS started, ' +
+      'count(*) FILTER (WHERE status = ANY($4) AND completed_at >= $3) ' +
+      'AS failed_recently ' +
+      'FROM dbos.workflow_status WHERE queue_name = $1',
+    values: [queueName, QUEUED_STATUSES, sinceEpochMs, ['ERROR']],
+  };
+}
+
+/**
+ * One queue as the app actually registered it.
+ *
+ * The document says what the limits were meant to
+ * be; this says what the running app registered,
+ * which is the only place the two can be told
+ * apart.
+ */
+export function queueRegisteredQuery(queueName: string): Query {
+  return {
+    text:
+      'SELECT name, concurrency, worker_concurrency, rate_limit_max, ' +
+      'rate_limit_period_sec, partition_queue, partition_concurrency, ' +
+      'partition_worker_concurrency, partition_rate_limit_max, ' +
+      'partition_rate_limit_period_sec, polling_interval_sec ' +
+      'FROM dbos.queues WHERE name = $1',
+    values: [queueName],
+  };
+}
+
 /** The clause one filter adds, what it binds, and
  *  the placeholder it starts numbering from. */
 function whereFor(
@@ -290,7 +453,7 @@ function whereFor(
 ): { text: string; values: unknown[] } {
   if (filter === 'failed') {
     return {
-      text: `WHERE status = ANY($${from}) `,
+      text: `WHERE status = ANY($${from}) AND ${TOP_LEVEL} `,
       values: [FAILED_STATUSES],
     };
   }
@@ -300,12 +463,12 @@ function whereFor(
   // every run in the database has at least one.
   if (filter === 'recovered') {
     return {
-      text: `WHERE recovery_attempts > $${from} `,
+      text: `WHERE recovery_attempts > $${from} AND ${TOP_LEVEL} `,
       values: [FIRST_DISPATCH],
     };
   }
 
-  return { text: '', values: [] };
+  return { text: `WHERE ${TOP_LEVEL} `, values: [] };
 }
 
 /**
@@ -325,4 +488,8 @@ export const ALL_QUERIES: readonly Query[] = [
   forksQuery('wf_c9d2f3'),
   stepsQuery('wf_c9d2f3'),
   latestRunQuery('groom_booking', 0),
+  queueItemsQuery('wf_c9d2f3', 'index_pages.queued.ingest', 20),
+  queueCountsQuery('wf_c9d2f3', 'index_pages.queued.ingest'),
+  queueWindowQuery('document-index', 0),
+  queueRegisteredQuery('document-index'),
 ];

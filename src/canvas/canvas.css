@@ -513,7 +513,7 @@ button.lib-fn {
 }
 /* The one edge that means "again". */
 .react-flow__edge .wire-back {
-  stroke-dasharray: 6 5;
+  stroke-dasharray: none;
 }
 
 /* Nothing to see: the arrowheads live in here, and
@@ -719,10 +719,80 @@ button.lib-fn {
   border-top: 1px solid var(--hairline);
 }
 
+/* One form asks for more label than 8.5ch. A
+   queue's four limits are told apart by the scope
+   in their names, and a scope is no use cut in
+   half — `worker concurrency / partition` in the
+   narrow column is four stacked fragments beside a
+   one-line box. */
+.fields[data-labels='wide'] .field {
+  grid-template-columns: 12ch 1fr;
+}
+
 /* A group's label belongs at the top of the group,
    not floating halfway down the side of it. */
 .field[data-control='rows'] {
   align-items: start;
+}
+
+/* And so does a label on a field carrying a
+   sentence under its box. */
+.field[data-noted] {
+  align-items: start;
+}
+
+/* A header over the fields after it. It spans the
+   row rather than sitting in the label column,
+   because it names a group rather than the value
+   beside it, and it takes the space above that the
+   hairline alone does not give. */
+.field[data-control='section'] {
+  display: block;
+  padding-top: var(--space-3);
+}
+
+/* The whole header is the target. Only what a
+   button brings is reset here, so the type
+   treatment stays `.section-label`'s. */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The marker turns rather than swapping shape, so
+   folding and opening are one thing a person
+   watches move. It is turned by `aria-expanded`,
+   which is where the fold is already said. */
+.section-mark {
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--ink-muted);
+  transform: rotate(-90deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.section-head[aria-expanded='true'] .section-mark {
+  transform: none;
+}
+
+/* What a group or a field needs saying about it
+   that is not a value: which process a limit holds
+   back, or what core says is wrong with what is
+   typed above. Under the thing it is about, in the
+   quiet the rest of the column's prose is set in. */
+.field-note {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--ink-muted);
 }
 
 .field-name {
@@ -840,12 +910,18 @@ button.lib-fn {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--r-sm);
   background: var(--info-tint);
-  color: var(--ink-muted);
+  color: var(--ink-soft);
   font-size: var(--text-xs);
 }
 .callout strong {
   margin-right: 6px;
   color: var(--info);
+}
+.callout[data-tone='warn'] {
+  background: var(--warn-tint);
+}
+.callout[data-tone='warn'] strong {
+  color: var(--warn);
 }
 
 /* A repeating group — a branch's cases, a form's

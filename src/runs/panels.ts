@@ -220,6 +220,13 @@ export class SeePanel {
         // row.
         if (message.type === 'askAgent') void this.store.askAgent(message);
 
+        // The run travels with the block here too:
+        // a card may be drawing a run the extension
+        // has since moved past.
+        if (message.type === 'inspectQueue') {
+          void this.store.inspectQueue(message.workflowId, message.nodeId);
+        }
+
         if (message.type === 'seeNode') this.store.selectNode(message.nodeId);
         if (message.type === 'seeShow') this.store.showTab(message.tab);
         if (message.type === 'seeRaw') this.store.showRaw(message.raw);

@@ -63,13 +63,33 @@ function registeredTools(): string[] {
   return manifest.tools.map((tool) => tool.name).sort();
 }
 
+/** The reference file that carries the skill's
+ *  worked documents. */
+const EXAMPLES = 'references/ir-examples.md';
+
 describe('the vendored MCP server', () => {
   const clients: Client[] = [];
+  const vendor = shippedVendor(realExtensionRoot());
   let project: string;
 
-  beforeAll(async () => {
-    const vendor = shippedVendor(realExtensionRoot());
+  /**
+   * Every document the skill shows an agent, read
+   * out of the copy that ships beside the bundle.
+   *
+   * Fenced JSON, because that is what an agent
+   * reading the file gets, and a block it cannot
+   * parse is one it cannot copy either.
+   */
+  const workedDocuments = (): { name: string }[] => {
+    const examples =
+      vendor.skill().find((file) => file.path === EXAMPLES)?.contents ?? '';
 
+    return [...examples.matchAll(/^```json\n([\s\S]*?)\n```$/gm)].map(
+      (block) => JSON.parse(block[1] ?? '') as { name: string },
+    );
+  };
+
+  beforeAll(async () => {
     // Resolved, because the server answers with the
     // paths it walked to and a temporary directory
     // on this platform is reached through a symlink.
@@ -132,6 +152,94 @@ describe('the vendored MCP server', () => {
       name: 'smoke',
       path: join(project, '.mboss', 'workflows', 'smoke.workflow.json'),
     });
+  });
+
+  /**
+   * The newest kind, put to both surfaces that read
+   * it.
+   *
+   * A queue block reaches a bundle three pins deep:
+   * this repository nests the server, the server
+   * nests core, and the bundle is built from that
+   * inner checkout. Only the outer two are visible
+   * here, and neither moves the inner one — so the
+   * canvas can draw a block the shipped server
+   * cannot read, and the refusal arrives at an
+   * agent, mid-edit, about a document a person made
+   * by hand.
+   */
+  const INDEX_ITEMS = {
+    id: 'index_items',
+    title: 'Index each item',
+    kind: 'queue',
+    config: { itemsPath: 'items', queue: { name: 'document-index' } },
+  };
+
+  const INDEXING_BATCH = {
+    title: 'A sample',
+    nodes: [
+      {
+        id: 'start',
+        title: 'Start',
+        kind: 'trigger',
+        config: { mode: 'manual' },
+      },
+      INDEX_ITEMS,
+    ],
+    edges: [{ id: 'e1', from: { node: 'start' }, to: { node: 'index_items' } }],
+  };
+
+  it('reads the queue block the canvas draws', async () => {
+    // What the canvas reads: the core this
+    // repository nests.
+    expect(NodeSchema.parse(INDEX_ITEMS)).toMatchObject({ kind: 'queue' });
+
+    // And the shipped server, which carries a core
+    // of its own, nested inside the file it ships.
+    const checked = await (
+      await connect()
+    ).callTool({
+      name: 'workflow_validate',
+      arguments: { spec: INDEXING_BATCH },
+    });
+
+    expect(checked.isError ?? false).toBe(false);
+    expect(checked.structuredContent).toMatchObject({ valid: true });
+  });
+
+  /**
+   * And every document the skill beside it teaches.
+   *
+   * The pair ships together and is pinned twice,
+   * bumped by hand, on two different days — and the
+   * skill is the half that moves cheaply, being
+   * text that fails no build. A document it holds
+   * up as an example that the bundle then refuses
+   * is an agent copying from its own instructions
+   * and being told the result is invalid.
+   *
+   * Refusal is the assertion rather than the
+   * verdict: the examples name handlers that this
+   * project has no code for, which is a finding
+   * about the project and not about the document.
+   */
+  it('reads every document the skill teaches', async () => {
+    const documents = workedDocuments();
+    expect(documents.length).toBeGreaterThan(0);
+
+    const client = await connect();
+    const refused: string[] = [];
+
+    for (const document of documents) {
+      const checked = await client.callTool({
+        name: 'workflow_validate',
+        arguments: { spec: document },
+      });
+
+      if (checked.isError === true) refused.push(document.name);
+    }
+
+    expect(refused).toEqual([]);
   });
 
   /**

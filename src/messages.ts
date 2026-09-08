@@ -1055,6 +1055,39 @@ export const messages = {
   codegenNotRegenerated: (name: string, other: string) =>
     l10n.t('`{0}` was not regenerated: `{1}` was refused.', name, other),
 
+  /**
+   * Said on the boot of a project made before
+   * queues existed.
+   *
+   * mBoss writes `src/app/main.ts` when it creates
+   * a project and never touches it again, so the
+   * two lines are named rather than added. Without
+   * them the queue is never registered, and the
+   * rows a run enqueues wait for ever with nothing
+   * anywhere saying why.
+   */
+  codegenQueuesUnregistered: (lines: string) =>
+    l10n.t(
+      'This project has a queue and nothing here registers it. Add these two lines, the call below `DBOS.launch()`: {0}',
+      lines,
+    ),
+
+  /**
+   * Said on `package.json`, about what the lockfile
+   * pins.
+   *
+   * A queue block compiles to enqueue options the
+   * older client has no fields for, so the code is
+   * written and cannot run. On the manifest rather
+   * than the lock because the manifest is the file
+   * somebody edits.
+   */
+  codegenQueuesNeedSdk: (version: string) =>
+    l10n.t(
+      'A queue needs `@dbos-inc/dbos-sdk` 4.27.6 or newer. This project is locked at {0}.',
+      version,
+    ),
+
   documentUnreadable: (detail: string) =>
     l10n.t('This file is not a workflow document: {0}', detail),
   codeBehindUnreadable: (detail: string) =>

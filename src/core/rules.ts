@@ -29,10 +29,12 @@
 export {
   DEFAULT_RETRY,
   EdgeSchema,
+  EnqueuePolicySchema,
   NODE_PALETTE,
   NodeKindSchema,
   NodeSchema,
   PositionSchema,
+  QueuePolicySchema,
   RetrySchema,
   WorkflowIRSchema,
   WorkflowNameSchema,
@@ -54,6 +56,7 @@ export type {
   NodePaletteGroup,
   Position,
   Predicate,
+  QueuePolicy,
   Retry,
   WorkflowEdge,
   WorkflowIR,
@@ -101,7 +104,11 @@ export type {
 // lets a frame drawing a run parse the names off
 // the ledger itself instead of asking the host
 // about every row.
-export { SDK_OPERATIONS, ownerOf } from '../../mboss-core/src/compile/names.js';
+export {
+  SDK_OPERATIONS,
+  ownerOf,
+  queuedWorkflowName,
+} from '../../mboss-core/src/compile/names.js';
 
 export type {
   Owner,

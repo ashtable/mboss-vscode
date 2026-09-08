@@ -469,7 +469,7 @@ body {
 .run-copy {
   position: absolute;
   top: var(--space-2);
-  right: var(--space-2);
+  right: calc(var(--space-2) + 20px);
   border: none;
   border-radius: var(--r-sm);
   background: transparent;
@@ -479,11 +479,13 @@ body {
   padding: 2px 4px;
   cursor: pointer;
   opacity: 0;
+  pointer-events: none;
 }
 
 .run-item:hover .run-copy,
 .run-copy:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 
 /* Under the copy button rather than beside it: the
@@ -548,16 +550,23 @@ body {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
+  min-width: 0;
 }
 
 .run-id {
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .run-name {
   font-size: var(--text-sm);
   color: color-mix(in srgb, var(--ink) 65%, transparent);
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .run-mark {
@@ -572,6 +581,12 @@ body {
 }
 
 .run-row[data-severity='running'] .run-mark {
+  color: var(--warn);
+}
+.run-row[data-severity='ok'] .run-mark {
+  color: var(--ok);
+}
+.run-row[data-severity='waiting'] .run-mark {
   color: var(--warn);
 }
 
@@ -603,7 +618,10 @@ body {
 .run-lineage {
   font-size: var(--text-sm);
   color: var(--ink-muted);
-  overflow-wrap: anywhere;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* The failure says what it was on the row, because

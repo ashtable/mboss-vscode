@@ -34,6 +34,18 @@ import { join } from 'node:path';
  */
 export const EXTENSION_SDK = '4.27.6';
 
+/**
+ * The first SDK a queue block's code runs on.
+ *
+ * The same version as the constant above today and
+ * a different decision: that one is what this
+ * extension ships and moves whenever this
+ * extension upgrades, this one is when the SDK
+ * grew the enqueue options a queue compiles to. A
+ * project has to meet this one and nothing else.
+ */
+export const QUEUE_SDK = '4.27.6';
+
 export type ProjectSdk =
   | { ok: true; version: string }
   | { ok: false; because: 'no-lockfile' | 'not-locked' };
@@ -122,6 +134,30 @@ function tripleOf(version: string): Triple | undefined {
   if (found === null) return undefined;
 
   return [Number(found[1]), Number(found[2]), Number(found[3])];
+}
+
+/**
+ * Whether a version is behind one that something
+ * needs.
+ *
+ * Across the major as well, which is the one way
+ * this differs from the skew above: a floor is a
+ * floor whichever major a project is on.
+ *
+ * Anything that does not read as a version is
+ * behind nothing. This is asked to decide whether
+ * to tell somebody their project is too old, and a
+ * version string nobody can parse is not evidence
+ * that it is.
+ */
+export function olderThan(version: string, floor: string): boolean {
+  const here = tripleOf(version);
+  const there = tripleOf(floor);
+
+  if (here === undefined || there === undefined) return false;
+  if (here[0] !== there[0]) return here[0] < there[0];
+
+  return newer(there, here);
 }
 
 function newer(here: Triple, there: Triple): boolean {

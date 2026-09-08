@@ -9,7 +9,13 @@ import type { ManagementClient } from '../runs/manage.js';
 import type { RunRequest, RunStart, RunStarter } from '../runs/runner.js';
 import type { StackController, StackStatus } from '../runs/stack.js';
 import type { RunsHost } from '../runs/store.js';
-import type { LedgerRead, LiveRun, LiveStep, RunWatch } from '../runs/watch.js';
+import type {
+  LedgerRead,
+  LiveRun,
+  LiveStep,
+  QueueNode,
+  RunWatch,
+} from '../runs/watch.js';
 
 /**
  * The runs panel's collaborators, faked one at a
@@ -289,12 +295,17 @@ export function echoing(): { requests: RunRequest[]; start: RunStarter } {
 }
 
 export function watcher(): {
-  armed: { workflowId: string; stopped: boolean }[];
+  armed: {
+    workflowId: string;
+    queueNodes: readonly QueueNode[];
+    stopped: boolean;
+  }[];
   say(workflowId: string, run: LiveRun, read?: LedgerRead): void;
   watch: RunWatch;
 } {
   const armed: {
     workflowId: string;
+    queueNodes: readonly QueueNode[];
     stopped: boolean;
     onChange: (run: LiveRun, read: LedgerRead) => void;
   }[] = [];
@@ -306,8 +317,8 @@ export function watcher(): {
         if (held.workflowId === workflowId) held.onChange(run, read);
       }
     },
-    watch: (_open, _url, workflowId, onChange) => {
-      const held = { workflowId, stopped: false, onChange };
+    watch: (_open, _url, workflowId, queueNodes, onChange) => {
+      const held = { workflowId, queueNodes, stopped: false, onChange };
       armed.push(held);
 
       return {

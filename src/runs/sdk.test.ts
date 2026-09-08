@@ -11,7 +11,13 @@ import {
   readJson,
 } from '../test-support/repo.js';
 
-import { EXTENSION_SDK, projectSdk, sdkSkew } from './sdk.js';
+import {
+  EXTENSION_SDK,
+  QUEUE_SDK,
+  olderThan,
+  projectSdk,
+  sdkSkew,
+} from './sdk.js';
 
 /**
  * Which DBOS is on each side of the wire.
@@ -170,6 +176,55 @@ describe('what the difference costs', () => {
   it('refuses two different majors', () => {
     expect(sdkSkew('4.27.6', '5.0.1')).toBe('major-differs');
     expect(sdkSkew('3.9.9', '4.0.0')).toBe('major-differs');
+  });
+});
+
+/**
+ * A floor is a different question from the skew
+ * above: not whether the two sides agree, but
+ * whether one side is old enough that a particular
+ * thing cannot work on it at all.
+ */
+describe('what a queue needs underneath it', () => {
+  it('says a project behind the floor is behind it', () => {
+    expect(olderThan('4.25.14', QUEUE_SDK)).toBe(true);
+  });
+
+  it('says the floor itself is not behind it', () => {
+    expect(olderThan(QUEUE_SDK, QUEUE_SDK)).toBe(false);
+    expect(olderThan('4.28.0', QUEUE_SDK)).toBe(false);
+  });
+
+  /** The one comparison a sort of the two strings
+   *  gets backwards. */
+  it('reads the numbers rather than the text', () => {
+    expect(olderThan('4.9.0', '4.27.6')).toBe(true);
+  });
+
+  /**
+   * Across the major too. A floor is a floor
+   * whichever major a project is on, which is the
+   * one way this differs from the skew.
+   */
+  it('takes an older major as behind and a newer one as not', () => {
+    expect(olderThan('3.30.0', QUEUE_SDK)).toBe(true);
+    expect(olderThan('5.0.0', QUEUE_SDK)).toBe(false);
+  });
+
+  /** Read to decide whether to say something is
+   *  wrong, so an answer nobody can parse says
+   *  nothing. */
+  it('says nothing it cannot read is behind anything', () => {
+    expect(olderThan('workspace:*', QUEUE_SDK)).toBe(false);
+  });
+
+  /**
+   * A project created today has to clear the floor
+   * on the day it is created, or every new project
+   * with a queue in it starts out told off.
+   */
+  it('is met by what a fresh project installs', () => {
+    expect(olderThan(scaffoldRange().replace('^', ''), QUEUE_SDK)).toBe(false);
   });
 });
 

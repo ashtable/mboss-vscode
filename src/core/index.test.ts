@@ -24,6 +24,7 @@ import {
   type UsePatternOutcome,
 } from './index.js';
 import * as fromIndex from './index.js';
+import * as fromRules from './rules.js';
 import { paletteLabels } from '../canvas/words.js';
 import {
   makeProject,
@@ -319,8 +320,27 @@ describe('the boundary', () => {
     expect(fromIndex.blankSpec).toBe(fromCore.blankSpec);
     expect(fromIndex.patternSpec).toBe(fromCore.patternSpec);
     expect(fromIndex.WorkflowNameSchema).toBe(fromCore.WorkflowNameSchema);
+    expect(fromIndex.APP_DIR).toBe(fromCore.APP_DIR);
     expect(fromIndex.CONTAINER_APP_DIR).toBe(fromCore.CONTAINER_APP_DIR);
     expect(fromIndex.LIB_DIR).toBe(fromCore.LIB_DIR);
+    expect(fromIndex.REGISTRY_FILE).toBe(fromCore.REGISTRY_FILE);
+  });
+
+  /**
+   * The browser-safe slice the same way, and it
+   * needs saying twice: the slice reaches past the
+   * barrel by relative path, so nothing but this
+   * holds the two specifiers to one function.
+   *
+   * A frame naming a queue's child workflow, or
+   * reading a queue policy off a document, has to
+   * name it the way the generator named it. A copy
+   * of either would agree today.
+   */
+  it('carries them on the browser-safe side too', () => {
+    expect(fromRules.QueuePolicySchema).toBe(fromCore.QueuePolicySchema);
+    expect(fromRules.EnqueuePolicySchema).toBe(fromCore.EnqueuePolicySchema);
+    expect(fromRules.queuedWorkflowName).toBe(fromCore.queuedWorkflowName);
   });
 
   /**

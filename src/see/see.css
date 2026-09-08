@@ -407,6 +407,9 @@ body {
   flex-direction: column;
   gap: var(--space-2);
 }
+.controls > .btn {
+  align-self: start;
+}
 
 .control-line {
   margin: 0;
@@ -418,6 +421,7 @@ body {
 }
 
 .control-name {
+  font-weight: 600;
   font-size: var(--text-xs);
   letter-spacing: var(--label-tracking);
   text-transform: uppercase;
@@ -577,6 +581,36 @@ body {
   font-size: var(--text-sm);
   color: var(--fail);
   overflow-wrap: anywhere;
+}
+
+/* The id of the run one item of a block started,
+   under the row that started it. Its own control
+   rather than part of that row, because the row
+   already picks the operation and one click may
+   only mean one thing. Plain ink and not a colour:
+   colour on this surface says what a run did, and
+   where a person may go is not that. */
+.trace-child {
+  display: block;
+  margin: 0 0 2px var(--space-4);
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.trace-child:hover {
+  text-decoration: underline;
+}
+
+.trace-child:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, var(--brand));
+  outline-offset: -2px;
 }
 
 /* What the run was started with, cut like a cell. */

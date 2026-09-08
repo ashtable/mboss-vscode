@@ -8,10 +8,12 @@ import {
   NodeSchema,
   WorkflowIRSchema,
   type NodeKind,
+  type WorkflowIR,
   type WorkflowNode,
 } from '../../core/rules.js';
 
-import { inspectorWords } from '../words.js';
+import { editFor } from '../edits.js';
+import { inspectorWords, paletteLabels } from '../words.js';
 
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
 
@@ -30,19 +32,33 @@ import { configToForm, formToConfig, type InspectorField } from './forms.js';
  * fails it.
  */
 
-const ir = WorkflowIRSchema.parse(
-  JSON.parse(
-    readFileSync(
-      fileURLToPath(
-        new URL(
-          '../../../mboss-core/fixtures/ir/groom_booking.workflow.json',
-          import.meta.url,
-        ),
+function document(path: string): WorkflowIR {
+  return WorkflowIRSchema.parse(
+    JSON.parse(
+      readFileSync(
+        fileURLToPath(new URL(`../../../${path}`, import.meta.url)),
+        'utf8',
       ),
-      'utf8',
     ),
-  ),
+  );
+}
+
+const ir = document('mboss-core/fixtures/ir/groom_booking.workflow.json');
+
+/** The one pattern the library ships with a queue
+ *  in it, which is where a real queue's config is
+ *  written down. */
+const queued = document(
+  'mboss-core/src/patterns/library/document_ingestion_queued/' +
+    'document_ingestion_queued.workflow.json',
 );
+
+function queueNodeOf(from: WorkflowIR): WorkflowNode {
+  const node = from.nodes.find((one) => one.kind === 'queue');
+  expect(node).toBeDefined();
+
+  return node!;
+}
 
 /**
  * One node per shape a kind can take, so that a
@@ -104,6 +120,41 @@ const SAMPLES: readonly WorkflowNode[] = [
         { port: 'refuse', when: { path: '', op: 'eq', value: 'refuse' } },
       ],
       elsePort: 'hold',
+    },
+  }),
+  NodeSchema.parse({
+    id: 'index_pages',
+    kind: 'queue',
+    title: 'Index each page',
+    handler: { export: 'indexPage' },
+    config: {
+      itemsPath: 'pages',
+      queue: { name: 'document-index', globalConcurrency: 8 },
+      enqueue: { deduplicationPath: 'documentId' },
+    },
+  }),
+  // The other half of the queue's two policy
+  // models: a block held back per partition, with
+  // every advanced knob set, so the fields only a
+  // partitioned queue offers are reachable from
+  // this list too.
+  NodeSchema.parse({
+    id: 'fan_out_orders',
+    kind: 'queue',
+    title: 'Work each order',
+    handler: { export: 'processOrder' },
+    config: {
+      itemsPath: 'orders',
+      queue: {
+        name: 'order-work',
+        globalConcurrency: 20,
+        partitionConcurrency: 2,
+        partitionWorkerConcurrency: 1,
+        partitionRateLimit: { limitPerPeriod: 30, periodSec: 1 },
+        minPollingIntervalMs: 250,
+        onConflict: 'never_update',
+      },
+      enqueue: { priority: 5, delaySeconds: 10, partitionPath: 'customerId' },
     },
   }),
   NodeSchema.parse({
@@ -216,6 +267,7 @@ function set(
       case 'picker':
         return { ...field, value: value === null ? undefined : String(value) };
       case 'rows':
+      case 'section':
         return field;
     }
   });
@@ -468,6 +520,241 @@ describe('a branch', () => {
 });
 
 /**
+ * A queue block carries two policy models, and they
+ * are not one another's scope: what the queue is
+ * registered with, once, and what each item's
+ * enqueue is given. So the form is three groups
+ * rather than one list of twenty boxes, and no
+ * label says a bare "concurrency" — three of the
+ * four limits would answer to it.
+ */
+describe('a queue block', () => {
+  const ids = (node: WorkflowNode): string[] =>
+    fieldsOf(node).map((field) => field.id);
+
+  /**
+   * One field committed on its own, which is what
+   * the column does: a menu writes the moment it
+   * changes, and the rest of the form does not go
+   * with it.
+   */
+  const commit = (
+    node: WorkflowNode,
+    id: string,
+    value: string | number | null,
+  ): WorkflowNode =>
+    formToConfig(
+      node,
+      set(fieldsOf(node), id, value).filter((field) => field.id === id),
+    );
+
+  /** The unpartitioned sample, with one of its two
+   *  policies changed. */
+  const queueWith = (over: {
+    queue?: object;
+    enqueue?: object;
+  }): WorkflowNode =>
+    NodeSchema.parse({
+      id: 'index_pages',
+      kind: 'queue',
+      title: 'Index each page',
+      config: {
+        itemsPath: 'pages',
+        queue: { name: 'document-index', ...over.queue },
+        enqueue: { ...over.enqueue },
+      },
+    });
+
+  it('reads back both policies, and the advanced knobs under them', () => {
+    expect(ids(sample('index_pages'))).toEqual([
+      'title',
+      'in',
+      'out',
+      'handler',
+      'retryMaxAttempts',
+      'retryIntervalSeconds',
+      'retryBackoffRate',
+
+      'queuePolicy',
+      'queueName',
+      'globalConcurrency',
+      'workerConcurrency',
+      'rateLimitPer',
+      'rateLimitSec',
+      'partitioning',
+
+      'enqueuePolicy',
+      'itemsPath',
+      'itemType',
+      'priority',
+      'delaySeconds',
+      'deduplicationPath',
+
+      'advanced',
+      'partitionWorkerConcurrency',
+      'partitionRateLimitPer',
+      'partitionRateLimitSec',
+      'minPollingIntervalMs',
+      'onConflict',
+    ]);
+  });
+
+  it('reads what the block says into them', () => {
+    const node = sample('fan_out_orders');
+
+    expect(find(node, 'queueName')).toMatchObject({
+      control: 'text',
+      value: 'order-work',
+    });
+    expect(find(node, 'globalConcurrency')).toMatchObject({ value: 20 });
+    expect(find(node, 'itemsPath')).toMatchObject({ value: 'orders' });
+    expect(find(node, 'priority')).toMatchObject({ value: 5 });
+    expect(find(node, 'partitionRateLimitPer')).toMatchObject({ value: 30 });
+    expect(find(node, 'partitionRateLimitSec')).toMatchObject({ value: 1 });
+    expect(find(node, 'minPollingIntervalMs')).toMatchObject({ value: 250 });
+    expect(find(node, 'onConflict')).toMatchObject({
+      control: 'choice',
+      value: 'never_update',
+    });
+    expect(find(sample('index_pages'), 'onConflict')).toMatchObject({
+      value: 'unset',
+    });
+  });
+
+  it('opens a group per policy, the last of them folded', () => {
+    expect(
+      fieldsOf(sample('index_pages')).filter(
+        (field) => field.control === 'section',
+      ),
+    ).toEqual([
+      { id: 'queuePolicy', control: 'section', collapsed: false },
+      { id: 'enqueuePolicy', control: 'section', collapsed: false },
+      { id: 'advanced', control: 'section', collapsed: true },
+    ]);
+  });
+
+  /** The same three fields the SDK reads to decide
+   *  the question, so the form and the app cannot
+   *  disagree about whether a queue is partitioned. */
+  it('reads partitioning on from any one of the three limits', () => {
+    const limits = [
+      { partitionConcurrency: 2 },
+      { partitionWorkerConcurrency: 1 },
+      { partitionRateLimit: { limitPerPeriod: 5, periodSec: 1 } },
+    ];
+
+    for (const limit of limits) {
+      expect(find(queueWith({ queue: limit }), 'partitioning')).toMatchObject({
+        value: 'on',
+      });
+    }
+
+    expect(find(sample('index_pages'), 'partitioning')).toMatchObject({
+      value: 'off',
+    });
+  });
+
+  it('offers the per-partition fields only while it is partitioned', () => {
+    expect(ids(sample('index_pages'))).not.toContain('partitionConcurrency');
+    expect(ids(sample('index_pages'))).not.toContain('partitionPath');
+
+    expect(ids(sample('fan_out_orders'))).toContain('partitionConcurrency');
+    expect(ids(sample('fan_out_orders'))).toContain('partitionPath');
+  });
+
+  /** Turning it on has to write a limit, or the
+   *  answer would read back `off` the moment it was
+   *  given. */
+  it('holds one item back per partition when it is turned on', () => {
+    const on = commit(sample('index_pages'), 'partitioning', 'on');
+
+    expect(on.config).toMatchObject({ queue: { partitionConcurrency: 1 } });
+    expect(find(on, 'partitioning')).toMatchObject({ value: 'on' });
+    expect(() => NodeSchema.parse(on)).not.toThrow();
+  });
+
+  /** And turning it off takes the key with the
+   *  limits: a partition key on a queue nothing is
+   *  partitioned by is read by nobody. */
+  it('drops all three limits and the partition key when it is turned off', () => {
+    const off = commit(sample('fan_out_orders'), 'partitioning', 'off');
+
+    expect(off.config).toEqual({
+      itemsPath: 'orders',
+      queue: {
+        name: 'order-work',
+        globalConcurrency: 20,
+        minPollingIntervalMs: 250,
+        onConflict: 'never_update',
+      },
+      enqueue: { priority: 5, delaySeconds: 10 },
+    });
+    expect(() => NodeSchema.parse(off)).not.toThrow();
+  });
+
+  it('builds a rate limit from either field', () => {
+    const none = sample('index_pages');
+
+    expect(commit(none, 'rateLimitPer', 100).config).toMatchObject({
+      queue: { rateLimit: { limitPerPeriod: 100, periodSec: 60 } },
+    });
+    expect(commit(none, 'rateLimitSec', 20).config).toMatchObject({
+      queue: { rateLimit: { limitPerPeriod: 1, periodSec: 20 } },
+    });
+  });
+
+  it('updates or clears a whole rate limit', () => {
+    const limited = queueWith({
+      queue: { rateLimit: { limitPerPeriod: 100, periodSec: 60 } },
+    });
+
+    expect(commit(limited, 'rateLimitPer', 200).config).toMatchObject({
+      queue: { rateLimit: { limitPerPeriod: 200, periodSec: 60 } },
+    });
+    expect(commit(limited, 'rateLimitSec', null).config).not.toHaveProperty(
+      'queue.rateLimit',
+    );
+  });
+
+  /**
+   * The pattern the library ships with a queue in
+   * it, read out of the file and written straight
+   * back. Deep equality would pass a form that
+   * reordered a config's keys — and the file it then
+   * wrote would be a diff nobody asked for.
+   */
+  it('leaves the shipped queued pattern byte for byte as it was', () => {
+    const node = queueNodeOf(queued);
+
+    expect(JSON.stringify(formToConfig(node, fieldsOf(node)), null, 2)).toBe(
+      JSON.stringify(node, null, 2),
+    );
+  });
+
+  /**
+   * A queue name is an address in the app's system
+   * database, and the schema says what one may look
+   * like. The form does not police it — the host
+   * does, on the way in, the same way it polices
+   * every other edit.
+   */
+  it('sends a name the schema refuses to a refused edit', () => {
+    const node = queueNodeOf(queued);
+    const renamed = formToConfig(
+      node,
+      set(fieldsOf(node), 'queueName', 'Document Index'),
+    );
+
+    expect(
+      editFor(
+        { type: 'edit', node: renamed },
+        { ir: queued, boxes: {}, manifest: undefined, labels: paletteLabels() },
+      ),
+    ).toEqual({ at: 'refused', because: 'unparseable-node' });
+  });
+});
+
+/**
  * The function a block runs is chosen from what the
  * project's code-behind offers, so the field is a
  * picker rather than a box to type a name into —
@@ -591,6 +878,7 @@ describe('a node’s own fields', () => {
       'transaction',
       'apiCall',
       'codeStep',
+      'queue',
     ];
 
     for (const node of SAMPLES) {

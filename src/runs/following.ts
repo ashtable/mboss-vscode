@@ -1,11 +1,13 @@
 import type { Disposable } from 'vscode';
 
+import { queuedWorkflowName, type WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 
 import type { OpenDatabase } from './db.js';
 import {
   type LedgerRead,
   type LiveRun,
+  type QueueNode,
   type RunWatch,
   type RunWatcher,
 } from './watch.js';
@@ -30,9 +32,11 @@ import {
  * nobody asked for.
  */
 export type Following = Disposable & {
-  /** Follow this run, if it is not already
-   *  followed. */
-  arm(workflowId: string): void;
+  /** Follow this run of that workflow, if it is not
+   *  already followed. The name is what finds the
+   *  document, and the document is where the queue
+   *  blocks a watch reads counts for are. */
+  arm(workflowId: string, workflow: string): void;
 
   /** Stop following it. */
   drop(workflowId: string): void;
@@ -44,6 +48,16 @@ export type Following = Disposable & {
   onRun(listener: (run: LiveRun, read: LedgerRead) => void): Disposable;
 };
 
+/**
+ * A run worth following, and the workflow it is a
+ * run of.
+ *
+ * The name comes along because the queue blocks a
+ * watch reads counts for are the document's, and
+ * only the name finds the document.
+ */
+export type FollowedRun = { workflowId: string; workflow: string };
+
 export type FollowingDeps = {
   open: OpenDatabase;
   watch: RunWatch;
@@ -51,6 +65,12 @@ export type FollowingDeps = {
   /** The connection string a watch reads from,
    *  quietly: none is a reason not to arm one. */
   ledger(): string | undefined;
+
+  /** One workflow's saved document, for the queue
+   *  blocks a watch has to read counts for.
+   *  Undefined where it will not read, which is a
+   *  watch that knows less rather than no watch. */
+  document(name: string): WorkflowIR | undefined;
 
   /**
    * Which runs are worth following now.
@@ -60,7 +80,7 @@ export type FollowingDeps = {
    * open — which is what keeps this module ignorant
    * of both.
    */
-  unsettled(): readonly string[];
+  unsettled(): readonly FollowedRun[];
 };
 
 export function following(deps: FollowingDeps): Following {
@@ -80,13 +100,22 @@ export function following(deps: FollowingDeps): Following {
     reports.fire({ run, read });
   };
 
-  const arm = (workflowId: string): void => {
+  const arm = (workflowId: string, workflow: string): void => {
     if (watching.has(workflowId)) return;
 
     const url = deps.ledger();
     if (url === undefined) return;
 
-    watching.set(workflowId, deps.watch(deps.open, url, workflowId, heard));
+    watching.set(
+      workflowId,
+      deps.watch(
+        deps.open,
+        url,
+        workflowId,
+        queueNodesOf(deps.document(workflow), workflow),
+        heard,
+      ),
+    );
   };
 
   return {
@@ -98,7 +127,7 @@ export function following(deps: FollowingDeps): Following {
     },
 
     rewatch: () => {
-      for (const workflowId of deps.unsettled()) arm(workflowId);
+      for (const run of deps.unsettled()) arm(run.workflowId, run.workflow);
     },
 
     onRun: (listener) => reports.on(({ run, read }) => listener(run, read)),
@@ -112,4 +141,26 @@ export function following(deps: FollowingDeps): Following {
       reports.dispose();
     },
   };
+}
+
+/**
+ * The queue blocks one document holds, under the
+ * names their children register with.
+ *
+ * The name is the block's and the workflow's
+ * together, which is what the parent records each
+ * child start as — so two workflows each holding a
+ * queue block of the same id are still two
+ * different reads.
+ */
+function queueNodesOf(
+  ir: WorkflowIR | undefined,
+  workflow: string,
+): QueueNode[] {
+  return (ir?.nodes ?? [])
+    .filter((node) => node.kind === 'queue')
+    .map((node) => ({
+      nodeId: node.id,
+      queuedName: queuedWorkflowName(node.id, workflow),
+    }));
 }

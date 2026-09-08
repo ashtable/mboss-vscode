@@ -6,7 +6,7 @@ import { emitter } from '../emitter.js';
 import type { SeeInit } from '../webview/protocol.js';
 
 import type { Database } from './db.js';
-import type { Following } from './following.js';
+import type { FollowedRun, Following } from './following.js';
 import { forksQuery, runQuery, stepsQuery } from './queries.js';
 import {
   toRun,
@@ -192,7 +192,7 @@ export type OpenRun = Disposable & {
 
   /** It, when the ledger says it has not ended — for
    *  whoever composes what is worth following. */
-  unsettled(): readonly string[];
+  unsettled(): readonly FollowedRun[];
 
   onChanged(listener: () => void): Disposable;
 };
@@ -262,7 +262,9 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
     // The row's own id rather than the one asked
     // for: they are the same in production, and the
     // row is the thing being followed.
-    if (!finished(found.run)) deps.following.arm(found.run.workflowId);
+    if (!finished(found.run)) {
+      deps.following.arm(found.run.workflowId, found.run.name);
+    }
 
     return {
       run: found.run,
@@ -413,7 +415,9 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
     unsettled: () => {
       const run = shown?.run;
 
-      return run === undefined || finished(run) ? [] : [run.workflowId];
+      return run === undefined || finished(run)
+        ? []
+        : [{ workflowId: run.workflowId, workflow: run.name }];
     },
 
     onChanged: changes.on,

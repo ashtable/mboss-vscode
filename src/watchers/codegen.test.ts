@@ -18,6 +18,7 @@ import {
 } from '../core/rules.js';
 import { messages } from '../messages.js';
 import type { Problem } from '../problem.js';
+import { QUEUE_SDK } from '../runs/sdk.js';
 import type { StatusBar } from '../statusBar.js';
 import {
   makeProject,
@@ -311,6 +312,132 @@ describe('what a refusal costs the documents beside it', () => {
     expect(
       about(result, good).filter((problem) => problem.severity === 'error'),
     ).toEqual([]);
+  });
+});
+
+/**
+ * A queue runs only if the app registers it at
+ * boot, and the boot is the person's file: mBoss
+ * writes `src/app/main.ts` when it creates a
+ * project and never touches it again. So a project
+ * made before queues existed compiles a queue into
+ * code that nothing ever starts, and the rows it
+ * enqueues wait for ever with nothing anywhere
+ * saying why.
+ */
+describe('a project whose boot never registers its queues', () => {
+  it('names the two lines to add, on the file they go in', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'queue_partitioned');
+    const main = olderBoot(project);
+
+    const said = about(await generate(project), main);
+
+    expect(said).toHaveLength(1);
+    expect(said[0]?.severity).toBe('error');
+    expect(said[0]?.message).toContain(
+      "import { registerQueues } from './queues.js';",
+    );
+    expect(said[0]?.message).toContain('await registerQueues(queues);');
+    expect(said[0]?.message).toContain('DBOS.launch()');
+  });
+
+  /** Said, not done. The file belongs to whoever
+   *  is working in the project. */
+  it('leaves the file it is about exactly as it was', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'queue_partitioned');
+    const main = olderBoot(project);
+    const before = readFileSync(main, 'utf8');
+
+    await generate(project);
+
+    expect(readFileSync(main, 'utf8')).toBe(before);
+  });
+
+  /**
+   * Which is also how it clears. It is computed
+   * afresh on every generation and the problem
+   * sink replaces the whole set, so one that stops
+   * being computed stops being shown.
+   */
+  it('says nothing about a boot that registers them', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'queue_partitioned');
+
+    expect(about(await generate(project), mainFile(project))).toEqual([]);
+  });
+
+  it('says nothing about a project with no queue in it', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'groom_booking');
+    const main = olderBoot(project);
+
+    expect(about(await generate(project), main)).toEqual([]);
+  });
+});
+
+/**
+ * The other half of the same setup. A queue block
+ * compiles to enqueue options that older clients
+ * have no fields for, so a project pinned below
+ * the floor gets code it cannot run — and the
+ * lockfile the extension already reads is enough
+ * to say so.
+ */
+describe('a project pinned to an SDK too old for a queue', () => {
+  it('names the floor and what the project is locked at', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'queue_partitioned');
+    lockedAt(project, '4.25.14');
+
+    const said = about(await generate(project), manifestFile(project));
+
+    expect(said).toEqual([
+      {
+        file: manifestFile(project),
+        message: messages.codegenQueuesNeedSdk('4.25.14'),
+        severity: 'error',
+      },
+    ]);
+
+    // The sentence carries the floor as a literal,
+    // and the check compares against the constant.
+    expect(said[0]?.message).toContain(QUEUE_SDK);
+  });
+
+  it('says nothing about a project already at the floor', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'queue_partitioned');
+    lockedAt(project, QUEUE_SDK);
+
+    expect(about(await generate(project), manifestFile(project))).toEqual([]);
+  });
+
+  /** Two ordinary states of a folder somebody is
+   *  working in, and neither of them is an answer
+   *  about a version. */
+  it('says nothing when the lockfile never names the SDK', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'queue_partitioned');
+    lockedWithoutSdk(project);
+
+    expect(about(await generate(project), manifestFile(project))).toEqual([]);
+  });
+
+  it('says nothing when there is no lockfile', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'queue_partitioned');
+
+    expect(about(await generate(project), manifestFile(project))).toEqual([]);
+  });
+
+  it('says nothing about a project with no queue in it', async () => {
+    const project = await makeProject({ lib: 'lib' });
+    writeWorkflow(project, 'groom_booking');
+    lockedAt(project, '4.25.14');
+
+    expect(about(await generate(project), manifestFile(project))).toEqual([]);
   });
 });
 
@@ -689,4 +816,74 @@ function writeMixed(project: string, name = 'mixed'): string {
   writeFileSync(path, `${JSON.stringify(ir, null, 2)}\n`, 'utf8');
 
   return path;
+}
+
+/** The boot file mBoss writes once, when it
+ *  creates a project. */
+function mainFile(project: string): string {
+  return join(project, 'src', 'app', 'main.ts');
+}
+
+/** Where a person edits the range their project
+ *  installs by. */
+function manifestFile(project: string): string {
+  return join(project, 'package.json');
+}
+
+/**
+ * The same boot as it was written before queues
+ * existed: no import, no call, and no `queues`
+ * among what it takes from the registry.
+ *
+ * Scaffolding an old project is not on offer, so
+ * the current one is unwound. The assertion is
+ * what keeps that honest — a rewording upstream
+ * would otherwise leave this a no-op and the cases
+ * that use it passing for the wrong reason.
+ */
+function olderBoot(project: string): string {
+  const path = mainFile(project);
+  const older = readFileSync(path, 'utf8')
+    .replace("import { registerQueues } from './queues.js';\n", '')
+    .replace('  await registerQueues(queues);\n', '')
+    .replace(
+      'import { queues, schedules, workflows }',
+      'import { schedules, workflows }',
+    );
+
+  expect(older).not.toContain('registerQueues');
+  writeFileSync(path, older, 'utf8');
+
+  return path;
+}
+
+/** A lockfile pinning the SDK the way `npm ci`
+ *  would have. */
+function lockedAt(project: string, version: string): void {
+  writeLock(project, {
+    name: 'fixture_app',
+    lockfileVersion: 3,
+    packages: {
+      '': { name: 'fixture_app' },
+      'node_modules/@dbos-inc/dbos-sdk': { version },
+    },
+  });
+}
+
+/** A lockfile of a project that never installed
+ *  the SDK. */
+function lockedWithoutSdk(project: string): void {
+  writeLock(project, {
+    name: 'fixture_app',
+    lockfileVersion: 3,
+    packages: { '': { name: 'fixture_app' } },
+  });
+}
+
+function writeLock(project: string, locked: unknown): void {
+  writeFileSync(
+    join(project, 'package-lock.json'),
+    `${JSON.stringify(locked, null, 2)}\n`,
+    'utf8',
+  );
 }

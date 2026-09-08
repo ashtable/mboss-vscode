@@ -1,6 +1,13 @@
-import { useRef, useState } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 
 import type {
+  Diagnostic,
   HandlerMisfit,
   LibFunction,
   WorkflowIR,
@@ -20,6 +27,8 @@ import { FunctionLines, fitsFor, type LibFit } from '../libFunction.js';
 
 import { Evidence } from './EvidenceCard.js';
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
+import { visible } from './lens.js';
+import { fieldNotes } from './notes.js';
 import { outcomesOf, type DecisionOutcome } from './outcomes.js';
 
 /**
@@ -82,6 +91,11 @@ export type InspectorProps = {
   /** Why a function cannot sit behind a block,
    *  shared with the palette. */
   misfits: Record<HandlerMisfit['kind'], string>;
+
+  /** What core makes of the document, so that a
+   *  finding a field on this form is a way out of
+   *  can be drawn on that field. */
+  diagnostics: Diagnostic[];
 };
 
 /**
@@ -109,8 +123,19 @@ export function Inspector({
   runState,
   lib,
   misfits,
+  diagnostics,
 }: InspectorProps) {
   const editing = useEditing();
+  const selectedId = selected?.node.id;
+  const [folded, setFolded] = useState<Set<string>>(() =>
+    selected === undefined ? new Set() : initiallyFolded(selected.node),
+  );
+
+  useEffect(() => {
+    setFolded(
+      selected === undefined ? new Set() : initiallyFolded(selected.node),
+    );
+  }, [selectedId]);
 
   // A block is shown only while it can be edited:
   // the host lets go of the selection while a
@@ -130,6 +155,9 @@ export function Inspector({
         revision={editing.revision}
         lib={lib}
         misfits={misfits}
+        diagnostics={diagnostics}
+        folded={folded}
+        setFolded={setFolded}
       />
     );
 
@@ -165,6 +193,7 @@ export function Inspector({
                   handler: node.handler?.export,
                   retry: node.retry,
                   body: node.kind === 'loop' ? node.config.body : undefined,
+                  queue: node.kind === 'queue' ? node.config.queue : undefined,
                 }
           }
           runState={runState}
@@ -226,6 +255,9 @@ function Fields({
   revision,
   lib,
   misfits,
+  diagnostics,
+  folded,
+  setFolded,
 }: {
   strings: InspectorStrings;
   ir: WorkflowIR;
@@ -236,9 +268,35 @@ function Fields({
 
   lib: LibFunction[] | undefined;
   misfits: Record<HandlerMisfit['kind'], string>;
+  diagnostics: Diagnostic[];
+  folded: Set<string>;
+  setFolded: Dispatch<SetStateAction<Set<string>>>;
 }) {
   const [draft, setDraft] = useState(node);
   const form = configToForm(draft);
+
+  // Asked of the document rather than of the
+  // draft, because the findings were asked of the
+  // document: the sentence under a field is the one
+  // the Problems panel is showing, and it changes
+  // when the document does — which is the moment
+  // this column is built again anyway.
+  const notes = fieldNotes(ir, node, diagnostics);
+
+  // Which groups are closed. The kind says which
+  // ones start that way and this holds it from
+  // there: a fold is how somebody is reading the
+  // form, so the document is never asked and never
+  // told.
+  const fold = (id: string): void =>
+    setFolded((closed) => {
+      const next = new Set(closed);
+
+      if (closed.has(id)) next.delete(id);
+      else next.add(id);
+
+      return next;
+    });
 
   const commit = (field: InspectorField): void => {
     const next = formToConfig(draft, [field]);
@@ -269,27 +327,50 @@ function Fields({
         {strings.heading} · {strings.kinds[form.kind]}
       </p>
 
-      <dl className="fields">
-        {form.fields.map((field) =>
-          field.control === 'picker' ? (
-            <Picker
-              key={field.id}
-              strings={strings}
-              misfits={misfits}
-              field={field}
-              node={draft}
-              lib={lib}
-              onAssign={assign}
-            />
-          ) : (
+      {/* One form asks for a wider label column.
+          A queue's limits are told apart by the
+          scope in their names, and a scope is no
+          use cut in half. */}
+      <dl
+        className="fields"
+        data-labels={form.kind === 'queue' ? 'wide' : undefined}
+      >
+        {visible(form.fields, folded).map((field) => {
+          if (field.control === 'section')
+            return (
+              <Section
+                key={field.id}
+                id={field.id}
+                name={strings.fields[field.id]}
+                hint={strings.hints[field.id]}
+                open={!folded.has(field.id)}
+                onFold={() => fold(field.id)}
+              />
+            );
+
+          if (field.control === 'picker')
+            return (
+              <Picker
+                key={field.id}
+                strings={strings}
+                misfits={misfits}
+                field={field}
+                node={draft}
+                lib={lib}
+                onAssign={assign}
+              />
+            );
+
+          return (
             <Row
               key={field.id}
               strings={strings}
               field={field}
+              notes={notes[field.id]}
               onCommit={commit}
             />
-          ),
-        )}
+          );
+        })}
 
         {outcomesOf(ir, node).map((outcome) => (
           <Outcome key={outcome.value} strings={strings} outcome={outcome} />
@@ -317,21 +398,98 @@ function Fields({
   );
 }
 
+function initiallyFolded(node: WorkflowNode): Set<string> {
+  return new Set(
+    configToForm(node)
+      .fields.filter((field) => field.control === 'section' && field.collapsed)
+      .map((field) => field.id),
+  );
+}
+
 function Row({
   strings,
   field,
+  notes,
   onCommit,
 }: {
   strings: InspectorStrings;
   field: InspectorField;
+
+  /** What core says about the block that this box
+   *  is a way out of. Drawn here rather than only
+   *  on the block, because this is where it would
+   *  be put right. */
+  notes?: string[];
+
   onCommit: (field: InspectorField) => void;
 }) {
   return (
-    <div className="field" data-field={field.id} data-control={field.control}>
+    <div
+      className="field"
+      data-field={field.id}
+      data-control={field.control}
+      data-noted={notes === undefined ? undefined : ''}
+    >
       <dt className="field-name text-muted">{strings.fields[field.id]}</dt>
       <dd className="field-value">
         <Control strings={strings} field={field} onCommit={onCommit} />
+        {notes?.map((note) => (
+          <p key={note} className="field-note">
+            {note}
+          </p>
+        ))}
       </dd>
+    </div>
+  );
+}
+
+/**
+ * A group's header, and the way it folds.
+ *
+ * The whole header is the button rather than a
+ * caret beside a label, because what a person is
+ * aiming at is the group and the label is the
+ * biggest thing on the row. `aria-expanded` is the
+ * only place the fold is said out loud, and the
+ * marker is turned by it, so the two cannot
+ * disagree.
+ */
+function Section({
+  id,
+  name,
+  hint,
+  open,
+  onFold,
+}: {
+  id: string;
+  name: string | undefined;
+
+  /** What the group needs saying about it that no
+   *  one field in it does. Hidden with the fields
+   *  while the group is folded: a folded group
+   *  shows the way back in and nothing else. */
+  hint: string | undefined;
+
+  open: boolean;
+  onFold: () => void;
+}) {
+  return (
+    <div className="field" data-field={id} data-control="section">
+      <button
+        type="button"
+        className="section-head section-label"
+        aria-expanded={open}
+        onClick={onFold}
+      >
+        <span className="section-mark" aria-hidden="true">
+          ▾
+        </span>
+        {name}
+      </button>
+
+      {hint === undefined || !open ? null : (
+        <p className="field-note">{hint}</p>
+      )}
     </div>
   );
 }
@@ -686,6 +844,13 @@ function Control({
     // the project's code-behind and a control here
     // is handed only the field.
     case 'picker':
+      return null;
+
+    // Drawn by the column too: a header spans the
+    // row it is on and folds the ones after it,
+    // neither of which is a value in a field's
+    // second column.
+    case 'section':
       return null;
 
     case 'text':

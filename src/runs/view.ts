@@ -347,6 +347,7 @@ function graphOf(
     boxes,
     labels: paletteLabels(),
     unassigned: canvasWords().unassigned,
+    queueCounts: canvasWords().queueCounts,
     caption: messages.runGraphCaption(ir.revision),
     // A record rather than a map: this crosses
     // `postMessage`, and a map does not survive
@@ -576,7 +577,12 @@ export function rowOf(run: Run, page: readonly Run[] = []): RunRow {
         : messages.runsReplayOf(run.forkedFrom),
     forks: page
       .filter((one) => one.forkedFrom === run.workflowId)
-      .map((one) => messages.runsReplayInto(one.workflowId, one.status)),
+      .map((one) =>
+        messages.runsReplayInto(
+          one.workflowId,
+          severityOf(one, parked(one.lastOperation)),
+        ),
+      ),
   };
 }
 

@@ -1,7 +1,10 @@
 import { ownerOf } from '../../core/rules.js';
+import type { QueuePolicy } from '../../core/rules.js';
 import type { LiveOutcome, StepState } from '../../runs/reading.js';
 import { FIRST_DISPATCH, type StepError } from '../../runs/rows.js';
 import type { LiveRun, LiveStep } from '../../runs/watch.js';
+import { filled } from '../../webview/fill.js';
+import type { InspectorStrings } from '../../webview/protocol.js';
 
 /**
  * What a run recorded about one block, read off the
@@ -15,10 +18,15 @@ import type { LiveRun, LiveStep } from '../../runs/watch.js';
  * saved workflow and the last code scan. Nothing is
  * shared between them but the word.
  *
- * The rows are the whole of it. A block that ran
- * three times wrote three of them; a wait wrote the
- * two halves of parking; a branch the generated
- * code decided without asking anybody wrote none.
+ * The rows are the whole of it, for every block but
+ * one. A block that ran three times wrote three of
+ * them; a wait wrote the two halves of parking; a
+ * branch the generated code decided without asking
+ * anybody wrote none. A queue block wrote none
+ * either and never will — the work is its
+ * children's runs — so what its card says is
+ * counted rather than recorded, and `queueRowsOf`
+ * below is where that lives.
  * What is not here is as load-bearing as what is:
  * DBOS records no per-step input and no count of
  * the tries a step made, so neither is derivable
@@ -180,6 +188,127 @@ export function evidenceOf(
     waitingSince: parkedSince(rows),
     rounds: roundsIn(run.steps, body),
   };
+}
+
+/** Which reading a row is, which is also the word
+ *  it is drawn under. */
+export type QueueRowId = keyof InspectorStrings['queueRows'];
+
+/**
+ * One reading on a queue block's card.
+ *
+ * A shape of its own rather than an
+ * `EvidenceRow[]`: those are the ledger's rows for
+ * a block, keyed by the number DBOS gave each of
+ * them and carrying an output and a failure. A
+ * queue block's counts are none of that — no row
+ * anywhere holds them — and pushing them into that
+ * type would hand every reader of a block's rows a
+ * union to take apart first.
+ */
+export type QueueRow = {
+  /** One of the ids the words are keyed by, so a
+   *  reading nobody wrote a word for does not
+   *  compile. */
+  id: QueueRowId;
+
+  label: string;
+
+  value: string;
+
+  /** Whether the panel worked the figure out or
+   *  found it in the document. Every reading on the
+   *  card wears one, because half of them are the
+   *  run and half of them are what somebody wrote. */
+  chip?: 'derived' | 'configured';
+};
+
+/**
+ * What one queue block's card says about this run,
+ * in the order it is drawn.
+ *
+ * The counts a tick already read, and the two
+ * limits the document sets beside them. What the
+ * whole queue is doing and whether the app
+ * registered it as written each cost a read of
+ * their own, so they are not here — a card gets
+ * them from whoever made that read.
+ *
+ * A run opened from a cold read carries no counts
+ * at all: only a watch fills them. That is not
+ * zero and is not drawn as zero — the rows simply
+ * are not there.
+ */
+export function queueRowsOf(
+  run: LiveRun,
+  nodeId: string,
+  queue: QueuePolicy,
+  strings: InspectorStrings,
+): QueueRow[] {
+  const counts = run.queues?.[nodeId];
+  const ceiling = queue.globalConcurrency;
+  const rate = queue.rateLimit;
+
+  const reading = (
+    id: QueueRowId,
+    value: string,
+    chip: QueueRow['chip'],
+  ): Omit<QueueRow, 'label'> => ({ id, value, chip });
+
+  const rows = [
+    reading('queue', queue.name, 'configured'),
+
+    ...(counts === undefined
+      ? []
+      : [
+          reading(
+            'active',
+            ceiling === undefined
+              ? String(counts.active)
+              : filled(
+                  strings.queueOfGlobal,
+                  String(counts.active),
+                  String(ceiling),
+                ),
+            'derived',
+          ),
+          reading(
+            'queued',
+            counts.delayed === 0
+              ? String(counts.queued)
+              : filled(
+                  strings.queueDelayed,
+                  String(counts.queued),
+                  String(counts.delayed),
+                ),
+            'derived',
+          ),
+          reading('failed', String(counts.failed), 'derived'),
+        ]),
+
+    ...(rate === undefined
+      ? []
+      : [
+          reading(
+            'rateLimit',
+            filled(
+              strings.queueRate,
+              String(rate.limitPerPeriod),
+              String(rate.periodSec),
+            ),
+            'configured',
+          ),
+        ]),
+
+    ...(ceiling === undefined
+      ? []
+      : [reading('globalConcurrency', String(ceiling), 'configured')]),
+  ];
+
+  return rows.map((row) => ({
+    ...row,
+    label: strings.queueRows[row.id],
+  }));
 }
 
 export function runCardOf(run: LiveRun): RunCard {

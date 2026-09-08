@@ -47,7 +47,7 @@ export type { DiffSummary, Proposal } from '@mboss/core';
  * hands out. These are the exceptions: a compiler
  * call over a document held in memory, the replay
  * grammar a recorded run is matched against, the
- * pattern gallery, and two path constants a
+ * pattern gallery, and the path constants a
  * generated project is laid out by. Wrapping any
  * of them would be a second name for one thing.
  *
@@ -66,8 +66,10 @@ export {
   replayBoundaries,
   traceGrammar,
   usePattern,
+  APP_DIR,
   CONTAINER_APP_DIR,
   LIB_DIR,
+  REGISTRY_FILE,
   WorkflowNameSchema,
 } from '@mboss/core';
 

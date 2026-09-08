@@ -10,6 +10,7 @@ import {
   type LedgerRead,
   type LiveRun,
   type LiveStep,
+  type QueueCounts,
 } from './watch.js';
 import type { StepState } from './reading.js';
 
@@ -32,6 +33,13 @@ const URL = 'postgres://app@localhost:5432/sys';
 
 const RUN_ID = 'run_1700000000000_a1b2c3d4';
 
+/** One queue block of the workflow being watched,
+ *  and the name its children register under. */
+const INDEX_PAGES = {
+  nodeId: 'index_pages',
+  queuedName: 'index_pages.queued.document_ingestion_queued',
+};
+
 /** One row of `dbos.operation_outputs`, in the
  *  fields these specs care about. The timings are
  *  the fixture's unless a case is about them. */
@@ -51,6 +59,14 @@ type Ledger = {
 
   steps: Recorded[];
 
+  /** What each queue block's children are doing,
+   *  under the name those children register with. */
+  counts: Record<string, QueueCounts>;
+
+  /** Every statement read, so a spec can say which
+   *  questions were asked and which were not. */
+  asked: string[];
+
   /** Every connection string opened, so a spec can
    *  say how many were. */
   opened: string[];
@@ -65,6 +81,8 @@ function ledger(status: WorkflowStatusRow = runRow()): Ledger {
   const state: Ledger = {
     status,
     steps: [],
+    counts: {},
+    asked: [],
     opened: [],
     closed: 0,
     fail: undefined,
@@ -72,8 +90,17 @@ function ledger(status: WorkflowStatusRow = runRow()): Ledger {
       state.opened.push(url);
 
       return {
-        query: async <Row>(text: string): Promise<Row[]> => {
+        query: async <Row>(text: string, values: unknown[]): Promise<Row[]> => {
+          state.asked.push(text);
+
           if (state.fail !== undefined) throw new Error(state.fail);
+
+          // Told apart before the step read, because
+          // a block's counts join the same table the
+          // steps are in.
+          if (text.includes('AS delayed')) {
+            return [countsRow(state.counts[String(values[1])])] as Row[];
+          }
 
           if (text.includes('operation_outputs')) {
             return state.steps.map(stepRow) as Row[];
@@ -152,6 +179,24 @@ function recordedStep(over: {
   };
 }
 
+/** The five numbers, with a zero for whatever a
+ *  case is not saying anything about. */
+function counts(over: Partial<QueueCounts> = {}): QueueCounts {
+  return { queued: 0, delayed: 0, active: 0, done: 0, failed: 0, ...over };
+}
+
+/** One row of the counting statement, as
+ *  `node-postgres` hands a `bigint` over. */
+function countsRow(over: QueueCounts = counts()): Record<string, string> {
+  return {
+    queued: String(over.queued),
+    delayed: String(over.delayed),
+    active: String(over.active),
+    done: String(over.done),
+    failed: String(over.failed),
+  };
+}
+
 /** Lets every read the poller started finish, after
  *  moving the clock on. */
 async function settle(ms = 0): Promise<void> {
@@ -172,7 +217,7 @@ describe('watchRun', () => {
     db.steps = [{ name: 'parse_request' }];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -207,7 +252,7 @@ describe('watchRun', () => {
     );
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -223,7 +268,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -244,7 +289,7 @@ describe('watchRun', () => {
     db.steps = [{ name: 'parse_request' }, { name: 'await_reply.register' }];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -273,7 +318,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -292,7 +337,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -326,7 +371,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -344,7 +389,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -361,7 +406,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -379,7 +424,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -394,7 +439,7 @@ describe('watchRun', () => {
     const db = ledger(runRow({ recovery_attempts: '2' }));
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -414,7 +459,7 @@ describe('watchRun', () => {
     db.steps = [{ name: 'parse_request' }];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle(WATCH_INTERVAL_MS * 5);
 
@@ -427,7 +472,7 @@ describe('watchRun', () => {
     db.steps = [{ name: 'parse_request' }];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -448,7 +493,7 @@ describe('watchRun', () => {
     db.steps = [{ name: 'parse_request' }];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle(WATCH_QUIET_MS - WATCH_INTERVAL_MS);
 
@@ -470,7 +515,7 @@ describe('watchRun', () => {
     db.status = undefined;
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle(WATCH_INTERVAL_MS * 2);
 
@@ -487,7 +532,7 @@ describe('watchRun', () => {
     db.fail = 'ECONNREFUSED 127.0.0.1:5432';
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle(WATCH_QUIET_MS);
 
@@ -499,7 +544,7 @@ describe('watchRun', () => {
     const db = ledger();
 
     const seen: LiveRun[] = [];
-    const watcher = watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+    const watcher = watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
     await settle();
 
@@ -532,7 +577,7 @@ describe('watchRun', () => {
       db.steps = [{ name: 'parse_request' }];
 
       const reads: LedgerRead[] = [];
-      watchRun(db.open, URL, RUN_ID, (_run, read) => reads.push(read));
+      watchRun(db.open, URL, RUN_ID, [], (_run, read) => reads.push(read));
 
       await settle();
 
@@ -582,7 +627,7 @@ describe('watchRun', () => {
       ];
 
       const seen: LiveRun[] = [];
-      watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+      watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
       await settle();
 
@@ -609,7 +654,7 @@ describe('watchRun', () => {
       const db = ledger(runRow({ status: 'CANCELLED' }));
 
       const seen: LiveRun[] = [];
-      watchRun(db.open, URL, RUN_ID, (run) => seen.push(run));
+      watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
 
       await settle();
 
@@ -646,6 +691,124 @@ describe('watchRun', () => {
      */
     it('counts done, failed and cancelled as finished', () => {
       expect([...SETTLED].sort()).toEqual(['cancelled', 'done', 'failed']);
+    });
+  });
+  /**
+   * A block working through a queue writes no step
+   * while it works. The parent records every child
+   * start at once and then waits on them, so the
+   * only thing that moves is the count of what its
+   * children are doing — which is why the watch
+   * reads it, and why it is what keeps the watch
+   * awake.
+   */
+  describe('the blocks that queue work', () => {
+    it('reads every queue block, and says so under its own id', async () => {
+      const db = ledger();
+      db.steps = [{ name: 'parse_request' }];
+      db.counts = {
+        [INDEX_PAGES.queuedName]: counts({
+          queued: 42,
+          delayed: 2,
+          active: 8,
+          done: 5,
+          failed: 1,
+        }),
+        'thumbnail.queued.document_ingestion_queued': counts({
+          active: 3,
+          done: 9,
+        }),
+      };
+
+      const seen: LiveRun[] = [];
+      watchRun(
+        db.open,
+        URL,
+        RUN_ID,
+        [
+          INDEX_PAGES,
+          {
+            nodeId: 'thumbnail',
+            queuedName: 'thumbnail.queued.document_ingestion_queued',
+          },
+        ],
+        (run) => seen.push(run),
+      );
+
+      await settle();
+
+      expect(seen[0]?.queues).toEqual({
+        index_pages: {
+          queued: 42,
+          delayed: 2,
+          active: 8,
+          done: 5,
+          failed: 1,
+        },
+        thumbnail: counts({ active: 3, done: 9 }),
+      });
+    });
+
+    it('asks nothing extra of a run with no queue block', async () => {
+      const db = ledger();
+      db.steps = [{ name: 'parse_request' }];
+
+      const seen: LiveRun[] = [];
+      watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+
+      await settle();
+
+      expect(seen[0]).not.toHaveProperty('queues');
+      expect(db.asked.filter((text) => text.includes('AS delayed'))).toEqual(
+        [],
+      );
+    });
+
+    /**
+     * The quiet bound is about a run that has
+     * stopped saying anything, and a run draining a
+     * queue is saying something on every tick with
+     * nothing else about it moving at all.
+     */
+    it('stays awake while the counts are moving', async () => {
+      const db = ledger();
+      db.steps = [{ name: 'parse_request' }];
+      db.counts = { [INDEX_PAGES.queuedName]: counts({ queued: 42 }) };
+
+      const seen: LiveRun[] = [];
+      watchRun(db.open, URL, RUN_ID, [INDEX_PAGES], (run) => seen.push(run));
+
+      await settle();
+
+      expect(seen).toHaveLength(1);
+
+      // Long enough that a watch reading only the
+      // status column and the steps would have let
+      // go twice over.
+      for (let done = 1; done <= 40; done += 1) {
+        db.counts = {
+          [INDEX_PAGES.queuedName]: counts({ queued: 42 - done, done }),
+        };
+        await settle(WATCH_INTERVAL_MS);
+      }
+
+      expect(seen).toHaveLength(41);
+      expect(seen.at(-1)?.outcome).toBe('running');
+      expect(db.closed).toBe(0);
+    });
+
+    it('lets go when the counts stand still too', async () => {
+      const db = ledger();
+      db.steps = [{ name: 'parse_request' }];
+      db.counts = { [INDEX_PAGES.queuedName]: counts({ queued: 42 }) };
+
+      const seen: LiveRun[] = [];
+      watchRun(db.open, URL, RUN_ID, [INDEX_PAGES], (run) => seen.push(run));
+
+      await settle(WATCH_QUIET_MS);
+
+      expect(seen[1]).toMatchObject({ outcome: 'quiet' });
+      expect(db.closed).toBe(1);
     });
   });
 });

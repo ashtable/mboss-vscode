@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import type { QueueEvidence } from '../../src/runs/queueEvidence.js';
 import type {
   RunRow,
   RunsInit,
@@ -14,7 +15,7 @@ import { liveRun, liveStep } from '../../src/test-support/runs.js';
 
 import { paletteLabels } from './words.js';
 
-import { mount, type Harness } from './harness.js';
+import { mount, type Harness, type ThemeKind } from './harness.js';
 import {
   inspectorWords as inspectorStrings,
   runsWords as runsStrings,
@@ -272,8 +273,12 @@ function seeNothing(): SeeInit {
   };
 }
 
-async function showList(page: Page, init: RunsInit): Promise<Harness> {
-  const harness = await mount(page, 'runs');
+async function showList(
+  page: Page,
+  init: RunsInit,
+  theme: ThemeKind = 'light',
+): Promise<Harness> {
+  const harness = await mount(page, 'runs', theme);
   await harness.show(init);
 
   return harness;
@@ -1107,7 +1112,23 @@ test.describe('the run list', () => {
   test('hands the id of a row to the window', async ({ page }) => {
     const harness = await showList(page, runsInit());
 
+    await page.locator('[data-run="wf_c9d2f3"]').hover();
     await page.locator('[data-copy-run-id="wf_c9d2f3"]').click();
+
+    expect(await harness.postedOfType('copyRunId')).toEqual([
+      { type: 'copyRunId', workflowId: 'wf_c9d2f3' },
+    ]);
+  });
+
+  test('keeps the hidden copy control keyboard accessible', async ({
+    page,
+  }) => {
+    const harness = await showList(page, runsInit());
+    const copy = page.locator('[data-copy-run-id="wf_c9d2f3"]');
+
+    await copy.focus();
+    await expect(copy).toHaveCSS('opacity', '1');
+    await copy.press('Enter');
 
     expect(await harness.postedOfType('copyRunId')).toEqual([
       { type: 'copyRunId', workflowId: 'wf_c9d2f3' },
@@ -1245,6 +1266,44 @@ test.describe('the run list', () => {
       { type: 'runSelect', workflowId: 'wf_77c101' },
     ]);
   });
+
+  test('opens a run when its outcome mark is clicked', async ({ page }) => {
+    const harness = await showList(page, runsInit());
+
+    await page.locator('[data-run="wf_77c101"] .run-mark').click();
+
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: 'wf_77c101' },
+    ]);
+    expect(await harness.postedOfType('copyRunId')).toEqual([]);
+  });
+
+  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+    test(`ellipsizes a long run id in a narrow ${theme} panel`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 300, height: 800 });
+      await showList(page, runsInit(), theme);
+
+      const id = page.locator('[data-run="wf_c9d2f3"] .run-id');
+      const style = await id.evaluate((node) => {
+        const css = getComputedStyle(node);
+        return {
+          overflow: css.overflow,
+          textOverflow: css.textOverflow,
+          whiteSpace: css.whiteSpace,
+          width: node.getBoundingClientRect().width,
+        };
+      });
+
+      expect(style).toMatchObject({
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      });
+      expect(style.width).toBeGreaterThan(60);
+    });
+  }
 
   /** The boundary the design draws, drawn where a
    *  person can see it. */
@@ -1683,6 +1742,7 @@ test.describe('one run in detail', () => {
   test('replays a whole run from the list', async ({ page }) => {
     const harness = await showList(page, runsInit());
 
+    await page.locator('[data-run="wf_c9d2f3"]').hover();
     await page.locator('[data-replay-run="wf_c9d2f3"]').click();
 
     expect(await harness.postedOfType('replayRun')).toEqual([
@@ -1772,6 +1832,47 @@ test.describe('one run in detail', () => {
     await expect(card.locator('.run-status')).toContainText(
       inspectorStrings.runStates.failed,
     );
+  });
+
+  /**
+   * A queue block gets a card of its own, drawn from
+   * the counts and from the one read a selection
+   * costs — and the way to a child from here is the
+   * page's own way of showing a run, because this
+   * page is already showing one.
+   */
+  test('shows a queue block’s card, and selects the run an item started', async ({
+    page,
+  }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: QUEUED_GRAPH,
+          live: { ...QUEUED, queueEvidence: { index_pages: QUEUE_READ } },
+          selected: { nodeId: 'index_pages', functionId: undefined },
+        }),
+      ),
+    );
+
+    const card = page.locator('.rail [data-evidence="queue"]');
+
+    await expect(card).toHaveCount(1);
+    await expect(
+      card.locator('[data-evidence-field="queued"] .value'),
+    ).toHaveText('42');
+    await expect(
+      card.locator('[data-evidence-field="observedStarts"] .value'),
+    ).toHaveText('74 in the last 60 s');
+
+    await card.locator('[data-queue-item="wf_child_9f21"]').click();
+
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: 'wf_child_9f21' },
+    ]);
+    expect(await harness.postedOfType('inspectQueue')).toEqual([
+      { type: 'inspectQueue', workflowId: 'wf_c9d2f3', nodeId: 'index_pages' },
+    ]);
   });
 
   test('shows the run-level card with nothing selected', async ({ page }) => {
@@ -2085,6 +2186,16 @@ test.describe('in every theme', () => {
  * — so the caption says which revision is drawn.
  */
 test.describe('one run, as a graph', () => {
+  test('positions graph nodes with the React Flow sheet', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH }), 'graph'));
+    await graphAtRest(page);
+
+    await expect(page.locator('.react-flow__node').first()).toHaveCSS(
+      'position',
+      'absolute',
+    );
+  });
+
   /**
    * A person who panned and zoomed to look at
    * something has to still be looking at it after
@@ -2258,6 +2369,30 @@ test.describe('one run, as a graph', () => {
       { type: 'seeNode', nodeId: 'find_slot' },
     ]);
   });
+
+  /**
+   * A queue block records nothing about the work its
+   * children do, so what they are doing is counted
+   * and put on the line under its title. This page
+   * draws the same block face the canvas does, and
+   * it is the page somebody watching a batch go
+   * through is actually on.
+   */
+  test('counts a queue block’s children on the graph', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(seeRun({ graph: QUEUED_GRAPH, live: QUEUED }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    const block = page.locator('[data-run-node="index_pages"]');
+    const line = block.locator('.node-line');
+
+    await expect(block).toHaveAttribute('data-state', 'running');
+    await expect(line).toHaveAttribute('data-line', 'counts');
+    await expect(line).toHaveText('8 running · 42 queued');
+    await expect(line).toHaveAttribute('title', seeStrings.derived);
+  });
 });
 
 test.describe('one run, as a trace', () => {
@@ -2366,6 +2501,42 @@ test.describe('one run, as a trace', () => {
       'true',
     );
   });
+
+  /**
+   * What a queued item did is a run of its own, with
+   * its own rows and its own page. All the parent's
+   * ledger holds of it is the id, so the id is the
+   * way there.
+   *
+   * Beside the row rather than inside it: the row is
+   * already a button that picks the operation, and a
+   * button inside a button is one click meaning two
+   * things.
+   */
+  test('offers the run a queued item started', async ({ page }) => {
+    const harness = await showRun(
+      page,
+      seeInit(seeRun({ groups: QUEUED_GROUPS })),
+    );
+
+    const open = page.locator('[data-run-select="wf_child_9f21"]');
+    await expect(open).toHaveText('wf_child_9f21');
+    await expect(open).toHaveAttribute('title', seeStrings.childRun);
+
+    await open.click();
+
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: 'wf_child_9f21' },
+    ]);
+    expect(await harness.postedOfType('stepSelect')).toEqual([]);
+  });
+
+  /** A row that started nothing offers nothing. */
+  test('offers none where no run was started', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    await expect(page.locator('[data-run-select]')).toHaveCount(0);
+  });
 });
 
 test.describe('what the run page says about itself', () => {
@@ -2459,6 +2630,7 @@ const GRAPH: SeeGraph = {
   },
   labels: paletteLabels,
   unassigned: 'unassigned',
+  queueCounts: '{0} running · {1} queued',
   caption: 'workflow as saved · revision 4',
   decided: {},
 };
@@ -2543,6 +2715,7 @@ const RUNNING_GRAPH: SeeGraph = {
   },
   labels: paletteLabels,
   unassigned: 'unassigned',
+  queueCounts: '{0} running · {1} queued',
   caption: 'workflow as saved · revision 4',
   // The arm the run is recorded as having taken.
   // The other one is somewhere it demonstrably did
@@ -2574,6 +2747,127 @@ const RUNNING = liveRun({
     }),
   ],
 });
+
+/**
+ * A workflow that hands its work to a queue, so the
+ * run page has children to count.
+ *
+ * Two blocks: what started the run, and the block
+ * whose children do the work.
+ */
+const QUEUED_GRAPH: SeeGraph = {
+  ir: {
+    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+    version: 1,
+    revision: 4,
+    name: 'document_ingestion',
+    nodes: [
+      {
+        id: 'document_arrived',
+        kind: 'trigger',
+        title: 'Document arrived',
+        config: { mode: 'manual' },
+      },
+      {
+        id: 'index_pages',
+        kind: 'queue',
+        title: 'Index each page',
+        handler: { export: 'indexPage' },
+        config: {
+          itemsPath: 'pages',
+          itemType: 'Page',
+          queue: { name: 'document-index' },
+          enqueue: {},
+        },
+      },
+    ],
+    edges: [
+      {
+        id: 'e1',
+        from: { node: 'document_arrived', port: 'out' },
+        to: { node: 'index_pages' },
+      },
+    ],
+  } as unknown as SeeGraph['ir'],
+  boxes: {
+    document_arrived: { x: 0, y: 0, w: 230, h: 64 },
+    index_pages: { x: 0, y: 160, w: 230, h: 64 },
+  },
+  labels: paletteLabels,
+  unassigned: 'unassigned',
+  queueCounts: '{0} running · {1} queued',
+  caption: 'workflow as saved · revision 4',
+  decided: {},
+};
+
+/**
+ * That run part-way through: eight pages being
+ * indexed, forty-two still to start, six done.
+ *
+ * No rows of its own. The parent's row for a queue
+ * block is written as each child is handed over and
+ * says nothing about what the child did, so the
+ * counts are the whole of what this page knows.
+ */
+const QUEUED = liveRun({
+  workflowId: 'wf_c9d2f3',
+  workflow: 'document_ingestion',
+  status: 'PENDING',
+  outcome: 'running',
+  steps: [],
+  queues: {
+    index_pages: { queued: 42, delayed: 0, active: 8, done: 6, failed: 0 },
+  },
+});
+
+/** What one read of the whole queue answered with,
+ *  for the card the rail draws about that block. */
+const QUEUE_READ: QueueEvidence = {
+  window: {
+    queued: 42,
+    active: 8,
+    started: 74,
+    failedRecently: 0,
+    windowSec: 60,
+  },
+  registered: 'matches',
+  recent: [
+    { workflowId: 'wf_child_9f21', label: '…ld_9f21', status: 'PENDING' },
+  ],
+};
+
+/**
+ * One turn of that block, as the trace draws it:
+ * the row the parent wrote as it handed a page
+ * over, carrying the id of the run that took it.
+ */
+const QUEUED_GROUPS: TraceGroupView[] = [
+  {
+    nodeId: 'index_pages',
+    title: 'Index each page',
+    qualifier: undefined,
+    wakes: undefined,
+    open: true,
+    failed: false,
+    operations: [
+      {
+        functionId: 0,
+        name: 'index_pages.queued.document_ingestion',
+        owner: 'node',
+        state: 'done',
+        at: '14:02:11.100',
+        output: '{}',
+        outputCut: false,
+        error: undefined,
+        restored: false,
+        reused: false,
+        replayable: true,
+        because: undefined,
+        childWorkflowId: 'wf_child_9f21',
+      },
+    ],
+  },
+];
 
 const GROUPS: TraceGroupView[] = [
   {

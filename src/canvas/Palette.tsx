@@ -15,7 +15,7 @@ import { DRAG_THRESHOLD } from './drag/gesture.js';
 import { FunctionLines, fitsFor, type LibState } from './libFunction.js';
 
 /**
- * What a workflow can be built from: the ten kinds
+ * What a workflow can be built from: the eleven kinds
  * the catalog defines, and whatever the project's
  * own code-behind offers.
  *
