@@ -847,12 +847,14 @@ test.describe('the shape of the panel', () => {
     // At the bottom, not near it: a log that
     // followed to somewhere short of the end would
     // hide the line that just arrived.
-    expect(
-      await log.evaluate(
-        (element) =>
-          element.scrollHeight - element.scrollTop - element.clientHeight,
-      ),
-    ).toBeLessThanOrEqual(1);
+    await expect
+      .poll(() =>
+        log.evaluate(
+          (element) =>
+            element.scrollHeight - element.scrollTop - element.clientHeight,
+        ),
+      )
+      .toBeLessThanOrEqual(1);
     expect(await log.evaluate((element) => element.scrollTop)).toBeGreaterThan(
       0,
     );
