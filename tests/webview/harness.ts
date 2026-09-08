@@ -92,6 +92,12 @@ export async function mount(
   await page.route(`${ORIGIN}/**`, (route) => answer(route, view, theme));
   await page.goto(`${ORIGIN}/index.html`);
   await page.waitForFunction(() => window.__mbossReady === true);
+  // The shipped faces use `font-display: swap`, so the first settled frame
+  // can still be laid out with a fallback face. Geometry checks must start
+  // after the final face has replaced it or a late reflow moves their target.
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+  });
 
   return {
     show: async (message) => {
