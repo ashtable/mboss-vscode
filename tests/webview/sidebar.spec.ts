@@ -844,15 +844,21 @@ test.describe('the shape of the panel', () => {
 
     const log = page.locator('.transcript');
 
-    // At the bottom, not near it: a log that
-    // followed to somewhere short of the end would
-    // hide the line that just arrived.
+    // The last rendered content is visible. Browser
+    // scroll metrics may keep a few pixels of flex
+    // gap below that content, so the content edge is
+    // the boundary this behaviour actually promises.
     await expect
       .poll(() =>
-        log.evaluate(
-          (element) =>
-            element.scrollHeight - element.scrollTop - element.clientHeight,
-        ),
+        log.evaluate((element) => {
+          const last = element.lastElementChild;
+          if (last === null) return Number.POSITIVE_INFINITY;
+
+          return (
+            last.getBoundingClientRect().bottom -
+            element.getBoundingClientRect().bottom
+          );
+        }),
       )
       .toBeLessThanOrEqual(1);
     expect(await log.evaluate((element) => element.scrollTop)).toBeGreaterThan(
