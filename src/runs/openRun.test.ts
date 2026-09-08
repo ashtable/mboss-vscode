@@ -50,6 +50,7 @@ function follows(watch = watcher()): {
       open: async () => database(),
       watch: watch.watch,
       ledger: () => 'postgres://app@localhost:5432/app',
+      document: () => undefined,
       unsettled: () => [],
     }),
   };
@@ -257,7 +258,7 @@ describe('following the run being read', () => {
     await open.open('wf_c9d2f3');
     expect(drawnRows(open)).toHaveLength(1);
 
-    owner.held.arm('wf_c9d2f3');
+    owner.held.arm('wf_c9d2f3', 'groom_booking');
     owner.watch.say(
       'wf_c9d2f3',
       liveRun({
@@ -268,7 +269,7 @@ describe('following the run being read', () => {
 
     expect(drawnRows(open)).toEqual(['parse_request', 'find_slot']);
 
-    owner.held.arm('wf_somebody_elses');
+    owner.held.arm('wf_somebody_elses', 'groom_booking');
     owner.watch.say(
       'wf_somebody_elses',
       liveRun({ workflowId: 'wf_somebody_elses', steps: [] }),

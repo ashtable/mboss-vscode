@@ -28,7 +28,7 @@ export type { SourceFrame } from './frames.js';
  * union also covers a caller that installed a type
  * parser of its own.
  */
-type BigIntColumn = string | number;
+export type BigIntColumn = string | number;
 
 /** A row of `dbos.workflow_status`, as selected. */
 export type WorkflowStatusRow = {

@@ -371,8 +371,22 @@ export function runsStore(deps: RunsDeps): RunsStore {
     open: deps.open,
     watch: deps.watch,
     ledger: () => history.ledger(),
+    document: (name) => {
+      const dir = project();
+
+      return dir === undefined ? undefined : workflowDocument(dir, name);
+    },
+    // Kept by id rather than as a set of rows: the
+    // same run can be both the one a person has
+    // open and one this session started, and two
+    // rows saying so are one run.
     unsettled: () => [
-      ...new Set([...testRun.unsettled(), ...openRun.unsettled()]),
+      ...new Map(
+        [...testRun.unsettled(), ...openRun.unsettled()].map((run) => [
+          run.workflowId,
+          run,
+        ]),
+      ).values(),
     ],
   });
 

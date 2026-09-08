@@ -16,7 +16,7 @@ import {
   type AskAgent,
   type RunEvidence,
 } from './evidence.js';
-import type { Following } from './following.js';
+import type { FollowedRun, Following } from './following.js';
 import { decidedArms } from './operations.js';
 import { readRun } from './reading.js';
 import { hasRecovered } from './rows.js';
@@ -116,7 +116,7 @@ export type TestRun = Disposable & {
   /** The runs this session started that have not
    *  settled, for whoever composes what is worth
    *  following. */
-  unsettled(): readonly string[];
+  unsettled(): readonly FollowedRun[];
 
   /** Re-reads the project's saved workflows off
    *  disk and says so — what a command needs before
@@ -367,7 +367,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
         // came back: the route starts the run under
         // the id it was handed, and the row on
         // screen is the thing being followed.
-        deps.following.arm(workflowId);
+        deps.following.arm(workflowId, flow.name);
       } else {
         deps.sessionLog.update(workflowId, {
           outcome: 'failed',
@@ -406,7 +406,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       deps.sessionLog.record(row(answer.workflowId, flow.name, payload));
     }
 
-    deps.following.arm(answer.workflowId);
+    deps.following.arm(answer.workflowId, flow.name);
     changed();
   };
 
@@ -500,7 +500,10 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       deps.sessionLog
         .list()
         .filter((row) => !SETTLED.includes(row.outcome))
-        .map((row) => row.workflowId),
+        .map((row) => ({
+          workflowId: row.workflowId,
+          workflow: row.workflow,
+        })),
 
     refreshWorkflows: () => {
       readWorkflows();
@@ -564,7 +567,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
         deps.sessionLog.record(row(workflowId, workflow, undefined, origin));
       }
 
-      deps.following.arm(workflowId);
+      deps.following.arm(workflowId, workflow);
       changed();
     },
 

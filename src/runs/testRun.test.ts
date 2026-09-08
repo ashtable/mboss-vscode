@@ -20,7 +20,7 @@ import {
 import { OUTPUT_KEPT } from './rows.js';
 import type { LiveRun } from './watch.js';
 import { sessionLog, type SessionRun } from './sessionLog.js';
-import { following, type Following } from './following.js';
+import { following, type FollowedRun, type Following } from './following.js';
 import { testRunZone, type TestRun, type TestRunDeps } from './testRun.js';
 
 /**
@@ -62,7 +62,7 @@ function zone(over: Partial<TestRunDeps> = {}): TestRun {
  */
 function follows(
   watch = watcher(),
-  unsettled: () => readonly string[] = () => [],
+  unsettled: () => readonly FollowedRun[] = () => [],
 ): {
   watch: ReturnType<typeof watcher>;
   held: Following;
@@ -73,6 +73,7 @@ function follows(
       open: async () => database(),
       watch: watch.watch,
       ledger: () => LEDGER_URL,
+      document: () => undefined,
       unsettled,
     }),
   };
@@ -409,7 +410,7 @@ describe('following a run', () => {
     await shown.runWorkflow('groom_booking', '{}');
     const mine = shown.render().session[0]?.workflowId ?? '';
 
-    owner.held.arm('wf_somebody_elses');
+    owner.held.arm('wf_somebody_elses', 'groom_booking');
     owner.watch.say(
       'wf_somebody_elses',
       liveRun({ workflowId: 'wf_somebody_elses', outcome: 'failed' }),
