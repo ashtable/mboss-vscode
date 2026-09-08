@@ -347,6 +347,7 @@ function graphOf(
     boxes,
     labels: paletteLabels(),
     unassigned: canvasWords().unassigned,
+    queueCounts: canvasWords().queueCounts,
     caption: messages.runGraphCaption(ir.revision),
     // A record rather than a map: this crosses
     // `postMessage`, and a map does not survive

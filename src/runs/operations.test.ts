@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import type { WorkflowIR } from '../core/rules.js';
+import { queuedWorkflowName, type WorkflowIR } from '../core/rules.js';
 
 import { decidedArms, groupsOf } from './operations.js';
 import { readRun, type Operation } from './reading.js';
@@ -120,9 +120,15 @@ const IR: WorkflowIR = {
       },
     },
     { id: 'charge_each', kind: 'step', title: 'Charge', config: {} },
+    { id: 'index_pages', kind: 'queue', title: 'Index each page', config: {} },
   ],
   edges: [],
 } as unknown as WorkflowIR;
+
+/** The name a queue block's own rows are recorded
+ *  under, which is the name its children register
+ *  as. */
+const QUEUED = queuedWorkflowName('index_pages', RUN.name);
 
 describe('how the rows group', () => {
   /**
@@ -209,6 +215,41 @@ describe('how the rows group', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.items).toBe(3);
     expect(groups[0]?.operations).toHaveLength(3);
+  });
+
+  /**
+   * A queue block hands every item over in one turn,
+   * however many items there are, and waits for all
+   * of them there. One group, then — and it holds
+   * both the ids of the runs it started and the
+   * SDK's own rows for the waiting.
+   */
+  it('gives a queue block one group, however many it handed over', () => {
+    const groups = groupsOf(
+      operationsOf(
+        RUN,
+        ledger(
+          { name: QUEUED, childWorkflowId: 'wf_c1' },
+          { name: QUEUED, childWorkflowId: 'wf_c2' },
+          { name: QUEUED, childWorkflowId: 'wf_c3' },
+          'DBOS.getResult',
+          'DBOS.getResult',
+          'DBOS.getResult',
+        ),
+        IR,
+      ),
+    );
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]?.nodeId).toBe('index_pages');
+    expect(
+      groups[0]?.operations.flatMap((one) =>
+        one.childWorkflowId === undefined ? [] : [one.childWorkflowId],
+      ),
+    ).toEqual(['wf_c1', 'wf_c2', 'wf_c3']);
+    expect(
+      groups[0]?.operations.filter((one) => one.owner === 'sdk'),
+    ).toHaveLength(3);
   });
 
   /**

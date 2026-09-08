@@ -133,6 +133,22 @@ export const canvasWords = once(() => ({
   // number climbing beside it would say otherwise.
   waitingSince: l10n.t('WAITING · since {0}'),
 
+  // Under a queue block instead of the code behind
+  // it, while its children are moving: how many are
+  // running now, and how many are still to come.
+  // Two numbers rather than five, because the rest
+  // is on the card and this line is read from
+  // across a graph. A child DBOS is holding back
+  // until a moment has passed has still not
+  // started, so it is counted in the second.
+  queueCounts: l10n.t('{0} running · {1} queued'),
+
+  // On anything a surface worked out rather than
+  // read off a row — the counts above among them,
+  // which are aggregates over the children's rows
+  // and not a column of the block's own.
+  derived: l10n.t('derived'),
+
   typedWiring: l10n.t('Typed wiring'),
 
   // The toolbar's own word for what the palette
@@ -258,8 +274,11 @@ export const inspectorWords = once(() => ({
   // than read off a row, and on the one thing that
   // is neither: a policy somebody set. A card about
   // a run is worth nothing if a person cannot tell
-  // the three apart at a glance.
-  derived: l10n.t('derived'),
+  // the three apart at a glance. The first is
+  // borrowed rather than written again: both bags
+  // ride in one message, and a canvas that said it
+  // two ways would be saying it twice on one screen.
+  derived: canvasWords().derived,
   configured: l10n.t('configured'),
 
   // Where the ledger got to with the block. The

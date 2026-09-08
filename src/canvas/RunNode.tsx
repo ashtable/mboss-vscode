@@ -44,6 +44,8 @@ export function RunNode({ data }: NodeProps<CanvasNode>) {
         title={node.title}
         line={data.line}
         wanting={wantsHandler(node)}
+        counts={data.counts}
+        lineTitle={data.lineTitle}
         state={data.state}
         runTitle={data.runTitle}
       />

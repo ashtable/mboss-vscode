@@ -11,17 +11,19 @@ import {
   type NodeKind,
 } from '../core/rules.js';
 import type { LiveOutcome, StepState } from '../runs/reading.js';
-import type { LiveRun } from '../runs/watch.js';
+import type { LiveRun, QueueCounts } from '../runs/watch.js';
 import { liveStep } from '../test-support/runs.js';
 import { fine } from '../webview/time.js';
 
 import {
+  lineOf,
   runStateOf,
   toReactFlow,
   type CanvasNode,
   type Drawing,
   type EdgeState,
   type NodeState,
+  type RunState,
 } from './graph.js';
 
 /**
@@ -57,6 +59,26 @@ const boxes = fixture('golden/layout/groom_booking.layout.json') as Record<
   string,
   NodeBox
 >;
+
+const queueIr = WorkflowIRSchema.parse(
+  fixture('ir/queue_partitioned.workflow.json'),
+);
+
+/**
+ * That document's two blocks, placed by hand.
+ *
+ * There is no blessed layout for it, and the
+ * engine that would make one is not in the half of
+ * core a webview loads. Nothing asked of this
+ * fixture is about where a block sits.
+ */
+const queueBoxes: Record<string, NodeBox> = Object.fromEntries(
+  queueIr.nodes.map((node, index) => {
+    const { width, height } = nodeSize(node.kind);
+
+    return [node.id, { x: 0, y: index * 90, w: width, h: height }];
+  }),
+);
 
 const labels = Object.fromEntries(
   NODE_PALETTE.map((entry) => [entry.kind, entry.label]),
@@ -103,6 +125,31 @@ function run(
     completedAt: undefined,
     input: undefined,
     forkedFrom: undefined,
+  };
+}
+
+/**
+ * A finished run of the queue document, with
+ * whatever its queue block's children are doing.
+ *
+ * Finished so that nothing walks ahead of the last
+ * recorded row: what the counts alone put on the
+ * picture is what these cases are about.
+ */
+function queueRun(counts: Partial<QueueCounts>): LiveRun {
+  return {
+    ...run([['batch_arrived', 'done']], 'done'),
+    workflow: queueIr.name,
+    queues: {
+      index_items: {
+        queued: 0,
+        delayed: 0,
+        active: 0,
+        done: 0,
+        failed: 0,
+        ...counts,
+      },
+    },
   };
 }
 
@@ -782,5 +829,119 @@ describe('the line under a block a run is parked at', () => {
     expect(nodes.find((node) => node.id === 'await_reply')?.data.line).toBe(
       'Wait',
     );
+  });
+});
+
+/**
+ * What a queue block is drawn in, which is not what
+ * its own rows say.
+ *
+ * The parent writes a row as each child is handed
+ * to the queue. That row carries no error and is
+ * complete the moment it is written, so the ledger
+ * has the block finished while every child is still
+ * waiting its turn. What the children are doing is
+ * the only evidence there is about the block, and
+ * it is counted rather than recorded.
+ */
+describe('the state a queue block’s children put it in', () => {
+  const stateOf = (counts: Partial<QueueCounts>): RunState | undefined =>
+    runStateOf(queueIr, queueRun(counts), 'index_items');
+
+  it('is running while any child is claimed or still waiting', () => {
+    expect(stateOf({ active: 2, done: 40 })).toBe('running');
+    expect(stateOf({ queued: 7 })).toBe('running');
+  });
+
+  it('is failed once nothing is left and something threw', () => {
+    expect(stateOf({ failed: 1, done: 12 })).toBe('failed');
+  });
+
+  it('is done once every child finished', () => {
+    expect(stateOf({ done: 12 })).toBe('done');
+  });
+
+  /**
+   * The counts are one ungrouped aggregate per
+   * block, so a block the run has not reached
+   * answers a row of zeros from the very first tick
+   * rather than no row at all. Read as a state, that
+   * row would tick a block nothing has happened at
+   * and green the wire into it.
+   */
+  it('says nothing about a block whose children have not started', () => {
+    expect(stateOf({})).toBeUndefined();
+
+    const { edges } = toReactFlow(
+      queueIr,
+      queueBoxes,
+      drawing({ run: queueRun({}) }),
+    );
+
+    expect(edges.find((edge) => edge.id === 'e1')?.data?.state).toBe('idle');
+  });
+});
+
+/**
+ * The line a queue block shows while its children
+ * are moving.
+ *
+ * Two numbers rather than five: how many are running
+ * and how many are still to start is what somebody
+ * can use from across the room, and the rest is on
+ * the card. A child DBOS is holding back until a
+ * moment has passed has still not started, so it is
+ * counted in the second number.
+ */
+describe('the line under a queue block', () => {
+  const counted = '{0} running · {1} queued';
+
+  const dataAt = (counts: Partial<QueueCounts>, over: Partial<Drawing> = {}) =>
+    toReactFlow(
+      queueIr,
+      queueBoxes,
+      drawing({
+        run: queueRun(counts),
+        queueCounts: counted,
+        derived: 'derived',
+        ...over,
+      }),
+    ).nodes.find((node) => node.id === 'index_items')?.data;
+
+  it('names the function behind the block while nothing is moving', () => {
+    expect(dataAt({})?.line).toBe('ƒ indexItem');
+    expect(dataAt({})?.counts).toBeUndefined();
+  });
+
+  it('says a queue block with no function behind it has none yet', () => {
+    const queue = queueIr.nodes.find((node) => node.id === 'index_items');
+
+    expect(lineOf({ ...queue!, handler: undefined }, drawing())).toBe(
+      'Queue · unassigned',
+    );
+  });
+
+  it('counts what the children are doing while any of them are', () => {
+    const data = dataAt({ active: 8, queued: 42, done: 6 });
+
+    expect(data?.line).toBe('8 running · 42 queued');
+    expect(data?.counts).toBe(true);
+    expect(data?.lineTitle).toBe('derived');
+  });
+
+  it('counts a child held back until its moment among the queued', () => {
+    expect(dataAt({ queued: 3, delayed: 3 })?.line).toBe(
+      '0 running · 3 queued',
+    );
+  });
+
+  /** A reader with no word for it draws the block it
+   *  always drew, rather than a template with two
+   *  holes in it. */
+  it('says nothing about counts where nobody sent the word', () => {
+    const data = dataAt({ active: 8, queued: 42 }, { queueCounts: undefined });
+
+    expect(data?.line).toBe('ƒ indexItem');
+    expect(data?.counts).toBeUndefined();
   });
 });

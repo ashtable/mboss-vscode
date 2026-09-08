@@ -967,6 +967,22 @@ body.vscode-high-contrast-light {
 .node-line[data-line='unassigned'] {
   color: var(--ink-faint);
 }
+/* What a block's children are doing, which is a
+   fact about the block and so is written at the
+   weight of one rather than at the fainter weight
+   above it. In figures that hold their column,
+   because both numbers change on every tick and a
+   line reflowing under them would set the block's
+   own words moving each time it did.
+
+   Here rather than in the canvas' own sheet: the
+   block face this line belongs to is drawn by the
+   editor and by the run page, and only one of the
+   two loads that sheet. */
+.node-line[data-line='counts'] {
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
 
 /* What the run did here, at the end of the row
    because it is the last thing to become true about

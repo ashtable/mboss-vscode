@@ -137,6 +137,8 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
         line={data.line}
         wanting={wantsHandler(node)}
         waiting={data.waiting}
+        counts={data.counts}
+        lineTitle={data.lineTitle}
         state={state}
         runTitle={data.runTitle}
       />
@@ -208,6 +210,8 @@ export function BlockFace({
   line,
   wanting,
   waiting,
+  counts,
+  lineTitle,
   state,
   runTitle,
 }: {
@@ -225,6 +229,20 @@ export function BlockFace({
    *  block `waiting` without the word for it is
    *  still showing the code behind the block. */
   waiting?: boolean;
+
+  /** Or how much of this block's work its children
+   *  have left, which displaces both the same way
+   *  and for the same reason. */
+  counts?: boolean;
+
+  /** What the line says about itself, where it says
+   *  anything: the whole of a moment that may not
+   *  fit inside a block, or the admission that a
+   *  pair of counts was worked out rather than read
+   *  off a row. Settled where the line was written,
+   *  because it is a different sentence for each
+   *  kind of line. */
+  lineTitle?: string;
   state: NodeState;
 
   /** What the mark says it is, for anything that
@@ -243,14 +261,15 @@ export function BlockFace({
         <p
           className="node-line mono"
           data-line={
-            waiting === true ? 'waiting' : wanting ? 'unassigned' : undefined
+            waiting === true
+              ? 'waiting'
+              : counts === true
+                ? 'counts'
+                : wanting
+                  ? 'unassigned'
+                  : undefined
           }
-          // A block is the width core laid the graph
-          // out at, and a clock written out to the
-          // millisecond does not always fit inside
-          // it. Half a moment is no moment at all,
-          // so the whole of it stays reachable.
-          title={waiting === true ? line : undefined}
+          title={lineTitle}
         >
           {line}
         </p>

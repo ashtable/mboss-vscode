@@ -2258,6 +2258,30 @@ test.describe('one run, as a graph', () => {
       { type: 'seeNode', nodeId: 'find_slot' },
     ]);
   });
+
+  /**
+   * A queue block records nothing about the work its
+   * children do, so what they are doing is counted
+   * and put on the line under its title. This page
+   * draws the same block face the canvas does, and
+   * it is the page somebody watching a batch go
+   * through is actually on.
+   */
+  test('counts a queue block’s children on the graph', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(seeRun({ graph: QUEUED_GRAPH, live: QUEUED }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    const block = page.locator('[data-run-node="index_pages"]');
+    const line = block.locator('.node-line');
+
+    await expect(block).toHaveAttribute('data-state', 'running');
+    await expect(line).toHaveAttribute('data-line', 'counts');
+    await expect(line).toHaveText('8 running · 42 queued');
+    await expect(line).toHaveAttribute('title', seeStrings.derived);
+  });
 });
 
 test.describe('one run, as a trace', () => {
@@ -2366,6 +2390,42 @@ test.describe('one run, as a trace', () => {
       'true',
     );
   });
+
+  /**
+   * What a queued item did is a run of its own, with
+   * its own rows and its own page. All the parent's
+   * ledger holds of it is the id, so the id is the
+   * way there.
+   *
+   * Beside the row rather than inside it: the row is
+   * already a button that picks the operation, and a
+   * button inside a button is one click meaning two
+   * things.
+   */
+  test('offers the run a queued item started', async ({ page }) => {
+    const harness = await showRun(
+      page,
+      seeInit(seeRun({ groups: QUEUED_GROUPS })),
+    );
+
+    const open = page.locator('[data-run-select="wf_child_9f21"]');
+    await expect(open).toHaveText('wf_child_9f21');
+    await expect(open).toHaveAttribute('title', seeStrings.childRun);
+
+    await open.click();
+
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: 'wf_child_9f21' },
+    ]);
+    expect(await harness.postedOfType('stepSelect')).toEqual([]);
+  });
+
+  /** A row that started nothing offers nothing. */
+  test('offers none where no run was started', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ groups: GROUPS })));
+
+    await expect(page.locator('[data-run-select]')).toHaveCount(0);
+  });
 });
 
 test.describe('what the run page says about itself', () => {
@@ -2459,6 +2519,7 @@ const GRAPH: SeeGraph = {
   },
   labels: paletteLabels,
   unassigned: 'unassigned',
+  queueCounts: '{0} running · {1} queued',
   caption: 'workflow as saved · revision 4',
   decided: {},
 };
@@ -2543,6 +2604,7 @@ const RUNNING_GRAPH: SeeGraph = {
   },
   labels: paletteLabels,
   unassigned: 'unassigned',
+  queueCounts: '{0} running · {1} queued',
   caption: 'workflow as saved · revision 4',
   // The arm the run is recorded as having taken.
   // The other one is somewhere it demonstrably did
@@ -2574,6 +2636,111 @@ const RUNNING = liveRun({
     }),
   ],
 });
+
+/**
+ * A workflow that hands its work to a queue, so the
+ * run page has children to count.
+ *
+ * Two blocks: what started the run, and the block
+ * whose children do the work.
+ */
+const QUEUED_GRAPH: SeeGraph = {
+  ir: {
+    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+    version: 1,
+    revision: 4,
+    name: 'document_ingestion',
+    nodes: [
+      {
+        id: 'document_arrived',
+        kind: 'trigger',
+        title: 'Document arrived',
+        config: { mode: 'manual' },
+      },
+      {
+        id: 'index_pages',
+        kind: 'queue',
+        title: 'Index each page',
+        handler: { export: 'indexPage' },
+        config: {
+          itemsPath: 'pages',
+          itemType: 'Page',
+          queue: { name: 'document-index' },
+          enqueue: {},
+        },
+      },
+    ],
+    edges: [
+      {
+        id: 'e1',
+        from: { node: 'document_arrived', port: 'out' },
+        to: { node: 'index_pages' },
+      },
+    ],
+  } as unknown as SeeGraph['ir'],
+  boxes: {
+    document_arrived: { x: 0, y: 0, w: 230, h: 64 },
+    index_pages: { x: 0, y: 160, w: 230, h: 64 },
+  },
+  labels: paletteLabels,
+  unassigned: 'unassigned',
+  queueCounts: '{0} running · {1} queued',
+  caption: 'workflow as saved · revision 4',
+  decided: {},
+};
+
+/**
+ * That run part-way through: eight pages being
+ * indexed, forty-two still to start, six done.
+ *
+ * No rows of its own. The parent's row for a queue
+ * block is written as each child is handed over and
+ * says nothing about what the child did, so the
+ * counts are the whole of what this page knows.
+ */
+const QUEUED = liveRun({
+  workflowId: 'wf_c9d2f3',
+  workflow: 'document_ingestion',
+  status: 'PENDING',
+  outcome: 'running',
+  steps: [],
+  queues: {
+    index_pages: { queued: 42, delayed: 0, active: 8, done: 6, failed: 0 },
+  },
+});
+
+/**
+ * One turn of that block, as the trace draws it:
+ * the row the parent wrote as it handed a page
+ * over, carrying the id of the run that took it.
+ */
+const QUEUED_GROUPS: TraceGroupView[] = [
+  {
+    nodeId: 'index_pages',
+    title: 'Index each page',
+    qualifier: undefined,
+    wakes: undefined,
+    open: true,
+    failed: false,
+    operations: [
+      {
+        functionId: 0,
+        name: 'index_pages.queued.document_ingestion',
+        owner: 'node',
+        state: 'done',
+        at: '14:02:11.100',
+        output: '{}',
+        outputCut: false,
+        error: undefined,
+        restored: false,
+        reused: false,
+        replayable: true,
+        because: undefined,
+        childWorkflowId: 'wf_child_9f21',
+      },
+    ],
+  },
+];
 
 const GROUPS: TraceGroupView[] = [
   {

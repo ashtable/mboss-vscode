@@ -802,6 +802,12 @@ export type SeeGraph = {
    *  code nobody has named yet. */
   unassigned: string;
 
+  /** What a queue block's line says while its
+   *  children are moving, with `{0}` for the ones
+   *  running now and `{1}` for the ones still to
+   *  start. */
+  queueCounts: string;
+
   /** `workflow as saved · revision 3`, or the
    *  sentence that says there is no document. */
   caption: string;

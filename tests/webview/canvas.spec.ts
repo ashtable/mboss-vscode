@@ -28,7 +28,7 @@ import {
   type WorkflowNode,
 } from '../../src/core/rules.js';
 import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
-import type { LiveRun, LiveStep } from '../../src/runs/watch.js';
+import type { LiveRun, LiveStep, QueueCounts } from '../../src/runs/watch.js';
 import { liveStep } from '../../src/test-support/runs.js';
 import { filled } from '../../src/webview/fill.js';
 import type { CanvasInit, InspectorMode } from '../../src/webview/protocol.js';
@@ -161,13 +161,14 @@ function slugOf(kind: NodeKind): string {
 }
 
 /** The column of every kind, on a page. */
-async function openEveryKind(page: Page) {
+async function openEveryKind(page: Page, over: Partial<CanvasInit> = {}) {
   const harness = await mount(page, 'canvas');
   await harness.show(
     canvasInit({
       document: { ok: true, ir: everyKind },
       boxes: everyKindBoxes,
       diagnostics: [],
+      ...over,
     }),
   );
 
@@ -847,6 +848,32 @@ function runOf(
   };
 }
 
+/**
+ * A run of the column of every kind, with the queue
+ * block's children part-way through it.
+ *
+ * No rows at all: the queue block records nothing
+ * about the work its children do, so what its
+ * children are doing is the only thing this run
+ * says about anything.
+ */
+function queuedRun(counts: Partial<QueueCounts>): LiveRun {
+  return {
+    ...runOf([]),
+    workflow: everyKind.name,
+    queues: {
+      queue: {
+        queued: 0,
+        delayed: 0,
+        active: 0,
+        done: 0,
+        failed: 0,
+        ...counts,
+      },
+    },
+  };
+}
+
 /** A run still going: two blocks behind it, and a
  *  branch ahead that records nothing, so both of
  *  the blocks past it are where the run might be. */
@@ -1354,6 +1381,54 @@ test.describe('the mark a run leaves on a block', () => {
 
     await expect(wireBody(page, 'e4')).toHaveAttribute('data-state', 'active');
     await expect(wireBody(page, 'e5')).toHaveAttribute('data-state', 'active');
+  });
+
+  /**
+   * A queue block's own row is written as each child
+   * is handed over and carries no error, so the
+   * ledger has the block finished while the work is
+   * still to come. The children are counted instead,
+   * and the count takes the line under the title —
+   * which is the one place on a block where a
+   * sentence about the run may go.
+   */
+  test('counts what a queue block’s children are doing', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openEveryKind(page, { run: queuedRun({ active: 8, queued: 42 }) });
+
+    const line = nodeLine(page, 'queue');
+
+    await expect(line).toHaveAttribute('data-line', 'counts');
+    await expect(line).toHaveText('8 running · 42 queued');
+    await expect(line).toHaveAttribute('title', canvasStrings.derived);
+    await expect(runMark(page, 'queue')).toHaveAttribute('data-run', 'running');
+
+    // Written at the weight of a fact, like the name
+    // of a function, and not at the fainter weight
+    // the same block wears while it is still asking
+    // for one.
+    const fact = await nodeLine(page, 'trigger').evaluate(
+      (node) => getComputedStyle(node).color,
+    );
+    await expect(line).toHaveCSS('color', fact);
+
+    // In figures that hold their column, because
+    // both numbers change on every tick and a line
+    // that reflowed under them would be the only
+    // thing moving on the canvas.
+    await expect(line).toHaveCSS('font-variant-numeric', 'tabular-nums');
+  });
+
+  /** Nothing left to count is nothing to say, and
+   *  the line goes back to being about the code. */
+  test('gives the line back once nothing is moving', async ({ page }) => {
+    await openEveryKind(page, { run: queuedRun({ done: 12 }) });
+
+    const line = nodeLine(page, 'queue');
+
+    await expect(line).toHaveAttribute('data-line', 'unassigned');
+    await expect(line).toHaveText(`Queue · ${canvasStrings.unassigned}`);
+    await expect(runMark(page, 'queue')).toHaveText('✓');
   });
 });
 

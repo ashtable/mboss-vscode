@@ -199,6 +199,13 @@ export const seeWords = once(() => ({
    *  document does not have. */
   unattributed: l10n.t('not a block in the saved workflow'),
 
+  // On the id beside a row that started a run of
+  // its own. The row is what the parent recorded
+  // about handing the work over; everything the
+  // work itself did is on the other run's page, and
+  // the id is the only way the ledger gives there.
+  childRun: l10n.t('open the run this item started'),
+
   /** What the run was started with, and where that
    *  came from. */
   workflowInput: l10n.t('WORKFLOW INPUT'),
