@@ -844,23 +844,28 @@ test.describe('the shape of the panel', () => {
 
     const log = page.locator('.transcript');
 
-    // The last rendered content is visible. Browser
-    // scroll metrics may keep a few pixels of flex
-    // gap below that content, so the content edge is
-    // the boundary this behaviour actually promises.
+    // The last rendered line is visible. Chromium
+    // rounds the scroll range and the fractional
+    // line box at different stages, so compare the
+    // overhang with that line instead of demanding a
+    // particular number of CSS pixels.
     await expect
       .poll(() =>
         log.evaluate((element) => {
           const last = element.lastElementChild;
           if (last === null) return Number.POSITIVE_INFINITY;
 
-          return (
+          const overhang =
             last.getBoundingClientRect().bottom -
-            element.getBoundingClientRect().bottom
+            element.getBoundingClientRect().bottom;
+          const lineHeight = Number.parseFloat(
+            getComputedStyle(last).lineHeight,
           );
+
+          return overhang / lineHeight;
         }),
       )
-      .toBeLessThanOrEqual(1);
+      .toBeLessThanOrEqual(0.25);
     expect(await log.evaluate((element) => element.scrollTop)).toBeGreaterThan(
       0,
     );
