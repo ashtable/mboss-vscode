@@ -20,6 +20,7 @@ import {
   readAll,
   replace,
   rows,
+  section,
   text,
   type InspectorField,
   type Lens,
@@ -113,16 +114,8 @@ function bind(node: WorkflowNode): {
         ),
         ...retryFields<Of<'apiCall'>>(),
       ]);
-    // A queue block starts a run per item, and its
-    // handler is what those runs run — so the
-    // policy set here is one item's retry rather
-    // than the whole block's.
     case 'queue':
-      return bound(node, [
-        ...base<typeof node>(),
-        handler<typeof node>(),
-        ...retryFields<typeof node>(),
-      ]);
+      return bound(node, queueFields(node));
     case 'branch':
       return bound(node, branchFields(node));
     case 'loop':
@@ -361,6 +354,279 @@ function retimed(
       },
     });
   };
+}
+
+/* — queue — */
+
+type Queue = Of<'queue'>;
+type QueuePolicy = Queue['config']['queue'];
+type EnqueuePolicy = Queue['config']['enqueue'];
+type RateLimit = NonNullable<QueuePolicy['rateLimit']>;
+
+/** The registration's numbers, each of which is a
+ *  field of the same name. */
+type QueueNumber =
+  | 'globalConcurrency'
+  | 'workerConcurrency'
+  | 'partitionConcurrency'
+  | 'partitionWorkerConcurrency'
+  | 'minPollingIntervalMs';
+
+const PARTITIONING = ['off', 'on'] as const;
+
+/** What to do about a run already enqueued under
+ *  the same id: the SDK's three answers, and the
+ *  one a document makes by saying nothing. */
+const ON_CONFLICT = [
+  UNSET,
+  'update_if_latest_version',
+  'always_update',
+  'never_update',
+] as const;
+
+/** The three limits that make a queue partitioned —
+ *  the same three the SDK reads to decide it. */
+const PARTITION_LIMITS = [
+  'partitionConcurrency',
+  'partitionWorkerConcurrency',
+  'partitionRateLimit',
+] as const;
+
+function partitioned(node: Queue): boolean {
+  return PARTITION_LIMITS.some((key) => node.config.queue[key] !== undefined);
+}
+
+/**
+ * Two policies, and never one list.
+ *
+ * A queue is registered once, with limits that hold
+ * every item back; each item is then enqueued with
+ * settings of its own. Those are different scopes,
+ * and a single column of twenty boxes is how
+ * somebody sets a per-partition limit believing
+ * they set the queue's. So each policy is a group,
+ * and the knobs nobody turns often are a third one,
+ * folded.
+ *
+ * The block's own fields, the function its items
+ * run and that function's policy come first and
+ * belong to no group. A header owns everything
+ * after it as far as the next one, so what belongs
+ * to no group has to be said before the first
+ * header rather than after the last.
+ */
+function queueFields(node: Queue): Lens<Queue>[] {
+  const held = partitioned(node);
+
+  return [
+    ...base<Queue>(),
+    handler<Queue>(),
+
+    // A queue block starts a run per item, so what
+    // is set here is one item's retry rather than
+    // the whole block's.
+    ...retryFields<Queue>(),
+
+    section<Queue>('queuePolicy', false),
+    text(
+      'queueName',
+      (one) => one.config.queue.name,
+      (one, value) => onQueue(one, replace(one.config.queue, { name: value })),
+    ),
+    queueCount('globalConcurrency'),
+    queueCount('workerConcurrency'),
+    ...rateFields('rateLimitPer', 'rateLimitSec', 'rateLimit'),
+    partitioningField(),
+    ...(held ? [queueCount('partitionConcurrency')] : []),
+
+    section<Queue>('enqueuePolicy', false),
+    text(
+      'itemsPath',
+      (one) => one.config.itemsPath,
+      (one, value) =>
+        replace(one, { config: { ...one.config, itemsPath: value } }),
+    ),
+    text(
+      'itemType',
+      (one) => one.config.itemType,
+      (one, value) =>
+        replace(one, { config: optional(one.config, 'itemType', value) }),
+    ),
+    enqueueCount('priority'),
+    enqueueCount('delaySeconds'),
+    enqueueText('deduplicationPath'),
+    ...(held ? [enqueueText('partitionPath')] : []),
+
+    section<Queue>('advanced', true),
+    queueCount('partitionWorkerConcurrency'),
+    ...rateFields(
+      'partitionRateLimitPer',
+      'partitionRateLimitSec',
+      'partitionRateLimit',
+    ),
+    queueCount('minPollingIntervalMs'),
+    choice(
+      'onConflict',
+      ON_CONFLICT,
+      (one) => one.config.queue.onConflict ?? UNSET,
+      (one, value) =>
+        onQueue(
+          one,
+          value === UNSET
+            ? dropped(one.config.queue, 'onConflict')
+            : replace(one.config.queue, {
+                onConflict: value as QueuePolicy['onConflict'],
+              }),
+        ),
+    ),
+  ];
+}
+
+/**
+ * Whether the queue holds its items back per
+ * partition.
+ *
+ * Derived rather than stored: the document has no
+ * such field, and the answer is whether any of the
+ * three limits is set — which is how the SDK
+ * decides it too. Turning it on writes the smallest
+ * limit that means what was asked, or the answer
+ * would read back `off` the moment it was given.
+ * Turning it off takes the partition key with the
+ * limits, because a key on a queue nothing is
+ * partitioned by is read by nobody.
+ */
+function partitioningField(): Lens<Queue> {
+  const state = (node: Queue): string => (partitioned(node) ? 'on' : 'off');
+
+  return choice('partitioning', PARTITIONING, state, (node, value) => {
+    if (value === state(node)) return node;
+
+    if (value === 'on') {
+      return onQueue(
+        node,
+        replace(node.config.queue, { partitionConcurrency: 1 }),
+      );
+    }
+
+    return replace(node, {
+      config: {
+        ...node.config,
+        queue: PARTITION_LIMITS.reduce(
+          (queue, key) => dropped(queue, key),
+          node.config.queue,
+        ),
+        enqueue: dropped(node.config.enqueue, 'partitionPath'),
+      },
+    });
+  });
+}
+
+/**
+ * A rate limit is a count and a period together, or
+ * it is nothing at all.
+ *
+ * The two boxes commit one at a time and neither
+ * sees the other, so both write through here. Half
+ * a limit is not something a queue can be
+ * registered with and the schema has nowhere to
+ * hold one, so it leaves the limit off rather than
+ * inventing the period nobody typed.
+ */
+function rateFields(
+  per: string,
+  sec: string,
+  key: 'rateLimit' | 'partitionRateLimit',
+): Lens<Queue>[] {
+  const written = (node: Queue, limit: RateLimit | undefined): Queue =>
+    sameRate(node.config.queue[key], limit)
+      ? node
+      : onQueue(
+          node,
+          limit === undefined
+            ? dropped(node.config.queue, key)
+            : replace(node.config.queue, {
+                [key]: limit,
+              } as Partial<QueuePolicy>),
+        );
+
+  return [
+    count(
+      per,
+      (node) => node.config.queue[key]?.limitPerPeriod,
+      (node, value) => {
+        const period = node.config.queue[key]?.periodSec;
+
+        return written(
+          node,
+          value === null || period === undefined
+            ? undefined
+            : { limitPerPeriod: value, periodSec: period },
+        );
+      },
+    ),
+    count(
+      sec,
+      (node) => node.config.queue[key]?.periodSec,
+      (node, value) => {
+        const limit = node.config.queue[key]?.limitPerPeriod;
+
+        return written(
+          node,
+          value === null || limit === undefined
+            ? undefined
+            : { limitPerPeriod: limit, periodSec: value },
+        );
+      },
+    ),
+  ];
+}
+
+/** Half by half rather than object against object,
+ *  so the answer does not depend on key order. */
+function sameRate(
+  one: RateLimit | undefined,
+  other: RateLimit | undefined,
+): boolean {
+  return (
+    one?.limitPerPeriod === other?.limitPerPeriod &&
+    one?.periodSec === other?.periodSec
+  );
+}
+
+function queueCount(key: QueueNumber): Lens<Queue> {
+  return count(
+    key,
+    (one) => one.config.queue[key],
+    (one, value) => onQueue(one, optionalCount(one.config.queue, key, value)),
+  );
+}
+
+function enqueueCount(key: 'priority' | 'delaySeconds'): Lens<Queue> {
+  return count(
+    key,
+    (one) => one.config.enqueue[key],
+    (one, value) =>
+      onEnqueue(one, optionalCount(one.config.enqueue, key, value)),
+  );
+}
+
+/** A path read off each item. Emptied, it comes off
+ *  the block: a key every item shares is not a key. */
+function enqueueText(key: 'deduplicationPath' | 'partitionPath'): Lens<Queue> {
+  return text(
+    key,
+    (one) => one.config.enqueue[key],
+    (one, value) => onEnqueue(one, optional(one.config.enqueue, key, value)),
+  );
+}
+
+function onQueue(node: Queue, queue: QueuePolicy): Queue {
+  return replace(node, { config: { ...node.config, queue } });
+}
+
+function onEnqueue(node: Queue, enqueue: EnqueuePolicy): Queue {
+  return replace(node, { config: { ...node.config, enqueue } });
 }
 
 /* — branch — */

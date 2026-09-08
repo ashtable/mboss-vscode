@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 
 import type {
+  Diagnostic,
   HandlerMisfit,
   LibFunction,
   WorkflowIR,
@@ -21,6 +22,7 @@ import { FunctionLines, fitsFor, type LibFit } from '../libFunction.js';
 import { Evidence } from './EvidenceCard.js';
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
 import { visible } from './lens.js';
+import { fieldNotes } from './notes.js';
 import { outcomesOf, type DecisionOutcome } from './outcomes.js';
 
 /**
@@ -83,6 +85,11 @@ export type InspectorProps = {
   /** Why a function cannot sit behind a block,
    *  shared with the palette. */
   misfits: Record<HandlerMisfit['kind'], string>;
+
+  /** What core makes of the document, so that a
+   *  finding a field on this form is a way out of
+   *  can be drawn on that field. */
+  diagnostics: Diagnostic[];
 };
 
 /**
@@ -110,6 +117,7 @@ export function Inspector({
   runState,
   lib,
   misfits,
+  diagnostics,
 }: InspectorProps) {
   const editing = useEditing();
 
@@ -131,6 +139,7 @@ export function Inspector({
         revision={editing.revision}
         lib={lib}
         misfits={misfits}
+        diagnostics={diagnostics}
       />
     );
 
@@ -227,6 +236,7 @@ function Fields({
   revision,
   lib,
   misfits,
+  diagnostics,
 }: {
   strings: InspectorStrings;
   ir: WorkflowIR;
@@ -237,9 +247,18 @@ function Fields({
 
   lib: LibFunction[] | undefined;
   misfits: Record<HandlerMisfit['kind'], string>;
+  diagnostics: Diagnostic[];
 }) {
   const [draft, setDraft] = useState(node);
   const form = configToForm(draft);
+
+  // Asked of the document rather than of the
+  // draft, because the findings were asked of the
+  // document: the sentence under a field is the one
+  // the Problems panel is showing, and it changes
+  // when the document does — which is the moment
+  // this column is built again anyway.
+  const notes = fieldNotes(ir, node, diagnostics);
 
   // Which groups are closed. The kind says which
   // ones start that way and this holds it from
@@ -294,7 +313,14 @@ function Fields({
         {strings.heading} · {strings.kinds[form.kind]}
       </p>
 
-      <dl className="fields">
+      {/* One form asks for a wider label column.
+          A queue's limits are told apart by the
+          scope in their names, and a scope is no
+          use cut in half. */}
+      <dl
+        className="fields"
+        data-labels={form.kind === 'queue' ? 'wide' : undefined}
+      >
         {visible(form.fields, folded).map((field) => {
           if (field.control === 'section')
             return (
@@ -302,6 +328,7 @@ function Fields({
                 key={field.id}
                 id={field.id}
                 name={strings.fields[field.id]}
+                hint={strings.hints[field.id]}
                 open={!folded.has(field.id)}
                 onFold={() => fold(field.id)}
               />
@@ -325,6 +352,7 @@ function Fields({
               key={field.id}
               strings={strings}
               field={field}
+              notes={notes[field.id]}
               onCommit={commit}
             />
           );
@@ -359,17 +387,35 @@ function Fields({
 function Row({
   strings,
   field,
+  notes,
   onCommit,
 }: {
   strings: InspectorStrings;
   field: InspectorField;
+
+  /** What core says about the block that this box
+   *  is a way out of. Drawn here rather than only
+   *  on the block, because this is where it would
+   *  be put right. */
+  notes?: string[];
+
   onCommit: (field: InspectorField) => void;
 }) {
   return (
-    <div className="field" data-field={field.id} data-control={field.control}>
+    <div
+      className="field"
+      data-field={field.id}
+      data-control={field.control}
+      data-noted={notes === undefined ? undefined : ''}
+    >
       <dt className="field-name text-muted">{strings.fields[field.id]}</dt>
       <dd className="field-value">
         <Control strings={strings} field={field} onCommit={onCommit} />
+        {notes?.map((note) => (
+          <p key={note} className="field-note">
+            {note}
+          </p>
+        ))}
       </dd>
     </div>
   );
@@ -389,11 +435,19 @@ function Row({
 function Section({
   id,
   name,
+  hint,
   open,
   onFold,
 }: {
   id: string;
   name: string | undefined;
+
+  /** What the group needs saying about it that no
+   *  one field in it does. Hidden with the fields
+   *  while the group is folded: a folded group
+   *  shows the way back in and nothing else. */
+  hint: string | undefined;
+
   open: boolean;
   onFold: () => void;
 }) {
@@ -410,6 +464,10 @@ function Section({
         </span>
         {name}
       </button>
+
+      {hint === undefined || !open ? null : (
+        <p className="field-note">{hint}</p>
+      )}
     </div>
   );
 }

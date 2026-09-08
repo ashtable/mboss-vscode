@@ -355,6 +355,7 @@ function Workspace({
           }
           lib={init.manifest?.functions}
           misfits={init.strings.misfits}
+          diagnostics={init.diagnostics}
         />
       </div>
     </EditingProvider>

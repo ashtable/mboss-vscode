@@ -719,9 +719,25 @@ button.lib-fn {
   border-top: 1px solid var(--hairline);
 }
 
+/* One form asks for more label than 8.5ch. A
+   queue's four limits are told apart by the scope
+   in their names, and a scope is no use cut in
+   half — `worker concurrency / partition` in the
+   narrow column is four stacked fragments beside a
+   one-line box. */
+.fields[data-labels='wide'] .field {
+  grid-template-columns: 12ch 1fr;
+}
+
 /* A group's label belongs at the top of the group,
    not floating halfway down the side of it. */
 .field[data-control='rows'] {
+  align-items: start;
+}
+
+/* And so does a label on a field carrying a
+   sentence under its box. */
+.field[data-noted] {
   align-items: start;
 }
 
@@ -765,6 +781,18 @@ button.lib-fn {
 
 .section-head[aria-expanded='true'] .section-mark {
   transform: none;
+}
+
+/* What a group or a field needs saying about it
+   that is not a value: which process a limit holds
+   back, or what core says is wrong with what is
+   typed above. Under the thing it is about, in the
+   quiet the rest of the column's prose is set in. */
+.field-note {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--ink-muted);
 }
 
 .field-name {

@@ -175,6 +175,105 @@ async function openEveryKind(page: Page, over: Partial<CanvasInit> = {}) {
   return harness;
 }
 
+/** A queue holding one item back per partition, and
+ *  deduplicating on it — which DBOS refuses. */
+const PARTITIONED = {
+  itemsPath: 'pages',
+  queue: { name: 'document-index', partitionConcurrency: 2 },
+  enqueue: { deduplicationPath: 'documentId' },
+};
+
+/** The same block, unpartitioned and untroubled. */
+const INDEXING = {
+  itemsPath: 'pages',
+  queue: { name: 'document-index', globalConcurrency: 8 },
+  enqueue: { deduplicationPath: 'documentId' },
+};
+
+type Finding = CanvasInit['diagnostics'][number];
+
+/** Both of what core says about `PARTITIONED`, in
+ *  the words the host would send. */
+const NO_PARTITION_KEY: Finding = {
+  code: 'V17',
+  severity: 'error',
+  nodeId: 'queue',
+  message:
+    '`queue` limits its queue per partition, but does not say which ' +
+    'partition an item belongs to. Set the partition path.',
+};
+
+const DEDUPLICATES: Finding = {
+  code: 'V17',
+  severity: 'error',
+  nodeId: 'queue',
+  message:
+    '`queue` deduplicates items on a partitioned queue, which DBOS does ' +
+    'not support. Drop the deduplication path or the partition limits.',
+};
+
+/** The marker a folding header wears. Drawn rather
+ *  than read — it is `aria-hidden` — but it is in
+ *  the header's text all the same. */
+const MARK = '▾';
+
+/**
+ * The every-kind document with its queue block
+ * configured, that block in the column, and
+ * whatever core said about the document.
+ *
+ * The canonical fixture is a real workflow and holds
+ * no queue, so the one form the column groups under
+ * headers is reachable only from the document that
+ * holds one of every kind.
+ */
+function showingQueue(
+  config: object,
+  diagnostics: Finding[] = [],
+): Partial<CanvasInit> {
+  const nodes = everyKind.nodes.map((node) =>
+    node.id === 'queue'
+      ? ({ ...node, handler: { export: 'indexPage' }, config } as WorkflowNode)
+      : node,
+  );
+
+  return {
+    document: { ok: true, ir: { ...everyKind, nodes } },
+    inspector: {
+      strings: inspectorStrings,
+      selected: 'queue',
+      mode: 'configure',
+    },
+    diagnostics,
+  };
+}
+
+/**
+ * A word the host resolved for a field or a group.
+ *
+ * The bags are keyed by id, so a missing one reads
+ * as `undefined` and would quietly become the string
+ * `"undefined"` in an expectation. Asked for here
+ * instead, where a missing word is the failure.
+ */
+function word(bag: Record<string, string>, id: string): string {
+  const said = bag[id];
+  if (said === undefined) throw new Error(`no word for ${id}`);
+
+  return said;
+}
+
+/** How wide the column of field labels resolved to,
+ *  in pixels. */
+async function labelTrack(page: Page): Promise<number> {
+  const tracks = await page
+    .locator('.field[data-control="text"]')
+    .first()
+    .evaluate((field) => getComputedStyle(field).gridTemplateColumns);
+
+  return Number.parseFloat(tracks);
+}
+
 /** What the host sends back once it has been told
  *  which block was clicked. */
 /**
@@ -2353,6 +2452,151 @@ test.describe('the Inspector column', () => {
     await expect(page.locator('[data-field="retryMaxAttempts"]')).toHaveCount(
       0,
     );
+  });
+
+  /**
+   * A queue block's form, which is the only one in
+   * the column grouped under headers.
+   *
+   * It is grouped because it carries two policies
+   * that are not one another's scope — what the
+   * queue is registered with, and what each item's
+   * enqueue is given — and reading them as one list
+   * is how somebody sets a per-partition limit
+   * believing they set the queue's.
+   */
+  test.describe('a queue block’s two policies', () => {
+    test('come as groups, the last of them folded away', async ({ page }) => {
+      await openEveryKind(page, showingQueue(INDEXING));
+
+      await expect(
+        page.locator('[data-control="section"] .section-head'),
+      ).toHaveText([
+        `${MARK}${word(inspectorStrings.fields, 'queuePolicy')}`,
+        `${MARK}${word(inspectorStrings.fields, 'enqueuePolicy')}`,
+        `${MARK}${word(inspectorStrings.fields, 'advanced')}`,
+      ]);
+
+      await expect(page.locator('[data-field="queueName"] input')).toHaveValue(
+        'document-index',
+      );
+      await expect(page.locator('[data-field="itemsPath"] input')).toHaveValue(
+        'pages',
+      );
+
+      await expect(
+        page.locator('[data-field="advanced"] .section-head'),
+      ).toHaveAttribute('aria-expanded', 'false');
+      await expect(page.locator('[data-field="onConflict"]')).toHaveCount(0);
+    });
+
+    /**
+     * What each group needs saying about it, which
+     * is not a fact about any one field in it: which
+     * process a limit holds back, and which two
+     * settings the app refuses together.
+     */
+    test('say under each header what its fields do not', async ({ page }) => {
+      await openEveryKind(page, showingQueue(INDEXING));
+
+      await expect(
+        page.locator('[data-field="queuePolicy"] .field-note'),
+      ).toHaveText(word(inspectorStrings.hints, 'queuePolicy'));
+      await expect(
+        page.locator('[data-field="enqueuePolicy"] .field-note'),
+      ).toHaveText(word(inspectorStrings.hints, 'enqueuePolicy'));
+    });
+
+    /**
+     * The fold, opened and closed.
+     *
+     * A header owns the run of fields after it as
+     * far as the next header — not the whole rest of
+     * the form — and stays on screen either way,
+     * because it is the way back into what it hides.
+     *
+     * Read with the motion off: the marker's turn is
+     * transitioned, and a transform read while that
+     * is still running is the folded matrix in both
+     * states.
+     */
+    test('fold and unfold a group at its header', async ({ page }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await openEveryKind(page, showingQueue(INDEXING));
+
+      const head = page.locator('[data-field="advanced"] .section-head');
+      const mark = page.locator('[data-field="advanced"] .section-mark');
+
+      await expect(mark).toHaveCSS('transform', 'matrix(0, -1, 1, 0, 0, 0)');
+
+      await head.click();
+
+      await expect(head).toHaveAttribute('aria-expanded', 'true');
+      await expect(mark).toHaveCSS('transform', 'none');
+      await expect(
+        page.locator('[data-field="onConflict"] select'),
+      ).toHaveCount(1);
+
+      await head.click();
+
+      await expect(page.locator('[data-field="onConflict"]')).toHaveCount(0);
+
+      // And a group folded from the top takes its
+      // own fields with it and nobody else's.
+      await page.locator('[data-field="queuePolicy"] .section-head').click();
+
+      await expect(page.locator('[data-field="queueName"]')).toHaveCount(0);
+      await expect(
+        page.locator('[data-field="queuePolicy"] .section-head'),
+      ).toBeVisible();
+      await expect(page.locator('[data-field="itemsPath"] input')).toHaveValue(
+        'pages',
+      );
+    });
+
+    /**
+     * Core reports both of these against the block,
+     * under one rule, at one severity. Only one of
+     * them has a box on this form holding half its
+     * remedy, and that is the one drawn on the box.
+     * The other stays the block's.
+     */
+    test('draw the finding the deduplication path is a way out of', async ({
+      page,
+    }) => {
+      await openEveryKind(
+        page,
+        showingQueue(PARTITIONED, [NO_PARTITION_KEY, DEDUPLICATES]),
+      );
+
+      await expect(
+        page.locator('[data-field="deduplicationPath"] .field-note'),
+      ).toHaveText(DEDUPLICATES.message);
+
+      await expect(page.getByText(NO_PARTITION_KEY.message)).toHaveCount(0);
+    });
+
+    /**
+     * And the labels get the room their scopes need.
+     * `worker concurrency / partition` in the 8.5ch
+     * column every other form is set in is four
+     * stacked fragments beside a one-line box.
+     */
+    test('are labelled in a column wide enough to read', async ({ page }) => {
+      const harness = await openEveryKind(page, showingQueue(INDEXING));
+
+      const labels = page.locator('.fields');
+      await expect(labels).toHaveAttribute('data-labels', 'wide');
+
+      const wide = await labelTrack(page);
+
+      await harness.show(canvasInit({ ...showing('find_slot') }));
+      await expect(page.locator('[data-field="title"] input')).toHaveValue(
+        'Find open slot',
+      );
+
+      expect(wide / (await labelTrack(page))).toBeCloseTo(12 / 8.5, 2);
+    });
   });
 
   /**

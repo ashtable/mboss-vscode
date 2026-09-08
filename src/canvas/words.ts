@@ -427,6 +427,7 @@ export const inspectorWords = once(() => ({
   openRun: l10n.t('Open run'),
   fields: inspectorFields(),
   options: inspectorOptions(),
+  hints: inspectorHints(),
 
   // The picker's list is the palette's `/lib`
   // section put through one rule, which is what
@@ -517,6 +518,35 @@ function inspectorFields(): Record<string, string> {
     maxIterations: l10n.t('max loops'),
     onExhausted: l10n.t('when exhausted'),
 
+    // The three groups a queue block's form is
+    // read in. Two policy models and the knobs
+    // nobody turns often — never one list.
+    queuePolicy: l10n.t('Queue policy · registration'),
+    enqueuePolicy: l10n.t('Enqueue policy · per item'),
+    advanced: l10n.t('Advanced'),
+
+    queueName: l10n.t('queue'),
+    // Never a bare "concurrency": three of the four
+    // limits below would answer to it.
+    globalConcurrency: l10n.t('global concurrency'),
+    workerConcurrency: l10n.t('worker concurrency'),
+    rateLimitPer: l10n.t('rate limit'),
+    rateLimitSec: l10n.t('per, in seconds'),
+    partitioning: l10n.t('partitioning'),
+    partitionConcurrency: l10n.t('concurrency / partition'),
+    partitionWorkerConcurrency: l10n.t('worker concurrency / partition'),
+    partitionRateLimitPer: l10n.t('rate limit / partition'),
+    partitionRateLimitSec: l10n.t('per, in seconds'),
+    minPollingIntervalMs: l10n.t('min polling interval, in ms'),
+    onConflict: l10n.t('on conflict'),
+
+    itemsPath: l10n.t('items path'),
+    itemType: l10n.t('item type'),
+    priority: l10n.t('priority'),
+    delaySeconds: l10n.t('delay, in seconds'),
+    deduplicationPath: l10n.t('deduplication path'),
+    partitionPath: l10n.t('partition path'),
+
     minRounds: l10n.t('min rounds'),
     maxRounds: l10n.t('max rounds'),
     models: l10n.t('models'),
@@ -550,6 +580,32 @@ function inspectorFields(): Record<string, string> {
 }
 
 /**
+ * What a group needs saying about it, under its
+ * header.
+ *
+ * Two of the three groups on a queue block are
+ * about scopes a person cannot tell apart from the
+ * field names alone — which process a limit holds
+ * back, and which two settings the app will refuse
+ * together. Neither is a fact about one field, so
+ * neither is a label.
+ */
+function inspectorHints(): Record<string, string> {
+  return {
+    queuePolicy: l10n.t('global = across processes · worker = per process'),
+
+    // Said rather than enforced: core is where the
+    // rule lives, and a form that greyed the box
+    // out would put half of the remedy — dropping
+    // the path — out of reach of the field holding
+    // it.
+    enqueuePolicy: l10n.t(
+      'partitioned queues cannot deduplicate — a partition limit and a deduplication path together are an error on the block',
+    ),
+  };
+}
+
+/**
  * What each choice reads as, keyed by the field it
  * belongs to and the value it stores.
  *
@@ -577,6 +633,14 @@ function inspectorOptions(): Record<string, string> {
     'predicateOp.lte': l10n.t('is at most'),
     'predicateOp.exists': l10n.t('is there at all'),
     'predicateOp.nonempty': l10n.t('is not empty'),
+
+    'partitioning.off': l10n.t('off'),
+    'partitioning.on': l10n.t('on'),
+
+    'onConflict.unset': l10n.t('not set'),
+    'onConflict.update_if_latest_version': l10n.t('update if latest version'),
+    'onConflict.always_update': l10n.t('always update'),
+    'onConflict.never_update': l10n.t('never update'),
 
     'onExhausted.abort': l10n.t('stop the run'),
     'onExhausted.continue': l10n.t('carry on'),
