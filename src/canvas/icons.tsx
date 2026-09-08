@@ -9,17 +9,18 @@ import type { NodeState } from './graph.js';
  * Two rules, and between them they are the whole
  * file. The glyph says what kind of block this is,
  * and every one of them is drawn in one weight of
- * one stroke — ten icons in ten weights reads as
- * ten different products. The colour says what is
- * happening to the block right now, and never what
- * kind it is: ten kinds in ten colours is a legend
- * to memorise, and the block worth finding across
- * a graph is the one that is running.
+ * one stroke — icons each in their own weight read
+ * as icons from that many products. The colour
+ * says what is happening to the block right now,
+ * and never what kind it is: a colour per kind is
+ * a legend to memorise, and the block worth
+ * finding across a graph is the one that is
+ * running.
  *
  * The paths are Lucide's, written out here rather
  * than imported. A webview bundle that pulled the
  * icon package would carry a thousand glyphs to
- * draw ten, and these ten change only when
+ * draw eleven, and these eleven change only when
  * somebody decides they should. The licence is in
  * THIRD_PARTY_NOTICES.md.
  */
@@ -103,6 +104,19 @@ const PATHS: Record<NodeKind, readonly string[]> = {
 
   // code
   codeStep: ['m16 18 6-6-6-6', 'm8 6-6 6 6 6'],
+
+  // waves. Three parallel strokes, and nothing
+  // else here is one — the stacked shapes that
+  // would say "a pile of work" read at this size
+  // as the cube or the cylinder next to them, and
+  // an ordered list's numerals are illegible at
+  // 15px. What is left is the right thing anyway:
+  // a queue is items streaming past under a limit.
+  queue: [
+    'M2 12q2.5 2 5 0t5 0 5 0 5 0',
+    'M2 19q2.5 2 5 0t5 0 5 0 5 0',
+    'M2 5q2.5 2 5 0t5 0 5 0 5 0',
+  ],
 };
 
 /**

@@ -87,6 +87,7 @@ const nodeTypes: NodeTypes = {
   step: Node,
   transaction: Node,
   apiCall: Node,
+  queue: Node,
   branch: Node,
   loop: Node,
   durableWait: Node,

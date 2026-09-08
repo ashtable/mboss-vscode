@@ -572,7 +572,13 @@ function configurationOf(node: WorkflowNode): NodeConfiguration {
       ? {}
       : { handler: { export: node.handler.export } }),
     ...(retry === undefined ? {} : { retry }),
-    ...(node.forEach === undefined ? {} : { forEach: node.forEach }),
+    // A queue block runs its handler over a list
+    // too, but on a queue rather than through
+    // `forEach` — the field is not on that kind at
+    // all, so there is nothing here to read.
+    ...(node.kind === 'queue' || node.forEach === undefined
+      ? {}
+      : { forEach: node.forEach }),
     ...(node.guard === undefined ? {} : { guard: node.guard }),
     ...(node.in === undefined ? {} : { in: node.in }),
     ...(node.out === undefined ? {} : { out: node.out }),

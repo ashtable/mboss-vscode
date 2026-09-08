@@ -131,10 +131,9 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
  * A block of every kind, in a column.
  *
  * The canonical fixture is a real workflow and so
- * uses six of the ten kinds. Seeing that each kind
- * draws its own glyph takes a document that holds
- * them all, which no workflow anybody would write
- * does.
+ * uses six kinds. Seeing that each kind draws its
+ * own glyph takes a document that holds them all,
+ * which no workflow anybody would write does.
  */
 const everyKind = WorkflowIRSchema.parse({
   $schema: 'https://mboss.dev/schemas/workflow-v1.json',
@@ -230,7 +229,7 @@ async function openAtRest(page: Page, over: Partial<CanvasInit> = {}) {
 }
 
 test.describe('the palette', () => {
-  test('offers the catalog’s ten kinds, in its order', async ({ page }) => {
+  test('offers every kind the catalog has, in its order', async ({ page }) => {
     await openCanvas(page);
 
     await expect(page.locator('[data-palette-kind]')).toHaveText(
@@ -483,8 +482,8 @@ test.describe('the graph', () => {
 /**
  * The glyph each kind is drawn in, written out.
  *
- * Ten distinct glyphs are not ten right ones: a
- * Loop wearing the Trigger's bolt differs from
+ * Distinct glyphs are not right ones: a Loop
+ * wearing the Trigger's bolt differs from
  * everything else on the canvas and is still
  * wrong. These say which is which, so that
  * changing one is something somebody decides
@@ -532,6 +531,11 @@ const ICON_PATHS: Record<NodeKind, readonly string[]> = {
     'm22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7',
   ],
   codeStep: ['m16 18 6-6-6-6', 'm8 6-6 6 6 6'],
+  queue: [
+    'M2 12q2.5 2 5 0t5 0 5 0 5 0',
+    'M2 19q2.5 2 5 0t5 0 5 0 5 0',
+    'M2 5q2.5 2 5 0t5 0 5 0 5 0',
+  ],
 };
 
 /**
@@ -578,13 +582,31 @@ test.describe('one block', () => {
   });
 
   /**
+   * A kind the graph has no component for is not a
+   * compile error — React Flow draws its own
+   * default node instead, which has none of a
+   * block's parts. So this asks for the face and
+   * not only for the glyph.
+   */
+  test('draws a queue block as a block, not a bare node', async ({ page }) => {
+    await openEveryKind(page);
+
+    const body = nodeBody(page, 'queue');
+
+    await expect(body.locator('.node-title')).toHaveText('Queue');
+    await expect(body.locator('.node-icon path')).toHaveCount(
+      ICON_PATHS.queue.length,
+    );
+  });
+
+  /**
    * A path the browser cannot parse is dropped in
    * silence. The glyph comes out missing a stroke,
    * which reads as a slightly different icon rather
    * than as a broken one, and the console is the
    * only place it is ever mentioned.
    */
-  test('draws all ten without the browser refusing a stroke', async ({
+  test('draws them all without the browser refusing a stroke', async ({
     page,
   }) => {
     const complaints: string[] = [];

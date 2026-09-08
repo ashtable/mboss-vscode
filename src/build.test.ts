@@ -206,20 +206,20 @@ describe('the built extension', () => {
    * for the same reason, but a directory that is
    * merely present says nothing: what the gallery
    * hands to `usePattern` is a document per
-   * pattern, and the flagship one is named here so
+   * pattern, and two of them are named here so
    * that a copy of empty directories fails.
    */
   it('ships the pattern documents the gallery offers', () => {
-    expect(
-      fileExists(
-        join(
-          outdir,
-          'library',
-          'refund_approval',
-          'refund_approval.workflow.json',
-        ),
-      ),
-    ).toBe(true);
+    // The flagship, and the one whose document
+    // holds a queue block. A library copied out of
+    // a core older than that kind still ships the
+    // first of these, so the first alone is not
+    // evidence the gallery is whole.
+    for (const name of ['refund_approval', 'document_ingestion_queued']) {
+      expect(
+        fileExists(join(outdir, 'library', name, `${name}.workflow.json`)),
+      ).toBe(true);
+    }
   });
 
   /**

@@ -39,6 +39,7 @@ const nodeTypes: NodeTypes = {
   step: RunNode,
   transaction: RunNode,
   apiCall: RunNode,
+  queue: RunNode,
   branch: RunNode,
   loop: RunNode,
   durableWait: RunNode,

@@ -113,6 +113,16 @@ function bind(node: WorkflowNode): {
         ),
         ...retryFields<Of<'apiCall'>>(),
       ]);
+    // A queue block starts a run per item, and its
+    // handler is what those runs run — so the
+    // policy set here is one item's retry rather
+    // than the whole block's.
+    case 'queue':
+      return bound(node, [
+        ...base<typeof node>(),
+        handler<typeof node>(),
+        ...retryFields<typeof node>(),
+      ]);
     case 'branch':
       return bound(node, branchFields(node));
     case 'loop':

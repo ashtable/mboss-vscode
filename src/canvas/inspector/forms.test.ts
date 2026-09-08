@@ -107,6 +107,17 @@ const SAMPLES: readonly WorkflowNode[] = [
     },
   }),
   NodeSchema.parse({
+    id: 'index_pages',
+    kind: 'queue',
+    title: 'Index each page',
+    handler: { export: 'indexPage' },
+    config: {
+      itemsPath: 'pages',
+      queue: { name: 'document-index', globalConcurrency: 8 },
+      enqueue: { deduplicationPath: 'documentId' },
+    },
+  }),
+  NodeSchema.parse({
     id: 'author_loop',
     kind: 'loop',
     title: 'Draft and revise',
@@ -592,6 +603,7 @@ describe('a node’s own fields', () => {
       'transaction',
       'apiCall',
       'codeStep',
+      'queue',
     ];
 
     for (const node of SAMPLES) {
