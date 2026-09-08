@@ -15,7 +15,7 @@ import { liveRun, liveStep } from '../../src/test-support/runs.js';
 
 import { paletteLabels } from './words.js';
 
-import { mount, type Harness } from './harness.js';
+import { mount, type Harness, type ThemeKind } from './harness.js';
 import {
   inspectorWords as inspectorStrings,
   runsWords as runsStrings,
@@ -273,8 +273,12 @@ function seeNothing(): SeeInit {
   };
 }
 
-async function showList(page: Page, init: RunsInit): Promise<Harness> {
-  const harness = await mount(page, 'runs');
+async function showList(
+  page: Page,
+  init: RunsInit,
+  theme: ThemeKind = 'light',
+): Promise<Harness> {
+  const harness = await mount(page, 'runs', theme);
   await harness.show(init);
 
   return harness;
@@ -1108,7 +1112,23 @@ test.describe('the run list', () => {
   test('hands the id of a row to the window', async ({ page }) => {
     const harness = await showList(page, runsInit());
 
+    await page.locator('[data-run="wf_c9d2f3"]').hover();
     await page.locator('[data-copy-run-id="wf_c9d2f3"]').click();
+
+    expect(await harness.postedOfType('copyRunId')).toEqual([
+      { type: 'copyRunId', workflowId: 'wf_c9d2f3' },
+    ]);
+  });
+
+  test('keeps the hidden copy control keyboard accessible', async ({
+    page,
+  }) => {
+    const harness = await showList(page, runsInit());
+    const copy = page.locator('[data-copy-run-id="wf_c9d2f3"]');
+
+    await copy.focus();
+    await expect(copy).toHaveCSS('opacity', '1');
+    await copy.press('Enter');
 
     expect(await harness.postedOfType('copyRunId')).toEqual([
       { type: 'copyRunId', workflowId: 'wf_c9d2f3' },
@@ -1246,6 +1266,44 @@ test.describe('the run list', () => {
       { type: 'runSelect', workflowId: 'wf_77c101' },
     ]);
   });
+
+  test('opens a run when its outcome mark is clicked', async ({ page }) => {
+    const harness = await showList(page, runsInit());
+
+    await page.locator('[data-run="wf_77c101"] .run-mark').click();
+
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: 'wf_77c101' },
+    ]);
+    expect(await harness.postedOfType('copyRunId')).toEqual([]);
+  });
+
+  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+    test(`ellipsizes a long run id in a narrow ${theme} panel`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 300, height: 800 });
+      await showList(page, runsInit(), theme);
+
+      const id = page.locator('[data-run="wf_c9d2f3"] .run-id');
+      const style = await id.evaluate((node) => {
+        const css = getComputedStyle(node);
+        return {
+          overflow: css.overflow,
+          textOverflow: css.textOverflow,
+          whiteSpace: css.whiteSpace,
+          width: node.getBoundingClientRect().width,
+        };
+      });
+
+      expect(style).toMatchObject({
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+      });
+      expect(style.width).toBeGreaterThan(60);
+    });
+  }
 
   /** The boundary the design draws, drawn where a
    *  person can see it. */
@@ -1684,6 +1742,7 @@ test.describe('one run in detail', () => {
   test('replays a whole run from the list', async ({ page }) => {
     const harness = await showList(page, runsInit());
 
+    await page.locator('[data-run="wf_c9d2f3"]').hover();
     await page.locator('[data-replay-run="wf_c9d2f3"]').click();
 
     expect(await harness.postedOfType('replayRun')).toEqual([
@@ -2127,6 +2186,16 @@ test.describe('in every theme', () => {
  * — so the caption says which revision is drawn.
  */
 test.describe('one run, as a graph', () => {
+  test('positions graph nodes with the React Flow sheet', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH }), 'graph'));
+    await graphAtRest(page);
+
+    await expect(page.locator('.react-flow__node').first()).toHaveCSS(
+      'position',
+      'absolute',
+    );
+  });
+
   /**
    * A person who panned and zoomed to look at
    * something has to still be looking at it after

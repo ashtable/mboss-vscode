@@ -524,7 +524,9 @@ function BlockCard({
       {policy === undefined ? null : (
         <>
           <p data-evidence-field="retry">
-            <span className="value mono">{policy.text}</span>
+            <span className="value mono" data-size="small">
+              {policy.text}
+            </span>
             <span className="value-label">
               {strings.retryPolicy}
               <Chip word={strings.configured} kind="configured" />

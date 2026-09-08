@@ -213,7 +213,7 @@ describe('a row of the run history', () => {
     };
 
     expect(rowOf(parent, [parent, child]).forks).toEqual([
-      '└ replay → wf_fork1 · ERROR',
+      '└ replay → wf_fork1 · failed',
     ]);
     expect(rowOf(parent, [parent]).forks).toEqual([]);
   });

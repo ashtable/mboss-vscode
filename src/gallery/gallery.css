@@ -179,13 +179,13 @@
 
 /* The only colour on the card, on the only thing it
    asks anybody to do. */
-.template-use {
+.btn.template-use {
   align-self: flex-end;
   padding-inline: 0;
   color: var(--brand);
 }
 
-.template-use:hover:not(:disabled) {
+.btn.template-use:hover:not(:disabled) {
   color: var(--brand);
 }
 

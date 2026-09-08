@@ -277,7 +277,8 @@ body {
    activity bar re-points it at the side bar's own
    ground, and a rule keyed on a theme class would
    outrank that. */
-body.vscode-dark {
+body.vscode-dark,
+body.vscode-high-contrast {
   --surface: var(--vscode-editorWidget-background, #1b1e26);
   --ink: var(--vscode-foreground, #e7e9f0);
 
@@ -392,6 +393,9 @@ body.vscode-high-contrast-light {
 .value[data-size='large'] {
   font-size: var(--text-xl);
   line-height: 1.15;
+}
+.value[data-size='small'] {
+  font-size: var(--text-sm);
 }
 
 .value-label {
@@ -610,8 +614,9 @@ body.vscode-high-contrast-light {
   margin: 0;
   min-width: 0;
   overflow-wrap: anywhere;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  font-weight: 600;
   color: var(--ink);
 }
 
@@ -839,9 +844,11 @@ body.vscode-high-contrast-light {
 }
 
 .lineage-id {
+  all: unset;
   font-family: var(--font-mono);
   overflow-wrap: anywhere;
   color: var(--ink);
+  cursor: pointer;
 }
 
 .lineage-child {
@@ -997,7 +1004,7 @@ body.vscode-high-contrast-light {
 .node-title {
   margin: 0;
   font-weight: 600;
-  font-size: var(--text-sm);
+  font-size: var(--text-md);
   line-height: 1.3;
   white-space: nowrap;
   overflow: hidden;

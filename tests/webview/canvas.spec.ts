@@ -1723,15 +1723,12 @@ test.describe('the colour a wire is drawn in', () => {
     await expect(wireBody(page, 'e2')).toHaveCSS('stroke', 'rgb(238, 93, 104)');
   });
 
-  /** The one wire that means "again", dashed
-   *  whether or not anything is going down it. */
-  test('dashes the one that runs back up the graph', async ({ page }) => {
+  /** The one wire that means "again" stays solid,
+   *  so direction never reads as moving work. */
+  test('keeps the one that runs back up the graph solid', async ({ page }) => {
     await openAtRest(page);
 
-    await expect(wireBody(page, 'e8')).toHaveCSS(
-      'stroke-dasharray',
-      '6px, 5px',
-    );
+    await expect(wireBody(page, 'e8')).toHaveCSS('stroke-dasharray', 'none');
   });
 });
 

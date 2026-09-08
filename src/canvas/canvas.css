@@ -513,7 +513,7 @@ button.lib-fn {
 }
 /* The one edge that means "again". */
 .react-flow__edge .wire-back {
-  stroke-dasharray: 6 5;
+  stroke-dasharray: none;
 }
 
 /* Nothing to see: the arrowheads live in here, and
@@ -910,12 +910,18 @@ button.lib-fn {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--r-sm);
   background: var(--info-tint);
-  color: var(--ink-muted);
+  color: var(--ink-soft);
   font-size: var(--text-xs);
 }
 .callout strong {
   margin-right: 6px;
   color: var(--info);
+}
+.callout[data-tone='warn'] {
+  background: var(--warn-tint);
+}
+.callout[data-tone='warn'] strong {
+  color: var(--warn);
 }
 
 /* A repeating group — a branch's cases, a form's

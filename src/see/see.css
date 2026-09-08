@@ -407,6 +407,9 @@ body {
   flex-direction: column;
   gap: var(--space-2);
 }
+.controls > .btn {
+  align-self: start;
+}
 
 .control-line {
   margin: 0;
@@ -418,6 +421,7 @@ body {
 }
 
 .control-name {
+  font-weight: 600;
   font-size: var(--text-xs);
   letter-spacing: var(--label-tracking);
   text-transform: uppercase;

@@ -4,6 +4,7 @@ import {
   type EdgeTypes,
   type NodeTypes,
 } from '@xyflow/react';
+import '@xyflow/react/dist/style.css';
 import { useMemo } from 'react';
 
 import { RunNode } from '../canvas/RunNode.js';
