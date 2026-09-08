@@ -145,6 +145,7 @@ export function activate(context: ExtensionContext): void {
     openRun,
     replayFrom: (workflowId, nodeId) => runs.replay(workflowId, { nodeId }),
     askAgent: (ask) => runs.askAgent(ask),
+    inspectQueue: (workflowId, nodeId) => runs.inspectQueue(workflowId, nodeId),
     onChanged: (listener) => runs.onChanged(listener),
   };
 

@@ -121,6 +121,28 @@ const OpenOutput = z.object({
 });
 
 /**
+ * Somebody is looking at what a queue block is
+ * doing.
+ *
+ * Asked once, when the card is shown, and never on
+ * a tick: a watch already spends a query per queue
+ * block per tick on this run's own counts, and what
+ * this asks for — the whole queue, what the app
+ * registered, the items themselves — is three more
+ * statements that change too slowly to poll.
+ *
+ * The run travels with the block because a panel
+ * may be drawing a run the extension has since
+ * moved past, and which run is meant is not a
+ * question a frame gets to answer.
+ */
+const InspectQueue = z.object({
+  type: z.literal('inspectQueue'),
+  workflowId: z.string(),
+  nodeId: z.string(),
+});
+
+/**
  * Somebody drew a wire from one block to another.
  *
  * The source block and no port. A block has one dot
@@ -585,6 +607,7 @@ const SCHEMAS = {
     OpenRun,
     AskAgent,
     ReplayFrom,
+    InspectQueue,
     Connect,
     AddNode,
     Move,
@@ -634,6 +657,7 @@ const SCHEMAS = {
     OpenOutput,
     AskAgent,
     ReplayFrom,
+    InspectQueue,
     SeeShow,
     SeeNode,
     SeeRaw,

@@ -27,11 +27,16 @@ import {
   type WorkflowIR,
   type WorkflowNode,
 } from '../../src/core/rules.js';
+import type { QueueEvidence } from '../../src/runs/queueEvidence.js';
 import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
 import type { LiveRun, LiveStep, QueueCounts } from '../../src/runs/watch.js';
 import { liveStep } from '../../src/test-support/runs.js';
 import { filled } from '../../src/webview/fill.js';
-import type { CanvasInit, InspectorMode } from '../../src/webview/protocol.js';
+import type {
+  CanvasInit,
+  InspectorMode,
+  ShownRun,
+} from '../../src/webview/protocol.js';
 
 import { mount, type ThemeKind } from './harness.js';
 import {
@@ -956,7 +961,10 @@ function runOf(
  * children are doing is the only thing this run
  * says about anything.
  */
-function queuedRun(counts: Partial<QueueCounts>): LiveRun {
+function queuedRun(
+  counts: Partial<QueueCounts>,
+  evidence?: QueueEvidence,
+): ShownRun {
   return {
     ...runOf([]),
     workflow: everyKind.name,
@@ -970,6 +978,38 @@ function queuedRun(counts: Partial<QueueCounts>): LiveRun {
         ...counts,
       },
     },
+    ...(evidence === undefined ? {} : { queueEvidence: { queue: evidence } }),
+  };
+}
+
+/**
+ * What one read of the whole queue answered with.
+ *
+ * Per selection rather than per tick, so a run that
+ * nobody has opened a queue card on carries none of
+ * it — which is what the card's own case about
+ * saying nothing yet is drawn from.
+ */
+function queueEvidence(over: Partial<QueueEvidence> = {}): QueueEvidence {
+  return {
+    window: {
+      queued: 4,
+      active: 2,
+      started: 74,
+      failedRecently: 2,
+      windowSec: 60,
+    },
+    registered: 'matches',
+    recent: [
+      { workflowId: 'wf_child_1', label: 'doc_7', status: 'PENDING' },
+      {
+        workflowId: 'wf_child_2',
+        label: '…b2c3d4e5',
+        status: 'SUCCESS',
+        completedAt: RECORDED_AT,
+      },
+    ],
+    ...over,
   };
 }
 
@@ -2987,6 +3027,207 @@ test.describe('the Inspector column', () => {
       await expect(
         page.locator('[data-evidence-action="openRun"]'),
       ).toHaveCount(1);
+    });
+  });
+
+  /**
+   * A queue block's card, which is a different card
+   * from every other block's.
+   *
+   * A queue block records no row of its own — the
+   * work is its children's runs — so the card that
+   * draws a block's rows would draw an empty one
+   * here. What there is to say is how many children
+   * are running, what the whole queue is doing, and
+   * whether the app registered the queue the way
+   * the document asks for it.
+   */
+  test.describe('what a run recorded about a queue block', () => {
+    const INDEXED = {
+      itemsPath: 'pages',
+      queue: {
+        name: 'document-index',
+        globalConcurrency: 8,
+        rateLimit: { limitPerPeriod: 5, periodSec: 10 },
+      },
+      enqueue: { deduplicationPath: 'documentId' },
+    };
+
+    /** The every-kind document with its queue block
+     *  configured and its card on screen. */
+    function showingQueueCard(): Partial<CanvasInit> {
+      return {
+        ...showingQueue(INDEXED),
+        inspector: {
+          strings: inspectorStrings,
+          selected: 'queue',
+          mode: 'evidence',
+        },
+      };
+    }
+
+    test('draws a card of its own rather than a block’s rows', async ({
+      page,
+    }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
+      });
+
+      await expect(page.locator('[data-evidence="queue"]')).toHaveCount(1);
+      await expect(page.locator('[data-evidence="block"]')).toHaveCount(0);
+    });
+
+    test('says what this run’s items are doing, and where each figure came from', async ({
+      page,
+    }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
+      });
+
+      await expect(
+        page.locator('[data-evidence-field="queue"] .value'),
+      ).toHaveText('document-index');
+      await expect(
+        page.locator('[data-evidence-field="active"] .value'),
+      ).toHaveText('3 of 8 queue-wide');
+      await expect(
+        page.locator('[data-evidence-field="queued"] .value'),
+      ).toHaveText('12 · 4 delayed');
+      await expect(
+        page.locator('[data-evidence-field="rateLimit"] .value'),
+      ).toHaveText('5 per 10 s');
+
+      await expect(
+        page.locator('[data-evidence-field="active"] .provenance'),
+      ).toHaveText(inspectorStrings.derived);
+      await expect(
+        page.locator('[data-evidence-field="rateLimit"] .provenance'),
+      ).toHaveText(inspectorStrings.configured);
+    });
+
+    /**
+     * The whole queue costs a read of its own, so
+     * until one has been made the card says nothing
+     * about it rather than saying zero.
+     */
+    test('says nothing about the whole queue until a read answers', async ({
+      page,
+    }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3 }),
+      });
+
+      await expect(
+        page.locator('[data-evidence-field="observedStarts"]'),
+      ).toHaveCount(0);
+      await expect(
+        page.locator('[data-evidence-field="registered"]'),
+      ).toHaveCount(0);
+    });
+
+    test('asks for that read when the card is shown', async ({ page }) => {
+      const harness = await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3 }),
+      });
+
+      expect(await harness.postedOfType('inspectQueue')).toEqual([
+        { type: 'inspectQueue', workflowId: 'wf_1', nodeId: 'queue' },
+      ]);
+    });
+
+    test('draws what the read answered, said to be worked out', async ({
+      page,
+    }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3, failed: 1 }, queueEvidence()),
+      });
+
+      await expect(
+        page.locator('[data-evidence-field="observedStarts"] .value'),
+      ).toHaveText('74 in the last 60 s');
+      await expect(
+        page.locator('[data-evidence-field="observedStarts"] .provenance'),
+      ).toHaveText(inspectorStrings.derived);
+      await expect(
+        page.locator('[data-evidence-field="registered"] .value'),
+      ).toHaveText(inspectorStrings.queueMatches);
+
+      // The window sees only the children still on
+      // the queue, so its count of failures is the
+      // errored ones and says so.
+      await expect(
+        page.locator('[data-evidence-field="failed"] .value'),
+      ).toHaveText('1 · 2 errored queue-wide in the window');
+    });
+
+    /**
+     * A rate limit is a registration, not a budget
+     * anybody is spending down: the ledger records
+     * what ran, never what it was allowed to run.
+     * A card drawing `12/50 per 10 s` would be
+     * claiming a number nothing measured, so the
+     * shape itself is what is rejected here.
+     */
+    test('never draws a rate as a budget being spent', async ({ page }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3 }, queueEvidence()),
+      });
+
+      const said =
+        (await page.locator('[data-evidence="queue"]').textContent()) ?? '';
+
+      expect(said).not.toMatch(/\d+ ?\/ ?\d+ per/);
+      expect(said).toContain(inspectorStrings.queueLocal);
+    });
+
+    test('says what the app registered where it is not what the document asks for', async ({
+      page,
+    }) => {
+      await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun(
+          { active: 3 },
+          queueEvidence({
+            registered: {
+              registered: {
+                name: 'document-index',
+                globalConcurrency: 4,
+                minPollingIntervalMs: 1000,
+              },
+            },
+          }),
+        ),
+      });
+
+      await expect(
+        page.locator('[data-evidence-field="registered"] .value'),
+      ).toHaveText(
+        filled(
+          inspectorStrings.queueDiffers,
+          'global concurrency 4 · min polling interval 1000 ms',
+        ),
+      );
+    });
+
+    /** The canvas is not the run page, so the way to
+     *  a child is the way to any run: open it. */
+    test('opens the run an item started', async ({ page }) => {
+      const harness = await openEveryKind(page, {
+        ...showingQueueCard(),
+        run: queuedRun({ active: 3 }, queueEvidence()),
+      });
+
+      await page.locator('[data-queue-item="wf_child_1"]').click();
+
+      expect(await harness.postedOfType('openRun')).toEqual([
+        { type: 'openRun', workflowId: 'wf_child_1' },
+      ]);
     });
   });
 });

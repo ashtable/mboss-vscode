@@ -56,6 +56,7 @@ export type {
   NodePaletteGroup,
   Position,
   Predicate,
+  QueuePolicy,
   Retry,
   WorkflowEdge,
   WorkflowIR,

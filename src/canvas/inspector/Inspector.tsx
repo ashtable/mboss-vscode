@@ -175,6 +175,7 @@ export function Inspector({
                   handler: node.handler?.export,
                   retry: node.retry,
                   body: node.kind === 'loop' ? node.config.body : undefined,
+                  queue: node.kind === 'queue' ? node.config.queue : undefined,
                 }
           }
           runState={runState}

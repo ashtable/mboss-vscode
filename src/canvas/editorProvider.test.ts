@@ -227,6 +227,10 @@ type FakeRuns = CanvasRuns & {
   /** Every run it handed to the agent, as
    *  `<run> <block>`. */
   readonly handed: string[];
+
+  /** Every queue block it asked to have read, as
+   *  `<run> <block>`. */
+  readonly inspected: string[];
 };
 
 function runsSaying(
@@ -238,6 +242,7 @@ function runsSaying(
   const offered: string[] = [];
   const asked: WorkflowIR[] = [];
   const handed: string[] = [];
+  const inspected: string[] = [];
   let live: LiveRun | undefined;
 
   return {
@@ -258,6 +263,9 @@ function runsSaying(
     askAgent: async (ask) => {
       handed.push(`${ask.workflowId} ${ask.nodeId ?? ''}`.trim());
     },
+    inspectQueue: async (workflowId, nodeId) => {
+      inspected.push(`${workflowId} ${nodeId}`);
+    },
     onChanged: (listener) => {
       listeners.push(listener);
 
@@ -271,6 +279,7 @@ function runsSaying(
     offered,
     asked,
     handed,
+    inspected,
   };
 }
 
@@ -1714,6 +1723,28 @@ describe('a card about the run on screen', () => {
     await settled();
 
     expect(runs.opened).toEqual(['wf_1']);
+  });
+
+  /** A read rather than an edit, so it goes through
+   *  neither the proposal gate nor the revision
+   *  one — and the answer arrives the way a tick
+   *  does, when the store says something changed. */
+  it('has a queue block read when a card asks for one', async () => {
+    const runs = runsSaying();
+    await open(fakeDocument(), previewsIn([]), fakeTrust(true), runs);
+
+    runs.heard(runOf('groom_booking'));
+    await settled();
+
+    panel.send({
+      type: 'inspectQueue',
+      view: 'canvas',
+      workflowId: 'wf_1',
+      nodeId: 'index_pages',
+    });
+    await settled();
+
+    expect(runs.inspected).toEqual(['wf_1 index_pages']);
   });
 });
 

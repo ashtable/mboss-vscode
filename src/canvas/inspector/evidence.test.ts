@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
+import type { QueuePolicy } from '../../core/rules.js';
 import { stepError } from '../../runs/rows.js';
+import type { LiveRun, QueueCounts } from '../../runs/watch.js';
 import { liveRun, liveStep } from '../../test-support/runs.js';
+import { inspectorWords } from '../words.js';
 
-import { evidenceOf, runCardOf } from './evidence.js';
+import {
+  evidenceOf,
+  queueRowsOf,
+  runCardOf,
+  type QueueRow,
+} from './evidence.js';
 
 /**
  * What one run recorded about one block.
@@ -241,5 +249,157 @@ describe('a row a replay carried over', () => {
     expect(evidenceOf(replayed, 'find_slot', undefined).headline?.reused).toBe(
       false,
     );
+  });
+});
+
+/**
+ * What a queue block's card says about this run's
+ * share of the queue.
+ *
+ * The counts a tick already read, plus the two
+ * limits the document sets — and nothing else. What
+ * the whole queue is doing, and whether the app
+ * registered the queue the way the document asks
+ * for it, are one read apiece and belong to
+ * whatever made that read.
+ */
+describe('what a queue block’s card says', () => {
+  const strings = inspectorWords();
+
+  const INDEXING: QueuePolicy = {
+    name: 'document-index',
+    globalConcurrency: 8,
+  };
+
+  /** A run of a workflow with one queue block in it,
+   *  and that block's children part-way through. */
+  function queued(counts: Partial<QueueCounts> = {}): LiveRun {
+    return liveRun({
+      steps: [],
+      queues: {
+        index_pages: {
+          queued: 0,
+          delayed: 0,
+          active: 0,
+          done: 0,
+          failed: 0,
+          ...counts,
+        },
+      },
+    });
+  }
+
+  function valueOf(rows: readonly QueueRow[], id: string): string | undefined {
+    return rows.find((row) => row.id === id)?.value;
+  }
+
+  it('draws the counts, the name and where each of them came from', () => {
+    const rows = queueRowsOf(
+      queued({ active: 3, queued: 12, failed: 1 }),
+      'index_pages',
+      INDEXING,
+      strings,
+    );
+
+    expect(rows.map((row) => [row.id, row.value, row.chip])).toEqual([
+      ['queue', 'document-index', 'configured'],
+      ['active', '3 of 8 queue-wide', 'derived'],
+      ['queued', '12', 'derived'],
+      ['failed', '1', 'derived'],
+      ['globalConcurrency', '8', 'configured'],
+    ]);
+    expect(rows[0]?.label).toBe(strings.queueRows.queue);
+  });
+
+  /** The ceiling is the document's, so a queue
+   *  nobody gave one is a queue with no ceiling to
+   *  measure this run against. */
+  it('measures this run against the whole queue only where there is a ceiling', () => {
+    const rows = queueRowsOf(
+      queued({ active: 3 }),
+      'index_pages',
+      { name: 'document-index' },
+      strings,
+    );
+
+    expect(valueOf(rows, 'active')).toBe('3');
+    expect(rows.some((row) => row.id === 'globalConcurrency')).toBe(false);
+  });
+
+  /** A block whose items are all sitting out a delay
+   *  is a different thing from one whose items are
+   *  all waiting for room — and a block with no
+   *  delayed items is neither. */
+  it('counts delayed items again only where there are any', () => {
+    expect(
+      valueOf(
+        queueRowsOf(
+          queued({ queued: 12, delayed: 4 }),
+          'index_pages',
+          INDEXING,
+          strings,
+        ),
+        'queued',
+      ),
+    ).toBe('12 · 4 delayed');
+
+    expect(
+      valueOf(
+        queueRowsOf(queued({ queued: 12 }), 'index_pages', INDEXING, strings),
+        'queued',
+      ),
+    ).toBe('12');
+  });
+
+  it('draws a rate limit as the pair it is', () => {
+    const rows = queueRowsOf(
+      queued(),
+      'index_pages',
+      {
+        name: 'document-index',
+        rateLimit: { limitPerPeriod: 5, periodSec: 10 },
+      },
+      strings,
+    );
+
+    expect(rows.find((row) => row.id === 'rateLimit')).toEqual({
+      id: 'rateLimit',
+      label: strings.queueRows.rateLimit,
+      value: '5 per 10 s',
+      chip: 'configured',
+    });
+  });
+
+  /**
+   * A run opened from a cold read carries no counts
+   * at all — `liveRunOf` never fills them and only a
+   * watch does — so the card draws what the document
+   * says and claims nothing about the work.
+   */
+  it('says nothing about counts no tick has read', () => {
+    const rows = queueRowsOf(
+      liveRun({ steps: [] }),
+      'index_pages',
+      INDEXING,
+      strings,
+    );
+
+    expect(rows.map((row) => row.id)).toEqual(['queue', 'globalConcurrency']);
+  });
+
+  /** And nothing at all about the whole queue: those
+   *  rows cost a read of their own, and this is the
+   *  half that costs nothing. */
+  it('leaves every row that costs a read to whoever made one', () => {
+    const rows = queueRowsOf(
+      queued({ active: 3 }),
+      'index_pages',
+      INDEXING,
+      strings,
+    );
+
+    expect(rows.map((row) => row.id)).not.toContain('observedStarts');
+    expect(rows.map((row) => row.id)).not.toContain('registered');
+    expect(rows.map((row) => row.id)).not.toContain('recentWork');
   });
 });

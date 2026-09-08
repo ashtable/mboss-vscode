@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
+import type { QueueEvidence } from '../../src/runs/queueEvidence.js';
 import type {
   RunRow,
   RunsInit,
@@ -1774,6 +1775,47 @@ test.describe('one run in detail', () => {
     );
   });
 
+  /**
+   * A queue block gets a card of its own, drawn from
+   * the counts and from the one read a selection
+   * costs — and the way to a child from here is the
+   * page's own way of showing a run, because this
+   * page is already showing one.
+   */
+  test('shows a queue block’s card, and selects the run an item started', async ({
+    page,
+  }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: QUEUED_GRAPH,
+          live: { ...QUEUED, queueEvidence: { index_pages: QUEUE_READ } },
+          selected: { nodeId: 'index_pages', functionId: undefined },
+        }),
+      ),
+    );
+
+    const card = page.locator('.rail [data-evidence="queue"]');
+
+    await expect(card).toHaveCount(1);
+    await expect(
+      card.locator('[data-evidence-field="queued"] .value'),
+    ).toHaveText('42');
+    await expect(
+      card.locator('[data-evidence-field="observedStarts"] .value'),
+    ).toHaveText('74 in the last 60 s');
+
+    await card.locator('[data-queue-item="wf_child_9f21"]').click();
+
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: 'wf_child_9f21' },
+    ]);
+    expect(await harness.postedOfType('inspectQueue')).toEqual([
+      { type: 'inspectQueue', workflowId: 'wf_c9d2f3', nodeId: 'index_pages' },
+    ]);
+  });
+
   test('shows the run-level card with nothing selected', async ({ page }) => {
     await showRun(page, seeInit(seeRun({ graph: GRAPH })));
 
@@ -2708,6 +2750,22 @@ const QUEUED = liveRun({
     index_pages: { queued: 42, delayed: 0, active: 8, done: 6, failed: 0 },
   },
 });
+
+/** What one read of the whole queue answered with,
+ *  for the card the rail draws about that block. */
+const QUEUE_READ: QueueEvidence = {
+  window: {
+    queued: 42,
+    active: 8,
+    started: 74,
+    failedRecently: 0,
+    windowSec: 60,
+  },
+  registered: 'matches',
+  recent: [
+    { workflowId: 'wf_child_9f21', label: '…ld_9f21', status: 'PENDING' },
+  ],
+};
 
 /**
  * One turn of that block, as the trace draws it:

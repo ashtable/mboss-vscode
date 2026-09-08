@@ -198,6 +198,102 @@ describe('one door for three zones', () => {
   });
 });
 
+/**
+ * What one queue block is doing, beyond this run's
+ * own share of it.
+ *
+ * One read, held by the store rather than by either
+ * zone, because both surfaces that draw the card
+ * ask the same question about the same run — the
+ * canvas' column and the run page's rail.
+ */
+describe('what a queue block is doing', () => {
+  /** The ledger, answering the three statements a
+   *  queue card costs as well as everything the
+   *  list and the page ask. */
+  function queueLedger(name: string) {
+    const base = database();
+    base.rows = [{ ...RUN_ROW, name }];
+
+    return {
+      ...base,
+      query: async <Row>(text: string, values: unknown[]): Promise<Row[]> => {
+        if (text.includes('dbos.queues')) return [] as Row[];
+
+        if (text.includes('queue_name = $1')) {
+          return [
+            { queued: '4', active: '2', started: '74', failed_recently: '0' },
+          ] as Row[];
+        }
+
+        if (text.includes('ORDER BY o.function_id DESC')) return [] as Row[];
+
+        return await base.query<Row>(text, values);
+      },
+    };
+  }
+
+  async function showingQueueRun() {
+    const dir = project();
+    writeWorkflow(dir, 'queue_partitioned');
+
+    const ledger = queueLedger('queue_partitioned');
+    const store = runsStore(
+      deps({
+        host: host({ projects: () => [dir] }),
+        open: async () => ledger,
+      }),
+    );
+
+    await store.select('wf_c9d2f3');
+
+    return store;
+  }
+
+  it('puts what it read on the run the page draws', async () => {
+    const store = await showingQueueRun();
+
+    await store.inspectQueue('wf_c9d2f3', 'index_items');
+
+    expect(store.see().run?.live?.queueEvidence).toEqual({
+      index_items: {
+        window: {
+          queued: 4,
+          active: 2,
+          started: 74,
+          failedRecently: 0,
+          windowSec: 60,
+        },
+        // Nothing in `dbos.queues` under that name,
+        // which is what an app running code from
+        // before the block existed looks like.
+        registered: 'absent',
+        recent: [],
+      },
+    });
+  });
+
+  /** A frame may ask about anything. A block that is
+   *  not a queue has no queue to read, and reading
+   *  one anyway would answer about a name the
+   *  document never gave. */
+  it('says nothing about a block that is not a queue', async () => {
+    const store = await showingQueueRun();
+
+    await store.inspectQueue('wf_c9d2f3', 'batch_arrived');
+
+    expect(store.see().run?.live?.queueEvidence).toBeUndefined();
+  });
+
+  it('says nothing about a run this window is not showing', async () => {
+    const store = await showingQueueRun();
+
+    await store.inspectQueue('wf_somebody_else', 'index_items');
+
+    expect(store.see().run?.live?.queueEvidence).toBeUndefined();
+  });
+});
+
 describe('the way back to the workflow', () => {
   /**
    * The run page's door back to Build. Which column

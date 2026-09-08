@@ -403,6 +403,78 @@ export const inspectorWords = once(() => ({
   // work this one did.
   recorded: l10n.t('↺ recorded'),
 
+  /* — what a queue block’s children are doing — */
+
+  // The readings a queue card draws, under the ids
+  // it marks each of them with. Their own bag rather
+  // than the form's words: the form calls the name
+  // field `queue` because it is one field among a
+  // form's, and this is one reading among a card's.
+  queueRows: {
+    queue: l10n.t('queue'),
+    active: l10n.t('active'),
+    queued: l10n.t('queued'),
+    failed: l10n.t('failed'),
+    rateLimit: l10n.t('rate limit'),
+    globalConcurrency: l10n.t('global concurrency'),
+    observedStarts: l10n.t('observed starts'),
+    registered: l10n.t('registered'),
+    recentWork: l10n.t('recent work'),
+  } satisfies Record<string, string>,
+
+  // This run's items against the ceiling the whole
+  // queue runs under, said only where the document
+  // sets one.
+  queueOfGlobal: l10n.t('{0} of {1} queue-wide'),
+
+  // An item sitting out a delay is queued as well,
+  // so it is counted twice on purpose: a block
+  // whose items are all waiting out a delay is a
+  // different thing from one whose items are all
+  // waiting for room.
+  queueDelayed: l10n.t('{0} · {1} delayed'),
+
+  queueRate: l10n.t('{0} per {1} s'),
+
+  // What started inside the window, and never a
+  // fraction of a budget: the ledger records what
+  // ran, not what it was allowed to, and a figure
+  // drawn as a meter would be claiming the second.
+  queueStarted: l10n.t('{0} in the last {1} s'),
+
+  // “errored” rather than “failed”: this count is
+  // over the children still on the queue, and DBOS
+  // clears the queue off a run it cancelled or
+  // dead-lettered — so those are not in it and the
+  // word must not promise they are.
+  queueErrored: l10n.t('{0} errored queue-wide in the window'),
+
+  queueMatches: l10n.t('matches the document'),
+  queueDiffers: l10n.t('the running app registered {0} — rebuild the stack'),
+  queueUnregistered: l10n.t('not registered yet'),
+
+  // What the app registered, named the way the
+  // document names it. Keyed by the field rather
+  // than shaped like a form's labels, because this
+  // is a sentence about somebody else's numbers
+  // and not a column of controls.
+  queueLimits: {
+    globalConcurrency: l10n.t('global concurrency'),
+    workerConcurrency: l10n.t('worker concurrency'),
+    rateLimit: l10n.t('rate limit'),
+    partitionConcurrency: l10n.t('concurrency / partition'),
+    partitionWorkerConcurrency: l10n.t('worker concurrency / partition'),
+    partitionRateLimit: l10n.t('rate limit / partition'),
+    minPollingIntervalMs: l10n.t('min polling interval'),
+  } satisfies Record<string, string>,
+
+  // Under every queue card. The figures above it
+  // are one application's, read out of the one
+  // development database this window can reach.
+  queueLocal: l10n.t(
+    'local application only — production queues live in Conductor',
+  ),
+
   /* — the run itself — */
 
   run: l10n.t('run'),

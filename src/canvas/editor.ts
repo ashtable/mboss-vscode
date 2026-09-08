@@ -30,7 +30,6 @@ import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { PreviewModel } from '../preview/model.js';
 import type { PreviewStore } from '../preview/store.js';
 import { canvasPreview } from '../preview/view.js';
-import type { LiveRun } from '../runs/watch.js';
 import type { Trust } from '../trust.js';
 import type { PickChoice, VsCodeApi } from '../vscodeApi.js';
 import { mountWebview, type Heard } from '../webview/host.js';
@@ -39,6 +38,7 @@ import type {
   CanvasInit,
   CanvasInspector,
   InspectorMode,
+  ShownRun,
 } from '../webview/protocol.js';
 
 import {
@@ -91,7 +91,7 @@ import {
 export type CanvasRuns = {
   /** The run being followed, whatever workflow it
    *  belongs to. */
-  live(): LiveRun | undefined;
+  live(): ShownRun | undefined;
 
   /**
    * Which way out each decided block took, read
@@ -161,6 +161,19 @@ export type CanvasRuns = {
     nodeId?: string;
     functionId?: number;
   }): Promise<void>;
+
+  /**
+   * Reads what one queue block is doing beyond this
+   * run's own share of it.
+   *
+   * Asked when somebody opens the block's card and
+   * never on a tick: the whole queue, what the
+   * running app registered and the items themselves
+   * are three statements that change too slowly to
+   * poll. The answer arrives as the run does, on
+   * the next draw.
+   */
+  inspectQueue(workflowId: string, nodeId: string): Promise<void>;
 
   onChanged(listener: () => void): Disposable;
 };
@@ -387,7 +400,7 @@ export class CanvasSession {
 
   /** The run being followed, when it is a run of
    *  this workflow. */
-  private run: LiveRun | undefined;
+  private run: ShownRun | undefined;
 
   constructor(
     private readonly document: TextDocument,
@@ -600,6 +613,16 @@ export class CanvasSession {
     // drawn again and no gate applies.
     if (message.type === 'askAgent') {
       void this.runs.askAgent(message);
+
+      return false;
+    }
+
+    // A read as well, and one that draws this panel
+    // again when it lands — but through the store's
+    // own change signal rather than from here, the
+    // way a tick does.
+    if (message.type === 'inspectQueue') {
+      void this.runs.inspectQueue(message.workflowId, message.nodeId);
 
       return false;
     }

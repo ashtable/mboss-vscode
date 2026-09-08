@@ -1,14 +1,22 @@
+import { useEffect } from 'react';
+
 import { DEFAULT_RETRY } from '../../core/rules.js';
-import type { NodeKind, Retry } from '../../core/rules.js';
+import type { NodeKind, QueuePolicy, Retry } from '../../core/rules.js';
+import type { QueueEvidence, QueueItem } from '../../runs/queueEvidence.js';
 import { OUTPUT_KEPT } from '../../runs/rows.js';
-import type { LiveRun } from '../../runs/watch.js';
 import { postToHost } from '../../webview/client.js';
 import { filled } from '../../webview/fill.js';
-import type { InspectorStrings } from '../../webview/protocol.js';
+import type { InspectorStrings, ShownRun } from '../../webview/protocol.js';
 import { fine } from '../../webview/time.js';
 import type { RunState } from '../graph.js';
 
-import { evidenceOf, runCardOf, type EvidenceRow } from './evidence.js';
+import {
+  evidenceOf,
+  queueRowsOf,
+  runCardOf,
+  type EvidenceRow,
+  type QueueRow,
+} from './evidence.js';
 
 /**
  * What a run recorded about the block on screen.
@@ -40,6 +48,13 @@ import { evidenceOf, runCardOf, type EvidenceRow } from './evidence.js';
  * configuration is read and set, and a card that
  * could reach `config` would drift into being a
  * second one.
+ *
+ * Three cards, not one. The run itself and the
+ * trigger that started it are the same question and
+ * share one; every ordinary block gets the one
+ * built from its rows; and a queue block gets a
+ * third, because it has no rows at all and what
+ * there is to say about it is counted.
  */
 
 /** The block a card is about, as a card reads one. */
@@ -68,6 +83,19 @@ export type EvidenceBlock = {
    * the document knows which rows carry which.
    */
   body: readonly string[] | undefined;
+
+  /**
+   * The queue it fills, where it is a queue block.
+   *
+   * The second thing about the document this card
+   * is told, and told for the same reason the body
+   * is: the ledger has no row for a queue block at
+   * all — the work is its children's runs — so the
+   * name to read the queue under, and the ceiling
+   * to read this run's share against, exist
+   * nowhere but the document.
+   */
+  queue: QueuePolicy | undefined;
 };
 
 export type EvidenceProps = {
@@ -75,7 +103,7 @@ export type EvidenceProps = {
 
   /** The run the canvas is drawing itself against,
    *  which is the only run this face reads. */
-  run: LiveRun;
+  run: ShownRun;
 
   /** The block somebody selected, or nothing, which
    *  is the run itself. */
@@ -134,11 +162,302 @@ export function Evidence({
   // A trigger is the run starting, and nothing
   // selected is the run itself. Both are the same
   // question, so both get the same card.
-  return block === undefined || block.kind === 'trigger' ? (
-    <RunCard strings={strings} run={run} onRunPage={onRunPage} />
-  ) : (
+  if (block === undefined || block.kind === 'trigger') {
+    return <RunCard strings={strings} run={run} onRunPage={onRunPage} />;
+  }
+
+  // A queue block writes no row of its own: the
+  // work is its children's runs, in rows of theirs.
+  // The card below reads a block's rows and would
+  // draw an empty one here, so a queue gets a card
+  // that reads counts instead. Nothing in the type
+  // makes this branch necessary — the card is
+  // chosen with an `===` and a missing case is not
+  // a compile error — so the browser spec that asks
+  // for `data-evidence="queue"` is what holds it.
+  if (block.kind === 'queue' && block.queue !== undefined) {
+    return (
+      <QueueCard
+        strings={strings}
+        run={run}
+        block={block}
+        queue={block.queue}
+        onRunPage={onRunPage}
+      />
+    );
+  }
+
+  return (
     <BlockCard strings={strings} run={run} block={block} runState={runState} />
   );
+}
+
+/**
+ * What a queue block's children are doing.
+ *
+ * Three provenances on one card, which is the whole
+ * reason each row wears its own: the counts are
+ * this run's share, read every tick; the window and
+ * the registration are the whole queue's, read once
+ * because somebody opened this; and the name and
+ * the limits are what the document asks for. A card
+ * that mixed them would be reporting a ceiling
+ * somebody typed as though a run had reached it.
+ *
+ * What is deliberately absent is a rate. DBOS
+ * records what ran and never what it was allowed to
+ * run, so a meter drawn against a rate limit would
+ * be a figure this panel invented — and the count
+ * of starts inside the window is the honest form of
+ * the same question.
+ */
+function QueueCard({
+  strings,
+  run,
+  block,
+  queue,
+  onRunPage,
+}: {
+  strings: InspectorStrings;
+  run: ShownRun;
+  block: EvidenceBlock;
+  queue: QueuePolicy;
+  onRunPage: boolean;
+}) {
+  const found = run.queueEvidence?.[block.id];
+
+  // Asked when the card is shown and never on a
+  // tick. The watch's budget for a queue block is
+  // one query per tick and it is already spent on
+  // the counts above; what this asks for changes
+  // far too slowly to be worth another.
+  useEffect(() => {
+    postToHost({
+      type: 'inspectQueue',
+      workflowId: run.workflowId,
+      nodeId: block.id,
+    });
+  }, [run.workflowId, block.id]);
+
+  // The window's own failures go on the run's failed
+  // row rather than on a row of their own: they are
+  // one fact at two scales, and two rows would read
+  // as two failures.
+  const rows = queueRowsOf(run, block.id, queue, strings).map((row) =>
+    row.id === 'failed' && found !== undefined
+      ? {
+          ...row,
+          value: `${row.value} · ${filled(
+            strings.queueErrored,
+            String(found.window.failedRecently),
+          )}`,
+        }
+      : row,
+  );
+
+  return (
+    <section className="evidence" data-evidence="queue">
+      <header className="evidence-head">
+        <p className="evidence-title mono">{block.title}</p>
+        <span className="evidence-kind">{strings.kinds[block.kind]}</span>
+      </header>
+
+      {block.handler === undefined ? null : (
+        <p className="mono" data-evidence-field="handler">
+          {`ƒ ${block.handler}`}
+        </p>
+      )}
+
+      <div className="evidence-lines">
+        {rows.map((row) => (
+          <Reading key={row.id} strings={strings} row={row} />
+        ))}
+
+        {found === undefined ? null : (
+          <>
+            <Reading
+              strings={strings}
+              row={{
+                id: 'observedStarts',
+                label: strings.queueRows.observedStarts,
+                value: filled(
+                  strings.queueStarted,
+                  String(found.window.started),
+                  String(found.window.windowSec),
+                ),
+                chip: 'derived',
+              }}
+            />
+
+            <Reading
+              strings={strings}
+              row={{
+                id: 'registered',
+                label: strings.queueRows.registered,
+                value: registeredText(strings, found.registered),
+                chip: 'derived',
+              }}
+            />
+          </>
+        )}
+      </div>
+
+      {found === undefined || found.recent.length === 0 ? null : (
+        <Recent strings={strings} items={found.recent} onRunPage={onRunPage} />
+      )}
+
+      {/* Under everything, because everything above
+          it is one application's, read out of the
+          one development database this window can
+          reach. */}
+      <p className="hint" data-evidence-field="local">
+        {strings.queueLocal}
+      </p>
+    </section>
+  );
+}
+
+/** One reading on a queue card: what it is, what it
+ *  says, and whether the panel worked it out or
+ *  found it in the document. */
+function Reading({
+  strings,
+  row,
+}: {
+  strings: InspectorStrings;
+  row: QueueRow;
+}) {
+  return (
+    <p className="evidence-line" data-evidence-field={row.id}>
+      <span className="evidence-line-name">{row.label}</span>
+      <span className="value mono">{row.value}</span>
+      {row.chip === undefined ? null : (
+        <Chip
+          word={
+            row.chip === 'configured' ? strings.configured : strings.derived
+          }
+          kind={row.chip}
+        />
+      )}
+    </p>
+  );
+}
+
+/**
+ * The items the block started, newest first.
+ *
+ * Each is a run of its own, so each is a way to one
+ * — and which way depends on where this card is
+ * mounted. The run page already shows a run and
+ * selects another in place; the canvas has no run
+ * page and opens one.
+ */
+function Recent({
+  strings,
+  items,
+  onRunPage,
+}: {
+  strings: InspectorStrings;
+  items: readonly QueueItem[];
+  onRunPage: boolean;
+}) {
+  return (
+    <div data-evidence-field="recentWork">
+      <p className="value-label">{strings.queueRows.recentWork}</p>
+      <ul className="evidence-recent">
+        {items.map((item) => (
+          <li key={item.workflowId}>
+            <button
+              type="button"
+              className="evidence-recent-run mono"
+              data-queue-item={item.workflowId}
+              onClick={() =>
+                postToHost(
+                  onRunPage
+                    ? { type: 'runSelect', workflowId: item.workflowId }
+                    : { type: 'openRun', workflowId: item.workflowId },
+                )
+              }
+            >
+              {item.label}
+            </button>
+            <span className="evidence-recent-state">{item.status}</span>
+            {item.completedAt === undefined ? null : (
+              <span className="hint">{fine(item.completedAt)}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Whether the running app registered this queue
+ *  the way the document asks for it, and what it
+ *  registered where it did not. */
+function registeredText(
+  strings: InspectorStrings,
+  registered: QueueEvidence['registered'],
+): string {
+  if (registered === 'matches') return strings.queueMatches;
+  if (registered === 'absent') return strings.queueUnregistered;
+
+  return filled(
+    strings.queueDiffers,
+    limitsText(strings, registered.registered),
+  );
+}
+
+/**
+ * What the app registered, in the document's own
+ * words.
+ *
+ * Every limit the row holds rather than only the
+ * one that differs: the card already draws what the
+ * document asks for beside this, so the reading
+ * worth offering is the whole of what is actually
+ * in force.
+ */
+function limitsText(strings: InspectorStrings, policy: QueuePolicy): string {
+  const words = strings.queueLimits;
+
+  return [
+    ...limitSaid(words.globalConcurrency, policy.globalConcurrency),
+    ...limitSaid(words.workerConcurrency, policy.workerConcurrency),
+    ...limitSaid(words.rateLimit, rateText(strings, policy.rateLimit)),
+    ...limitSaid(words.partitionConcurrency, policy.partitionConcurrency),
+    ...limitSaid(
+      words.partitionWorkerConcurrency,
+      policy.partitionWorkerConcurrency,
+    ),
+    ...limitSaid(
+      words.partitionRateLimit,
+      rateText(strings, policy.partitionRateLimit),
+    ),
+    ...limitSaid(
+      words.minPollingIntervalMs,
+      policy.minPollingIntervalMs === undefined
+        ? undefined
+        : filled(strings.milliseconds, String(policy.minPollingIntervalMs)),
+    ),
+  ].join(' · ');
+}
+
+function limitSaid(word: string, value: number | string | undefined): string[] {
+  return value === undefined ? [] : [`${word} ${value}`];
+}
+
+function rateText(
+  strings: InspectorStrings,
+  limit: QueuePolicy['rateLimit'],
+): string | undefined {
+  return limit === undefined
+    ? undefined
+    : filled(
+        strings.queueRate,
+        String(limit.limitPerPeriod),
+        String(limit.periodSec),
+      );
 }
 
 function BlockCard({
@@ -148,7 +467,7 @@ function BlockCard({
   runState,
 }: {
   strings: InspectorStrings;
-  run: LiveRun;
+  run: ShownRun;
   block: EvidenceBlock;
   runState: RunState | undefined;
 }) {
@@ -260,7 +579,7 @@ function Actions({
   row,
 }: {
   strings: InspectorStrings;
-  run: LiveRun;
+  run: ShownRun;
   block: EvidenceBlock;
   row: EvidenceRow;
 }) {
@@ -448,7 +767,7 @@ function Recorded({
   row,
 }: {
   strings: InspectorStrings;
-  run: LiveRun;
+  run: ShownRun;
   row: EvidenceRow;
 }) {
   const timed = row.startedAt !== undefined || row.completedAt !== undefined;
@@ -589,7 +908,7 @@ function RunCard({
   onRunPage,
 }: {
   strings: InspectorStrings;
-  run: LiveRun;
+  run: ShownRun;
   onRunPage: boolean;
 }) {
   const card = runCardOf(run);
