@@ -2,7 +2,7 @@
   "name": "mboss-vscode",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "0.0.0",
+  "version": "0.0.7",
   "private": true,
   "publisher": "mBoss",
   "license": "MIT",
