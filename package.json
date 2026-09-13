@@ -4,7 +4,7 @@
   "description": "%extension.description%",
   "version": "0.0.0",
   "private": true,
-  "publisher": "mboss",
+  "publisher": "mBoss",
   "license": "MIT",
   "type": "module",
   "repository": {
