@@ -38,6 +38,7 @@ media/screenshots/**
 # whoever installs it. README.md and
 # THIRD_PARTY_NOTICES.md are the two that ship.
 CLAUDE.md
+CONTEXT.md
 CONTRIBUTING.md
 
 .gitignore
