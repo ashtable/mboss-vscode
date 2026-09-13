@@ -27,11 +27,18 @@ mboss-mcp-server/**
 mboss-skills/**
 node_modules/**
 
+# The README's screenshots. vsce points the
+# Marketplace page at their copies on GitHub, so
+# packing them would only make every install
+# download pictures nobody opens from disk.
+media/screenshots/**
+
 # Written for whoever works on this extension, the
 # way the skills under .claude/ are, and not for
 # whoever installs it. README.md and
 # THIRD_PARTY_NOTICES.md are the two that ship.
 CLAUDE.md
+CONTRIBUTING.md
 
 .gitignore
 .gitmodules
