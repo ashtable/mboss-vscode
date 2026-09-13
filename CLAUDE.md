@@ -66,7 +66,8 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
   `l10n/bundle.l10n.json` and `tests/webview/words.json` — because
   `npm run strings` writes them, already prettier-shaped.
 - There is no `launch.json`; the only way to see the extension in a real window
-  is `npm run package` and installing `mboss-vscode-0.0.0.vsix`.
+  is `npm run package` and installing the `mboss-vscode-<version>.vsix` it
+  writes.
 - CI (`.github/workflows/ci.yml`) runs on `pull_request` only: build:mcp, lint,
   test, test:webview, package. Pushing to a branch runs nothing until a PR exists.
 
@@ -456,7 +457,9 @@ value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
 - Git: work lands on a version branch `vscode-vX.Y.Z`; `main` only receives
   merged PRs. Commit subjects are one imperative sentence naming what the
   product now does or refuses, no `type:` prefix, prose body. `package.json`
-  `version` stays `0.0.0` — the version lives in the branch name.
+  `version` matches the branch (`npm version X.Y.Z --no-git-tag-version`,
+  which moves `package-lock.json` too): the Marketplace reads it and refuses a
+  version it has already published.
 
 ## Recipes
 

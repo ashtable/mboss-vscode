@@ -102,8 +102,9 @@ describe('the packaged extension', () => {
     );
   });
 
-  it('ships the icon the manifest points at', () => {
+  it('ships the icons the manifest points at', () => {
     expect(has('media/activity-bar.svg')).toBe(true);
+    expect(has('media/icon.png')).toBe(true);
   });
 
   /**
