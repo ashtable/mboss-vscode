@@ -49,7 +49,7 @@ const PATHS: Record<NodeKind, readonly string[]> = {
     'M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z',
   ],
 
-  // package
+  // box
   step: [
     'M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z',
     'm3.3 7 8.7 5 8.7-5',
@@ -123,7 +123,10 @@ const PATHS: Record<NodeKind, readonly string[]> = {
  * `size` is left off on the canvas, which draws the
  * tile at its full 28px. The two smaller ones are
  * for the surfaces that name a block rather than
- * draw it — a trace row, a gallery card.
+ * draw it — a trace row, a gallery card — and the
+ * palette's own sits between them and the board's,
+ * because a row there is the block a person is
+ * about to make.
  */
 export function NodeIcon({
   kind,
@@ -132,7 +135,7 @@ export function NodeIcon({
 }: {
   kind: NodeKind;
   tone: Tone;
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'palette';
 }) {
   return (
     <span className="node-icon" data-tone={tone} data-size={size}>

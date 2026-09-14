@@ -21,9 +21,10 @@ import type {
   InspectorMode,
   InspectorStrings,
 } from '../../webview/protocol.js';
+import { LibFunctionItem } from '../../webview/signal/LibFunctionItem.js';
 import { useEditing } from '../Editing.js';
 import type { RunState } from '../graph.js';
-import { FunctionLines, fitsFor, type LibFit } from '../libFunction.js';
+import { fitsFor, signatureOf, type LibFit } from '../libFunction.js';
 
 import { Evidence } from './EvidenceCard.js';
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
@@ -675,16 +676,16 @@ function Offer({
   const chosen = assigned === fit.fn.export;
 
   return (
-    <button
-      type="button"
-      className="lib-fn"
-      data-picker-fn={fit.fn.export}
-      data-state={chosen ? 'assigned' : 'default'}
+    <LibFunctionItem
+      as="button"
+      name={fit.fn.export}
+      signature={signatureOf(fit.fn)}
+      note={fit.note}
+      state={chosen ? 'assigned' : 'compatible'}
       title={fit.fn.doc}
       onClick={() => onAssign(chosen ? null : fit.fn.export)}
-    >
-      <FunctionLines fn={fit.fn} note={fit.note} />
-    </button>
+      hook={{ 'picker-fn': fit.fn.export }}
+    />
   );
 }
 

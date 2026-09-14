@@ -615,12 +615,6 @@ body.vscode-high-contrast-light {
   height: 14px;
 }
 
-/* Its label is machine evidence: an id, a state, the
-   name of the agent that answered. */
-.btn[data-mono] {
-  font-family: var(--font-mono);
-}
-
 /* The content moves, not the box. A button that rose
    under the finger pressing it is moving away from
    the person pressing it. */
@@ -848,6 +842,229 @@ body.vscode-high-contrast-light {
   color: var(--state-ink, var(--brand));
 }
 
+/* An aside about the control above or beside it:
+   what a field was given, why a rule refused it, how
+   a gesture works. Always in the machine face,
+   because every one of those is evidence rather than
+   prose, and at the quietest step this system has
+   unless it is naming something that went wrong. */
+.field-hint {
+  display: block;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+.field-hint[data-tone='muted'] {
+  color: var(--ink-muted);
+}
+
+/* The three tones that name something gone wrong
+   read the state ink, so a theme whose voice colours
+   are chosen to sit under a word rather than to be
+   one re-points where they land. */
+.field-hint[data-tone='warn'] {
+  color: var(--state-ink, var(--warn));
+}
+
+.field-hint[data-tone='fail'] {
+  color: var(--state-ink, var(--fail));
+}
+
+.field-hint[data-tone='agent'] {
+  color: var(--state-ink, var(--agent));
+}
+
+/* What a panel says where a list would be. Centred
+   in a block of air of its own, so it reads as the
+   state of the whole panel rather than as its first
+   row. */
+.empty-state {
+  padding: var(--space-7) var(--space-4);
+  text-align: center;
+}
+
+.empty-title {
+  margin: 0;
+  font-weight: var(--w-medium);
+  font-size: var(--text-md);
+  color: var(--ink-muted);
+}
+
+/* A panel that asked and was refused says so in the
+   ink, under a mark. What happened there is not the
+   quiet fact that a list has nothing in it yet. */
+.empty-state[data-kind='error'] .empty-title {
+  color: var(--ink);
+}
+
+.empty-mark {
+  margin: 0 0 var(--space-1-5);
+  font-weight: var(--w-bold);
+  font-size: var(--text-md);
+  color: var(--state-ink, var(--fail));
+}
+
+/* What to do about it, under what happened. */
+.empty-detail {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-control);
+  line-height: var(--leading-body);
+  color: var(--ink-faint);
+}
+
+.empty-state > .btn {
+  margin-top: var(--space-3);
+}
+
+/* A function out of the project's code-behind, in
+   the two places one is offered: dragged off the
+   palette onto a block, pressed in the Inspector's
+   picker. One shape, because it is one list — the
+   gesture is what differs, and it is the element
+   that follows it.
+
+   Here rather than in the canvas' own sheet because
+   both places draw it and they are not one view.
+
+   Written out declaration by declaration rather than
+   opened with `all: unset`, for the reason the
+   Button above gives. The ƒ is drawn by the sheet
+   because it is a glyph rather than a word: nothing
+   about it is a string a reader's locale changes. */
+.lib-fn {
+  box-sizing: border-box;
+  width: 100%;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: grab;
+}
+
+/* On a row that has a function in it. The picker's
+   last row borrows this box to name one nobody has
+   written yet, and a mark there would be standing in
+   front of nothing. */
+.lib-fn[data-state]::before {
+  content: 'ƒ';
+  font-family: var(--font-mono);
+  font-weight: var(--w-semibold);
+  font-size: var(--text-control);
+  color: var(--ink-faint);
+}
+
+button.lib-fn {
+  cursor: pointer;
+}
+
+/* The ground arrives under the pointer, and the
+   dashed outline is what a theme drawing structure
+   in lines has instead of it. Neither is a border,
+   so neither moves the row. The states that carry an
+   edge of their own are left out rather than
+   out-weighed, which would take that edge's colour
+   away; the row with no state is the picker's
+   naming row, which answers the pointer like any
+   other. */
+.lib-fn:not([data-state]):hover:not(:focus-visible),
+.lib-fn[data-state='compatible']:hover:not(:focus-visible) {
+  background: var(--surface-2);
+  outline: 1px dashed var(--hover-outline);
+  outline-offset: -1px;
+}
+
+/* The ƒ keeps its own column, so what a row says
+   about a function stacks under the name rather than
+   under the mark. */
+.lib-lines {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lib-name {
+  font-weight: var(--w-regular);
+  font-size: var(--text-control);
+  color: var(--ink-muted);
+}
+
+.lib-fn .signature {
+  margin-top: 1px;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+  overflow-wrap: anywhere;
+}
+
+/* Why this one cannot sit behind the block that is
+   selected. There is no grey of its own: not getting
+   the chosen row's treatment is the grey, and this
+   is what says why. */
+.lib-fn .lib-note {
+  margin-top: 1px;
+}
+
+/* The pixel an edge takes, given back on every side,
+   so a row does not move when one is drawn around
+   it. No transparent edge is reserved at rest,
+   because a forced-colours theme paints one and
+   every row would be outlined. */
+.lib-fn[data-state='assigned'],
+.lib-fn[data-state='dragging'],
+.lib-fn[data-state='empty'] {
+  padding: 7px 11px;
+}
+
+/* The function the selected block already runs,
+   ringed the way anything somebody picked is
+   ringed. */
+.lib-fn[data-state='assigned'] {
+  border: 1px solid var(--selection-ring);
+  background: var(--brand-tint);
+}
+
+.lib-fn[data-state='assigned']::before {
+  color: var(--state-ink, var(--brand));
+}
+
+.lib-fn[data-state='assigned'] .lib-name {
+  font-weight: var(--w-semibold);
+  color: var(--ink);
+}
+
+.lib-fn[data-state='assigned']::after {
+  content: '✓';
+  margin-inline-start: auto;
+  font-weight: var(--w-bold);
+  color: var(--state-ink, var(--brand));
+}
+
+/* On its way to a block. */
+.lib-fn[data-state='dragging'] {
+  border: 1px dashed var(--brand);
+  opacity: 0.85;
+}
+
+/* A slot with nothing in it yet. Its words sit where
+   a name would, because that is what the slot is
+   short of; there is nothing to drag and nothing to
+   say about it. */
+.lib-fn[data-state='empty'] {
+  border: 1px dashed var(--hairline-strong);
+  cursor: default;
+}
+
+.lib-fn[data-state='empty'] .lib-name {
+  color: var(--ink-faint);
+}
+
 /* — text — */
 
 /* The small label the system sets section headers
@@ -868,8 +1085,15 @@ body.vscode-high-contrast-light {
 }
 
 /* Machine evidence: ids, types, signatures, SQL,
-   diffs. Nothing a person wrote is set in this. */
-.mono {
+   diffs. Nothing a person wrote is set in this.
+
+   Two spellings of one opt-in: a view reaches for
+   the class, and a shared component marks its own
+   root with the attribute, since a component that
+   appended a class would be deciding what a view's
+   markup says. */
+.mono,
+[data-mono] {
   font-family: var(--font-mono);
 }
 
@@ -1484,6 +1708,20 @@ body.vscode-high-contrast-light {
 .node-icon[data-size='md'] svg {
   width: 11px;
   height: 11px;
+}
+
+/* The rail a block is dragged out of. Between the
+   two above and the board's own, so a row reads as
+   the block it will become without out-sizing the
+   name beside it. */
+.node-icon[data-size='palette'] {
+  width: 24px;
+  height: 24px;
+}
+
+.node-icon[data-size='palette'] svg {
+  width: 13px;
+  height: 13px;
 }
 
 /* — the board both graphs are drawn on — */

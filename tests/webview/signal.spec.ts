@@ -2,13 +2,17 @@ import { expect, test, type Page } from '@playwright/test';
 
 import type { FileEditEntry, ToolEntry } from '../../src/acp/transcript.js';
 import { WEBVIEW_ENTRIES } from '../../src/build.js';
-import type { SidebarInit } from '../../src/webview/protocol.js';
+import type { CanvasInit, SidebarInit } from '../../src/webview/protocol.js';
 
-import { openCanvas } from './fixtures/canvas.js';
+import { canvasInit, openCanvas } from './fixtures/canvas.js';
 import { painted } from './fixtures/paint.js';
 import { mount, THEMES_ALL } from './harness.js';
 import { colourOf, ROLES, sameColour, type Role } from './palette.js';
-import { sidebarWords as strings } from './words.js';
+import {
+  canvasWords,
+  inspectorWords,
+  sidebarWords as strings,
+} from './words.js';
 
 /**
  * What every view is painted from.
@@ -589,4 +593,164 @@ test.describe('the tab strip every panel is switched with', () => {
       }
     });
   }
+});
+
+/**
+ * The line under a control, and what a panel says
+ * where a list would be.
+ *
+ * Both are read on the canvas's palette, which draws
+ * one of each: the rail says how a block gets onto
+ * the board, and says instead of a `/lib` list that
+ * nothing has been scanned. A component nothing has
+ * ever mounted is a component that is wrong the
+ * first time something does.
+ */
+test.describe('the hint under a control', () => {
+  /**
+   * What a hint says is evidence — what a field was
+   * given, why a rule refused, how a gesture works —
+   * so it is set in the face this system says that
+   * in, at the quietest step it has.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`sets a hint in the machine face in ${theme}`, async ({ page }) => {
+      await openCanvas(page, theme);
+
+      const hint = page.locator('[data-drag-hint]');
+
+      await expect(hint).toHaveCount(1);
+      await expect(hint).toHaveAttribute('data-mono', '');
+
+      const read = await hint.evaluate((element) => {
+        const style = getComputedStyle(element);
+
+        return {
+          face: (style.fontFamily.split(',')[0] ?? '').replace(/["']/g, ''),
+          colour: style.color,
+        };
+      });
+      const expected = colourOf(theme, 'ink-faint');
+
+      expect(read.face).toBe('Spline Sans Mono');
+      expect(sameColour(read.colour, expected), `${read.colour}`).toBe(true);
+    });
+  }
+});
+
+/**
+ * The row a function out of the project's code-
+ * behind is offered as.
+ *
+ * The palette drags them onto blocks and the
+ * Inspector's picker assigns them, so what a row
+ * says about a function is settled once. The states
+ * that carry an edge are the point: an edge added to
+ * a row that had none moves everything under it
+ * unless the padding gives the pixel back.
+ */
+test.describe('the /lib row every function is offered as', () => {
+  test('draws a slot with nothing in it without moving it', async ({
+    page,
+  }) => {
+    await mount(page, 'gallery');
+
+    const read = await page.evaluate(() => {
+      const probe = (state: string) => {
+        const row = document.createElement('div');
+
+        row.className = 'lib-fn';
+        row.dataset.state = state;
+        document.body.append(row);
+
+        const style = getComputedStyle(row);
+        const measured = {
+          edge: style.borderTopStyle,
+          width: Number.parseFloat(style.borderTopWidth),
+          top: Number.parseFloat(style.paddingTop),
+          left: Number.parseFloat(style.paddingLeft),
+        };
+
+        row.remove();
+
+        return measured;
+      };
+
+      return { empty: probe('empty'), compatible: probe('compatible') };
+    });
+
+    // A row that could sit behind the block spends
+    // nothing on an edge, so the pixel the empty one
+    // takes has to come from somewhere.
+    expect(read.compatible.width).toBe(0);
+    expect(read.empty.edge).toBe('dashed');
+    expect(read.empty.width).toBe(1);
+    expect(read.empty.top).toBe(read.compatible.top - 1);
+    expect(read.empty.left).toBe(read.compatible.left - 1);
+  });
+
+  /**
+   * The function the selected block already runs is
+   * ringed in the colour this system rings anything
+   * somebody picked — the same edge a selected block
+   * on the board wears, so the two read as one
+   * choice.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`rings the function a block already runs in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'canvas', theme);
+
+      await harness.show(canvasInit(selecting('find_slot')));
+
+      const row = page.locator('[data-lib-fn="findSlot"]');
+
+      await expect(row).toHaveAttribute('data-state', 'assigned');
+
+      const ring = await row.evaluate(
+        (element) => getComputedStyle(element).borderTopColor,
+      );
+      const expected = colourOf(theme, 'selection-ring');
+
+      expect(sameColour(ring, expected), `${ring} ≠ ${expected}`).toBe(true);
+    });
+  }
+});
+
+/** The canvas showing one block, which is what makes
+ *  one `/lib` row the one that block runs. */
+function selecting(nodeId: string): Partial<CanvasInit> {
+  return {
+    inspector: {
+      strings: inspectorWords,
+      selected: nodeId,
+      mode: 'configure',
+    },
+  };
+}
+
+/**
+ * What a panel says where a list would be.
+ *
+ * Centred, in its own block of air, and in two
+ * sentences the panel keeps apart: the second is
+ * what to do about the first, and a panel that had
+ * lost one of them would still read as a panel with
+ * something in it. Which element each lands in is
+ * settled beside the component; this is the air.
+ */
+test.describe('what a panel says instead of a list', () => {
+  test('sets it apart from the list it stands in for', async ({ page }) => {
+    const harness = await mount(page, 'canvas');
+
+    await harness.show(canvasInit({ manifest: undefined }));
+
+    const empty = page.locator('.palette .empty-state');
+
+    await expect(empty).toHaveCount(1);
+    await expect(empty).toHaveCSS('padding', '28px 16px');
+    await expect(empty.locator('.empty-title')).toHaveText(canvasWords.noLib);
+    await expect(empty.locator('.empty-detail')).toHaveCount(0);
+  });
 });

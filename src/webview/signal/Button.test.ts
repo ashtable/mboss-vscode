@@ -1,7 +1,8 @@
+import { Fragment, createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { Button } from './Button.js';
+import { Button, type ButtonProps } from './Button.js';
 
 /**
  * The markup the shared Button writes.
@@ -19,32 +20,67 @@ import { Button } from './Button.js';
  * spec's own, standing in for a view's: nothing
  * under this directory is in any language.
  */
+
+/**
+ * What the component wrote, and what it returned.
+ *
+ * Called where React would call it, inside a render,
+ * because the id joining a refusal to its reason is
+ * React's to mint and it can only be asked for
+ * there. What it returned is kept as well as what it
+ * drew: a press is a handler rather than an
+ * attribute, so there is nothing in the string to
+ * read it off and this tier has no page to press on.
+ */
+function shown(props: ButtonProps): {
+  markup: string;
+  control: ReactElement<{ onClick?: () => void }>;
+} {
+  let made: ReactElement = createElement('span');
+
+  const markup = renderToStaticMarkup(
+    createElement(() => {
+      made = Button(props);
+
+      return made;
+    }),
+  );
+  const pair = made.props as { children: readonly ReactElement[] };
+
+  return {
+    markup,
+    control: (made.type === Fragment
+      ? pair.children[0]
+      : made) as ReactElement<{ onClick?: () => void }>,
+  };
+}
+
 describe('the Button every surface presses', () => {
   it('writes its label as its one span', () => {
-    const drawn = renderToStaticMarkup(
-      Button({ variant: 'quiet', ink: 'brand', children: 'ab' }),
-    );
+    const { markup } = shown({
+      variant: 'quiet',
+      ink: 'brand',
+      children: 'ab',
+    });
 
-    expect(drawn).toContain('class="btn"');
-    expect(drawn).toContain('data-variant="quiet"');
-    expect(drawn).toContain('data-ink="brand"');
-    expect(drawn).toContain('data-size="sm"');
-    expect(drawn).toContain('<span>ab</span>');
-    expect(drawn.match(/<span/g)).toHaveLength(1);
+    expect(markup).toContain('class="btn"');
+    expect(markup).toContain('data-variant="quiet"');
+    expect(markup).toContain('data-ink="brand"');
+    expect(markup).toContain('data-size="sm"');
+    expect(markup).toContain('<span>ab</span>');
+    expect(markup.match(/<span/g)).toHaveLength(1);
   });
 
   it('carries through the hooks a view finds it by', () => {
-    const drawn = renderToStaticMarkup(
-      Button({
-        variant: 'quiet',
-        children: 'ab',
-        hook: { 'quick-add-kind': 'step' },
-        hookClass: 'template-use',
-      }),
-    );
+    const { markup } = shown({
+      variant: 'quiet',
+      children: 'ab',
+      hook: { 'quick-add-kind': 'step' },
+      hookClass: 'template-use',
+    });
 
-    expect(drawn).toContain('data-quick-add-kind="step"');
-    expect(drawn).toContain('class="btn template-use"');
+    expect(markup).toContain('data-quick-add-kind="step"');
+    expect(markup).toContain('class="btn template-use"');
   });
 
   /**
@@ -54,35 +90,86 @@ describe('the Button every surface presses', () => {
    * name, and as the tooltip a pointer finds.
    */
   it('names a Button drawn as a glyph, twice', () => {
-    const drawn = renderToStaticMarkup(
-      Button({ variant: 'quiet', icon: 'refresh', label: 'ab' }),
-    );
+    const { markup } = shown({
+      variant: 'quiet',
+      icon: 'refresh',
+      label: 'ab',
+    });
 
-    expect(drawn).toContain('aria-label="ab"');
-    expect(drawn).toContain('title="ab"');
-    expect(drawn).toContain('aria-hidden="true"');
-    expect(drawn).toContain('<path');
-    expect(drawn).not.toContain('<span');
+    expect(markup).toContain('aria-label="ab"');
+    expect(markup).toContain('title="ab"');
+    expect(markup).toContain('aria-hidden="true"');
+    expect(markup).toContain('<path');
+    expect(markup).not.toContain('<span');
   });
 
   it('marks a Button whose label is machine evidence', () => {
     expect(
-      renderToStaticMarkup(
-        Button({ variant: 'quiet', mono: true, children: 'ab' }),
-      ),
+      shown({ variant: 'quiet', mono: true, children: 'ab' }).markup,
     ).toContain('data-mono=""');
 
-    expect(
-      renderToStaticMarkup(Button({ variant: 'quiet', children: 'ab' })),
-    ).not.toContain('data-mono');
+    expect(shown({ variant: 'quiet', children: 'ab' }).markup).not.toContain(
+      'data-mono',
+    );
   });
 
   it('says a Button is working without taking its words away', () => {
-    const drawn = renderToStaticMarkup(
-      Button({ variant: 'primary', busy: true, children: 'ab' }),
-    );
+    const { markup } = shown({
+      variant: 'primary',
+      busy: true,
+      children: 'ab',
+    });
 
-    expect(drawn).toContain('aria-busy="true"');
-    expect(drawn).toContain('<span>ab</span>');
+    expect(markup).toContain('aria-busy="true"');
+    expect(markup).toContain('<span>ab</span>');
+  });
+
+  /**
+   * Refused rather than switched off. The native
+   * attribute takes a control out of the tab order,
+   * so somebody on a keyboard cannot reach the one
+   * thing that would say why it will not answer —
+   * and a tooltip is no answer either, since it takes
+   * a pointer to find one. It stays a stop, says it
+   * is unavailable, and points at the reason so the
+   * two are read together.
+   */
+  it('keeps a Button that refuses a press reachable, with its reason', () => {
+    const { markup } = shown({
+      variant: 'quiet',
+      disabled: true,
+      reason: 'ab',
+      children: 'cd',
+    });
+
+    expect(markup).toContain('aria-disabled="true"');
+    expect(markup).not.toContain('disabled=""');
+    expect(markup).not.toContain('title=');
+    expect(markup).toContain('<span class="field-hint"');
+
+    const named = /aria-describedby="([^"]+)"/.exec(markup)?.[1] ?? '';
+    const hint = markup.slice(markup.indexOf('<span class="field-hint"'));
+
+    expect(named).not.toBe('');
+    expect(hint).toContain(`id="${named}"`);
+    expect(hint).toContain('data-mono=""');
+    expect(hint).toContain('>ab</span>');
+  });
+
+  it('says nothing back when a Button that refuses is pressed', () => {
+    const presses: string[] = [];
+    const press = (refusing: boolean) =>
+      shown({
+        variant: 'quiet',
+        disabled: refusing,
+        reason: 'ab',
+        onClick: () => presses.push(refusing ? 'refusing' : 'open'),
+        children: 'cd',
+      }).control.props.onClick?.();
+
+    press(false);
+    press(true);
+
+    expect(presses).toEqual(['open']);
   });
 });

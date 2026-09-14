@@ -99,12 +99,19 @@
   padding: var(--space-3);
   overflow-y: auto;
 }
-.palette > .eyebrow {
-  margin-bottom: var(--space-3);
+.palette .section-label {
+  margin-bottom: var(--space-1);
 }
 
-.drawer {
-  margin-bottom: var(--space-4);
+/* Under the list it is about. */
+.palette > [data-drag-hint] {
+  margin-top: var(--space-2);
+}
+
+/* The rail's second half: what this project's own
+   code offers, under what the catalog does. */
+.lib {
+  margin-top: var(--space-4);
 }
 
 .drawer-name {
@@ -112,127 +119,48 @@
   font-size: var(--text-xs);
 }
 
-/* Every entry is the same square tag, so the two
-   sections read as one list of things that can go
-   on the canvas — which is what they are. */
-.chip {
-  margin: 0 0 var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--hairline);
-  background: var(--surface-2);
-  font-size: var(--text-sm);
-  cursor: grab;
-}
-.chip:hover {
-  border-color: var(--brand);
-}
-
-/* On its way onto the canvas. Filled rather than
-   ghosted, and dashed at a full pixel: the chip is
-   what a person left behind, and it should read as
-   the source of what they are holding rather than
-   as something half-there itself. That is the
-   opposite of the `/lib` row, which fades because
-   the row *is* the thing travelling. */
-.chip[data-state='dragging'] {
-  border: 1px dashed var(--brand);
-  background: var(--brand-tint);
-}
-
-/* How the gesture works, under the rail it starts
-   in. */
-.drag-hint {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: var(--ink-faint);
-}
-
-/* A function out of the project's code-behind, in
-   the two places one is offered: dragged off the
-   palette onto a block, pressed in the Inspector's
-   picker. One shape, because it is one list — the
-   gesture is what differs. */
-.lib-fn {
-  position: relative;
-  box-sizing: border-box;
-  width: 100%;
+/* One row per kind: the glyph the board will draw it
+   with, and its name. Nothing else — a filled box
+   per row reads as eleven controls rather than as a
+   list of what can go on the board, and the order is
+   what carries the grouping that four headings used
+   to say. */
+[data-palette-kind] {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 0 0 var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border: 1.5px dashed transparent;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  margin: 0;
+  padding: 0 var(--space-1);
   border-radius: var(--r-sm);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
+  font-size: var(--text-md);
   cursor: grab;
 }
-button.lib-fn {
-  cursor: pointer;
-}
-.lib-fn:hover {
+
+/* The ground arrives under the pointer, and the
+   dashed outline is what a theme drawing structure
+   in lines has instead of it. The row already on its
+   way somewhere is left out rather than out-weighed,
+   which would take its tint away. */
+[data-palette-kind]:not([data-state]):hover:not(:focus-visible) {
   background: var(--surface-2);
+  outline: 1px dashed var(--hover-outline);
+  outline-offset: -1px;
 }
 
-.lib-name {
-  font-size: var(--text-sm);
-  color: var(--ink-muted);
-}
-/* The mark the design puts in front of a function
-   everywhere one is named. A glyph, not a word:
-   nothing here is a string a reader's locale
-   changes. */
-.lib-name::before {
-  content: 'ƒ ';
-  color: var(--ink-faint);
-}
-
-.signature {
-  font-size: var(--text-xs);
-  overflow-wrap: anywhere;
-}
-
-/* Why this one cannot sit behind the block that is
-   selected. There is no grey of its own: not
-   getting the assigned row's treatment is the
-   grey, and the note is what says why. */
-.lib-note {
-  font-size: var(--text-xs);
-  color: var(--ink-faint);
-}
-
-/* The function the selected block already runs. */
-.lib-fn[data-state='assigned'] {
+/* On its way onto the canvas. Tinted rather than
+   ghosted: the row is what a person left behind, and
+   it should read as the source of what they are
+   holding rather than as something half-there
+   itself. That is the opposite of the `/lib` row,
+   which fades because the row *is* the thing
+   travelling. An outline rather than a border,
+   because a border on a row that had none moves
+   every row under it. */
+[data-palette-kind][data-state='dragging'] {
   background: var(--brand-tint);
-  box-shadow: inset 0 0 0 1px var(--brand-ring);
-}
-.lib-fn[data-state='assigned'] .lib-name {
-  color: var(--ink);
-  font-weight: 600;
-}
-.lib-fn[data-state='assigned'] .lib-name::before {
-  color: var(--brand);
-}
-.lib-fn[data-state='assigned']::after {
-  content: '✓';
-  position: absolute;
-  top: var(--space-1);
-  right: var(--space-2);
-  color: var(--brand);
-  font-weight: 700;
-}
-
-/* On its way to a block. */
-.lib-fn[data-state='dragging'] {
-  border-color: var(--brand);
-  opacity: 0.85;
-}
-
-.drawer-empty {
-  margin: 0;
-  font-size: var(--text-sm);
+  outline: 1px dashed var(--brand);
+  outline-offset: -1px;
 }
 
 /* What the pointer is holding. The design puts it
@@ -784,6 +712,17 @@ button.lib-fn {
   margin: var(--space-1) 0 var(--space-2);
   font-size: var(--text-xs);
   cursor: pointer;
+}
+
+/* The row a function nobody has written yet is
+   named in. It borrows the picker row's box and
+   nothing else — there is no function in it to mark
+   or to describe — so its one control is stretched
+   across the row and a press anywhere starts the
+   naming. */
+.picker-new {
+  flex-direction: column;
+  align-items: stretch;
 }
 
 .picker-name {

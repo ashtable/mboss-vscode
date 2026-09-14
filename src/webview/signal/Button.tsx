@@ -1,5 +1,6 @@
-import type { ReactNode, Ref } from 'react';
+import { useId, type ReactNode, type Ref } from 'react';
 
+import { FieldHint } from './FieldHint.js';
 import { hooked } from './hook.js';
 
 /**
@@ -62,6 +63,12 @@ type Fitting = {
 
   disabled?: boolean;
 
+  /** Why it will not answer, said beside it. A
+   *  Button given one refuses rather than switching
+   *  off: it stays somewhere a keyboard can land, so
+   *  the reason can be read there. */
+  reason?: string;
+
   /** Working. The label stays: a control that
    *  swapped its words for a spinner leaves nobody
    *  able to say what they pressed. */
@@ -91,6 +98,7 @@ export function Button({
   mono,
   type = 'button',
   disabled,
+  reason,
   busy,
   onClick,
   ref,
@@ -98,7 +106,18 @@ export function Button({
   hookClass,
   children,
 }: ButtonProps) {
-  return (
+  const named = useId();
+
+  // The native attribute takes a control out of the
+  // tab order, so somebody on a keyboard cannot
+  // reach the one thing that says why it will not
+  // answer. Where there is a reason to give, the
+  // Button stays a stop, says it is unavailable and
+  // points at the reason; a tooltip would hide the
+  // same sentence behind a pointer.
+  const refusing = disabled === true && reason !== undefined;
+
+  const control = (
     <button
       ref={ref}
       type={type}
@@ -109,15 +128,26 @@ export function Button({
       data-icon={icon}
       data-empty={empty === true ? '' : undefined}
       data-mono={mono === true ? '' : undefined}
-      disabled={disabled}
+      disabled={refusing ? undefined : disabled}
+      aria-disabled={refusing ? true : undefined}
+      aria-describedby={refusing ? named : undefined}
       aria-busy={busy === true ? true : undefined}
       aria-label={label}
       title={label}
-      onClick={onClick}
+      onClick={refusing ? undefined : onClick}
       {...hooked(hook)}
     >
       {icon === undefined ? <span>{children}</span> : <Glyph icon={icon} />}
     </button>
+  );
+
+  return refusing ? (
+    <>
+      {control}
+      <FieldHint id={named}>{reason}</FieldHint>
+    </>
+  ) : (
+    control
   );
 }
 

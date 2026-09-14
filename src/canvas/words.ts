@@ -139,8 +139,8 @@ export const canvasWords = once(() => ({
   canvas: l10n.t('Canvas'),
   json: l10n.t('JSON'),
   graph: l10n.t('graph'),
-  blocks: l10n.t('Blocks'),
-  lib: l10n.t('/lib · from manifest'),
+  blocks: l10n.t('blocks'),
+  lib: l10n.t('lib · from manifest'),
   noLib: l10n.t('No code-behind has been scanned yet.'),
 
   // Follows the kind — `Step · unassigned` —
@@ -247,11 +247,14 @@ export const canvasWords = once(() => ({
   spliceHere: l10n.t('splice here'),
   spliceNote: l10n.t('edge splits on drop'),
 
-  // The number is the gesture's own, filled in
-  // where the drag is worked out, so the sentence
-  // cannot say one distance while the pointer is
-  // held to another.
-  dragHint: l10n.t('drag starts after {0} px of movement · esc cancels'),
+  // Where a row goes, and the one thing a drop
+  // does that nobody would guess: let go of a
+  // block over a wire and the wire opens to take
+  // it. How far the pointer has to travel before
+  // the drag begins is not said, because it is a
+  // threshold a hand crosses without reading
+  // anything.
+  dragHint: l10n.t('drag onto the canvas · drop on an edge to splice'),
 
   // Over a block being moved. The coordinates are
   // the graph's own, which is what the document
@@ -277,13 +280,6 @@ export const canvasWords = once(() => ({
   // are listed, so this says what the list is
   // rather than that some of it is missing.
   quickAdd: l10n.t('Put a block here'),
-
-  groups: {
-    start: l10n.t('Start'),
-    work: l10n.t('Work'),
-    control: l10n.t('Control'),
-    people: l10n.t('People'),
-  } satisfies Record<string, string>,
 
   misfits: misfitWords(),
 }));

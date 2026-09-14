@@ -271,17 +271,89 @@ test.describe('the palette', () => {
     );
   });
 
-  test('groups them the way the catalog groups them', async ({ page }) => {
+  /**
+   * One label over one list. The catalog's order is
+   * what carries the grouping, and four headings
+   * over three rows each spent more of a rail this
+   * narrow than the grouping was worth.
+   */
+  test('draws them as one list under one label', async ({ page }) => {
     await openCanvas(page);
 
-    const control = page.locator('.drawer', { hasText: 'Control' });
+    const parts = await page
+      .locator('.palette')
+      .evaluate((rail) =>
+        [...rail.querySelectorAll('.section-label, [data-palette-kind]')].map(
+          (part) =>
+            part.getAttribute('data-palette-kind') ??
+            `label: ${part.textContent ?? ''}`,
+        ),
+      );
 
-    await expect(control.locator('[data-palette-kind]')).toHaveText([
-      'Branch',
-      'Loop',
-      'Durable wait',
+    expect(parts).toEqual([
+      `label: ${canvasStrings.blocks}`,
+      ...NODE_PALETTE.map((entry) => entry.kind),
+      `label: ${canvasStrings.lib}`,
     ]);
   });
+
+  /**
+   * The same glyph the canvas draws, so a row and
+   * the block it turns into are recognisably one
+   * thing rather than two lists that happen to be
+   * in the same order.
+   */
+  test('wears the glyph the canvas draws that kind in', async ({ page }) => {
+    await openCanvas(page);
+
+    const drawn: Record<string, (string | null)[]> = {};
+
+    for (const { kind } of NODE_PALETTE) {
+      const row = page.locator(`[data-palette-kind="${kind}"]`);
+
+      await expect(row.locator('.node-icon')).toHaveCount(1);
+
+      drawn[kind] = await row
+        .locator('.node-icon path')
+        .evaluateAll((paths) => paths.map((path) => path.getAttribute('d')));
+    }
+
+    expect(drawn).toEqual(ICON_PATHS);
+  });
+
+  /**
+   * A rail of filled boxes reads as eleven controls.
+   * A rail of words under a glyph reads as a list of
+   * what can go on the canvas, which is what it is —
+   * so the ground arrives under the pointer and
+   * nowhere else.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`spends no ground on a row at rest in ${theme}`, async ({ page }) => {
+      await openCanvas(page, theme);
+
+      const rows = page.locator('[data-palette-kind]');
+
+      await expect(rows).toHaveCount(NODE_PALETTE.length);
+
+      const resting = await rows.evaluateAll((all) =>
+        all.map((row) => getComputedStyle(row).backgroundColor),
+      );
+
+      expect([...new Set(resting)]).toEqual(['rgba(0, 0, 0, 0)']);
+
+      // And the ground is really there to arrive:
+      // a rail with no hover rule at all would pass
+      // the read above and say nothing.
+      await rows.first().hover();
+
+      const hovered = await rows
+        .first()
+        .evaluate((row) => getComputedStyle(row).backgroundColor);
+
+      expect(hovered).not.toBe('rgba(0, 0, 0, 0)');
+    });
+  }
 
   test('lists the code-behind under it, with each signature', async ({
     page,
@@ -305,7 +377,9 @@ test.describe('the palette', () => {
     const harness = await mount(page, 'canvas');
     await harness.show(canvasInit({ manifest: undefined }));
 
-    await expect(page.locator('.drawer-empty')).toHaveText(canvasStrings.noLib);
+    await expect(page.locator('.palette .empty-state .empty-title')).toHaveText(
+      canvasStrings.noLib,
+    );
     await expect(page.locator('[data-lib-fn]')).toHaveCount(0);
   });
 });
@@ -597,7 +671,7 @@ test.describe('one block', () => {
     await openEveryKind(page);
 
     const glyphs = await page
-      .locator('.node-icon svg')
+      .locator('.react-flow__node .node-icon svg')
       .evaluateAll((icons) =>
         icons.map((icon) =>
           [...icon.querySelectorAll('path')]
@@ -660,7 +734,7 @@ test.describe('one block', () => {
 
     await openEveryKind(page);
 
-    await expect(page.locator('.node-icon svg')).toHaveCount(
+    await expect(page.locator('.react-flow__node .node-icon svg')).toHaveCount(
       NODE_PALETTE.length,
     );
     expect(complaints).toEqual([]);
@@ -1725,9 +1799,9 @@ test.describe('the tile a block’s glyph sits in', () => {
     // colours would be a legend to memorise, and
     // the block worth finding across a graph is the
     // one something is happening to.
-    await expect(page.locator('.node-icon[data-tone="neutral"]')).toHaveCount(
-      NODE_PALETTE.length,
-    );
+    await expect(
+      page.locator('.react-flow__node .node-icon[data-tone="neutral"]'),
+    ).toHaveCount(NODE_PALETTE.length);
   });
 
   test('turns brand for the selected block, agent for a proposed one', async ({
@@ -3608,10 +3682,16 @@ test.describe('the function picker', () => {
     const chosen = page.locator('[data-picker-fn="tryAgain"]');
 
     await expect(chosen).toHaveAttribute('data-state', 'assigned');
-    await expect(chosen).toHaveCSS(
-      'box-shadow',
-      'color(srgb 0.32549 0.403922 1 / 0.45) 0px 0px 0px 1px inset',
+
+    // A border rather than an inset shadow, because
+    // a theme that paints in forced colours drops
+    // the shadow and keeps the border.
+    const ring = await chosen.evaluate(
+      (row) => getComputedStyle(row).borderTopColor,
     );
+    const expected = colourOf('light', 'selection-ring');
+
+    expect(sameColour(ring, expected), `${ring} ≠ ${expected}`).toBe(true);
     expect(
       await chosen.evaluate((row) => getComputedStyle(row, '::after').content),
     ).toBe('"✓"');
@@ -4070,11 +4150,18 @@ test.describe('dragging a block onto the canvas', () => {
     expect(await inViewOf(heading, column)).toBe(true);
   });
 
-  test('says how a drag starts and how to call it off', async ({ page }) => {
+  /**
+   * Where a row goes, and the one thing a drop does
+   * that a person would not guess: let go of a block
+   * over a wire and the wire opens to take it.
+   */
+  test('says where a block goes and what a wire does with it', async ({
+    page,
+  }) => {
     await openCanvas(page);
 
     await expect(page.locator('[data-drag-hint]')).toHaveText(
-      'drag starts after 4 px of movement · esc cancels',
+      'drag onto the canvas · drop on an edge to splice',
     );
   });
 });
@@ -5007,8 +5094,12 @@ test.describe('the built bundles', () => {
       }),
     );
 
-    await expect(page.locator('.palette > .eyebrow')).toHaveText('BLOKKEN');
-    await expect(page.locator('.drawer-empty')).toHaveText('NIETS GESCAND');
+    await expect(page.locator('.palette .section-label').first()).toHaveText(
+      'BLOKKEN',
+    );
+    await expect(page.locator('.palette .empty-state .empty-title')).toHaveText(
+      'NIETS GESCAND',
+    );
     await expect(page.locator('[data-view-toggle="canvas"]')).toHaveText(
       'DOEK',
     );

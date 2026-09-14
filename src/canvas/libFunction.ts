@@ -8,21 +8,17 @@ import {
 import { misfitNote } from './misfit.js';
 
 /**
- * A function out of the project's code-behind, as
- * both places that offer one draw it.
+ * What the two places that offer a function out of
+ * the project's code-behind say about one.
  *
  * The palette drags them onto blocks and the
  * Inspector's picker assigns them, so the two
  * elements differ — one is dragged, the other is
- * pressed. What they say about a function does not,
- * and this is that: the export, what it takes and
- * gives back, and what is wrong with it where
- * something is.
+ * pressed — and the shared row is what draws either.
+ * What goes into that row is here: what a function
+ * takes and gives back, and whether core will let it
+ * sit behind the block a person is looking at.
  */
-
-/** How a row is drawn, which is a fact about the
- *  block that is selected. */
-export type LibState = 'default' | 'assigned' | 'dragging';
 
 /** One function, judged against the block a person
  *  is looking at. */
@@ -34,25 +30,6 @@ export type LibFit = {
   /** Why not, when it does not. */
   note: string | undefined;
 };
-
-export function FunctionLines({
-  fn,
-  note,
-}: {
-  fn: LibFunction;
-  note: string | undefined;
-}) {
-  return (
-    <>
-      <span className="mono lib-name">{fn.export}</span>
-      <span className="signature mono text-muted">{signatureOf(fn)}</span>
-
-      {note === undefined ? null : (
-        <span className="lib-note text-muted">{note}</span>
-      )}
-    </>
-  );
-}
 
 /**
  * Every function, with core's answer about whether
