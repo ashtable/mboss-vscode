@@ -938,6 +938,7 @@ function runOf(
     workflowId: 'wf_1',
     workflow: ir.name,
     status: outcome === 'running' ? 'PENDING' : 'SUCCESS',
+    executorId: 'local-dev',
     steps: steps.map(([nodeId, state], index) =>
       liveStep({ name: nodeId, nodeId, state, functionId: index }),
     ),
@@ -949,6 +950,7 @@ function runOf(
     startedAt: 1000,
     completedAt: undefined,
     input: undefined,
+    recordedInput: undefined,
     forkedFrom: undefined,
   };
 }
@@ -2901,9 +2903,12 @@ test.describe('the Inspector column', () => {
         page.locator('[data-evidence-field="duration"] .value'),
       ).toHaveText('48 ms');
 
+      // The value the step returned, not the wrapper
+      // whatever serializer the project registered
+      // stored it in.
       await expect(
         page.locator('[data-evidence-field="output"] .value'),
-      ).toHaveText(DONE.output!);
+      ).toHaveText(DONE.shown!);
 
       // The fixture's block spells the defaults out,
       // and the card says they are configuration

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { WorkflowIR } from '../core/rules.js';
 
 import { readRun } from './reading.js';
-import { errorIn, type Run, type Step } from './rows.js';
+import { errorIn, OUTPUT_KEPT, type Run, type Step } from './rows.js';
 
 /**
  * One run, read once.
@@ -168,6 +168,34 @@ describe('what a block recorded', () => {
     expect(only?.state).toBe('failed');
     expect(only?.nodeId).toBe('parse_claim');
     expect(only?.error?.name).toBe('BadClaim');
+  });
+
+  /**
+   * A reading is where a stored value stops being
+   * bytes, so it is where the serializer's wrapper
+   * has to come off — before the cut, or a long value
+   * arrives on the panel as the wrapper and there is
+   * no way back to what the step returned.
+   */
+  it('opens a long output before cutting it', () => {
+    const stored = JSON.stringify({
+      json: { note: 'x'.repeat(OUTPUT_KEPT + 3000) },
+      __dbos_serializer: 'superjson',
+    });
+
+    const found = readRun(
+      RUN,
+      [step({ name: 'parse_claim', output: stored })],
+      IR,
+      false,
+      NOW,
+    ).steps;
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.shown).not.toContain('__dbos_serializer');
+    expect(found[0]?.shown).toHaveLength(OUTPUT_KEPT);
+    expect(found[0]?.outputCut).toBe(true);
+    expect(found[0]?.bytes).toBe(stored.length);
   });
 
   /**

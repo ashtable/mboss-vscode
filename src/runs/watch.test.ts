@@ -171,7 +171,10 @@ function recordedStep(over: {
     startedAt: 1000,
     completedAt: 1200,
     output: '{}',
+    shown: '{}',
     outputCut: false,
+    bytes: 2,
+    absent: false,
     error: undefined,
     childWorkflowId: undefined,
     restored: false,
@@ -226,6 +229,7 @@ describe('watchRun', () => {
         workflowId: RUN_ID,
         workflow: 'counter',
         status: 'SUCCESS',
+        executorId: 'local-dev',
         outcome: 'done',
         recovered: false,
         recoveryAttempts: 1,
@@ -235,6 +239,7 @@ describe('watchRun', () => {
         startedAt: 1000,
         completedAt: 2000,
         input: undefined,
+        recordedInput: undefined,
         forkedFrom: undefined,
         steps: [recordedStep({ name: 'parse_request' })],
       },
@@ -244,6 +249,41 @@ describe('watchRun', () => {
 
     expect(seen).toHaveLength(1);
     expect(db.closed).toBe(1);
+  });
+
+  /**
+   * A canvas following a run draws the run-level
+   * card from what the watch reports and nothing
+   * else, so the two facts that card needs — which
+   * process owns the run, and what it was started
+   * with — have to come off the tick rather than be
+   * decorated on afterwards.
+   *
+   * The input crosses twice on purpose: printed for
+   * a panel that puts it in a cell, and as it was
+   * read for one that formats it itself.
+   */
+  it('says which process owns the run and what started it', async () => {
+    const db = ledger(
+      runRow({
+        executor_id: 'worker-7',
+        inputs: JSON.stringify([{ email: 'ada@example.com' }]),
+      }),
+    );
+    db.steps = [{ name: 'parse_request' }];
+
+    const seen: LiveRun[] = [];
+    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+
+    await settle();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.executorId).toBe('worker-7');
+    expect(seen[0]?.recordedInput).toEqual({
+      shape: 'payload',
+      value: { email: 'ada@example.com' },
+    });
+    expect(seen[0]?.input).toBe('{\n  "email": "ada@example.com"\n}');
   });
 
   it('reports a run that ended in an error, with what it said', async () => {

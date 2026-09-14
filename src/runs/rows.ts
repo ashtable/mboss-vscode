@@ -477,18 +477,38 @@ export function inputIn(
   const raw = text(stored);
   if (raw === undefined) return { shape: 'none' };
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return asRaw(raw, serialization);
-  }
+  const read = jsonIn(raw);
+  if (!read.ok) return asRaw(raw, serialization);
 
-  const args = Array.isArray(parsed) ? parsed : fieldOf(parsed, 'json');
+  const args = argumentsIn(read.value);
 
   return Array.isArray(args) && args.length === 1
     ? { shape: 'payload', value: args[0] }
     : asRaw(raw, serialization);
+}
+
+/**
+ * The argument array inside whatever the project's
+ * serializer wrote.
+ *
+ * Three shapes reach this column. The array itself
+ * is what a project with no serializer registered
+ * stores; the richer one wraps it in its marked
+ * envelope; the portable one files the arguments
+ * under `positionalArgs` beside the named ones it
+ * has no column for.
+ *
+ * The marker tells the first two apart, and nothing
+ * else does: a workflow whose one argument is an
+ * object with a `json` field of its own would
+ * otherwise be read as a wrapper and handed over
+ * half unpacked.
+ */
+function argumentsIn(parsed: unknown): unknown {
+  if (Array.isArray(parsed)) return parsed;
+  if (enveloped(parsed)) return fieldOf(parsed, 'json');
+
+  return fieldOf(parsed, 'positionalArgs');
 }
 
 function asRaw(raw: string, serialization: string | null): RunInput {
@@ -511,22 +531,110 @@ function asRaw(raw: string, serialization: string | null): RunInput {
  */
 export const OUTPUT_KEPT = 2000;
 
-export function outputIn(stored: string | null): {
-  text: string;
+/**
+ * How long a recorded value may be and still be
+ * drawn where it was recorded.
+ *
+ * Past it a panel names the value and offers to open
+ * it instead: a column is not a document viewer, and
+ * a page of JSON dropped into one buries the rows
+ * around it.
+ */
+export const INLINE_LIMIT = 120;
+
+/**
+ * A recorded value, as every panel needs it.
+ *
+ * `raw` is the bytes, which is what the agent is
+ * handed and what "Open" opens. `shown` is the same
+ * value with the serializer's wrapper off and printed
+ * on one line, which is what a person reads. Both are
+ * held to `OUTPUT_KEPT`, and `bytes` is the size
+ * before either cut.
+ */
+export type StoredValue = {
+  raw: string;
+
+  shown: string;
+
+  /** Whether either form stops short of the whole
+   *  value. */
   cut: boolean;
+
   bytes: number;
-} {
+
+  /** Whether the step returned nothing at all, which
+   *  is not the same as returning `null`. */
+  absent: boolean;
+};
+
+/**
+ * What a step returned, out of the bytes the column
+ * holds.
+ *
+ * The wrapper comes off before the cut, and that
+ * order is the whole of it: an envelope cut at two
+ * thousand characters can no longer be opened, so the
+ * other way round puts the serializer's own notes on
+ * the panel for exactly the values too big to read
+ * any other way.
+ */
+export function storedValue(stored: string | null): StoredValue {
   const raw = text(stored) ?? '';
+  const read = jsonIn(raw);
+  const shown = read.ok ? inlineJson(unwrapped(read.value)) : raw;
 
   // `TextEncoder` rather than `Buffer`, because this
   // module is in the browser bundles as well as the
   // host and a Node global there is `undefined`
   // rather than a build failure.
   return {
-    text: raw.slice(0, OUTPUT_KEPT),
-    cut: raw.length > OUTPUT_KEPT,
+    raw: raw.slice(0, OUTPUT_KEPT),
+    shown: shown.slice(0, OUTPUT_KEPT),
+    cut: raw.length > OUTPUT_KEPT || shown.length > OUTPUT_KEPT,
     bytes: new TextEncoder().encode(raw).length,
+    absent: read.ok && returnedNothing(read.value),
   };
+}
+
+/**
+ * A value on one line, spaced to be read rather than
+ * to be parsed: `{ "extracted": 15, "created": 15 }`.
+ *
+ * Printed by `JSON.stringify` and not by hand, so a
+ * string holding a brace or a comma survives it. One
+ * space of indent asks for exactly that spacing, and
+ * closing the newlines up afterwards is what takes
+ * the wrapping away again. A value JSON cannot write
+ * at all prints as nothing.
+ */
+export function inlineJson(value: unknown): string {
+  const printed = JSON.stringify(value, null, 1);
+
+  return printed === undefined ? '' : printed.replace(/\n\s*/g, ' ');
+}
+
+/**
+ * Whether the wrapper says the step returned nothing
+ * at all.
+ *
+ * A `void` step is stored with a `json` of `null` and
+ * type notes saying `undefined`, and those notes are
+ * the only thing telling it apart from a step that
+ * really returned `null`. The two are drawn
+ * differently — no output section against the value
+ * `null` — so a reader that could not tell them
+ * apart would invent a result for every step that
+ * has none.
+ */
+function returnedNothing(value: unknown): boolean {
+  if (!enveloped(value)) return false;
+
+  const values = fieldOf(fieldOf(value, 'meta'), 'values');
+
+  return (
+    Array.isArray(values) && values.length === 1 && values[0] === 'undefined'
+  );
 }
 
 /**
@@ -564,14 +672,35 @@ const SERIALIZER_MARKED = 'superjson';
 export function valueIn(stored: string | undefined): unknown {
   if (stored === undefined) return undefined;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stored);
-  } catch {
-    return undefined;
-  }
+  const read = jsonIn(stored);
 
-  return enveloped(parsed) ? fieldOf(parsed, 'json') : parsed;
+  return read.ok ? unwrapped(read.value) : undefined;
+}
+
+/**
+ * Stored bytes read back, or the news that they are
+ * not JSON at all.
+ *
+ * The two are told apart rather than both answered
+ * with `undefined`, because they mean opposite things
+ * to a panel: a stored `null` is what the step
+ * returned, and bytes that will not parse are text
+ * somebody has to be shown as they were written.
+ */
+type StoredJson = { ok: true; value: unknown } | { ok: false };
+
+function jsonIn(stored: string): StoredJson {
+  try {
+    return { ok: true, value: JSON.parse(stored) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** What the richer serializer's envelope holds, or
+ *  the value itself where there is no envelope. */
+function unwrapped(value: unknown): unknown {
+  return enveloped(value) ? fieldOf(value, 'json') : value;
 }
 
 function enveloped(value: unknown): boolean {

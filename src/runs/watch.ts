@@ -89,6 +89,10 @@ export type LiveRun = {
   /** DBOS's own word, shown as it is. */
   status: string;
 
+  /** Which process owns it, which changes across a
+   *  crash and a restart. */
+  executorId: string;
+
   steps: LiveStep[];
 
   /** What each of this workflow's queue blocks is
@@ -118,6 +122,17 @@ export type LiveRun = {
 
   /** What the run was started with, printed. */
   input: string | undefined;
+
+  /**
+   * The same input as it was read out of the column.
+   *
+   * Beside the print rather than instead of it: a
+   * cell wants the text and a panel that formats the
+   * value itself wants the value, and parsing the
+   * print back to get one is how the two come to
+   * disagree about what the run was started with.
+   */
+  recordedInput: RunInput | undefined;
 
   forkedFrom: string | undefined;
 };
@@ -402,6 +417,7 @@ export function liveRunOf(run: Run, reading: Reading): LiveRun {
     workflowId: run.workflowId,
     workflow: run.name,
     status: run.status,
+    executorId: run.executorId,
     steps: reading.steps.filter((one) => one.owner !== 'sdk').map(liveStepOf),
     recovered: reading.recovered,
     recoveryAttempts: run.recoveryAttempts,
@@ -412,6 +428,7 @@ export function liveRunOf(run: Run, reading: Reading): LiveRun {
     startedAt: run.startedAt,
     completedAt: run.completedAt,
     input: printed(run.input),
+    recordedInput: run.input,
     forkedFrom: run.forkedFrom,
   };
 }
@@ -428,7 +445,10 @@ function liveStepOf(operation: Operation): LiveStep {
     startedAt: operation.startedAt,
     completedAt: operation.completedAt,
     output: operation.output,
+    shown: operation.shown,
     outputCut: operation.outputCut,
+    bytes: operation.bytes,
+    absent: operation.absent,
     error: operation.error,
     childWorkflowId: operation.childWorkflowId,
     restored: operation.restored,

@@ -6,8 +6,8 @@ import {
 
 import { FAILED_STATUSES } from './queries.js';
 import {
-  outputIn,
   stepError,
+  storedValue,
   type Run,
   type Step,
   type StepError,
@@ -114,10 +114,22 @@ export type Operation = {
 
   completedAt: number | undefined;
 
-  /** What it returned, cut where it was long. */
+  /** What it returned, as the bytes were stored, cut
+   *  where they were long. */
   output: string | undefined;
 
+  /** The same value with the serializer's wrapper
+   *  off, printed on one line for a panel to draw. */
+  shown: string | undefined;
+
   outputCut: boolean;
+
+  /** How big the stored value was before any cut. */
+  bytes: number;
+
+  /** Whether the step returned nothing at all, which
+   *  is not the same as returning `null`. */
+  absent: boolean;
 
   error: StepError | undefined;
 
@@ -290,7 +302,7 @@ function attributed(
   createdAt: number,
 ): Operation {
   const owner = ownerOf(step.name);
-  const output = outputIn(step.output ?? null);
+  const value = storedValue(step.output ?? null);
   const failure = stepError(step.failure);
 
   const nodeId =
@@ -315,8 +327,11 @@ function attributed(
     functionId: step.functionId,
     startedAt: step.startedAt,
     completedAt: step.completedAt,
-    output: step.output === undefined ? undefined : output.text,
-    outputCut: output.cut,
+    output: step.output === undefined ? undefined : value.raw,
+    shown: step.output === undefined ? undefined : value.shown,
+    outputCut: value.cut,
+    bytes: value.bytes,
+    absent: value.absent,
     error: failure,
     childWorkflowId: step.childWorkflowId,
     restored,

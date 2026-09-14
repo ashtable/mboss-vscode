@@ -592,6 +592,7 @@ test.describe('the run being followed', () => {
     workflowId: 'run_1_a1b2',
     workflow: 'groom_booking',
     status: 'PENDING',
+    executorId: 'local-dev',
     steps: [
       liveStep({ name: 'find_slot', nodeId: 'find_slot' }),
       liveStep({
@@ -610,6 +611,7 @@ test.describe('the run being followed', () => {
     startedAt: 1000,
     completedAt: undefined,
     input: undefined,
+    recordedInput: undefined,
     forkedFrom: undefined,
   };
 

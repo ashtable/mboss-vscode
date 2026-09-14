@@ -113,6 +113,7 @@ function run(
     workflowId: 'wf_1',
     workflow: ir.name,
     status: outcome === 'running' ? 'PENDING' : 'SUCCESS',
+    executorId: 'local-dev',
     steps: steps.map(([nodeId, state], index) =>
       liveStep({ name: nodeId, nodeId, state, functionId: index }),
     ),
@@ -124,6 +125,7 @@ function run(
     startedAt: 1000,
     completedAt: undefined,
     input: undefined,
+    recordedInput: undefined,
     forkedFrom: undefined,
   };
 }

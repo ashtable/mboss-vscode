@@ -6,6 +6,7 @@ import { vi } from 'vitest';
 
 import type { Database } from '../runs/db.js';
 import type { ManagementClient } from '../runs/manage.js';
+import { storedValue } from '../runs/rows.js';
 import type { RunRequest, RunStart, RunStarter } from '../runs/runner.js';
 import type { StackController, StackStatus } from '../runs/stack.js';
 import type { RunsHost } from '../runs/store.js';
@@ -335,6 +336,7 @@ export function liveRun(over: Partial<LiveRun> = {}): LiveRun {
     workflowId: 'run_1',
     workflow: 'groom_booking',
     status: 'PENDING',
+    executorId: 'local-dev',
     steps: [liveStep()],
     recovered: false,
     recoveryAttempts: 1,
@@ -344,15 +346,27 @@ export function liveRun(over: Partial<LiveRun> = {}): LiveRun {
     startedAt: 1000,
     completedAt: undefined,
     input: undefined,
+    recordedInput: undefined,
     forkedFrom: undefined,
     ...over,
   };
 }
 
-/** One step of a reading, with a default for
- *  everything a caller is not saying anything
- *  about. */
+/**
+ * One step of a reading, with a default for
+ * everything a caller is not saying anything about.
+ *
+ * What is drawn is read off what was recorded rather
+ * than defaulted beside it: a case that gives an
+ * output and not the print of it would otherwise put
+ * a value on the panel that its own ledger row does
+ * not hold. A case about the print itself still says
+ * so and wins.
+ */
 export function liveStep(over: Partial<LiveStep> = {}): LiveStep {
+  const recorded = { output: '{}', ...over };
+  const value = storedValue(recorded.output ?? null);
+
   return {
     name: 'parse_request',
     nodeId: 'parse_request',
@@ -360,8 +374,11 @@ export function liveStep(over: Partial<LiveStep> = {}): LiveStep {
     functionId: 0,
     startedAt: 1000,
     completedAt: 1100,
-    output: '{}',
-    outputCut: false,
+    output: recorded.output,
+    shown: recorded.output === undefined ? undefined : value.shown,
+    outputCut: value.cut,
+    bytes: value.bytes,
+    absent: value.absent,
     error: undefined,
     childWorkflowId: undefined,
     restored: false,
@@ -387,7 +404,7 @@ export function ledgerReadOf(run: LiveRun): LedgerRead {
       name: run.workflow,
       status: run.status,
       recoveryAttempts: run.recoveryAttempts,
-      executorId: 'local-dev',
+      executorId: run.executorId,
       applicationVersion: run.applicationVersion,
       createdAt: run.createdAt,
       startedAt: run.startedAt,

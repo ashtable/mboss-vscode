@@ -75,6 +75,10 @@ export type EvidenceRow = {
    *  it. */
   output: string | undefined;
 
+  /** The same value with the serializer's wrapper
+   *  off, which is the form a person reads. */
+  shown: string | undefined;
+
   outputCut: boolean;
 
   error: StepError | undefined;
@@ -342,6 +346,7 @@ function rowOf(step: LiveStep, nodeId: string): EvidenceRow {
     completedAt: step.completedAt,
     durationMs: spanOf(step.startedAt, step.completedAt),
     output: step.output,
+    shown: step.shown,
     outputCut: step.outputCut,
     error: step.error,
     restored: step.restored,

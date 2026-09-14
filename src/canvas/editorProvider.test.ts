@@ -310,6 +310,7 @@ function runOf(workflow: string, workflowId = 'wf_1'): LiveRun {
     workflowId,
     workflow,
     status: 'PENDING',
+    executorId: 'local-dev',
     steps: [liveStep()],
     recovered: false,
     recoveryAttempts: 1,
@@ -319,6 +320,7 @@ function runOf(workflow: string, workflowId = 'wf_1'): LiveRun {
     startedAt: 1000,
     completedAt: undefined,
     input: undefined,
+    recordedInput: undefined,
     forkedFrom: undefined,
   };
 }

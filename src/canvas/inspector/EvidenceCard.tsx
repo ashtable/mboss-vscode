@@ -880,7 +880,7 @@ function Recorded({
               this is a page of JSON in a column, and
               the figures above it are the numbers
               worth landing on. */}
-          <pre className="value mono">{row.output}</pre>
+          <pre className="value mono">{row.shown}</pre>
 
           {/* Said out loud, because a value that
               stops mid-object read as the value is
