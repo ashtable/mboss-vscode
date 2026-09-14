@@ -1,6 +1,6 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
-import type { FileEditEntry } from '../../src/acp/transcript.js';
+import type { FileEditEntry, ToolEntry } from '../../src/acp/transcript.js';
 import { WEBVIEW_ENTRIES } from '../../src/build.js';
 import type { SidebarInit } from '../../src/webview/protocol.js';
 
@@ -40,6 +40,21 @@ function fileEdit(): FileEditEntry {
   };
 }
 
+/** A call the agent is still making, which is the
+ *  one row in this panel that moves. */
+function running(): ToolEntry {
+  return {
+    at: 'tool',
+    id: 'call-2',
+    by: 'agent',
+    kind: 'read',
+    verb: 'Read',
+    target: 'lib/twilioChat.ts',
+    status: 'in_progress',
+    body: [],
+  };
+}
+
 function sidebarInit(): SidebarInit {
   return {
     type: 'init',
@@ -47,12 +62,50 @@ function sidebarInit(): SidebarInit {
     strings,
     agent: 'claude code',
     status: 'ready',
-    transcript: [fileEdit()],
+    transcript: [fileEdit(), running()],
     prompt: undefined,
     failure: undefined,
     preview: undefined,
   };
 }
+
+/**
+ * How long everything on the page would take, in
+ * milliseconds.
+ *
+ * Every element rather than the few that are known
+ * to move: the question is whether anything at all
+ * is still going, and a rule nobody remembered is
+ * exactly the one that keeps moving.
+ *
+ * A computed duration is a comma-separated list
+ * wherever a rule set more than one, so each is
+ * read on its own.
+ */
+function durationsOf(page: Page): Promise<number[]> {
+  return page.evaluate(() => {
+    const milliseconds = (list: string) =>
+      list.split(',').map((one) => {
+        const value = Number.parseFloat(one);
+
+        return one.trim().endsWith('ms') ? value : value * 1000;
+      });
+
+    return [...document.querySelectorAll('*')].flatMap((element) => {
+      const style = getComputedStyle(element);
+
+      return [
+        ...milliseconds(style.animationDuration),
+        ...milliseconds(style.transitionDuration),
+      ];
+    });
+  });
+}
+
+/** What a duration collapses to when somebody asked
+ *  for less movement: not zero, because a
+ *  transition that never starts also never ends. */
+const STILL = 0.01;
 
 test.describe('the tokens every view is painted from', () => {
   /**
@@ -172,4 +225,57 @@ test.describe('the tokens every view is painted from', () => {
       );
     });
   }
+
+  /**
+   * The panel as it moves by default, which is what
+   * makes the two cases under this one mean
+   * anything: a sweep that found everything already
+   * still would agree with a stylesheet that had
+   * never been written.
+   */
+  test('pulses the row of a call the agent is still making', async ({
+    page,
+  }) => {
+    const harness = await mount(page, 'sidebar');
+
+    await harness.show(sidebarInit());
+
+    await expect(page.locator('[data-status="in_progress"]')).toHaveCount(1);
+    expect(Math.max(...(await durationsOf(page)))).toBeGreaterThan(STILL);
+  });
+
+  /**
+   * Somebody who asked for less movement asked for
+   * less movement, not for a different panel: every
+   * duration collapses and everything still ends
+   * where it was going to end.
+   */
+  test('holds the panel still under the system preference', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
+    const harness = await mount(page, 'sidebar');
+    await harness.show(sidebarInit());
+
+    expect(Math.max(...(await durationsOf(page)))).toBeLessThanOrEqual(STILL);
+  });
+
+  /**
+   * And the same asked for inside the editor, which
+   * arrives as a class on the body rather than as a
+   * media feature. A class cannot scope a `:root`
+   * rule, and the per-view gates on the media
+   * feature never see it, so the whole block is
+   * written out a second time against the class.
+   */
+  test('holds the panel still under the editor setting', async ({ page }) => {
+    const harness = await mount(page, 'sidebar', 'light', {
+      bodyClass: 'vscode-reduce-motion',
+    });
+
+    await harness.show(sidebarInit());
+
+    expect(Math.max(...(await durationsOf(page)))).toBeLessThanOrEqual(STILL);
+  });
 });

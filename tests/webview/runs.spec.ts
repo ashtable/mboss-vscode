@@ -11,11 +11,14 @@ import type {
   TraceGroupView,
 } from '../../src/webview/protocol.js';
 
+import { GRID } from '../../src/canvas/grid.js';
 import { liveRun, liveStep } from '../../src/test-support/runs.js';
 
 import { paletteLabels } from './words.js';
 
+import { LIBRARY_COLOURS } from './fixtures/library.js';
 import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
+import { colourOf, sameColour, type Role } from './palette.js';
 import {
   inspectorWords as inspectorStrings,
   runsWords as runsStrings,
@@ -284,8 +287,12 @@ async function showList(
   return harness;
 }
 
-async function showRun(page: Page, init: SeeInit): Promise<Harness> {
-  const harness = await mount(page, 'see');
+async function showRun(
+  page: Page,
+  init: SeeInit,
+  theme: ThemeKind = 'light',
+): Promise<Harness> {
+  const harness = await mount(page, 'see', theme);
   await harness.show(init);
 
   return harness;
@@ -2395,7 +2402,228 @@ test.describe('one run, as a graph', () => {
     await expect(line).toHaveText('8 running · 42 queued');
     await expect(line).toHaveAttribute('title', seeStrings.derived);
   });
+
+  /**
+   * The wires are drawn between the ports, so the
+   * ports have to be on the page — but nothing here
+   * is wired, dragged or dropped on. A port a run
+   * page showed would be offering an edit from a
+   * page about something that already happened, and
+   * one that took a click would swallow the click
+   * that picks the block under it.
+   */
+  test('draws its wires from ports nothing sees or hits', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH }), 'graph'));
+    await graphAtRest(page);
+
+    const block = page.locator('[data-run-node="parse_request"]');
+    const ports = page.locator('.react-flow__handle');
+
+    // Two blocks, each with the two the library
+    // routes its wires between.
+    await expect(ports).toHaveCount(4);
+
+    for (const port of await ports.all()) {
+      await expect(port).toHaveCSS('opacity', '0');
+      await expect(port).toHaveCSS('pointer-events', 'none');
+    }
+
+    // Hovering a block is what reveals its ports on
+    // the canvas. Here there is nothing to reveal.
+    await block.hover();
+    await expect(ports.first()).toHaveCSS('opacity', '0');
+
+    const hit = await block
+      .locator('.react-flow__handle')
+      .first()
+      .evaluate((port) => {
+        const box = port.getBoundingClientRect();
+        const at = document.elementFromPoint(
+          box.x + box.width / 2,
+          box.y + box.height / 2,
+        );
+
+        return at?.closest('[data-run-node]')?.getAttribute('data-run-node');
+      });
+
+    expect(hit).toBe('parse_request');
+  });
+
+  /**
+   * The arrowheads are declared once for the page
+   * and drawn wherever they are referenced, so the
+   * element holding them takes up no room. Left to
+   * lay itself out it is an SVG of the default 300
+   * by 150, which pushes the graph down inside a
+   * frame that clips and takes the trigger off the
+   * top of it.
+   */
+  test('gives the arrowheads it declares no room', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH }), 'graph'));
+    await graphAtRest(page);
+
+    await expect(page.locator('.wire-markers')).toHaveCount(1);
+
+    const laidOut = await page.evaluate(() => {
+      const markers = document.querySelector('.wire-markers');
+      const pane = document.querySelector('.run-flow');
+      const flow = document.querySelector('.react-flow');
+
+      if (markers === null || pane === null || flow === null) return undefined;
+
+      const box = markers.getBoundingClientRect();
+      // Where the pane's content starts, which is
+      // under the hairline it is framed in.
+      const inside =
+        pane.getBoundingClientRect().top +
+        Number.parseFloat(getComputedStyle(pane).borderTopWidth);
+
+      return {
+        width: box.width,
+        height: box.height,
+        pushed: flow.getBoundingClientRect().top - inside,
+      };
+    });
+
+    expect(laidOut).toEqual({ width: 0, height: 0, pushed: 0 });
+  });
+
+  /**
+   * An open chevron rather than a filled triangle,
+   * and drawn in the colour of the wire it ends: a
+   * head that disagreed with its line would say the
+   * run got somewhere the line says it did not.
+   */
+  test('ends every wire in the colour that wire is drawn in', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH }), 'graph'));
+    await graphAtRest(page);
+
+    for (const [state, role] of Object.entries(WIRE_ROLES)) {
+      const head = page.locator(`#wire-arrow-${state} path`);
+
+      await expect(head).toHaveCount(1);
+
+      const drawn = await head.evaluate((path) => {
+        const style = getComputedStyle(path);
+
+        return { fill: style.fill, stroke: style.stroke };
+      });
+      const expected = colourOf('light', role);
+
+      expect(drawn.fill, state).toBe('none');
+      expect(
+        sameColour(drawn.stroke, expected),
+        `${state}: ${drawn.stroke} ≠ ${expected}`,
+      ).toBe(true);
+    }
+
+    // And the wire on the page agrees with the head
+    // it points at, which is the whole reason the
+    // two read one table.
+    const agreed = await page
+      .locator('.react-flow__edge[data-id="e1"] .wire')
+      .evaluate((wire) => {
+        const id = /#([\w-]+)/.exec(getComputedStyle(wire).markerEnd)?.[1];
+        const head = id === undefined ? null : document.querySelector(`#${id}`);
+        const path = head?.querySelector('path');
+
+        return {
+          wire: getComputedStyle(wire).stroke,
+          head:
+            path === null || path === undefined
+              ? ''
+              : getComputedStyle(path).stroke,
+        };
+      });
+
+    expect(agreed.head).not.toBe('');
+    expect(agreed.wire).toBe(agreed.head);
+  });
+
+  /**
+   * The same weight the canvas draws a wire at, and
+   * the same grid under it: the two graphs are one
+   * picture of one workflow, and a person moving
+   * between them should not be able to tell which
+   * sheet drew what.
+   */
+  test('draws its wires and its grid the way the canvas does', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ graph: GRAPH }), 'graph'));
+    await graphAtRest(page);
+
+    await expect(
+      page.locator('.react-flow__edge[data-id="e1"] .wire'),
+    ).toHaveCSS('stroke-width', '1.5px');
+    await expect(page.locator('.run-flow')).toHaveCSS(
+      'background-size',
+      `${GRID}px ${GRID}px`,
+    );
+  });
+
+  /**
+   * Every colour on this graph is one this product
+   * chose. The library has a default for each of
+   * them, picked against a white diagramming page,
+   * and a part it draws in one is a part wearing
+   * somebody else's theme inside the editor's.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`paints its own ports and wires in ${theme}`, async ({ page }) => {
+      await showRun(page, seeInit(seeRun({ graph: GRAPH }), 'graph'), theme);
+      await graphAtRest(page);
+
+      const wire = page.locator('.react-flow__edge[data-id="e1"] .wire');
+      const state = await wire.getAttribute('data-state');
+      const role = WIRE_ROLES[state ?? ''];
+
+      if (role === undefined) throw new Error(`no wire state: ${state}`);
+
+      const painted = await page.evaluate(() => {
+        const port = document.querySelector('.react-flow__handle-bottom');
+        const wire = document.querySelector('.react-flow__edge .wire');
+
+        if (port === null || wire === null) return undefined;
+
+        return {
+          port: getComputedStyle(port).backgroundColor,
+          wire: getComputedStyle(wire).stroke,
+        };
+      });
+
+      if (painted === undefined) throw new Error('the graph drew nothing');
+
+      for (const [part, colour] of Object.entries(painted)) {
+        expect(LIBRARY_COLOURS, `${part} in ${theme}`).not.toContain(colour);
+      }
+
+      for (const [part, expected] of [
+        ['port', colourOf(theme, 'brand')],
+        ['wire', colourOf(theme, role)],
+      ] as const) {
+        const actual = painted[part];
+
+        expect(
+          sameColour(actual, expected),
+          `${part} in ${theme}: ${actual} ≠ ${expected}`,
+        ).toBe(true);
+      }
+    });
+  }
 });
+
+/** What a wire in each state is drawn in, and so
+ *  what the head at the end of it is drawn in. */
+const WIRE_ROLES: Record<string, Role> = {
+  idle: 'hairline-strong',
+  active: 'ok',
+  done: 'edge-done',
+  waiting: 'warn',
+  failed: 'fail',
+};
 
 test.describe('one run, as a trace', () => {
   test('keeps a group closed until it is opened', async ({ page }) => {

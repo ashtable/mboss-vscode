@@ -342,6 +342,33 @@ body {
     0 0 0 1.5px var(--fail),
     0 0 12px color-mix(in srgb, var(--fail) 28%, transparent);
 
+  /* What the graph library paints with.
+
+     It declares a `--xy-X-default` for every part
+     on the `.react-flow` element itself and reads
+     `var(--xy-X, var(--xy-X-default))`, so a
+     default name set here is shadowed there and
+     never reached: the un-suffixed name is the only
+     one free to answer. Undeclared, each part falls
+     back to a light diagramming palette chosen
+     against a white page — inside whatever theme
+     the person picked.
+
+     Here rather than in the canvas' own sheet
+     because both graphs read them, and the roles
+     they are mixed from are worked out here. */
+  --xy-edge-stroke: var(--hairline-strong);
+  --xy-edge-stroke-width: 1.5;
+  --xy-edge-stroke-selected: var(--vscode-focusBorder, var(--brand));
+  --xy-connectionline-stroke: var(--brand);
+  --xy-handle-background-color: transparent;
+  --xy-handle-border-color: transparent;
+  --xy-background-pattern-color: var(--grid-dot);
+  --xy-edge-label-background-color: var(--surface);
+  --xy-edge-label-color: var(--ink);
+  --xy-selection-background-color: var(--brand-tint);
+  --xy-selection-border: 1px dotted var(--brand);
+
   margin: 0;
   padding: 0;
   background: var(--canvas);
@@ -506,7 +533,10 @@ body.vscode-high-contrast-light {
 .canvas-grid {
   background-color: var(--canvas);
   background-image: radial-gradient(var(--grid-dot) 1px, transparent 1px);
-  background-size: 18px 18px;
+  /* The pitch the editor snaps a block to, so that
+     the run page and the canvas are one picture of
+     one workflow rather than two drawings of it. */
+  background-size: 20px 20px;
 }
 
 /* — text — */
@@ -1297,6 +1327,104 @@ body.vscode-high-contrast-light {
   height: 11px;
 }
 
+/* — the board both graphs are drawn on — */
+
+/* Here rather than in the canvas' own sheet: the
+   editor and the run page draw the same wires
+   between the same ports, and only one of the two
+   loads that sheet. The run page loading none of
+   this is what left its arrowheads laying
+   themselves out at the graph's expense. */
+
+.react-flow__edge .wire {
+  stroke-width: 1.5;
+}
+/* A run going through, and a run parked. The
+   dashes march the way the value is going. */
+.react-flow__edge .wire[data-state='active'],
+.react-flow__edge .wire[data-state='waiting'] {
+  stroke-dasharray: 6 5;
+  animation: sig-edge-flow 0.7s linear infinite;
+}
+/* The one edge that means "again". */
+.react-flow__edge .wire-back {
+  stroke-dasharray: none;
+}
+
+/* Nothing to see: the arrowheads live in here, and
+   a marker is drawn where it is referenced rather
+   than where it is declared. Left to lay itself
+   out it is an SVG of the default 300 by 150,
+   which pushes the graph down inside a frame that
+   clips and takes the trigger off the top of it. */
+.wire-markers {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+/* Connecting is a drag from one of these, so they
+   have to exist — but a canvas dotted with ports is
+   a diagramming app. They appear on the block under
+   the pointer, and on every block once a wire is
+   being drawn, so a person can see where one could
+   land. Filled leaves, hollow arrives: that is the
+   whole grammar of which end is which. */
+.react-flow__handle {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+.react-flow__handle-bottom {
+  background: var(--brand);
+  border: 2px solid var(--surface);
+  box-shadow: var(--elev-1);
+}
+.react-flow__handle-top {
+  background: var(--surface);
+  border: 2px solid var(--brand);
+}
+/* A run's blocks are excluded here rather than
+   left to the rule that hides theirs for good:
+   that one is the plainer selector of the two and
+   would lose to this one on a hover. */
+.node:not([data-run-node]):hover .react-flow__handle,
+.react-flow:has(.react-flow__connectionline) .react-flow__handle {
+  opacity: 1;
+}
+/* Mid-drag, the library marks the handle a wire is
+   over, and marks it again once it has asked
+   whether the wire may be drawn. */
+.react-flow__handle.connectingto {
+  background: var(--fail);
+  border-color: var(--fail);
+}
+.react-flow__handle.connectingto.valid {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+/* A run page shows what already happened, so its
+   ports never appear and never take a click: the
+   point at the centre of one belongs to the block
+   under it, which is the thing there is to pick. */
+[data-run-node] .react-flow__handle {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The editor keeps its blocks focusable, because
+   the arrow keys nudge whichever one a person is
+   on. The library hides the ring the browser would
+   draw there, which leaves a keyboard with no way
+   of saying where it is. */
+.react-flow .react-flow__node.selectable:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, var(--brand));
+  outline-offset: 2px;
+}
+
 /* — motion — */
 
 /* A wire carrying a run right now. The dashes march
@@ -1360,4 +1488,30 @@ body.vscode-high-contrast-light {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* The same thing asked for inside the editor, which
+   arrives as a class on the body beside the theme's
+   own rather than as a media feature.
+
+   Written out a second time because neither half of
+   the block above can be reached from here: a class
+   cannot scope a `:root` rule, and the per-view
+   gates on `no-preference` go on applying to a
+   person who asked the editor rather than the
+   system. */
+body.vscode-reduce-motion {
+  --dur-fast: 0.01ms;
+  --dur-med: 0.01ms;
+  --dur-slow: 0.01ms;
+  --dur-pulse: 0.01ms;
+  --dur-breathe: 0.01ms;
+}
+
+body.vscode-reduce-motion *,
+body.vscode-reduce-motion *::before,
+body.vscode-reduce-motion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
 }

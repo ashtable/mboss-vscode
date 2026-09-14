@@ -501,29 +501,10 @@ button.lib-fn {
 
 /* — wires — */
 
-.react-flow__edge .wire {
-  stroke-width: 1.5;
-}
-/* A run going through, and a run parked. The
-   dashes march the way the value is going. */
-.react-flow__edge .wire[data-state='active'],
-.react-flow__edge .wire[data-state='waiting'] {
-  stroke-dasharray: 6 5;
-  animation: sig-edge-flow 0.7s linear infinite;
-}
-/* The one edge that means "again". */
-.react-flow__edge .wire-back {
-  stroke-dasharray: none;
-}
-
-/* Nothing to see: the arrowheads live in here, and
-   a marker is drawn where it is referenced rather
-   than where it is declared. */
-.wire-markers {
-  position: absolute;
-  width: 0;
-  height: 0;
-}
+/* The wires themselves, the arrowheads at the end
+   of them and the ports they run between are in the
+   token sheet: the run page draws all three and
+   loads none of this. */
 
 /* Above the blocks. The graph is a column, so a
    port name will sometimes land over a block —
@@ -538,45 +519,6 @@ button.lib-fn {
   color: var(--ink-muted);
   white-space: nowrap;
   pointer-events: none;
-}
-
-/* Connecting is a drag from one of these, so they
-   have to exist — but a canvas dotted with ports is
-   a diagramming app. They appear on the block under
-   the pointer, and on every block once a wire is
-   being drawn, so a person can see where one could
-   land. Filled leaves, hollow arrives: that is the
-   whole grammar of which end is which. */
-.react-flow__handle {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-out);
-}
-.react-flow__handle-bottom {
-  background: var(--brand);
-  border: 2px solid var(--surface);
-  box-shadow: var(--elev-1);
-}
-.react-flow__handle-top {
-  background: var(--surface);
-  border: 2px solid var(--brand);
-}
-.node:hover .react-flow__handle,
-.react-flow:has(.react-flow__connectionline) .react-flow__handle {
-  opacity: 1;
-}
-/* Mid-drag, the library marks the handle a wire is
-   over, and marks it again once it has asked
-   whether the wire may be drawn. */
-.react-flow__handle.connectingto {
-  background: var(--fail);
-  border-color: var(--fail);
-}
-.react-flow__handle.connectingto.valid {
-  background: var(--brand);
-  border-color: var(--brand);
 }
 
 /* — a wire being drawn — */

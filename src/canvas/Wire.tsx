@@ -86,6 +86,13 @@ export function Wire(props: EdgeProps<CanvasEdge>) {
  * each wire renders for itself. This is the one
  * element on the page whose only job is to hold
  * them.
+ *
+ * An open chevron rather than a filled triangle:
+ * the head is a continuation of the line and not a
+ * shape sitting at the end of it, so it is drawn in
+ * the stroke the line is drawn in, at the weight a
+ * five-unit marker scaled by a 1.5px wire lands at
+ * — the wire's own.
  */
 export function WireMarkers() {
   return (
@@ -102,7 +109,14 @@ export function WireMarkers() {
             markerHeight="5"
             orient="auto-start-reverse"
           >
-            <path d="M 0 0 L 10 5 L 0 10 z" fill={stroke} />
+            <path
+              d="M 1 1 L 9 5 L 1 9"
+              fill="none"
+              stroke={stroke}
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </marker>
         ))}
       </defs>

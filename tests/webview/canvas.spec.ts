@@ -38,6 +38,7 @@ import type {
   ShownRun,
 } from '../../src/webview/protocol.js';
 
+import { LIBRARY_COLOURS } from './fixtures/library.js';
 import { mount, THEMES_ALL, type ThemeKind } from './harness.js';
 import { colourOf, sameColour } from './palette.js';
 import {
@@ -582,6 +583,15 @@ test.describe('the graph', () => {
       state: 'idle',
     });
     await expect(page.locator('#wire-arrow-idle')).toBeAttached();
+
+    // An open chevron rather than a filled
+    // triangle: the head is stroked in the colour
+    // of the line it ends, so the two cannot
+    // disagree about what happened along it.
+    await expect(page.locator('#wire-arrow-idle path')).toHaveCSS(
+      'fill',
+      'none',
+    );
   });
 });
 
@@ -4807,6 +4817,76 @@ test.describe('every theme', () => {
       expect(roles.tint).not.toBe('');
       expect(roles.soft).not.toBe('');
       expect(roles.tracking).not.toBe('');
+    });
+  }
+
+  /**
+   * Every colour on the board is one this product
+   * chose. The graph library publishes a default
+   * for each part it draws, picked against a white
+   * diagramming page, and a part drawn in one of
+   * those is a part wearing somebody else's theme
+   * in the middle of the editor's.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`draws its own dots and wires in ${theme}`, async ({ page }) => {
+      await openCanvas(page, theme);
+      await clickWire(page, 'e11');
+
+      await expect(
+        page.locator('.react-flow__edge[data-id="e11"]'),
+      ).toHaveClass(/selected/);
+
+      const painted = await page.evaluate(() => {
+        const dot = document.querySelector(
+          '.react-flow__background-pattern.dots',
+        );
+        const wire = document.querySelector('.react-flow__edge.selected .wire');
+
+        if (dot === null || wire === null) return undefined;
+
+        return {
+          dot: getComputedStyle(dot).fill,
+          wire: getComputedStyle(wire).stroke,
+        };
+      });
+
+      if (painted === undefined) throw new Error('the board drew nothing');
+
+      for (const [part, colour] of Object.entries(painted)) {
+        expect(LIBRARY_COLOURS, `${part} in ${theme}`).not.toContain(colour);
+      }
+
+      const expected = colourOf(theme, 'grid-dot');
+
+      expect(
+        sameColour(painted.dot, expected),
+        `${painted.dot} ≠ ${expected}`,
+      ).toBe(true);
+    });
+  }
+
+  /**
+   * A block is a tab stop here, because the arrow
+   * keys nudge whichever one a person is on. The
+   * library hides the ring on it, which leaves a
+   * keyboard with no way of saying where it is.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`rings the block a keyboard is on in ${theme}`, async ({ page }) => {
+      await openCanvas(page, theme);
+
+      const node = page.locator('.react-flow__node[data-id="find_slot"]');
+      await node.focus();
+
+      await expect(node).toHaveCSS('outline-style', 'solid');
+
+      const ring = await node.evaluate(
+        (block) => getComputedStyle(block).outlineColor,
+      );
+      const expected = colourOf(theme, 'focus-ring');
+
+      expect(sameColour(ring, expected), `${ring} ≠ ${expected}`).toBe(true);
     });
   }
 });
