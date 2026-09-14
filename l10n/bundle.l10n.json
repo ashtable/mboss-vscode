@@ -479,6 +479,7 @@
   "waiting": "waiting",
   "waiting since {0}": "waiting since {0}",
   "waiting · refresh to check": "waiting · refresh to check",
+  "waiting · wakes {0}": "waiting · wakes {0}",
   "waiting · {0} · {1}": "waiting · {0} · {1}",
   "waits for": "waits for",
   "weekly": "weekly",

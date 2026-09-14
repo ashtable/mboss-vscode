@@ -12,7 +12,12 @@ import {
 } from '../core/rules.js';
 import type { LiveOutcome, StepState } from '../runs/reading.js';
 import type { LiveRun, QueueCounts } from '../runs/watch.js';
-import { liveStep } from '../test-support/runs.js';
+import {
+  TIMER_THEN_ANSWER,
+  TIMER_WAKES_AT,
+  liveStep,
+  timerThenAnswerRun,
+} from '../test-support/runs.js';
 import { fine } from '../webview/time.js';
 
 import {
@@ -829,6 +834,112 @@ describe('the line under a block a run is parked at', () => {
     const { nodes } = toReactFlow(ir, boxes, drawing({ run: parked }));
 
     expect(nodes.find((node) => node.id === 'await_reply')?.data.line).toBe(
+      'Durable wait',
+    );
+  });
+});
+
+/**
+ * A wait on the clock, which writes no row under
+ * its own name.
+ *
+ * It compiles to a bare `await DBOS.sleep(ms)`, so
+ * the row the reading hands it is the whole of what
+ * the graph has to go on. Without that row the
+ * block stays dormant however long the run sits
+ * there, and the wire out of it stays structure.
+ */
+describe('the state a wait on the clock is drawn in', () => {
+  /** Placed by hand: nothing asked of this fixture
+   *  is about where a block sits. */
+  const timerBoxes: Record<string, NodeBox> = Object.fromEntries(
+    TIMER_THEN_ANSWER.nodes.map((node, index) => {
+      const { width, height } = nodeSize(node.kind);
+
+      return [node.id, { x: 0, y: index * 90, w: width, h: height }];
+    }),
+  );
+
+  const drawn = (run: LiveRun, over: Partial<Drawing> = {}) =>
+    toReactFlow(TIMER_THEN_ANSWER, timerBoxes, drawing({ run, ...over }));
+
+  const wireStatesOf = (edges: ReturnType<typeof drawn>['edges']) =>
+    Object.fromEntries(
+      edges.map((edge) => [edge.id, edge.data?.state ?? 'idle']),
+    );
+
+  it('is waiting while the run is still sitting the timer out', () => {
+    const { nodes, edges } = drawn(timerThenAnswerRun({ attributed: true }));
+
+    expect(statesOf(nodes)).toMatchObject({
+      let_it_wait: 'waiting',
+      answer_it: 'dormant',
+    });
+
+    // The block after it recorded nothing, so the
+    // wire between them is still structure.
+    expect(wireStatesOf(edges)['e2']).toBe('idle');
+  });
+
+  it('is done once the run has woken and gone on', () => {
+    const { nodes, edges } = drawn(
+      timerThenAnswerRun({ attributed: true, answered: true }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      let_it_wait: 'done',
+      answer_it: 'done',
+    });
+    expect(wireStatesOf(edges)['e2']).toBe('done');
+  });
+
+  /**
+   * The wire into the wait comes out of the
+   * trigger, which records nothing at all — so it
+   * stays structure whatever the wait is doing.
+   */
+  it('leaves the wire out of the trigger alone', () => {
+    const { edges } = drawn(timerThenAnswerRun({ attributed: true }));
+
+    expect(wireStatesOf(edges)['e1']).toBe('idle');
+  });
+
+  /** The failing case: the same run with the sleep
+   *  left as the SDK's row says nothing about the
+   *  wait at all. */
+  it('is dormant where nothing gave the wait that row', () => {
+    const { nodes } = drawn(timerThenAnswerRun());
+
+    expect(statesOf(nodes)['let_it_wait']).toBe('dormant');
+  });
+
+  /**
+   * A parked block's line says when the run stopped
+   * there. A sleep row's completion is the moment
+   * the run is due to wake, which is still to come,
+   * so the word is the other one.
+   */
+  it('says when the run wakes rather than when it stopped', () => {
+    const { nodes } = drawn(timerThenAnswerRun({ attributed: true }), {
+      waitingSince: 'waiting · since {0}',
+      waitingWakes: 'waiting · wakes {0}',
+    });
+    const wait = nodes.find((node) => node.id === 'let_it_wait');
+
+    expect(wait?.data.line).toBe(`waiting · wakes ${fine(TIMER_WAKES_AT)}`);
+    expect(wait?.data.waiting).toBe(true);
+  });
+
+  /** A reader with no word for waking draws the
+   *  block it always drew. Filling the other word
+   *  with a wake deadline would say the run stopped
+   *  at a moment still to come. */
+  it('says nothing about waking where nobody sent the word', () => {
+    const { nodes } = drawn(timerThenAnswerRun({ attributed: true }), {
+      waitingSince: 'waiting · since {0}',
+    });
+
+    expect(nodes.find((node) => node.id === 'let_it_wait')?.data.line).toBe(
       'Durable wait',
     );
   });

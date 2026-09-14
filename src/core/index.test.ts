@@ -313,6 +313,7 @@ describe('the boundary', () => {
     expect(fromIndex.compileWorkflow).toBe(fromCore.compileWorkflow);
     expect(fromIndex.replayBoundaries).toBe(fromCore.replayBoundaries);
     expect(fromIndex.traceGrammar).toBe(fromCore.traceGrammar);
+    expect(fromIndex.traceOwners).toBe(fromCore.traceOwners);
     expect(fromIndex.matchTrace).toBe(fromCore.matchTrace);
     expect(fromIndex.listPatterns).toBe(fromCore.listPatterns);
     expect(fromIndex.patternNamed).toBe(fromCore.patternNamed);

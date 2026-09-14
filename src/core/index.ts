@@ -46,9 +46,10 @@ export type { DiffSummary, Proposal } from '@mboss/core';
  * the extension wants a different shape than core
  * hands out. These are the exceptions: a compiler
  * call over a document held in memory, the replay
- * grammar a recorded run is matched against, the
- * pattern gallery, and the path constants a
- * generated project is laid out by. Wrapping any
+ * grammar a recorded run is matched against and
+ * attributed by, the pattern gallery, and the path
+ * constants a generated project is laid out by.
+ * Wrapping any
  * of them would be a second name for one thing.
  *
  * Listed rather than re-exported wholesale, so
@@ -65,6 +66,7 @@ export {
   patternSpec,
   replayBoundaries,
   traceGrammar,
+  traceOwners,
   usePattern,
   APP_DIR,
   CONTAINER_APP_DIR,

@@ -1,10 +1,15 @@
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import { fakeTrust } from '../../test/doubles/trust.js';
-import type { Trust } from '../trust.js';
+import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
 import {
   RUN_ROW,
   STEP_ROW,
+  TIMER_THEN_ANSWER,
   database,
   host,
   liveRun,
@@ -13,6 +18,7 @@ import {
   project,
   watcher,
 } from '../test-support/runs.js';
+import type { Trust } from '../trust.js';
 
 import { following, type Following } from './following.js';
 import { runHistory } from './history.js';
@@ -37,6 +43,23 @@ import type { RunsHost } from './store.js';
 /** The database double, with the rows and steps a
  *  case can set. */
 type Fake = ReturnType<typeof database>;
+
+/** The intake form's own document. Core's walk
+ *  gives its park's `DBOS.recv` and `DBOS.sleep`
+ *  to the wait that sat in it. */
+const FORM_INTAKE: WorkflowIR = WorkflowIRSchema.parse(
+  JSON.parse(
+    readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../mboss-core/fixtures/ir/form_intake.workflow.json',
+          import.meta.url,
+        ),
+      ),
+      'utf8',
+    ),
+  ),
+);
 
 /** The one watch owner, over a watcher a case can
  *  speak through. */
@@ -170,6 +193,101 @@ describe('reading a run', () => {
 
     expect(without.see().run?.graph).toBeUndefined();
     expect(without.see().run?.noGraph).toBeDefined();
+  });
+});
+
+/**
+ * The blocks that write no row under their own
+ * name, read the whole way through the page.
+ *
+ * A wait on the clock compiles to a bare
+ * `DBOS.sleep`, so the SDK's row is the only
+ * evidence it ran — and which wait wrote it is a
+ * question the saved document answers and nothing
+ * else does. A wait on a form is the other way
+ * round: it writes its own rows either side of the
+ * park, and the SDK's pair between them stays the
+ * SDK's.
+ */
+describe('the rows a wait leaves behind', () => {
+  /** That project, with one saved document written
+   *  whole rather than through the trigger-only
+   *  fixture the other cases use. */
+  function projectHolding(ir: WorkflowIR): string {
+    const dir = project({ workflows: [] });
+
+    writeFileSync(
+      join(dir, '.mboss', 'workflows', `${ir.name}.workflow.json`),
+      JSON.stringify(ir),
+      'utf8',
+    );
+
+    return dir;
+  }
+
+  /** A run of that workflow, still going, with the
+   *  rows it has written so far. */
+  function reading(
+    ir: WorkflowIR,
+    steps: { name: string; startedAt?: number; completedAt?: number }[],
+  ): Fake {
+    const db = database();
+
+    db.rows = [
+      { ...RUN_ROW, name: ir.name, status: 'PENDING', completed_at: null },
+    ];
+    db.steps = steps.map((one, index) => ({
+      ...STEP_ROW,
+      function_id: index,
+      function_name: one.name,
+      started_at_epoch_ms: String(one.startedAt ?? 1000),
+      completed_at_epoch_ms: String(one.completedAt ?? 1200),
+    }));
+
+    return db;
+  }
+
+  it('draws a wait on the clock from the sleep the SDK wrote', async () => {
+    const wakesAt = Date.now() + 120_000;
+    const db = reading(TIMER_THEN_ANSWER, [
+      { name: 'DBOS.sleep', startedAt: 1000, completedAt: wakesAt },
+    ]);
+
+    const { open } = page(db, {
+      host: host({ projects: () => [projectHolding(TIMER_THEN_ANSWER)] }),
+    });
+
+    await open.open('wf_c9d2f3');
+
+    const live = open.see().run?.live;
+
+    expect(live?.steps.map((step) => step.nodeId)).toEqual(['let_it_wait']);
+    expect(live?.steps[0]?.state).toBe('waiting');
+    expect(live?.outcome).toBe('waiting');
+  });
+
+  it('leaves a wait on a form its own rows and the SDK its pair', async () => {
+    const db = reading(FORM_INTAKE, [
+      { name: 'ask_details' },
+      { name: 'await_details.register' },
+      { name: 'DBOS.recv' },
+      { name: 'DBOS.sleep' },
+      { name: 'await_details.clear' },
+      { name: 'record_intake' },
+    ]);
+
+    const { open } = page(db, {
+      host: host({ projects: () => [projectHolding(FORM_INTAKE)] }),
+    });
+
+    await open.open('wf_c9d2f3');
+
+    expect(open.see().run?.live?.steps.map((step) => step.nodeId)).toEqual([
+      'ask_details',
+      'await_details',
+      'await_details',
+      'record_intake',
+    ]);
   });
 });
 

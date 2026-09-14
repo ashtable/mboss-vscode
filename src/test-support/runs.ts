@@ -4,9 +4,10 @@ import { join } from 'node:path';
 
 import { vi } from 'vitest';
 
+import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
 import type { Database } from '../runs/db.js';
 import type { ManagementClient } from '../runs/manage.js';
-import { storedValue } from '../runs/rows.js';
+import { storedValue, type Step } from '../runs/rows.js';
 import type { RunRequest, RunStart, RunStarter } from '../runs/runner.js';
 import type { StackController, StackStatus } from '../runs/stack.js';
 import type { RunsHost } from '../runs/store.js';
@@ -299,6 +300,7 @@ export function watcher(): {
   armed: {
     workflowId: string;
     queueNodes: readonly QueueNode[];
+    document: WorkflowIR | undefined;
     stopped: boolean;
   }[];
   say(workflowId: string, run: LiveRun, read?: LedgerRead): void;
@@ -307,6 +309,7 @@ export function watcher(): {
   const armed: {
     workflowId: string;
     queueNodes: readonly QueueNode[];
+    document: WorkflowIR | undefined;
     stopped: boolean;
     onChange: (run: LiveRun, read: LedgerRead) => void;
   }[] = [];
@@ -318,8 +321,14 @@ export function watcher(): {
         if (held.workflowId === workflowId) held.onChange(run, read);
       }
     },
-    watch: (_open, _url, workflowId, queueNodes, onChange) => {
-      const held = { workflowId, queueNodes, stopped: false, onChange };
+    watch: (_open, _url, workflowId, queueNodes, document, onChange) => {
+      const held = {
+        workflowId,
+        queueNodes,
+        document,
+        stopped: false,
+        onChange,
+      };
       armed.push(held);
 
       return {
@@ -385,6 +394,159 @@ export function liveStep(over: Partial<LiveStep> = {}): LiveStep {
     reused: false,
     ...over,
   };
+}
+
+/**
+ * A workflow that waits on the clock: started by
+ * hand, a minute of nothing, then one step.
+ *
+ * The document `mboss-e2e-tests` drives a real run
+ * of, node ids and all. Parsed rather than asserted
+ * because the walk that says which block wrote a
+ * row is built from the same plan the emitter
+ * writes from, and a document missing a default
+ * would be a fixture the compiler cannot describe.
+ */
+export const TIMER_THEN_ANSWER: WorkflowIR = WorkflowIRSchema.parse({
+  $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+  version: 1,
+  revision: 1,
+  name: 'timer_then_answer',
+  title: 'Timer then answer',
+  nodes: [
+    {
+      id: 'started_by_hand',
+      kind: 'trigger',
+      title: 'Started by hand',
+      config: { mode: 'manual' },
+      out: 'Enquiry',
+    },
+    {
+      id: 'let_it_wait',
+      kind: 'durableWait',
+      title: 'Let it wait',
+      config: {
+        source: { kind: 'timer', seconds: 60 },
+        onTimeout: 'abort',
+      },
+    },
+    {
+      id: 'answer_it',
+      kind: 'step',
+      title: 'Answer it',
+      handler: { export: 'answerIt' },
+      in: 'Enquiry',
+      out: 'Answer',
+      config: {},
+    },
+  ],
+  edges: [
+    {
+      id: 'e1',
+      from: { node: 'started_by_hand', port: 'out' },
+      to: { node: 'let_it_wait' },
+      type: 'Enquiry',
+    },
+    {
+      id: 'e2',
+      from: { node: 'let_it_wait', port: 'out' },
+      to: { node: 'answer_it' },
+      type: 'Enquiry',
+    },
+  ],
+});
+
+/** When that run started, and the moment its sleep
+ *  row names as the one it is due to wake at. */
+export const TIMER_STARTED_AT = 1000;
+export const TIMER_WAKES_AT = 61_000;
+
+/**
+ * The rows one run of it wrote, as the ledger holds
+ * them.
+ *
+ * The wait writes none of its own. A wait on the
+ * clock compiles to a bare `DBOS.sleep`, and that
+ * row's completion is the moment the run is due to
+ * wake rather than a moment anything happened.
+ * `answered` adds the step after it, which only a
+ * run that has woken has written.
+ */
+export function timerThenAnswerRows(over: { answered?: boolean } = {}): Step[] {
+  const sleep: Step = {
+    functionId: 0,
+    name: 'DBOS.sleep',
+    startedAt: TIMER_STARTED_AT,
+    completedAt: TIMER_WAKES_AT,
+    output: String(TIMER_WAKES_AT),
+    error: undefined,
+    childWorkflowId: undefined,
+  };
+
+  if (over.answered !== true) return [sleep];
+
+  return [
+    sleep,
+    {
+      functionId: 1,
+      name: 'answer_it',
+      startedAt: TIMER_WAKES_AT,
+      completedAt: TIMER_WAKES_AT + 200,
+      output: '{}',
+      error: undefined,
+      childWorkflowId: undefined,
+    },
+  ];
+}
+
+/**
+ * That run, as a watch reports one.
+ *
+ * `attributed` is what a reading with the document
+ * beside it does to the sleep row: hands it to the
+ * wait, where a reading without one leaves it the
+ * SDK's and drops it on the way to a canvas. Both
+ * pictures are built here, because the difference
+ * between them is what the graph is drawn from.
+ */
+export function timerThenAnswerRun(
+  over: { attributed?: boolean; answered?: boolean } = {},
+): LiveRun {
+  const sleeping = over.answered !== true;
+
+  const sleep = liveStep({
+    name: 'DBOS.sleep',
+    nodeId: 'let_it_wait',
+    state: sleeping ? 'waiting' : 'done',
+    functionId: 0,
+    startedAt: TIMER_STARTED_AT,
+    completedAt: TIMER_WAKES_AT,
+    output: String(TIMER_WAKES_AT),
+  });
+
+  return liveRun({
+    workflowId: 'wf_timer',
+    workflow: TIMER_THEN_ANSWER.name,
+    status: sleeping ? 'PENDING' : 'SUCCESS',
+    outcome: sleeping ? 'waiting' : 'done',
+    createdAt: TIMER_STARTED_AT,
+    startedAt: TIMER_STARTED_AT,
+    completedAt: sleeping ? undefined : TIMER_WAKES_AT + 200,
+    steps: [
+      ...(over.attributed === true ? [sleep] : []),
+      ...(sleeping
+        ? []
+        : [
+            liveStep({
+              name: 'answer_it',
+              nodeId: 'answer_it',
+              functionId: 1,
+              startedAt: TIMER_WAKES_AT,
+              completedAt: TIMER_WAKES_AT + 200,
+            }),
+          ]),
+    ],
+  });
 }
 
 /**

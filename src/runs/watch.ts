@@ -1,3 +1,5 @@
+import type { WorkflowIR } from '../core/rules.js';
+
 import type { Database, OpenDatabase } from './db.js';
 import { queueCountsQuery, runQuery, stepsQuery } from './queries.js';
 import {
@@ -170,6 +172,7 @@ export type RunWatch = (
   url: string,
   workflowId: string,
   queueNodes: readonly QueueNode[],
+  document: WorkflowIR | undefined,
   onChange: (run: LiveRun, read: LedgerRead) => void,
 ) => RunWatcher;
 
@@ -196,6 +199,7 @@ export function watchRun(
   url: string,
   workflowId: string,
   queueNodes: readonly QueueNode[],
+  document: WorkflowIR | undefined,
   onChange: (run: LiveRun, read: LedgerRead) => void,
 ): RunWatcher {
   /**
@@ -328,8 +332,17 @@ export function watchRun(
       // A watch polls a database and never looked
       // for a document, so the grammar's answer
       // about which block a row names is the only
-      // one there is.
-      const reading = readRun(run, recorded, 'unasked', recovered, Date.now());
+      // one there is. The document it was armed
+      // with is a different question: which block a
+      // row the SDK named fell inside.
+      const reading = readRun(
+        run,
+        recorded,
+        'unasked',
+        recovered,
+        Date.now(),
+        document,
+      );
 
       return {
         live: {

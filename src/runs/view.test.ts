@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
+import { TIMER_THEN_ANSWER } from '../test-support/runs.js';
 import type { SeeRun } from '../webview/protocol.js';
 
 import type { Run, Step } from './rows.js';
@@ -443,6 +444,43 @@ describe('one run in detail', () => {
       'step_2',
     ]);
     expect(slept.run?.timeline.outage).toBeUndefined();
+  });
+
+  /**
+   * A wait on the clock owns its sleep row, so the
+   * row is drawn — and what that row records as its
+   * completion is the moment the run is due to
+   * wake, which has not happened. The chart draws
+   * what has, so the bar stops where the window
+   * does instead of running two windows past it.
+   */
+  it('stops a sleeping wait’s bar where the chart closes', () => {
+    const started = Date.now() - 600_000;
+    const shown = seeInit({
+      run: {
+        ...RUN,
+        status: 'PENDING',
+        createdAt: started,
+        startedAt: started,
+        completedAt: undefined,
+      },
+      steps: [
+        {
+          ...step(0, started, started + 1_200_000),
+          name: 'DBOS.sleep',
+          output: String(started + 1_200_000),
+        },
+      ],
+      selectedStep: undefined,
+      note: undefined,
+      ir: TIMER_THEN_ANSWER,
+    });
+
+    const bars = shown.run?.timeline.bars ?? [];
+
+    expect(bars.map((bar) => bar.name)).toEqual(['DBOS.sleep']);
+    expect(bars[0]?.at?.from).toBe(0);
+    expect(bars[0]?.at?.width).toBeCloseTo(1, 3);
   });
 
   /**

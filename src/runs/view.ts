@@ -202,6 +202,7 @@ function seeRun(view: SeeView): SeeRun {
     view.ir ?? 'lost',
     hasRecovered(run),
     Date.now(),
+    view.ir,
   );
   const graph = graphOf(view, reading.steps);
 
@@ -772,7 +773,14 @@ function chartOf(reading: Reading, drawn: readonly Operation[]): SeeTimeline {
         ? undefined
         : {
             from: place(step.startedAt),
-            width: round((step.completedAt - step.startedAt) / span),
+            // A wait on the clock records the moment
+            // the run is due to wake, which has not
+            // happened. The window closes at the
+            // moment the run was read, and a bar
+            // drawn past it would run off the chart.
+            width: round(
+              (Math.min(step.completedAt, reading.to) - step.startedAt) / span,
+            ),
           },
     restored: step.restored,
     reused: step.reused,

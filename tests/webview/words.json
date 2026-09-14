@@ -24,6 +24,7 @@
     "unassigned": "unassigned",
     "runningDerived": "RUNNING · derived",
     "waitingSince": "WAITING · since {0}",
+    "waitingWakes": "waiting · wakes {0}",
     "queueCounts": "{0} running · {1} queued",
     "derived": "derived",
     "typedWiring": "Typed wiring",

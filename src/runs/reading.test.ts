@@ -1,6 +1,14 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
-import type { WorkflowIR } from '../core/rules.js';
+import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
+import {
+  TIMER_THEN_ANSWER,
+  TIMER_WAKES_AT,
+  timerThenAnswerRows,
+} from '../test-support/runs.js';
 
 import { readRun } from './reading.js';
 import { errorIn, OUTPUT_KEPT, type Run, type Step } from './rows.js';
@@ -93,7 +101,14 @@ const IR: WorkflowIR = {
 
 describe('what a block recorded', () => {
   it('reads one row as one operation of its block', () => {
-    const [only] = readRun(RUN, ledger('parse_claim'), IR, false, NOW).steps;
+    const [only] = readRun(
+      RUN,
+      ledger('parse_claim'),
+      IR,
+      false,
+      NOW,
+      IR,
+    ).steps;
 
     expect(only?.owner).toBe('node');
     expect(only?.nodeId).toBe('parse_claim');
@@ -114,6 +129,7 @@ describe('what a block recorded', () => {
       IR,
       false,
       NOW,
+      IR,
     ).steps;
 
     expect(found.map((one) => one.owner)).toEqual(['node', 'node', 'sdk']);
@@ -138,6 +154,7 @@ describe('what a block recorded', () => {
       IR,
       false,
       NOW,
+      IR,
     ).steps;
 
     expect(found.map((one) => one.owner)).toEqual([
@@ -163,6 +180,7 @@ describe('what a block recorded', () => {
       IR,
       false,
       NOW,
+      IR,
     ).steps;
 
     expect(only?.state).toBe('failed');
@@ -189,6 +207,7 @@ describe('what a block recorded', () => {
       IR,
       false,
       NOW,
+      IR,
     ).steps;
 
     expect(found).toHaveLength(1);
@@ -212,6 +231,7 @@ describe('what a block recorded', () => {
       IR,
       false,
       NOW,
+      IR,
     ).steps;
 
     expect(found.map((one) => one.owner)).toEqual(['unmapped', 'unmapped']);
@@ -233,6 +253,7 @@ describe('what a block recorded', () => {
       'unasked',
       false,
       NOW,
+      undefined,
     ).steps;
 
     expect(found[0]?.owner).toBe('node');
@@ -246,6 +267,7 @@ describe('what a block recorded', () => {
       'unasked',
       false,
       NOW,
+      undefined,
     ).steps;
 
     expect(found[0]?.owner).toBe('unmapped');
@@ -261,7 +283,14 @@ describe('what a block recorded', () => {
    * rather than as blocks that no longer exist.
    */
   it('attributes nothing where the project lost the document', () => {
-    const found = readRun(RUN, ledger('parse_claim'), 'lost', false, NOW).steps;
+    const found = readRun(
+      RUN,
+      ledger('parse_claim'),
+      'lost',
+      false,
+      NOW,
+      undefined,
+    ).steps;
 
     expect(found[0]?.owner).toBe('unmapped');
     expect(found[0]?.nodeId).toBeUndefined();
@@ -280,10 +309,207 @@ describe('what a block recorded', () => {
       IR,
       false,
       NOW,
+      IR,
     ).steps;
 
     expect(found[0]?.owner).toBe('unmapped');
     expect(found[0]?.state).toBe('waiting');
+  });
+});
+
+/**
+ * The wait on the clock, which writes no row of its
+ * own.
+ *
+ * It compiles to a bare `await DBOS.sleep(ms)`, so
+ * the only evidence the block ran at all is a row
+ * carrying the SDK's name and no block id. Nothing
+ * in that name says which wait wrote it — two of
+ * them in one document write the same string — so
+ * where the row fell is the only thing that can,
+ * and that is a question about the saved document
+ * rather than about the ledger.
+ */
+describe('a wait the run is sitting out on the clock', () => {
+  /** The intake form's own document, which core's
+   *  walk gives its park's `DBOS.recv` and
+   *  `DBOS.sleep` to the wait. */
+  const FORM_INTAKE = WorkflowIRSchema.parse(
+    JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL(
+            '../../mboss-core/fixtures/ir/form_intake.workflow.json',
+            import.meta.url,
+          ),
+        ),
+        'utf8',
+      ),
+    ),
+  );
+
+  /** The same timer document with a second way out
+   *  of its trigger, which the compiler refuses to
+   *  describe: it follows one wire out of a block. */
+  const FORKED = WorkflowIRSchema.parse({
+    ...TIMER_THEN_ANSWER,
+    edges: [
+      ...TIMER_THEN_ANSWER.edges,
+      {
+        id: 'e3',
+        from: { node: 'started_by_hand', port: 'out' },
+        to: { node: 'answer_it' },
+      },
+    ],
+  });
+
+  /** While the deadline is still ahead, and after
+   *  it has passed. */
+  const SLEEPING = TIMER_WAKES_AT - 30_000;
+  const WOKEN = TIMER_WAKES_AT + 30_000;
+
+  it('gives its sleep row to the wait that wrote it', () => {
+    const [only] = readRun(
+      RUN,
+      timerThenAnswerRows(),
+      TIMER_THEN_ANSWER,
+      false,
+      SLEEPING,
+      TIMER_THEN_ANSWER,
+    ).steps;
+
+    expect(only?.owner).toBe('node');
+    expect(only?.nodeId).toBe('let_it_wait');
+  });
+
+  /**
+   * The row records the wake deadline as its
+   * completion and is written before the sleep, so
+   * the row alone cannot say whether the run is
+   * still sitting it out. Only the clock can.
+   */
+  it('reads the wait as waiting while its deadline is ahead', () => {
+    const [only] = readRun(
+      RUN,
+      timerThenAnswerRows(),
+      TIMER_THEN_ANSWER,
+      false,
+      SLEEPING,
+      TIMER_THEN_ANSWER,
+    ).steps;
+
+    expect(only?.state).toBe('waiting');
+  });
+
+  it('reads it as done once that deadline has passed', () => {
+    const found = readRun(
+      RUN,
+      timerThenAnswerRows({ answered: true }),
+      TIMER_THEN_ANSWER,
+      false,
+      WOKEN,
+      TIMER_THEN_ANSWER,
+    ).steps;
+
+    expect(found.map((one) => one.nodeId)).toEqual([
+      'let_it_wait',
+      'answer_it',
+    ]);
+    expect(found.map((one) => one.state)).toEqual(['done', 'done']);
+  });
+
+  /**
+   * A watch polls a database and never looked for a
+   * document, and it is handed one all the same —
+   * so the gate that decides which block ids
+   * attribute stays the watch's, and the map is a
+   * separate question.
+   */
+  it('gives it the same row where nobody asked about the drawing', () => {
+    const [only] = readRun(
+      RUN,
+      timerThenAnswerRows(),
+      'unasked',
+      false,
+      SLEEPING,
+      TIMER_THEN_ANSWER,
+    ).steps;
+
+    expect(only?.owner).toBe('node');
+    expect(only?.nodeId).toBe('let_it_wait');
+  });
+
+  /**
+   * A form wait and an approval park on `DBOS.recv`
+   * with a sleep beside it timing the park out.
+   * Both already write rows of their own, so handing
+   * them the SDK's pair as well would draw one block
+   * twice — even though the same walk does say which
+   * wait those rows fell inside.
+   */
+  it('leaves a wait on a form its own rows and the SDK its pair', () => {
+    const found = readRun(
+      RUN,
+      ledger(
+        'ask_details',
+        'await_details.register',
+        'DBOS.recv',
+        'DBOS.sleep',
+        'await_details.clear',
+        'record_intake',
+      ),
+      FORM_INTAKE,
+      false,
+      NOW,
+      FORM_INTAKE,
+    ).steps;
+
+    expect(found.map((one) => one.owner)).toEqual([
+      'node',
+      'node',
+      'sdk',
+      'sdk',
+      'node',
+      'node',
+    ]);
+  });
+
+  /** Without a document there is nothing to ask
+   *  where a row fell, and the sleep is the SDK's,
+   *  as it has always been. */
+  it('leaves the sleep the SDK own where no document came with it', () => {
+    const [only] = readRun(
+      RUN,
+      timerThenAnswerRows(),
+      'unasked',
+      false,
+      SLEEPING,
+      undefined,
+    ).steps;
+
+    expect(only?.owner).toBe('sdk');
+    expect(only?.nodeId).toBeUndefined();
+  });
+
+  /**
+   * The compiler refuses a document it cannot
+   * describe, and a run of one is still a run. A
+   * page that threw over it would go blank exactly
+   * where somebody needs to read what happened.
+   */
+  it('reads the run anyway where the document cannot be described', () => {
+    const found = readRun(
+      RUN,
+      timerThenAnswerRows(),
+      FORKED,
+      false,
+      SLEEPING,
+      FORKED,
+    ).steps;
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.owner).toBe('sdk');
+    expect(found[0]?.nodeId).toBeUndefined();
   });
 });
 
@@ -295,6 +521,7 @@ describe('where the run is', () => {
       IR,
       false,
       NOW,
+      IR,
     );
 
     expect(reading.outcome).toBe('done');
@@ -307,15 +534,22 @@ describe('where the run is', () => {
    */
   it('tells a cancelled run from a failed one', () => {
     expect(
-      readRun({ ...RUN, status: 'CANCELLED' }, [], IR, false, NOW).outcome,
+      readRun({ ...RUN, status: 'CANCELLED' }, [], IR, false, NOW, IR).outcome,
     ).toBe('cancelled');
     expect(
-      readRun({ ...RUN, status: 'ERROR' }, [], IR, false, NOW).outcome,
+      readRun({ ...RUN, status: 'ERROR' }, [], IR, false, NOW, IR).outcome,
     ).toBe('failed');
   });
 
   it('is waiting where a block is parked', () => {
-    const reading = readRun(RUN, ledger('manager_ok.register'), IR, false, NOW);
+    const reading = readRun(
+      RUN,
+      ledger('manager_ok.register'),
+      IR,
+      false,
+      NOW,
+      IR,
+    );
 
     expect(reading.outcome).toBe('waiting');
   });
@@ -333,6 +567,7 @@ describe('where the run is', () => {
       IR,
       false,
       50_000,
+      IR,
     );
 
     expect(asleep.outcome).toBe('waiting');
@@ -345,6 +580,7 @@ describe('where the run is', () => {
       IR,
       false,
       95_000,
+      IR,
     );
 
     expect(woken.outcome).toBe('running');
@@ -359,6 +595,7 @@ describe('the window a run is drawn in', () => {
       IR,
       false,
       NOW,
+      IR,
     );
 
     expect(reading.from).toBe(1000);
@@ -380,6 +617,7 @@ describe('the window a run is drawn in', () => {
       IR,
       false,
       50_000,
+      IR,
     );
 
     expect(reading.to).toBe(50_000);
@@ -406,6 +644,7 @@ describe('the window a run is drawn in', () => {
       IR,
       true,
       NOW,
+      IR,
     );
 
     expect(reading.outage).toEqual({ from: 1100, to: 60_000 });
@@ -414,7 +653,7 @@ describe('the window a run is drawn in', () => {
   });
 
   it('carries the recovered answer it was handed', () => {
-    expect(readRun(RUN, [], IR, true, NOW).recovered).toBe(true);
-    expect(readRun(RUN, [], IR, false, NOW).recovered).toBe(false);
+    expect(readRun(RUN, [], IR, true, NOW, IR).recovered).toBe(true);
+    expect(readRun(RUN, [], IR, false, NOW, IR).recovered).toBe(false);
   });
 });

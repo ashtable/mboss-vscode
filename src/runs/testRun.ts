@@ -664,6 +664,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
               ir,
               hasRecovered(ledger.run),
               Date.now(),
+              ir,
             ).steps,
             ir,
           ),

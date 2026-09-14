@@ -100,6 +100,21 @@ export type Drawing = {
   waitingSince?: string;
 
   /**
+   * What the line says instead for a block waiting
+   * on the clock, with `{0}` for the moment the run
+   * is due to wake.
+   *
+   * A different word because a different moment: a
+   * wait on the clock is drawn from the sleep row
+   * the SDK wrote, whose completion is the deadline
+   * rather than the moment anything happened. Said
+   * as a "since" it would name a time still to
+   * come. Optional the way `waitingSince` is, and
+   * for the same reason.
+   */
+  waitingWakes?: string;
+
+  /**
    * What a queue block's line says while its
    * children are moving, with `{0}` for the ones
    * running now and `{1}` for the ones still to
@@ -340,6 +355,14 @@ type BlockLine = {
   title: string | undefined;
 };
 
+/** The moment a block stopped at, and whether it is
+ *  a moment still to come. */
+type Parked = { at: number; wake: boolean };
+
+/** The name the SDK records a durable pause under,
+ *  which a wait on the clock is drawn from. */
+const SLEEP = 'DBOS.sleep';
+
 /**
  * The line a block shows, which is the code behind
  * it until a run has something to say there.
@@ -361,13 +384,14 @@ type BlockLine = {
 function lineFor(
   node: WorkflowNode,
   drawing: Drawing,
-  since: number | undefined,
+  at: Parked | undefined,
   counts: QueueCounts | undefined,
 ): BlockLine {
-  const parked = drawing.waitingSince;
+  const parked =
+    at?.wake === true ? drawing.waitingWakes : drawing.waitingSince;
 
-  if (since !== undefined && parked !== undefined) {
-    const text = filled(parked, fine(since));
+  if (at !== undefined && parked !== undefined) {
+    const text = filled(parked, fine(at.at));
 
     // A block is the width core laid the graph out
     // at, and a clock written to the millisecond
@@ -412,16 +436,24 @@ function lineFor(
  * the moment. A block that parked more than once
  * has a row for each, and the latest is where the
  * run is sitting now.
+ *
+ * A wait on the clock is the exception, because the
+ * row it is drawn from is the SDK's sleep: that row
+ * is written before the wait and its completion is
+ * the deadline, so what comes back is a wake rather
+ * than a start, and the line says the other word.
  */
-function parkedAt(run: LiveRun | undefined): ReadonlyMap<string, number> {
-  const since = new Map<string, number>();
+function parkedAt(run: LiveRun | undefined): ReadonlyMap<string, Parked> {
+  const since = new Map<string, Parked>();
   if (run === undefined) return since;
 
   for (const step of run.steps) {
     if (step.state !== 'waiting' || step.nodeId === undefined) continue;
 
+    const wake = step.name === SLEEP && step.completedAt !== undefined;
     const at = step.completedAt ?? step.startedAt;
-    if (at !== undefined) since.set(step.nodeId, at);
+
+    if (at !== undefined) since.set(step.nodeId, { at, wake });
   }
 
   return since;

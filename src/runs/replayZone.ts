@@ -19,6 +19,7 @@ import type { OpenManagement } from './db.js';
 import { detailOf } from './failure.js';
 import { freshness, type Freshness, type Walker } from './freshness.js';
 import type { ManagementClient } from './manage.js';
+import { recordedRow } from './reading.js';
 import { replayFrom, type Replay } from './replay.js';
 import type { Run, Step } from './rows.js';
 import { newRunId } from './runner.js';
@@ -842,16 +843,4 @@ function stackStateOf(deps: ReplayDeps, project: string): ReplayStack {
   if (app?.state !== 'running') return { at: 'down' };
 
   return freshness(deps.walk, project, deps.stack.builtAt());
-}
-
-/** A row, as the boundary rules read one. A failed
- *  row has no completion time either, and the two
- *  are asked separately. */
-function recordedRow(row: Step): RecordedRow {
-  return {
-    functionId: row.functionId,
-    name: row.name,
-    completedAt: row.completedAt,
-    failed: row.error !== undefined,
-  };
 }

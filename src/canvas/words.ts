@@ -158,6 +158,14 @@ export const canvasWords = once(() => ({
   // number climbing beside it would say otherwise.
   waitingSince: l10n.t('WAITING · since {0}'),
 
+  // And the other word for a block waiting on the
+  // clock, whose only row is the sleep the SDK
+  // wrote before the wait: its completion is the
+  // moment the run is due to wake rather than the
+  // moment it stopped, so "since" would name a time
+  // still to come.
+  waitingWakes: l10n.t('waiting · wakes {0}'),
+
   // Under a queue block instead of the code behind
   // it, while its children are moving: how many are
   // running now, and how many are still to come.

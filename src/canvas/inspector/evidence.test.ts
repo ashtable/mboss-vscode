@@ -3,7 +3,12 @@ import { describe, expect, it } from 'vitest';
 import type { QueuePolicy } from '../../core/rules.js';
 import { stepError } from '../../runs/rows.js';
 import type { LiveRun, QueueCounts } from '../../runs/watch.js';
-import { liveRun, liveStep } from '../../test-support/runs.js';
+import {
+  TIMER_WAKES_AT,
+  liveRun,
+  liveStep,
+  timerThenAnswerRun,
+} from '../../test-support/runs.js';
 import { inspectorWords } from '../words.js';
 
 import {
@@ -94,6 +99,41 @@ describe('what a run recorded about one block', () => {
    */
   it('reads a wait’s since from the register row', () => {
     expect(evidenceOf(RUN, 'await_reply', undefined).waitingSince).toBe(8300);
+  });
+
+  /**
+   * A wait on the clock writes no row under its own
+   * name, so the reading hands it the sleep the SDK
+   * wrote — and the card has to count that row among
+   * the wait's or draw a block the run is sitting at
+   * as one that recorded nothing.
+   */
+  it('counts a wait on the clock’s sleep among its own rows', () => {
+    const found = evidenceOf(
+      timerThenAnswerRun({ attributed: true }),
+      'let_it_wait',
+      undefined,
+    );
+
+    expect(found.rows.map((row) => row.functionId)).toEqual([0]);
+    expect(found.headline?.state).toBe('waiting');
+    expect(found.headline?.completedAt).toBe(TIMER_WAKES_AT);
+  });
+
+  /**
+   * A row's part is the region inside the block it
+   * ran in, read by taking the block's own id off
+   * the front of the name. The SDK's name does not
+   * start with one, so there is no region to take.
+   */
+  it('gives a row the SDK named no part of the block', () => {
+    const asleep = liveRun({
+      steps: [
+        liveStep({ name: 'DBOS.sleep', nodeId: 'wait', state: 'waiting' }),
+      ],
+    });
+
+    expect(evidenceOf(asleep, 'wait', undefined).rows[0]?.part).toBeUndefined();
   });
 
   /** And says nothing about a block that is not

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { queuedWorkflowName, type WorkflowIR } from '../core/rules.js';
+import {
+  TIMER_THEN_ANSWER,
+  TIMER_WAKES_AT,
+  timerThenAnswerRows,
+} from '../test-support/runs.js';
 
 import { decidedArms, groupsOf } from './operations.js';
 import { readRun, type Operation } from './reading.js';
@@ -33,7 +38,7 @@ function operationsOf(
   steps: Step[],
   ir: WorkflowIR | undefined,
 ): Operation[] {
-  return readRun(run, steps, ir ?? 'lost', false, NOW).steps;
+  return readRun(run, steps, ir ?? 'lost', false, NOW, ir).steps;
 }
 
 const RUN: Run = {
@@ -306,6 +311,22 @@ describe('how the rows group', () => {
 
     expect(groupsOf(found, { timing: false })[0]?.wakesAt).toBeUndefined();
     expect(groupsOf(found)[0]?.wakesAt).toBeUndefined();
+  });
+
+  /**
+   * A wait on the clock owns its sleep row, so the
+   * row is no longer one the SDK wrote for itself —
+   * and the moment it names is still the moment the
+   * block wakes. Reading the wake off who owns the
+   * row rather than off what it is called would
+   * lose it exactly where the block is drawn.
+   */
+  it('reads the wake off a row a wait on the clock owns', () => {
+    const found = operationsOf(RUN, timerThenAnswerRows(), TIMER_THEN_ANSWER);
+    const [first] = groupsOf(found, { timing: true });
+
+    expect(first?.nodeId).toBe('let_it_wait');
+    expect(first?.wakesAt).toEqual({ at: TIMER_WAKES_AT, kind: 'sleep' });
   });
 
   /**

@@ -335,7 +335,15 @@ export function runCardOf(run: LiveRun): RunCard {
 }
 
 function rowOf(step: LiveStep, nodeId: string): EvidenceRow {
-  const part = step.name.slice(nodeId.length);
+  // The region inside the block, which is what is
+  // left of the name once the block's own id comes
+  // off the front of it. A row the SDK named has no
+  // such front — a wait on the clock is drawn from
+  // one — and taking a slice of it anyway would
+  // read the tail of `DBOS.sleep` as a region.
+  const part = step.name.startsWith(nodeId)
+    ? step.name.slice(nodeId.length)
+    : '';
 
   return {
     functionId: step.functionId,

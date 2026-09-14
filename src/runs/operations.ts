@@ -138,11 +138,15 @@ const SLEEP = 'DBOS.sleep';
  * the portable serializer whatever the application
  * configured, so the column holds the number and
  * nothing around it.
+ *
+ * Found by name and not by owner. A wait on the
+ * clock writes no row of its own, so the reading
+ * hands it this one — and asking whose it is would
+ * lose the wake at the one block whose whole state
+ * is the wake.
  */
 function wakesIn(group: TraceGroup): TraceGroup['wakesAt'] {
-  const row = group.operations.find(
-    (one) => one.owner === 'sdk' && one.name === SLEEP,
-  );
+  const row = group.operations.find((one) => one.name === SLEEP);
   if (row === undefined) return undefined;
 
   const at = Number(row.output);

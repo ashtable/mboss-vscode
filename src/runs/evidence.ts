@@ -319,7 +319,7 @@ export async function assembleRunEvidence(
   // asked for, so a row naming a block it does not
   // have is honestly unmapped rather than merely
   // unchecked.
-  const reading = readRun(run, steps, ir ?? 'lost', hasRecovered(run), now);
+  const reading = readRun(run, steps, ir ?? 'lost', hasRecovered(run), now, ir);
 
   const failed = reading.steps.find((one) => one.state === 'failed');
   const focus = focusOf(ask, failed);
