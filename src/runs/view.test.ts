@@ -103,14 +103,15 @@ describe('a row of the run history', () => {
   });
 
   /**
-   * The clock is the user's, not the design's: the
-   * mockups are drawn in 24-hour time and an editor
-   * that ignored somebody's own convention for
-   * telling it would be the one panel that does.
-   * What is asserted is the composition.
+   * One 24-hour clock, whatever language the editor
+   * is displayed in. A list is read by scanning the
+   * times for the run that is out of line, and a
+   * meridiem — which a 12-hour locale writes and
+   * this row has no room for anyway — makes two
+   * afternoon rows read as morning ones.
    */
   it('says when it ran and how long it took', () => {
-    expect(rowOf(RUN).when).toMatch(/^\d{1,2}:\d{2}.* · 10\.0 s$/);
+    expect(rowOf(RUN).when).toMatch(/^\d{2}:\d{2} · 10\.0 s$/);
   });
 
   it('leaves the duration off a run that is still going', () => {
@@ -809,15 +810,14 @@ describe('a run waiting on a person', () => {
     ).toBe('ok');
   });
 
+  /** Built from local components rather than
+   *  written as an epoch: the clock reads the
+   *  machine's own zone, so a literal would name a
+   *  different hour on every machine. */
   it('takes the moment a run last recorded something', () => {
-    const row = rowOf({ ...RUN, lastOperationAt: 1_739_880_139_200 });
+    const at = new Date(2026, 8, 11, 18, 24, 19, 240).getTime();
 
-    expect(row.stoppedAt).toBe(
-      new Date(1_739_880_139_200).toLocaleTimeString(undefined, {
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-    );
+    expect(rowOf({ ...RUN, lastOperationAt: at }).stoppedAt).toBe('18:24');
   });
 
   it('has no such moment for a run with no operation of its own', () => {

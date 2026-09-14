@@ -7,7 +7,7 @@ import { OUTPUT_KEPT } from '../../runs/rows.js';
 import { postToHost } from '../../webview/client.js';
 import { filled } from '../../webview/fill.js';
 import type { InspectorStrings, ShownRun } from '../../webview/protocol.js';
-import { fine } from '../../webview/time.js';
+import { duration, fine } from '../../webview/time.js';
 import type { RunState } from '../graph.js';
 
 import {
@@ -846,7 +846,7 @@ function Recorded({
           <Line
             id="duration"
             label={strings.duration}
-            value={spanText(strings, row.durationMs)}
+            value={duration(row.durationMs, strings.durations)}
           />
         )}
       </div>
@@ -1107,22 +1107,5 @@ function spanOf(
 
   return card.durationMs === undefined
     ? finished
-    : `${finished} · ${spanText(strings, card.durationMs)}`;
-}
-
-/**
- * A length of time, in the two forms the run page
- * draws.
- *
- * Spelled again here rather than borrowed, because
- * the run page's copy resolves through `messages.ts`
- * and a browser frame cannot load that. The rule is
- * the one that matters and it is the same one:
- * milliseconds under a second, and seconds with one
- * decimal over it.
- */
-function spanText(strings: InspectorStrings, ms: number): string {
-  return ms < 1000
-    ? filled(strings.milliseconds, String(Math.round(ms)))
-    : filled(strings.seconds, (ms / 1000).toFixed(1));
+    : `${finished} · ${duration(card.durationMs, strings.durations)}`;
 }

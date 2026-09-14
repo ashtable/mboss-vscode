@@ -3,6 +3,7 @@ import { l10n } from 'vscode';
 import type { HandlerMisfit, NodeKind } from '../core/rules.js';
 import { once } from '../once.js';
 import type { LiveOutcome } from '../runs/reading.js';
+import type { DurationWords } from '../webview/time.js';
 
 /**
  * Every word the canvas and its Inspector column
@@ -84,6 +85,29 @@ export const misfitWords = once((): Record<HandlerMisfit['kind'], string> => ({
   'input-mismatch': l10n.t('takes {0}, needs {1}'),
   'output-mismatch': l10n.t('returns {0}, needs {1}'),
   'not-a-decision': l10n.t('returns {0}, decides nothing'),
+}));
+
+/**
+ * The units a length of time is said in.
+ *
+ * Its own bag because every surface that draws one
+ * reads it — the run page's own panel, the column
+ * beside the canvas, the list of runs — and the
+ * scale that picks between them is `webview/
+ * time.ts`, which resolves no words of its own.
+ * Two bags would let a step that took a second read
+ * as `1.0 s` on one panel and `1000 ms` on the one
+ * beside it.
+ *
+ * A template each, because where the number goes is
+ * the language's business.
+ */
+export const durationWords = once((): DurationWords => ({
+  milliseconds: l10n.t('{0} ms'),
+  seconds: l10n.t('{0} s'),
+  minutes: l10n.t('{0} m'),
+  hours: l10n.t('{0} h'),
+  days: l10n.t('{0} d'),
 }));
 
 export const canvasWords = once(() => ({
@@ -297,13 +321,13 @@ export const inspectorWords = once(() => ({
   duration: l10n.t('duration'),
   notTimed: l10n.t('not timed'),
 
-  // Seconds with one decimal under a second's
-  // worth, and whole milliseconds over it — the
-  // same two forms the run page draws, because a
-  // duration read in two places should not be
-  // rounded two ways.
-  milliseconds: l10n.t('{0} ms'),
-  seconds: l10n.t('{0} s'),
+  durations: durationWords(),
+
+  // A configured number of milliseconds, which is a
+  // setting rather than a length of time something
+  // took, so it is said outright and not run
+  // through the scale above.
+  milliseconds: durationWords().milliseconds,
 
   // The numbers the block will actually run under,
   // which are configuration and are chipped as

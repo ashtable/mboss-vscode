@@ -1,8 +1,13 @@
-import { paletteLabels, canvasWords, inspectorWords } from '../canvas/words.js';
+import {
+  paletteLabels,
+  canvasWords,
+  durationWords,
+  inspectorWords,
+} from '../canvas/words.js';
 import { replayBoundaries, type Unoffered } from '../core/index.js';
 import { ownerOf, type NodeBox, type WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
-import { fine } from '../webview/time.js';
+import { clock, duration, fine } from '../webview/time.js';
 import type {
   RunRow,
   RunSeverity,
@@ -162,7 +167,7 @@ function sessionWhen(run: SessionRun): string {
 
   return run.durationMs === undefined
     ? at
-    : `${at} · ${duration(run.durationMs)}`;
+    : `${at} · ${lasted(run.durationMs)}`;
 }
 
 export function seeInit(
@@ -223,7 +228,7 @@ function seeRun(view: SeeView): SeeRun {
         ? messages.runHeadlineRunning(run.status)
         : messages.runHeadline(
             run.status,
-            duration(run.completedAt - run.createdAt),
+            lasted(run.completedAt - run.createdAt),
           ),
     // The page holds every row, so it asks the
     // reading whether a block is parked rather than
@@ -682,7 +687,7 @@ function whenOf(run: Run): string {
 
   return run.completedAt === undefined
     ? at
-    : `${at} · ${duration(run.completedAt - run.createdAt)}`;
+    : `${at} · ${lasted(run.completedAt - run.createdAt)}`;
 }
 
 function spanOf(run: Run): string {
@@ -725,7 +730,7 @@ function recoveredBanner(run: Run, reading: Reading): SeeRun['recovered'] {
     heading,
     body: messages.runRecoveredBody(),
     figures: {
-      down: messages.runRecoveredDown(duration(outage.to - outage.from)),
+      down: messages.runRecoveredDown(lasted(outage.to - outage.from)),
       reused: messages.runRecoveredReused(restored),
     },
   };
@@ -792,7 +797,7 @@ function bandOf(
   return {
     from: place(outage.from),
     width: round((outage.to - outage.from) / span),
-    down: messages.runProcessDown(duration(outage.to - outage.from)),
+    down: messages.runProcessDown(lasted(outage.to - outage.from)),
     resumed: messages.runResumed(),
   };
 }
@@ -900,19 +905,12 @@ function cancelledAt(run: Run, cancelledHere: boolean): string | undefined {
   return cancelledHere ? messages.runCancelledByYou(at) : at;
 }
 
-/** Seconds with one decimal, the way the design
- *  writes them, and milliseconds under a second. */
-function duration(ms: number): string {
-  return ms < 1000
-    ? messages.runMilliseconds(Math.round(ms))
-    : messages.runSeconds((ms / 1000).toFixed(1));
-}
-
-function clock(epoch: number): string {
-  return new Date(epoch).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+/** How long something took, said in the host's
+ *  words. The scale is the one every panel reads,
+ *  so a step is rounded the same way here and in
+ *  the frame that draws its own. */
+function lasted(ms: number): string {
+  return duration(ms, durationWords());
 }
 
 function precise(epoch: number): string {
@@ -1106,7 +1104,7 @@ function operationText(operation: OperationEvidence): string {
   const spent =
     operation.durationMs === undefined
       ? undefined
-      : duration(operation.durationMs);
+      : lasted(operation.durationMs);
 
   return [`${operation.name} · #${String(operation.functionId)}`, spent]
     .filter((part) => part !== undefined)

@@ -1073,16 +1073,18 @@ const WAITING_PARKED = recording(
 /**
  * The line that block then shows.
  *
- * A shape rather than a string: where a locale puts
- * the fraction and the meridiem is the locale's
- * business, and what this line has to carry is the
- * moment at all.
+ * A shape rather than a string, because the epoch
+ * the fixture records reads as a different hour in
+ * every zone — but a closed shape: the clock is
+ * written out rather than asked of a locale, so
+ * nothing is allowed before or after it, and this
+ * page runs in a 12-hour one.
  */
 const WAITING_LINE = new RegExp(
   `^${canvasStrings.waitingSince.replace(
     '{0}',
-    '\\d{1,2}:\\d{2}:\\d{2}\\.\\d{3}',
-  )}`,
+    '\\d{2}:\\d{2}:\\d{2}\\.\\d{3}',
+  )}$`,
 );
 
 /** One step that worked, timed to the millisecond
@@ -2882,16 +2884,19 @@ test.describe('the Inspector column', () => {
         }),
       );
 
-      // The clock is the browser's, so the shape is
-      // what is held rather than the wording: what
-      // matters is that a step timed to the
-      // millisecond is drawn to the millisecond.
+      // The epoch the fixture records reads as a
+      // different hour in every zone, so the shape
+      // is what is held — but the whole of it: a
+      // step timed to the millisecond is drawn to
+      // the millisecond, on a 24-hour clock this
+      // page's own 12-hour locale does not get a
+      // say in.
       await expect(
         page.locator('[data-evidence-field="started"] .value'),
-      ).toHaveText(/\d{1,2}:\d{2}:\d{2}\.\d{3}/);
+      ).toHaveText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
       await expect(
         page.locator('[data-evidence-field="completed"] .value'),
-      ).toHaveText(/\d{1,2}:\d{2}:\d{2}\.\d{3}/);
+      ).toHaveText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
       await expect(
         page.locator('[data-evidence-field="duration"] .value'),
       ).toHaveText('48 ms');

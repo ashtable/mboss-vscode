@@ -210,9 +210,21 @@ describe('what a run recorded about one block', () => {
       expect(runCardOf(liveRun({ recoveryAttempts: 1 })).recoveries).toBe(0);
     });
 
-    it('times the run where the ledger timed it', () => {
+    /**
+     * From when the run was filed, not from when a
+     * worker picked it up: the wall time somebody
+     * waited is the number they came to read, and a
+     * run that sat in a queue for an hour waited an
+     * hour. It is also the one base every other
+     * panel measures a run by, and a card that
+     * subtracted the queue delay would put a
+     * smaller number beside the same run.
+     */
+    it('times a run from when it was filed', () => {
       expect(
-        runCardOf(liveRun({ startedAt: 1000, completedAt: 6200 })).durationMs,
+        runCardOf(
+          liveRun({ createdAt: 1000, startedAt: 4000, completedAt: 6200 }),
+        ).durationMs,
       ).toBe(5200);
       expect(runCardOf(liveRun({ completedAt: undefined })).durationMs).toBe(
         undefined,

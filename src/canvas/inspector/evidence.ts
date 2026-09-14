@@ -319,7 +319,11 @@ export function runCardOf(run: LiveRun): RunCard {
     outcome: run.outcome,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
-    durationMs: spanOf(run.startedAt, run.completedAt),
+    // From when the run was filed rather than from
+    // when a worker picked it up, which is how a
+    // run is timed on every panel: the wall time
+    // somebody waited, queue delay and all.
+    durationMs: spanOf(run.createdAt, run.completedAt),
     input: run.input,
     recoveries: Math.max(run.recoveryAttempts - FIRST_DISPATCH, 0),
     applicationVersion: run.applicationVersion,

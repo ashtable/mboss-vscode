@@ -682,16 +682,6 @@ export const messages = {
     l10n.t('└ replay → {0} · {1}', id, status),
 
   /**
-   * Seconds with one decimal, because a local run
-   * is measured in them and the design's own
-   * examples are `8.2 s` and `2.9 s`. Anything
-   * under a second says so in the unit it happened
-   * in rather than as `0.0 s`.
-   */
-  runSeconds: (seconds: string) => l10n.t('{0} s', seconds),
-  runMilliseconds: (ms: number) => l10n.t('{0} ms', ms),
-
-  /**
    * What a replay did.
    *
    * Both forms name the version, because that is

@@ -94,8 +94,14 @@
     "completed": "completed",
     "duration": "duration",
     "notTimed": "not timed",
+    "durations": {
+      "milliseconds": "{0} ms",
+      "seconds": "{0} s",
+      "minutes": "{0} m",
+      "hours": "{0} h",
+      "days": "{0} d"
+    },
     "milliseconds": "{0} ms",
-    "seconds": "{0} s",
     "policy": "max {0} · interval {1} s · backoff {2}×",
     "policyOff": "off · runs once",
     "durationCoversTries": "duration covers every try DBOS made · the ledger records one row",
