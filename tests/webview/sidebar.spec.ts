@@ -9,7 +9,7 @@ import type {
 import { foldUpdates } from '../../src/acp/transcript.js';
 import type { SidebarInit } from '../../src/webview/protocol.js';
 
-import { mount, type Harness, type ThemeKind } from './harness.js';
+import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
 import { sidebarWords as strings } from './words.js';
 
 /**
@@ -975,7 +975,7 @@ test.describe('before there is an agent', () => {
 });
 
 test.describe('every theme the editor publishes', () => {
-  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+  for (const theme of THEMES_ALL) {
     test(`draws the panel in ${theme}`, async ({ page }) => {
       const harness = await mount(page, 'sidebar', theme);
 

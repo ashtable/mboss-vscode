@@ -38,7 +38,8 @@ import type {
   ShownRun,
 } from '../../src/webview/protocol.js';
 
-import { mount, type ThemeKind } from './harness.js';
+import { mount, THEMES_ALL, type ThemeKind } from './harness.js';
+import { colourOf, sameColour } from './palette.js';
 import {
   canvasWords as canvasStrings,
   inspectorWords as inspectorStrings,
@@ -1044,12 +1045,12 @@ function recording(steps: LiveStep[], over: Partial<LiveRun> = {}): LiveRun {
 }
 
 /**
- * A moment built in the browser's own clock rather
- * than parsed out of a UTC string, because the card
- * formats it in that clock and a fixture in another
- * one would be a different time on every machine.
+ * A moment, in the zone the page runs in. The card
+ * formats it in the browser's own clock, and this
+ * tier pins that clock to UTC so the same fixture
+ * is the same time on every machine.
  */
-const RECORDED_AT = new Date(2026, 8, 7, 10, 31, 14, 218).getTime();
+const RECORDED_AT = Date.UTC(2026, 8, 7, 10, 31, 14, 218);
 
 /** The parked run again, with the moment it parked
  *  spelled out: the line under the block reads it
@@ -1072,9 +1073,10 @@ const WAITING_PARKED = recording(
 /**
  * The line that block then shows.
  *
- * A shape rather than a string, because the time in
- * it is formatted in the browser's own locale and
- * the process running this spec need not share one.
+ * A shape rather than a string: where a locale puts
+ * the fraction and the meridiem is the locale's
+ * business, and what this line has to carry is the
+ * moment at all.
  */
 const WAITING_LINE = new RegExp(
   `^${canvasStrings.waitingSince.replace(
@@ -4746,25 +4748,22 @@ test.describe('building the graph', () => {
 /**
  * The chrome follows the theme, which is the one
  * thing every VS Code user notices immediately. The
- * three appearances are checked for the ground
- * actually changing, not for a particular colour —
- * the colours are the user's.
+ * ground a canvas is drawn on is the editor's own,
+ * so what is asserted is the colour that editor
+ * publishes rather than a colour this product chose.
  */
 test.describe('every theme', () => {
-  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+  for (const theme of THEMES_ALL) {
     test(`draws on the editor’s own ground in ${theme}`, async ({ page }) => {
       await openCanvas(page, theme);
 
       const ground = await page.evaluate(
         () => getComputedStyle(document.body).backgroundColor,
       );
+      const expected = colourOf(theme, 'canvas');
 
-      expect(ground).toBe(
-        {
-          light: 'rgb(255, 255, 255)',
-          dark: 'rgb(31, 31, 31)',
-          'high-contrast': 'rgb(0, 0, 0)',
-        }[theme],
+      expect(sameColour(ground, expected), `${ground} ≠ ${expected}`).toBe(
+        true,
       );
 
       await expect(page.locator('[data-caption="graph"]')).toBeVisible();
@@ -4779,7 +4778,7 @@ test.describe('every theme', () => {
    * an empty string, and every rule reading it
    * silently falls back to the initial value.
    */
-  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+  for (const theme of THEMES_ALL) {
     test(`mixes the shared roles against the ${theme} ground`, async ({
       page,
     }) => {

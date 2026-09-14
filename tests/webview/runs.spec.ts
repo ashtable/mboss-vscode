@@ -15,7 +15,7 @@ import { liveRun, liveStep } from '../../src/test-support/runs.js';
 
 import { paletteLabels } from './words.js';
 
-import { mount, type Harness, type ThemeKind } from './harness.js';
+import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
 import {
   inspectorWords as inspectorStrings,
   runsWords as runsStrings,
@@ -1278,7 +1278,7 @@ test.describe('the run list', () => {
     expect(await harness.postedOfType('copyRunId')).toEqual([]);
   });
 
-  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+  for (const theme of THEMES_ALL) {
     test(`ellipsizes a long run id in a narrow ${theme} panel`, async ({
       page,
     }) => {
@@ -2150,7 +2150,7 @@ test.describe('one run in detail', () => {
  * notices immediately.
  */
 test.describe('in every theme', () => {
-  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+  for (const theme of THEMES_ALL) {
     test(`draws the list on the editor own ground in ${theme}`, async ({
       page,
     }) => {
