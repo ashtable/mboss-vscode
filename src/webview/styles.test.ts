@@ -44,6 +44,24 @@ const THEMED = /^body(\.vscode-[\w-]+|:not\(\.vscode-[\w-]+\))+$/;
 
 const TOKENS = 'src/webview/tokens.css';
 
+/** Where the components every view draws live. */
+const SIGNAL = 'src/webview/signal/';
+
+/** A name written into the markup rather than handed
+ *  to it. */
+const NAMED_BY_HAND = /\b(?:title|aria-label|placeholder|label|alt)=['"]/;
+
+/**
+ * Prose, once the expressions are out of the way.
+ *
+ * Code runs between a `>` and a `<` all the time — a
+ * generic closes, an arrow points — so what is
+ * looked for is a run that reads as writing rather
+ * than as an expression: at least one letter, and
+ * none of the punctuation only code uses.
+ */
+const PROSE = /^[^<>{}()=;`[\]$]*[A-Za-z][^<>{}()=;`[\]$]*$/;
+
 /** The two tracked labels, and no tracking at all. */
 const TRACKING = ['var(--label-tracking)', 'var(--state-tracking)', 'normal'];
 
@@ -139,6 +157,82 @@ function isBody(selector: string): boolean {
 
 function reads(value: string): string[] {
   return [...value.matchAll(READS)].flatMap((found) => found[1] ?? []);
+}
+
+/** One file with what it says about itself taken
+ *  out, so a sentence in a comment is not read as a
+ *  sentence in the markup. */
+function withoutNotes(tsx: string): string {
+  return withoutComments(tsx).replace(/\/\/[^\n]*/g, '');
+}
+
+/** Every run of text between a tag that closed and
+ *  the next one that opened. */
+function childrenOf(tsx: string): string[] {
+  const runs: string[] = [];
+  const between = /(?<!=)>([^<]*)</g;
+
+  for (
+    let found = between.exec(tsx);
+    found !== null;
+    found = between.exec(tsx)
+  ) {
+    runs.push(found[1] ?? '');
+  }
+
+  return runs;
+}
+
+/**
+ * One run with its expressions taken out, leaving
+ * whatever somebody typed into the markup itself.
+ *
+ * An expression that runs past the end of the run
+ * takes the rest of it: a `{` with no `}` before the
+ * next tag means the tag is inside the expression,
+ * and nothing between them is markup text.
+ */
+function withoutExpressions(run: string): string {
+  let text = '';
+
+  for (let at = 0; at < run.length; at += 1) {
+    if (run[at] === '{') at = closes(run, at);
+    else text += run[at];
+  }
+
+  return text;
+}
+
+/**
+ * Every opening tag in one file, as far as its
+ * attributes go.
+ *
+ * A brace is descended past rather than stopped at,
+ * because an attribute holding an arrow function
+ * carries a `>` of its own and a tag cut there would
+ * be read as two.
+ */
+function tagsOf(tsx: string): string[] {
+  const tags: string[] = [];
+  const opens = /<[A-Za-z][\w.]*/g;
+
+  for (let found = opens.exec(tsx); found !== null; found = opens.exec(tsx)) {
+    let depth = 0;
+    let at = found.index + found[0].length;
+
+    for (; at < tsx.length; at += 1) {
+      const letter = tsx[at];
+
+      if (letter === '{') depth += 1;
+      else if (letter === '}') depth -= 1;
+      else if (letter === '>' && depth === 0) break;
+    }
+
+    tags.push(tsx.slice(found.index, at));
+    opens.lastIndex = at;
+  }
+
+  return tags;
 }
 
 /** The text of every `style=` prop in one file. */
@@ -344,5 +438,57 @@ describe('the stylesheets this extension ships', () => {
     expect(where(set.filter((rule) => !FACES.includes(rule.value)))).toEqual(
       [],
     );
+  });
+
+  /**
+   * A shared component draws the words it is handed
+   * and none of its own. A word typed into one of
+   * them is a word no bag records and no translator
+   * ever sees: it appears in whichever language the
+   * person who typed it was thinking in, in every
+   * view that draws the component.
+   */
+  it('write no word of their own into a shared component', () => {
+    const shared = components.filter((file) => file.name.startsWith(SIGNAL));
+
+    expect(shared).not.toEqual([]);
+
+    const written = shared.flatMap((file) => {
+      const code = withoutNotes(file.text);
+
+      return [
+        ...childrenOf(code)
+          .map((run) => withoutExpressions(run).replace(/\s+/g, ' ').trim())
+          .filter((text) => PROSE.test(text))
+          .map((text) => `${file.name}: ${text}`),
+        ...(NAMED_BY_HAND.test(code) ? [`${file.name}: a name by hand`] : []),
+      ];
+    });
+
+    expect(written).toEqual([]);
+  });
+
+  /**
+   * A bordered Button in neutral ink is a fifth look
+   * this system does not have. The second choice
+   * with an edge is the outline — that same border
+   * with the product's own ink in it — so the
+   * bordered variant exists only in that pairing,
+   * here as well as in its props.
+   */
+  it('give every bordered Button the product’s own ink', () => {
+    const tags = components.flatMap((file) =>
+      tagsOf(file.text).map((tag) => ({ name: file.name, tag })),
+    );
+    const bordered = tags.filter((one) =>
+      one.tag.includes('variant="secondary"'),
+    );
+
+    expect(bordered).not.toEqual([]);
+    expect(
+      bordered
+        .filter((one) => !one.tag.includes('ink="brand"'))
+        .map((one) => one.name),
+    ).toEqual([]);
   });
 });

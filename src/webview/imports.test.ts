@@ -38,6 +38,12 @@ const SEE_MAY_IMPORT = new Set([
 
 const CANVAS_IMPORT = /from\s+'(\.\.\/canvas\/[^']+)'/g;
 
+/** The six directories that each belong to one view
+ *  and to nothing else. */
+const VIEWS = ['canvas', 'sidebar', 'runs', 'see', 'inspector', 'gallery'];
+
+const IMPORT = /from\s+'([^']+)'/g;
+
 describe('what the run page may reach into the canvas for', () => {
   it('imports only what it is allowed to', () => {
     const reached = sourceFiles()
@@ -73,6 +79,42 @@ describe('what the run page may reach into the canvas for', () => {
         true,
       );
     }
+  });
+});
+
+/**
+ * The components every view draws are shared exactly
+ * as far as they depend on nothing.
+ *
+ * One of them reaching into a view is what turns a
+ * shared layer into that view's layer: the other
+ * five bundles start carrying its graph, its
+ * fixtures and its words, and the next person to
+ * change that view breaks a panel they never opened.
+ */
+describe('what a shared component may import', () => {
+  it('reaches into no view', () => {
+    const shared = sourceFiles().filter((path) =>
+      path.includes(join('src', 'webview', 'signal')),
+    );
+
+    expect(shared).not.toEqual([]);
+
+    const reached = shared.flatMap((path) =>
+      [...readFileSync(path, 'utf8').matchAll(IMPORT)].map((found) => ({
+        path,
+        specifier: found[1] ?? '',
+      })),
+    );
+
+    expect(reached).not.toEqual([]);
+    expect(
+      reached
+        .filter((one) =>
+          VIEWS.some((view) => one.specifier.includes(`/${view}/`)),
+        )
+        .map((one) => one.specifier),
+    ).toEqual([]);
   });
 });
 

@@ -32,6 +32,7 @@ import {
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
 import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
+import { SectionLabel } from '../webview/signal/SectionLabel.js';
 
 import { EditingProvider } from './Editing.js';
 import { Node } from './Node.js';
@@ -517,9 +518,9 @@ function Toolbar({
       )}
 
       {init.preview === undefined ? null : (
-        <p className="preview-line eyebrow" data-preview-headline>
+        <SectionLabel hook={{ 'preview-headline': '' }}>
           {init.preview.headline}
-        </p>
+        </SectionLabel>
       )}
     </header>
   );
@@ -1065,7 +1066,7 @@ function Graph({
 
       {refused === undefined ? null : (
         <div className="card rejection" data-rejection>
-          <p className="eyebrow">{init.strings.typedWiring}</p>
+          <SectionLabel>{init.strings.typedWiring}</SectionLabel>
           <p className="mono">{refused.message}</p>
         </div>
       )}

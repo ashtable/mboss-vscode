@@ -48,7 +48,11 @@ export const galleryWords = once(() => ({
 
   use: l10n.t('Use →'),
 
-  demo: l10n.t('DEMO'),
+  /** Lowercase here, because the capitals it is
+   *  drawn in are the rule's rather than the word's:
+   *  a language whose alphabet has no upper case
+   *  gets the word, not a shouted transliteration. */
+  demo: l10n.t('demo'),
 
   /** What the empty end of the shelf says. It
    *  promises a library that grows, not a channel

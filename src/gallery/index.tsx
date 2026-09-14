@@ -1,6 +1,8 @@
 import { NodeIcon } from '../canvas/icons.js';
 import { postToHost } from '../webview/client.js';
 import { mountView } from '../webview/mount.js';
+import { Button } from '../webview/signal/Button.js';
+import { StateWord } from '../webview/signal/StateWord.js';
 import type {
   GalleryCard,
   GalleryInit,
@@ -31,7 +33,7 @@ function Gallery({ strings, groups }: GalleryInit) {
   return (
     <div className="gallery" data-gallery>
       <p className="title">{strings.heading}</p>
-      <p className="hint gallery-hint">{strings.hint}</p>
+      <p className="gallery-note gallery-hint">{strings.hint}</p>
 
       {/* The way in that is not a pattern at all,
           kept at the top and drawn in dashes: the
@@ -40,17 +42,20 @@ function Gallery({ strings, groups }: GalleryInit) {
       <section className="blank">
         <div className="blank-text">
           <p className="blank-title">{strings.blank.title}</p>
-          <p className="hint">{strings.blank.body}</p>
+          <p className="gallery-note">{strings.blank.body}</p>
         </div>
 
-        <button
-          type="button"
-          className="btn secondary"
-          data-start-blank
+        {/* The outline, so the one action on the
+            dashed card still reads apart from the
+            quiet Use on every card below it. */}
+        <Button
+          variant="secondary"
+          ink="brand"
+          hook={{ 'start-blank': '' }}
           onClick={() => postToHost({ type: 'startBlank' })}
         >
           {strings.blank.action}
-        </button>
+        </Button>
       </section>
 
       {groups.map((shelf) => (
@@ -118,14 +123,14 @@ function Card({
         </ol>
 
         {card.demo ? (
-          <span className="template-demo" data-demo>
+          <StateWord tone="brand" hook={{ demo: '' }}>
             {strings.demo}
-          </span>
+          </StateWord>
         ) : null}
       </header>
 
       <p className="template-title">{card.title}</p>
-      <p className="hint template-summary">{card.summary}</p>
+      <p className="gallery-note template-summary">{card.summary}</p>
 
       <ul className="template-tags">
         {card.tags.map((tag) => (
@@ -135,14 +140,18 @@ function Card({
         ))}
       </ul>
 
-      <button
-        type="button"
-        className="btn quiet template-use"
-        data-use
+      {/* Quiet, because a shelf where forty cards
+          each shout Use is a shelf with nothing to
+          read first. */}
+      <Button
+        variant="quiet"
+        ink="brand"
+        hook={{ use: '' }}
+        hookClass="template-use"
         onClick={() => postToHost({ type: 'usePattern', name: card.name })}
       >
         {strings.use}
-      </button>
+      </Button>
     </article>
   );
 }

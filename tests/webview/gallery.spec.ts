@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 import type { GalleryCard, GalleryInit } from '../../src/webview/protocol.js';
 
 import { painted } from './fixtures/paint.js';
-import { mount, THEMES, THEMES_ALL } from './harness.js';
+import { mount, THEMES, THEMES_ALL, type ThemeKind } from './harness.js';
 import { colourOf, ROLES, sameColour, type Role } from './palette.js';
 import { galleryWords as galleryStrings, paletteLabels } from './words.js';
 
@@ -66,6 +66,20 @@ const DEPLOYS: GalleryCard = {
 const HALO =
   'rgb(83, 103, 255) 0px 0px 0px 1.5px, ' +
   'color(srgb 0.32549 0.403922 1 / 0.18) 0px 0px 0px 5px';
+
+/**
+ * Where `var(--state-ink, var(--brand))` lands.
+ *
+ * A theme that re-points state-toned text carries it
+ * in the ink instead, because its voice colours are
+ * chosen to sit under a word rather than to be one.
+ * Every other theme reads the brand.
+ */
+function brandInk(theme: ThemeKind): string {
+  const ink = colourOf(theme, 'state-ink');
+
+  return ink === '' ? colourOf(theme, 'brand') : ink;
+}
 
 function galleryInit(over: Partial<GalleryInit> = {}): GalleryInit {
   return {
@@ -169,6 +183,112 @@ test.describe('the gallery', () => {
     expect(await harness.postedOfType('startBlank')).toEqual([
       { type: 'startBlank' },
     ]);
+  });
+
+  /**
+   * Both things this page asks anybody to do are
+   * the system's one Button, in the two looks that
+   * tell them apart: the blank card's single action
+   * keeps the edge it has, and a pattern's Use is
+   * the quiet one, because a page of forty cards
+   * each shouting Use is a page with nothing to
+   * read first.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`draws Create and Use in the product's ink in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'gallery', theme);
+      await harness.show(galleryInit());
+
+      const create = page.locator('[data-start-blank]');
+
+      await expect(create).toHaveClass(/(^|\s)btn(\s|$)/);
+      await expect(create).toHaveAttribute('data-variant', 'secondary');
+
+      const used = await page.locator('[data-use]').evaluateAll((nodes) =>
+        nodes.map((node) => ({
+          button: node.classList.contains('btn'),
+          variant: node.getAttribute('data-variant'),
+        })),
+      );
+
+      expect(used).toHaveLength(4);
+
+      for (const one of used) {
+        expect(one).toEqual({ button: true, variant: 'quiet' });
+      }
+
+      const expected = brandInk(theme);
+      const inks = await page
+        .locator('[data-start-blank], [data-use]')
+        .evaluateAll((nodes) =>
+          nodes.map((node) => getComputedStyle(node).color),
+        );
+
+      expect(inks).toHaveLength(5);
+
+      for (const ink of inks) {
+        expect(sameColour(ink, expected), `${ink} ≠ ${expected}`).toBe(true);
+      }
+    });
+  }
+
+  /**
+   * The prose on this page is sentences about
+   * templates, not evidence a machine recorded, so
+   * it is set in the face a person writes in. The
+   * mono face is this product's way of saying "this
+   * is what was there", and spending it on a summary
+   * takes the meaning out of it.
+   */
+  test('sets its prose in the face a person writes in', async ({ page }) => {
+    const harness = await mount(page, 'gallery');
+    await harness.show(galleryInit());
+
+    const notes = await page.locator('.gallery-note').evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        face: (getComputedStyle(node).fontFamily.split(',')[0] ?? '')
+          .replace(/["']/g, '')
+          .trim(),
+        machine: node.closest('[data-mono]') !== null,
+      })),
+    );
+
+    expect(notes).toHaveLength(6);
+
+    for (const note of notes) {
+      expect(note).toEqual({ face: 'Albert Sans', machine: false });
+    }
+  });
+
+  /**
+   * One mark on the page is in capitals, and it is
+   * the one saying what this pattern is rather than
+   * what it does. Capitals are how this system says
+   * "state", so a second thing wearing them would
+   * leave a person nothing to find.
+   */
+  test('shouts the demo mark and nothing else', async ({ page }) => {
+    const harness = await mount(page, 'gallery');
+    await harness.show(galleryInit());
+
+    const demo = page.locator('[data-demo]');
+
+    await expect(demo).toHaveCount(1);
+    await expect(demo).toHaveClass(/(^|\s)state-word(\s|$)/);
+    await expect(demo).toHaveText(galleryStrings.demo);
+    await expect(demo).toHaveCSS('text-transform', 'uppercase');
+
+    const shouting = await page.evaluate(() =>
+      [...document.querySelectorAll('*')]
+        .filter(
+          (element) => getComputedStyle(element).textTransform === 'uppercase',
+        )
+        .map((element) => element.getAttribute('class')),
+    );
+
+    expect(shouting).toEqual(['state-word']);
   });
 
   /**

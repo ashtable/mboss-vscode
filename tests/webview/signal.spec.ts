@@ -107,6 +107,68 @@ function durationsOf(page: Page): Promise<number[]> {
  *  transition that never starts also never ends. */
 const STILL = 0.01;
 
+/** One shape of the shared Button. */
+type Shape = {
+  variant: 'primary' | 'secondary' | 'quiet' | 'stop';
+  ink?: 'brand';
+  size?: 'sm' | 'md';
+  mono?: boolean;
+};
+
+/** What the sheet draws that shape as. */
+type Drawn = {
+  colour: string;
+  size: string;
+  weight: string;
+  face: string;
+};
+
+/**
+ * A Button of each shape, on a page that loads the
+ * sheet drawing it.
+ *
+ * Two of the four looks are on the gallery as
+ * themselves and are read there. These are the ones
+ * no view draws yet — the medium size, the mono
+ * face, and a quiet Button taking its own ink rather
+ * than the brand — and a rule nothing has ever
+ * mounted is a rule that is wrong the first time
+ * something does.
+ *
+ * What this cannot answer is whether the component
+ * writes this markup. The spec beside the component
+ * answers that.
+ */
+async function drawn(page: Page, shapes: readonly Shape[]): Promise<Drawn[]> {
+  return page.evaluate((asked) => {
+    const probe = (shape: (typeof asked)[number]) => {
+      const button = document.createElement('button');
+
+      button.className = 'btn';
+      button.dataset.variant = shape.variant;
+      button.dataset.size = shape.size ?? 'sm';
+      if (shape.ink !== undefined) button.dataset.ink = shape.ink;
+      if (shape.mono === true) button.dataset.mono = '';
+      button.append(document.createElement('span'));
+      document.body.append(button);
+
+      const style = getComputedStyle(button);
+      const read = {
+        colour: style.color,
+        size: style.fontSize,
+        weight: style.fontWeight,
+        face: (style.fontFamily.split(',')[0] ?? '').replace(/["']/g, ''),
+      };
+
+      button.remove();
+
+      return read;
+    };
+
+    return asked.map(probe);
+  }, shapes);
+}
+
 test.describe('the tokens every view is painted from', () => {
   /**
    * VS Code stamps both high-contrast classes on a
@@ -277,5 +339,88 @@ test.describe('the tokens every view is painted from', () => {
     await harness.show(sidebarInit());
 
     expect(Math.max(...(await durationsOf(page)))).toBeLessThanOrEqual(STILL);
+  });
+});
+
+/**
+ * The one control anybody presses, at the shapes it
+ * is drawn in.
+ *
+ * A Button is the piece of this system that appears
+ * on every surface, so what it looks like is settled
+ * once here rather than argued per panel. These are
+ * the parts of that shape no single view's spec can
+ * ask about, because no single view draws all of it.
+ */
+test.describe('the Button every surface presses', () => {
+  /**
+   * Quiet without the brand takes the quiet ink,
+   * which is the last step this system has below
+   * body text. A theme that draws everything in one
+   * foreground has no quieter step and reads it as
+   * the ink, which is the point of asking through
+   * the role rather than through the colour.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`inks a quiet Button a step under the text in ${theme}`, async ({
+      page,
+    }) => {
+      await mount(page, 'gallery', theme);
+
+      const [quiet] = await drawn(page, [{ variant: 'quiet' }]);
+      const expected = colourOf(theme, 'ink-muted');
+      const actual = quiet?.colour ?? '';
+
+      expect(sameColour(actual, expected), `${actual} ≠ ${expected}`).toBe(
+        true,
+      );
+    });
+  }
+
+  /**
+   * Both sizes are set at one step. What separates
+   * them is the box: a Button whose label grew with
+   * its padding would read as a different kind of
+   * control rather than as the same one with more
+   * room around it.
+   */
+  test('sets both sizes at one step and one weight', async ({ page }) => {
+    await mount(page, 'gallery');
+
+    const sizes = await drawn(page, [
+      { variant: 'quiet', size: 'sm' },
+      { variant: 'quiet', size: 'md' },
+    ]);
+
+    expect(sizes).toHaveLength(2);
+
+    for (const one of sizes) {
+      // The editor's own size is 13px here, and the
+      // step is a share of it rather than a number.
+      expect(Number.parseFloat(one.size)).toBeCloseTo(11.05, 1);
+      expect(one.weight).toBe('600');
+    }
+  });
+
+  /**
+   * The mono face is this product's way of saying a
+   * machine put this here — an id, a status, the
+   * name of the agent that answered. A Button
+   * carrying one of those is set in it too, so the
+   * value reads the same on the control as it does
+   * in the line above it.
+   */
+  test('sets a Button naming machine evidence in the machine face', async ({
+    page,
+  }) => {
+    await mount(page, 'gallery');
+
+    const [person, machine] = await drawn(page, [
+      { variant: 'quiet' },
+      { variant: 'quiet', mono: true },
+    ]);
+
+    expect(person?.face).toBe('Albert Sans');
+    expect(machine?.face).toBe('Spline Sans Mono');
   });
 });

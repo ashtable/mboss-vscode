@@ -294,12 +294,14 @@ button.lib-fn {
    proposal rather than to the file. The mockup puts
    it in the tab strip, which no extension can write
    into, so it sits at the far end of the toolbar —
-   the same place, as far as a reader is
-   concerned. */
-.preview-line {
-  margin: 0 0 0 auto;
-  color: var(--brand);
-  white-space: nowrap;
+   the same place, as far as a reader is concerned.
+
+   Where it sits is all this says. That the line is
+   about a proposal is already said by its words and
+   by the dashes the proposed blocks are drawn in,
+   so it spends no colour saying it a third time. */
+[data-preview-headline] {
+  margin-inline-start: auto;
 }
 
 /* — the graph — */
@@ -490,8 +492,10 @@ button.lib-fn {
   box-shadow: var(--elev-2);
   z-index: 5;
 }
-.rejection .eyebrow {
-  color: var(--brand);
+/* That this is a refusal is said by the words and
+   by the card's own brand border, so the heading
+   over them spends nothing more on it. */
+.rejection .section-label {
   margin-bottom: var(--space-1);
 }
 .rejection p:last-child {
@@ -586,16 +590,6 @@ button.lib-fn {
   gap: 2px;
   padding: var(--space-2);
   min-width: 148px;
-}
-.quick-add-kind {
-  all: unset;
-  padding: 3px var(--space-2);
-  border-radius: var(--r-sm);
-  cursor: pointer;
-}
-.quick-add-kind:hover,
-.quick-add-kind:focus-visible {
-  background: var(--surface-2);
 }
 
 .react-flow__attribution {

@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 
 import type { NodeKind } from '../../core/rules.js';
+import { Button } from '../../webview/signal/Button.js';
+import { SectionLabel } from '../../webview/signal/SectionLabel.js';
 
 /**
  * The kinds a wire let go of on nothing could reach.
@@ -55,19 +57,22 @@ export function QuickAdd({
         if (key.key === 'Escape') onClose();
       }}
     >
-      <p className="eyebrow">{heading}</p>
+      <SectionLabel>{heading}</SectionLabel>
 
+      {/* Picking one writes a block, which is an
+          action — so each row is the system's Button
+          rather than a line of text that happens to
+          answer a click. */}
       {kinds.map((kind, index) => (
-        <button
+        <Button
           key={kind}
           ref={index === 0 ? first : undefined}
-          type="button"
-          className="quick-add-kind"
-          data-quick-add-kind={kind}
+          variant="quiet"
+          hook={{ 'quick-add-kind': kind }}
           onClick={() => onPick(kind)}
         >
           {labels[kind]}
-        </button>
+        </Button>
       ))}
     </div>
   );

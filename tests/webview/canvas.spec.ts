@@ -1916,6 +1916,15 @@ test.describe('drawing a wire', () => {
       whatCoreSays('find_slot', 'out', 'record_booking'),
     );
 
+    // The card's heading is the system's one section
+    // label, in the case it was written in: a
+    // refusal set in capitals reads as the product
+    // raising its voice at somebody who drew a wire.
+    const heading = refusal.locator('.section-label');
+
+    await expect(heading).toHaveText(canvasStrings.typedWiring);
+    await expect(heading).toHaveCSS('text-transform', 'none');
+
     expect(await harness.postedOfType('connect')).toEqual([]);
   });
 
@@ -2147,12 +2156,37 @@ test.describe('a wire being drawn', () => {
 
     await expect(offered.first()).toBeVisible();
 
-    const kinds = await offered.evaluateAll((rows) =>
-      rows.map((row) => row.getAttribute('data-quick-add-kind')),
+    // Picking one writes a block, which is an
+    // action, so each row is the system's Button
+    // rather than a line of text somebody can
+    // click — and the gesture ended here, so the
+    // first of them is where the keyboard is.
+    const rows = await offered.evaluateAll((found) =>
+      found.map((row) => ({
+        kind: row.getAttribute('data-quick-add-kind'),
+        button: row.classList.contains('btn'),
+        variant: row.getAttribute('data-variant'),
+        holding: row === document.activeElement,
+      })),
     );
+
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.findIndex((row) => row.holding)).toBe(0);
+
+    for (const row of rows) {
+      expect(row.button).toBe(true);
+      expect(row.variant).toBe('quiet');
+    }
+
+    const kinds = rows.map((row) => row.kind);
 
     expect(kinds).toContain('step');
     expect(kinds).not.toContain('trigger');
+
+    const heading = page.locator('[data-quick-add] .section-label');
+
+    await expect(heading).toHaveText(canvasStrings.quickAdd);
+    await expect(heading).toHaveCSS('text-transform', 'none');
 
     // Nothing is written until one is chosen: the
     // list is the question, not the answer.

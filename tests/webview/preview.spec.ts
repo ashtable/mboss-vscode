@@ -181,7 +181,17 @@ test.describe('the canvas in preview', () => {
   }) => {
     await openCanvas(page);
 
-    await expect(page.locator('[data-preview-headline]')).toHaveText(HEADLINE);
+    const headline = page.locator('[data-preview-headline]');
+
+    await expect(headline).toHaveText(HEADLINE);
+
+    // The system's one section label, in the case it
+    // was written in. Whose proposal this is is said
+    // by the words and by the dashes the blocks are
+    // drawn in, so the line spends no capitals and
+    // no colour saying it again.
+    await expect(headline).toHaveClass(/(^|\s)section-label(\s|$)/);
+    await expect(headline).toHaveCSS('text-transform', 'none');
   });
 
   test('says what it would change, and that nobody placed it', async ({

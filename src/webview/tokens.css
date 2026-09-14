@@ -539,6 +539,238 @@ body.vscode-high-contrast-light {
   background-size: 20px 20px;
 }
 
+/* — components — */
+
+/* What two or more views draw, drawn once. A per-
+   view sheet may position one of these — a margin,
+   an order, where it sits in a grid — and nothing
+   else: a Button that is a different button on the
+   run page is two buttons to learn. */
+
+/* The one thing anybody presses.
+
+   Four looks and no fifth: the thing a surface is
+   asking for, a second choice that still has an
+   edge, everything that has to be there and should
+   not be read first, and the one action that halts a
+   run. A neutral bordered button would be a fifth,
+   and with five nobody can say what any of them
+   means.
+
+   Written out declaration by declaration rather than
+   opened with `all: unset`, which takes the focus
+   ring with it: a control built that way has to put
+   one back by hand, and the one that forgets leaves
+   a keyboard with nowhere to be. What a button would
+   otherwise inherit from the editor is answered
+   here instead. */
+.btn {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  border: 1px solid var(--control-edge);
+  border-radius: var(--r-sm);
+  /* The three has no step of its own: it is what
+     puts a 24px control around one line of this
+     type. */
+  padding: 3px var(--space-2-5);
+  appearance: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-weight: var(--w-semibold);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  /* Nothing centres the label, so in a column of
+     actions every one of them starts at the same
+     edge. */
+  text-align: start;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+/* The bigger step: a row of controls beside a field
+   rather than an action tucked under a card. */
+.btn[data-size='md'] {
+  padding: var(--space-1) var(--space-3);
+}
+
+/* A glyph has no label to set the width, so the box
+   is the target. */
+.btn[data-icon] {
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+}
+
+.btn[data-icon][data-size='md'] {
+  width: 26px;
+  height: 26px;
+}
+
+.btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Its label is machine evidence: an id, a state, the
+   name of the agent that answered. */
+.btn[data-mono] {
+  font-family: var(--font-mono);
+}
+
+/* The content moves, not the box. A button that rose
+   under the finger pressing it is moving away from
+   the person pressing it. */
+.btn:active:not(:disabled) > * {
+  transform: translateY(0.5px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The one thing the surface is asking for. Its
+   ground is named apart from the brand so a theme
+   that has to guarantee contrast can move the fill
+   without moving the colour the product is
+   recognised by. */
+.btn[data-variant='primary'] {
+  border-color: var(--primary-ground);
+  background: var(--primary-ground);
+  color: var(--on-brand);
+}
+
+.btn[data-variant='primary']:hover:not(:disabled) {
+  border-color: var(--brand-hover);
+  background: var(--brand-hover);
+}
+
+/* A second choice that still has an edge. */
+.btn[data-variant='secondary'] {
+  border-color: var(--hairline-strong);
+  background: var(--surface);
+}
+
+/* Has to be there; should not be read first. */
+.btn[data-variant='quiet'] {
+  color: var(--ink-muted);
+}
+
+.btn[data-variant='secondary']:hover:not(:disabled),
+.btn[data-variant='quiet']:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+/* The action that halts a run. Tinted rather than
+   filled: stopping something is never what the panel
+   is asking for. */
+.btn[data-variant='stop'] {
+  background: var(--fail-tint);
+  color: var(--state-ink, var(--fail));
+}
+
+/* The product's own ink, on the two looks that take
+   it. A theme whose voice colours are chosen to sit
+   under a word rather than to be one re-points where
+   this reads. */
+.btn[data-ink='brand'] {
+  color: var(--state-ink, var(--brand));
+}
+
+/* Nothing to send yet: the same element and the same
+   type, drawn as a hole. */
+.btn[data-empty] {
+  background: var(--surface-2);
+  color: var(--ink-faint);
+}
+
+/* The looks the views that have not moved to the
+   component yet still wear, by the class names they
+   wear them by. Each goes with its view. */
+.btn.primary {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--on-brand);
+}
+
+.btn.secondary {
+  border-color: var(--hairline-strong);
+}
+
+.btn.brand {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.btn.quiet {
+  color: var(--ink-muted);
+}
+
+.btn.quiet:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+/* The one thing in this system set in capitals:
+   what a run, a step or a service is doing right
+   now. Capitals are a signal rather than a
+   treatment, so they are spent here and nowhere
+   else — a page of shouting labels is a page with
+   nothing to find in it. The word itself is
+   lowercase data; the shouting is the rule's. */
+.state-word {
+  font-size: var(--text-state);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--state-tracking);
+  text-transform: uppercase;
+}
+
+.state-word[data-tone='muted'] {
+  color: var(--ink-muted);
+}
+.state-word[data-tone='faint'] {
+  color: var(--ink-faint);
+}
+.state-word[data-tone='ok'] {
+  color: var(--state-ink, var(--ok));
+}
+.state-word[data-tone='warn'] {
+  color: var(--state-ink, var(--warn));
+}
+.state-word[data-tone='fail'] {
+  color: var(--state-ink, var(--fail));
+}
+.state-word[data-tone='brand'] {
+  color: var(--state-ink, var(--brand));
+}
+.state-word[data-tone='agent'] {
+  color: var(--state-ink, var(--agent));
+}
+
+/* Still true, and not yet final. */
+.state-word[data-pulse] {
+  animation: sig-pulse var(--dur-pulse) ease-in-out infinite;
+}
+
+/* The label over a group of things: small, a little
+   opened up, and in the case somebody wrote it in.
+   Quieter than `.eyebrow`, which titles a whole
+   card. */
+.section-label {
+  margin: 0;
+  font-weight: var(--w-medium);
+  font-size: var(--text-sm);
+  letter-spacing: var(--label-tracking);
+  color: var(--ink-muted);
+}
+
+.section-label[data-tone='faint'] {
+  color: var(--ink-faint);
+}
+
 /* — text — */
 
 /* The small label the system sets section headers
@@ -558,20 +790,6 @@ body.vscode-high-contrast-light {
   line-height: 1.2;
 }
 
-/* The one thing in this system set in capitals:
-   what a run, a step or a service is doing right
-   now. Capitals are a signal rather than a
-   treatment, so they are spent here and nowhere
-   else — a page of shouting labels is a page with
-   nothing to find in it. The word itself is
-   lowercase data; the shouting is the rule's. */
-.state-word {
-  font-size: var(--text-state);
-  font-weight: var(--w-semibold);
-  letter-spacing: var(--state-tracking);
-  text-transform: uppercase;
-}
-
 /* Machine evidence: ids, types, signatures, SQL,
    diffs. Nothing a person wrote is set in this. */
 .mono {
@@ -579,18 +797,6 @@ body.vscode-high-contrast-light {
 }
 
 .text-muted {
-  color: var(--ink-muted);
-}
-
-/* The label over a group of things, in the small
-   tracked type the system sets every label in.
-   Quieter than `.eyebrow`, which titles a whole
-   card. */
-.section-label {
-  margin: 0;
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: var(--label-tracking);
   color: var(--ink-muted);
 }
 
@@ -665,80 +871,6 @@ body.vscode-high-contrast-light {
 }
 
 /* — controls — */
-
-/* The system's one button. `all: unset` first,
-   because a webview inherits the editor's button
-   styling and half of it is not overridable
-   property by property — and then the outline is
-   put back by hand, since `unset` takes the focus
-   ring with it and a keyboard user would be left
-   with nowhere to be. */
-.btn {
-  all: unset;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  border: 1px solid var(--hairline-strong);
-  border-radius: var(--r-sm);
-  padding: var(--space-1) var(--space-3);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  color: var(--ink);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.btn:focus-visible {
-  outline: 2px solid var(--vscode-focusBorder, var(--brand));
-  outline-offset: 2px;
-}
-
-.btn:hover:not(:disabled) {
-  transform: translateY(var(--lift));
-}
-
-.btn:disabled {
-  border-color: var(--hairline);
-  color: var(--ink-faint);
-  cursor: default;
-  transform: none;
-}
-
-/* The one thing the surface is asking for. */
-.btn.primary {
-  border-color: var(--brand);
-  background: var(--brand);
-  color: var(--on-brand);
-}
-
-/* Everything else with an edge: a way out, a second
-   choice. */
-.btn.secondary {
-  border-color: var(--hairline-strong);
-  background: transparent;
-}
-
-/* The product's own, where the action is about mBoss
-   rather than about the project. */
-.btn.brand {
-  border-color: var(--brand);
-  background: transparent;
-  color: var(--brand);
-}
-
-/* A control that has to be there and should not be
-   read first. */
-.btn.quiet {
-  border-color: transparent;
-  background: transparent;
-  color: var(--ink-muted);
-}
-
-.btn.quiet:hover:not(:disabled) {
-  color: var(--ink);
-}
 
 /* The strip that switches which of two views of one
    thing is on screen. `.tab` is a `.btn` in
