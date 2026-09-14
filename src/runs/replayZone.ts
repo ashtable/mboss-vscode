@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { isAbsolute, join, relative } from 'node:path';
+import { join } from 'node:path';
 
 import {
   compileWorkflow,
@@ -13,6 +13,7 @@ import {
 import type { LibManifest, WorkflowIR, WorkflowNode } from '../core/rules.js';
 import { ownerOf } from '../core/rules.js';
 import { messages } from '../messages.js';
+import { displayPath } from '../paths.js';
 
 import type { OpenManagement } from './db.js';
 import { detailOf } from './failure.js';
@@ -534,28 +535,8 @@ function stackLineOf(
   if (stack.at === 'down') return messages.replayStackDown();
 
   return stack.at === 'stale'
-    ? messages.replayStackStale(inProject(project, stack.newest.path))
+    ? messages.replayStackStale(displayPath(stack.newest.path, project))
     : messages.replayStackUnknown();
-}
-
-/**
- * A file named the way the editor's own tabs name
- * it.
- *
- * The walk answers in absolute paths, because that
- * is what it was handed. A sentence a person reads
- * wants the short form, and anything that turns out
- * to be outside the project keeps the long one
- * rather than being described by a row of `..`.
- */
-function inProject(project: string | undefined, path: string): string {
-  if (project === undefined) return path;
-
-  const inside = relative(project, path);
-
-  return inside === '' || inside.startsWith('..') || isAbsolute(inside)
-    ? path
-    : inside;
 }
 
 function actionsFor(decision: ReplayDecision): ReplayActionOffer[] {
