@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import {
   expect,
@@ -12,8 +11,7 @@ import {
 
 import { DIST } from '../../src/build.js';
 
-import { layoutKeyOf } from '../../src/canvas/placement.js';
-import { GRID, snap } from '../../src/canvas/grid.js';
+import { GRID } from '../../src/canvas/grid.js';
 import {
   NODE_PALETTE,
   WorkflowIRSchema,
@@ -22,7 +20,6 @@ import {
   starterNode,
   validateWorkflow,
   withDecisionCases,
-  type LibManifest,
   type NodeKind,
   type WorkflowIR,
   type WorkflowNode,
@@ -38,13 +35,19 @@ import type {
   ShownRun,
 } from '../../src/webview/protocol.js';
 
+import {
+  boxes,
+  canvasInit,
+  ir,
+  manifest,
+  openCanvas,
+} from './fixtures/canvas.js';
 import { LIBRARY_COLOURS } from './fixtures/library.js';
-import { mount, THEMES_ALL, type ThemeKind } from './harness.js';
+import { mount, THEMES_ALL } from './harness.js';
 import { colourOf, sameColour } from './palette.js';
 import {
   canvasWords as canvasStrings,
   inspectorWords as inspectorStrings,
-  paletteLabels,
 } from './words.js';
 
 /**
@@ -66,73 +69,6 @@ import {
  * where the host is, and by the bundle scan at the
  * bottom of this file.
  */
-
-function fixture(name: string): unknown {
-  return JSON.parse(
-    readFileSync(
-      fileURLToPath(
-        new URL(`../../mboss-core/fixtures/${name}`, import.meta.url),
-      ),
-      'utf8',
-    ),
-  );
-}
-
-const ir = WorkflowIRSchema.parse(fixture('ir/groom_booking.workflow.json'));
-/**
- * The fixture's own layout, on the grid.
- *
- * The engine spaces a graph on numbers of its own,
- * none of them the canvas's, and the host rounds
- * what it computed onto this grid before sending it.
- * A graph arriving any other way is one this canvas
- * never sees — and a block half a square off the
- * grid moves diagonally the first time somebody
- * nudges it.
- */
-const boxes: CanvasInit['boxes'] = Object.fromEntries(
-  Object.entries(
-    fixture('golden/layout/groom_booking.layout.json') as CanvasInit['boxes'],
-  ).map(([id, box]) => [id, { ...box, x: snap(box.x), y: snap(box.y) }]),
-);
-const manifest = fixture('golden/manifest/lib.manifest.json') as LibManifest;
-
-function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
-  const shown = { document: { ok: true, ir } as CanvasInit['document'], boxes };
-  const drawn = { ...shown, ...over };
-
-  return {
-    type: 'init',
-    view: 'canvas',
-    strings: canvasStrings,
-    paletteLabels,
-    ...shown,
-
-    // Worked out the way the host works it out, so a
-    // spec that shows a different graph gets a
-    // different key without having to say so.
-    layoutKey: drawn.document.ok
-      ? layoutKeyOf(drawn.document.ir, drawn.boxes)
-      : '',
-    // Editable exactly when the document parsed and
-    // nothing is proposed, the way the host says it.
-    editing:
-      drawn.document.ok && over.preview === undefined
-        ? { revision: drawn.document.ir.revision }
-        : undefined,
-    diagnostics: validateWorkflow(ir, { manifest }),
-    manifest,
-    inspector: {
-      strings: inspectorStrings,
-      selected: undefined,
-      mode: 'configure',
-    },
-    preview: undefined,
-    run: undefined,
-    decided: {},
-    ...over,
-  };
-}
 
 /**
  * A block of every kind, in a column.
@@ -304,15 +240,6 @@ function showing(
     document: { ok: true, ir: { ...ir, nodes } },
     inspector: { strings: inspectorStrings, selected: nodeId, mode },
   };
-}
-
-/** The graph, on a page, showing the canonical
- *  fixture. */
-async function openCanvas(page: Page, theme: ThemeKind = 'light') {
-  const harness = await mount(page, 'canvas', theme);
-  await harness.show(canvasInit());
-
-  return harness;
 }
 
 /**
@@ -2288,36 +2215,34 @@ test.describe('the Arrange button', () => {
   });
 
   /**
-   * Quiet, and shaped like the rest of the chrome:
-   * laying the graph out again is something a person
-   * does now and then, and a button that shouted
-   * would be competing with the graph it is about.
+   * Quiet, and the system's own button rather than
+   * one this screen drew for itself: laying the
+   * graph out again is something a person does now
+   * and then, and a control shaped by hand here is
+   * one nobody maintains beside the other five
+   * surfaces.
    */
   test('wears the shape of an action nobody needs often', async ({ page }) => {
     await openCanvas(page);
 
-    const arrange = page.locator('[data-arrange]');
+    const arrange = page.locator('.btn[data-variant="quiet"][data-arrange]');
 
-    await expect(arrange).toHaveCSS('border-radius', '6px');
+    await expect(arrange).toHaveCount(1);
     await expect(arrange).toHaveCSS('padding', '3px 10px');
-    await expect(arrange).toHaveCSS('font-weight', '600');
+    await expect(arrange).toHaveCSS('letter-spacing', 'normal');
     await expect(arrange).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-    await expect(arrange).toHaveCSS(
-      'color',
-      'color(srgb 0.231373 0.231373 0.231373 / 0.62)',
+
+    const ink = await arrange.evaluate(
+      (button) => getComputedStyle(button).color,
     );
-    await expect(arrange).toHaveCSS(
-      'transition',
-      'background 0.12s cubic-bezier(0.2, 0, 0, 1)',
-    );
+    const expected = colourOf('light', 'ink-muted');
+
+    expect(sameColour(ink, expected), `${ink} ≠ ${expected}`).toBe(true);
 
     // It takes a ground only under the pointer,
     // which is the whole of its reaction.
     await arrange.hover();
-    await expect(arrange).toHaveCSS(
-      'background-color',
-      'color(srgb 0.928078 0.928078 0.928078)',
-    );
+    await expect(arrange).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   });
 
   /**

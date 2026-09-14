@@ -4,6 +4,7 @@ import type { FileEditEntry, ToolEntry } from '../../src/acp/transcript.js';
 import { WEBVIEW_ENTRIES } from '../../src/build.js';
 import type { SidebarInit } from '../../src/webview/protocol.js';
 
+import { openCanvas } from './fixtures/canvas.js';
 import { painted } from './fixtures/paint.js';
 import { mount, THEMES_ALL } from './harness.js';
 import { colourOf, ROLES, sameColour, type Role } from './palette.js';
@@ -423,4 +424,169 @@ test.describe('the Button every surface presses', () => {
     expect(person?.face).toBe('Albert Sans');
     expect(machine?.face).toBe('Spline Sans Mono');
   });
+});
+
+/**
+ * The strip that switches which of two views of one
+ * thing is on screen.
+ *
+ * Read on the canvas, whose Canvas/JSON toggle is
+ * the first of them: a strip is keyboard behaviour
+ * and a relationship between two elements, and
+ * neither is anything on a page nobody mounted. The
+ * other four strips are the same component, so what
+ * holds here holds for all of them.
+ */
+test.describe('the tab strip every panel is switched with', () => {
+  test('joins each tab to the panel it opens', async ({ page }) => {
+    await openCanvas(page);
+
+    const strip = page.locator('.toolbar [role="tablist"]');
+
+    await expect(strip).toHaveCount(1);
+    await expect(strip.locator('[role="tab"]')).toHaveCount(2);
+
+    const panel = page.locator('[role="tabpanel"]');
+    await expect(panel).toHaveCount(1);
+
+    const named = (await panel.getAttribute('id')) ?? '';
+    expect(named).not.toBe('');
+
+    const on = page.locator('[data-view-toggle="canvas"]');
+
+    await expect(on).toHaveAttribute('aria-selected', 'true');
+    await expect(on).toHaveAttribute('id', `${named}-canvas`);
+    await expect(on).toHaveAttribute('aria-controls', named);
+    await expect(panel).toHaveAttribute('aria-labelledby', `${named}-canvas`);
+
+    // One panel is mounted, so one tab points at it:
+    // a second would name an element that is not on
+    // the page.
+    await expect(page.locator('[data-view-toggle="json"]')).not.toHaveAttribute(
+      'aria-controls',
+    );
+  });
+
+  /**
+   * Arrows walk the strip and Enter is what picks:
+   * a pick repaints the panel, and a strip that
+   * repainted under an arrow key would redraw the
+   * graph four times on the way past it.
+   */
+  test('walks the strip with the arrows and picks with Enter', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    const on = page.locator('[data-view-toggle="canvas"]');
+    const off = page.locator('[data-view-toggle="json"]');
+
+    await on.focus();
+    await page.keyboard.press('ArrowRight');
+
+    await expect(off).toBeFocused();
+    await expect(off).toHaveAttribute('aria-selected', 'false');
+    await expect(page.locator('[data-json-editor]')).toHaveCount(0);
+
+    await page.keyboard.press('Enter');
+
+    await expect(off).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('[data-json-editor]')).toBeVisible();
+  });
+
+  /** Both ends join up, and both ends are one key
+   *  away from anywhere. */
+  test('wraps at either end, and jumps to both', async ({ page }) => {
+    await openCanvas(page);
+
+    const on = page.locator('[data-view-toggle="canvas"]');
+    const off = page.locator('[data-view-toggle="json"]');
+
+    await on.focus();
+    await page.keyboard.press('ArrowLeft');
+    await expect(off).toBeFocused();
+
+    await page.keyboard.press('ArrowRight');
+    await expect(on).toBeFocused();
+
+    await page.keyboard.press('End');
+    await expect(off).toBeFocused();
+
+    await page.keyboard.press('Home');
+    await expect(on).toBeFocused();
+  });
+
+  /**
+   * Furniture, at the step a control is set in. A
+   * tab that shouted would be competing with the
+   * one word on the panel that says what a run is
+   * doing.
+   */
+  test('sets the strip at the step a control is set in', async ({ page }) => {
+    await openCanvas(page);
+
+    const strip = page.locator('.toolbar [role="tablist"]');
+    const on = page.locator('[data-view-toggle="canvas"]');
+
+    await expect(strip).toHaveCSS('column-gap', '16px');
+    await expect(on).toHaveCSS('padding', '6px 1px 7px');
+    await expect(on).toHaveCSS('letter-spacing', 'normal');
+    await expect(on).toHaveCSS('text-transform', 'none');
+    await expect(on).toHaveCSS('transform', 'none');
+
+    // The editor's own size is 13px here, and the
+    // step is a share of it rather than a number.
+    const size = await on.evaluate((tab) =>
+      Number.parseFloat(getComputedStyle(tab).fontSize),
+    );
+    expect(size).toBeCloseTo(12, 1);
+
+    // The underline sits on the strip's own hairline
+    // rather than under it, so the two read as one
+    // line.
+    await expect(on).toHaveCSS('margin-bottom', '-1px');
+    await expect(on).toHaveCSS('border-bottom-width', '2px');
+  });
+
+  /**
+   * Where somebody is, said twice: the weight and a
+   * rule in the product's own colour. Weight alone
+   * is not enough in a high-contrast theme, where
+   * the two inks may be the same one.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`marks the tab somebody is on in ${theme}`, async ({ page }) => {
+      await openCanvas(page, theme);
+
+      const on = page.locator('[data-view-toggle="canvas"]');
+      const off = page.locator('[data-view-toggle="json"]');
+
+      await expect(on).toHaveCSS('font-weight', '600');
+      await expect(off).toHaveCSS('font-weight', '500');
+
+      const read = await page.evaluate(() => {
+        const at = (selector: string) =>
+          getComputedStyle(document.querySelector(selector) as HTMLElement);
+
+        return {
+          rule: at('.toolbar [role="tablist"]').borderBottomColor,
+          width: at('.toolbar [role="tablist"]').borderBottomWidth,
+          underline: at('[data-view-toggle="canvas"]').borderBottomColor,
+          resting: at('[data-view-toggle="json"]').color,
+        };
+      });
+
+      expect(read.width).toBe('1px');
+
+      for (const [what, expected] of [
+        [read.rule, colourOf(theme, 'hairline')],
+        [read.underline, colourOf(theme, 'brand')],
+        [read.resting, colourOf(theme, 'ink-muted')],
+      ] as const) {
+        const same = sameColour(what, expected);
+
+        expect(same, `${what} ≠ ${expected}`).toBe(true);
+      }
+    });
+  }
 });

@@ -771,6 +771,83 @@ body.vscode-high-contrast-light {
   color: var(--ink-faint);
 }
 
+/* The strip that switches which view of one thing is
+   on screen.
+
+   Written out declaration by declaration rather than
+   opened with `all: unset`, for the reason the
+   Button above gives. The strip draws the hairline
+   across itself and the tab somebody is on draws its
+   rule on top of that hairline rather than under it,
+   pulled up by the hairline's own width, so the two
+   read as one line rather than as a strip with a
+   second line beneath it. */
+.tabs {
+  display: flex;
+  column-gap: var(--space-4);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.tab {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: baseline;
+  margin: 0 0 -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  /* The 1px and the 7px have no step of their own:
+     with the rule under it they are what puts the
+     strip at the height the chrome around it is
+     drawn at. */
+  padding: var(--space-1-5) 1px 7px;
+  appearance: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-weight: var(--w-medium);
+  font-size: var(--text-control);
+  line-height: 1.4;
+  color: var(--ink-muted);
+  cursor: pointer;
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--vscode-focusBorder, var(--brand));
+  outline-offset: 2px;
+}
+
+.tab:hover:not([aria-disabled='true']) {
+  color: var(--ink);
+}
+
+.tab[aria-selected='true'] {
+  border-bottom-color: var(--brand);
+  font-weight: var(--w-semibold);
+  color: var(--ink);
+}
+
+/* Refused rather than removed. It keeps its place in
+   the strip and in the arrow order, because a view
+   taken off the page is one nobody can find out
+   about; what it does not keep is the pick. */
+.tab[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* How many things are behind a tab. Set in the mono
+   face because it is counted, not written. */
+.tab-count {
+  margin-inline-start: var(--space-1-5);
+  font-family: var(--font-mono);
+  font-weight: var(--w-regular);
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+.tab[aria-selected='true'] .tab-count {
+  color: var(--state-ink, var(--brand));
+}
+
 /* — text — */
 
 /* The small label the system sets section headers
@@ -871,56 +948,6 @@ body.vscode-high-contrast-light {
 }
 
 /* — controls — */
-
-/* The strip that switches which of two views of one
-   thing is on screen. `.tab` is a `.btn` in
-   everything but shape, and is written out rather
-   than composed because the shape is the whole
-   difference: no border, no radius, and the
-   selected one carries a rule under it. */
-.tabs {
-  display: flex;
-  gap: var(--space-4);
-  border-bottom: 1px solid var(--hairline);
-}
-
-.tab {
-  all: unset;
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin-bottom: -1px;
-  border-bottom: 2px solid transparent;
-  padding: var(--space-2) 0;
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  color: var(--ink-muted);
-  cursor: pointer;
-}
-
-.tab:focus-visible {
-  outline: 2px solid var(--vscode-focusBorder, var(--brand));
-  outline-offset: 2px;
-}
-
-.tab:hover {
-  color: var(--ink);
-}
-
-.tab[aria-selected='true'] {
-  border-bottom-color: var(--brand);
-  color: var(--ink);
-}
-
-/* How many things are behind a tab. Set in the mono
-   face because it is counted, not written. */
-.tab-count {
-  font-family: var(--font-mono);
-  font-weight: 400;
-  color: var(--ink-faint);
-}
 
 /* What a run is doing, wherever a run is named. The
    colour is set by whoever knows the outcome — this

@@ -15,6 +15,7 @@
   "canvasWords": {
     "caption": "Workflow IR — source of truth for orchestration · blocks stay where you put them",
     "unreadable": "This file is not a workflow document.",
+    "views": "Workflow views",
     "canvas": "Canvas",
     "json": "JSON",
     "graph": "graph",

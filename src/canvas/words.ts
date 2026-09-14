@@ -131,6 +131,11 @@ export const canvasWords = once(() => ({
     'Workflow IR — source of truth for orchestration · blocks stay where you put them',
   ),
   unreadable: l10n.t('This file is not a workflow document.'),
+
+  // Names the strip the two below sit in, for
+  // somebody who arrives at it without seeing the
+  // toolbar it is on.
+  views: l10n.t('Workflow views'),
   canvas: l10n.t('Canvas'),
   json: l10n.t('JSON'),
   graph: l10n.t('graph'),

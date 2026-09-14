@@ -51,51 +51,6 @@
   min-width: 0;
 }
 
-.segments {
-  display: flex;
-}
-
-.segment {
-  appearance: none;
-  border: 1px solid var(--hairline);
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-3);
-  cursor: pointer;
-}
-.segment + .segment {
-  border-left: 0;
-}
-.segment[aria-pressed='true'] {
-  background: var(--brand);
-  border-color: var(--brand);
-  color: var(--on-brand);
-}
-
-/* The toolbar's one action. Quiet: laying the graph
-   out again is something a person does now and then,
-   not the thing this screen is for. */
-.action {
-  appearance: none;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink-muted);
-  font: inherit;
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: 3px 10px;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out);
-}
-.action:hover {
-  background: var(--surface-2);
-}
-
 .toolbar .caption {
   margin: 0;
   /* A flex item will not shrink below its own text
@@ -126,6 +81,17 @@
   display: grid;
   grid-template-columns: minmax(0, 204px) minmax(320px, 1fr) minmax(0, 284px);
   min-height: 0;
+}
+
+/* The middle column is the toolbar's panel, so the
+   panel is the grid cell and whatever it holds has
+   to fill it. A grid of one is what stretches a
+   child in both directions; a block would leave the
+   graph as tall as its own content and the board
+   would end halfway down the editor. */
+.workspace > .tabpanel {
+  display: grid;
+  min-width: 0;
 }
 
 .palette {

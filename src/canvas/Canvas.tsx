@@ -32,7 +32,9 @@ import {
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
 import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
+import { Button } from '../webview/signal/Button.js';
 import { SectionLabel } from '../webview/signal/SectionLabel.js';
+import { TabPanel, Tabs } from '../webview/signal/Tabs.js';
 
 import { EditingProvider } from './Editing.js';
 import { Node } from './Node.js';
@@ -105,6 +107,11 @@ const DELETE_KEYS = ['Backspace', 'Delete'];
 
 /** The four that move a block a square at a time. */
 const NUDGE_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+
+/** What the toolbar's two tabs open. Named once,
+ *  because the strip and the panel point at each
+ *  other by this id. */
+const PANE = 'canvas-pane';
 
 export function Canvas(init: CanvasInit) {
   const [showing, setShowing] = useState<'canvas' | 'json'>('canvas');
@@ -322,23 +329,29 @@ function Workspace({
           onCarry={carry}
         />
 
-        {document.ok ? (
-          showing === 'canvas' ? (
-            <Graph
-              init={init}
-              ir={document.ir}
-              carrying={flying}
-              decided={decided}
-            />
+        {/* The panel the toolbar's strip opens. A
+            file that will not parse is inside it
+            too: the tabs are still on screen, so
+            what they point at has to be. */}
+        <TabPanel panel={PANE} active={showing}>
+          {document.ok ? (
+            showing === 'canvas' ? (
+              <Graph
+                init={init}
+                ir={document.ir}
+                carrying={flying}
+                decided={decided}
+              />
+            ) : (
+              <Json ir={document.ir} readOnly={editing === undefined} />
+            )
           ) : (
-            <Json ir={document.ir} readOnly={editing === undefined} />
-          )
-        ) : (
-          <section className="unreadable">
-            <p className="title">{init.strings.unreadable}</p>
-            <p className="mono text-muted">{document.detail}</p>
-          </section>
-        )}
+            <section className="unreadable">
+              <p className="title">{init.strings.unreadable}</p>
+              <p className="mono text-muted">{document.detail}</p>
+            </section>
+          )}
+        </TabPanel>
 
         <Inspector
           strings={init.inspector.strings}
@@ -470,34 +483,37 @@ function Toolbar({
 
   return (
     <header className="toolbar">
-      <div className="segments" role="group">
-        {(['canvas', 'json'] as const).map((view) => (
-          <button
-            key={view}
-            type="button"
-            className="segment"
-            data-view-toggle={view}
-            aria-pressed={showing === view}
-            onClick={() => onShow(view)}
-          >
-            {view === 'canvas' ? init.strings.canvas : init.strings.json}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        items={[
+          {
+            id: 'canvas',
+            label: init.strings.canvas,
+            hook: { 'view-toggle': 'canvas' },
+          },
+          {
+            id: 'json',
+            label: init.strings.json,
+            hook: { 'view-toggle': 'json' },
+          },
+        ]}
+        active={showing}
+        onPick={onShow}
+        label={init.strings.views}
+        panel={PANE}
+      />
 
       <p className="caption text-muted">{init.strings.caption}</p>
 
       {arrangeable === undefined ? null : (
-        <button
-          type="button"
-          className="action"
-          data-arrange
+        <Button
+          variant="quiet"
+          hook={{ arrange: '' }}
           onClick={() =>
             postToHost({ type: 'arrange', baseRevision: arrangeable })
           }
         >
           {init.strings.arrange}
-        </button>
+        </Button>
       )}
 
       {dragging === undefined ? null : (
