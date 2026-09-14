@@ -96,7 +96,7 @@ function drawing(over: Partial<Drawing> = {}): Drawing {
   return {
     labels,
     unassigned: 'unassigned',
-    runningDerived: 'RUNNING · derived',
+    runningDerived: 'Running · derived',
     ...over,
   };
 }
@@ -812,12 +812,12 @@ describe('the line under a block a run is parked at', () => {
     toReactFlow(
       ir,
       boxes,
-      drawing({ run: parked, waitingSince: 'WAITING · since {0}' }),
+      drawing({ run: parked, waitingSince: 'Waiting · since {0}' }),
     ).nodes.find((node) => node.id === id);
 
   it('says when the run stopped there', () => {
     expect(nodeAt('await_reply')?.data.line).toBe(
-      `WAITING · since ${fine(since ?? 0)}`,
+      `Waiting · since ${fine(since ?? 0)}`,
     );
     expect(nodeAt('await_reply')?.data.waiting).toBe(true);
   });

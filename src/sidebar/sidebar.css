@@ -61,8 +61,6 @@ body {
   font-family: var(--font-body);
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   padding: 2px var(--space-2);
   cursor: pointer;
   transition:
@@ -96,8 +94,6 @@ body {
 
 .failure > .eyebrow {
   color: var(--warn);
-  text-transform: none;
-  letter-spacing: 0.02em;
   font-size: var(--font-size);
 }
 
@@ -211,8 +207,6 @@ body {
   flex: none;
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   color: var(--ink-faint);
 }
 
@@ -222,7 +216,7 @@ body {
 
 @media (prefers-reduced-motion: no-preference) {
   .tool[data-status='in_progress'] .tool-status {
-    animation: sig-pulse var(--dur-slow) ease-in-out infinite;
+    animation: sig-pulse var(--dur-pulse) ease-in-out infinite;
   }
 }
 
@@ -242,7 +236,6 @@ body {
   color: var(--ink-muted);
   font-family: var(--font-body);
   font-size: var(--text-xs);
-  letter-spacing: 0.04em;
   padding: 0;
   cursor: pointer;
 }
@@ -272,8 +265,6 @@ body {
   color: var(--ink);
   font-family: var(--font-body);
   font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   padding: var(--space-1) var(--space-2);
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);
@@ -316,8 +307,6 @@ body {
 
 .stat > .new {
   font-family: var(--font-body);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   color: var(--ink-muted);
 }
 
@@ -392,8 +381,6 @@ body {
   color: var(--ink);
   font-family: var(--font-body);
   font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   padding: var(--space-1) var(--space-2);
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);
@@ -444,7 +431,6 @@ body {
   font-family: var(--font-body);
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: 0.04em;
   padding: 0;
   cursor: pointer;
 }
@@ -479,8 +465,6 @@ body {
   color: var(--ink);
   font-family: var(--font-body);
   font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   padding: var(--space-1) var(--space-2);
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);
@@ -606,8 +590,6 @@ body {
 .always {
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
 }
 
 /* — the composer — */
@@ -647,8 +629,6 @@ body {
   font-family: var(--font-body);
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   padding: var(--space-1) var(--space-4);
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);
@@ -699,8 +679,6 @@ body {
   color: var(--ink);
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   padding: var(--space-1) var(--space-3);
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);

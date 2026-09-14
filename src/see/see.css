@@ -168,8 +168,6 @@ body {
 .chip-restored {
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
   color: var(--warn);
 }
 
@@ -332,8 +330,6 @@ body {
 .raw th {
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
   color: color-mix(in srgb, var(--ink) 60%, transparent);
 }
 
@@ -424,7 +420,6 @@ body {
   font-weight: 600;
   font-size: var(--text-xs);
   letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
   color: var(--ink-muted);
 }
 
@@ -529,7 +524,6 @@ body {
   font-weight: 600;
   font-size: var(--text-sm);
   letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
 }
 
 .trace-ops {

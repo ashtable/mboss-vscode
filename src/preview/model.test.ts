@@ -59,7 +59,7 @@ describe('the banner', () => {
    */
   it('says what the design says, for a proposal that only adds', () => {
     expect(bannerFor({ ...NOTHING, nodesAdded: 16, edgesAdded: 18 })).toBe(
-      'PREVIEW CHANGES · +16 nodes +18 edges · deterministic layout — ' +
+      'Preview changes · +16 nodes +18 edges · deterministic layout — ' +
         'the agent sent semantics, never coordinates',
     );
   });
@@ -127,7 +127,7 @@ describe('the line above the graph', () => {
     const preview = canvasPreview(previewOf(proposal, groom));
 
     expect(preview.headline).toBe(
-      'PREVIEW — proposed by claude code · not applied yet',
+      'Preview — proposed by claude code · not applied yet',
     );
   });
 });

@@ -148,7 +148,7 @@ export const canvasWords = once(() => ({
   // is worked out from the rows either side of it
   // rather than read off a row of its own — which
   // is the second half of the sentence.
-  runningDerived: l10n.t('RUNNING · derived'),
+  runningDerived: l10n.t('Running · derived'),
 
   // Under the title of a block the run stopped on,
   // in place of the code behind it. When it parked
@@ -156,7 +156,7 @@ export const canvasWords = once(() => ({
   // absolute moment rather than a count upwards:
   // nothing is happening at that block, and a
   // number climbing beside it would say otherwise.
-  waitingSince: l10n.t('WAITING · since {0}'),
+  waitingSince: l10n.t('Waiting · since {0}'),
 
   // And the other word for a block waiting on the
   // clock, whose only row is the sleep the SDK
@@ -576,7 +576,7 @@ export const inspectorWords = once(() => ({
     branch: {
       title: l10n.t('Branches own no code.'),
       body: l10n.t(
-        'The Lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph.',
+        'The lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph.',
       ),
     },
     // Which record commits with the writes is the

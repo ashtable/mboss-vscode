@@ -1349,7 +1349,7 @@ test.describe('the state a block is in', () => {
 
     const block = nodeBody(page, 'twilio_chat');
 
-    await expect(block).toHaveCSS('animation-duration', '1.6s');
+    await expect(block).toHaveCSS('animation-duration', '2s');
 
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
@@ -4847,27 +4847,47 @@ test.describe('the controls two views share', () => {
     // And the half that fails before the rule
     // exists: a bare button already wears the
     // global focus ring, so the outline alone would
-    // pass against nothing.
-    const tracking = await page.evaluate(() => {
-      const control = document.querySelector('button#bare-tab') as HTMLElement;
-      const probe = document.createElement('span');
+    // pass against nothing. A bare one lays itself
+    // out as an inline block, so this is the rule
+    // speaking and not the browser.
+    await expect(tab).toHaveCSS('display', 'inline-flex');
+  });
 
-      probe.style.letterSpacing =
-        getComputedStyle(control).getPropertyValue('--label-tracking');
-      control.append(probe);
+  /**
+   * A tab is furniture, and furniture is set in the
+   * case it was written in. Capitals and the
+   * tracking that opens them up are spent on what a
+   * run is doing right now, which is the one thing
+   * worth finding across a panel.
+   */
+  test('draws a tab in the case it was written', async ({ page }) => {
+    await openCanvas(page);
 
-      const read = {
-        control: getComputedStyle(control).letterSpacing,
-        system: getComputedStyle(probe).letterSpacing,
-      };
+    await page.evaluate(() => {
+      const tab = document.createElement('button');
+      tab.id = 'quiet-tab';
+      tab.className = 'tab';
+      tab.setAttribute('role', 'tab');
+      tab.textContent = 'Graph';
 
-      probe.remove();
+      const word = document.createElement('span');
+      word.id = 'loud-word';
+      word.className = 'state-word';
+      word.textContent = 'running';
 
-      return read;
+      document.body.prepend(tab, word);
     });
 
-    expect(tracking.system).not.toBe('normal');
-    expect(tracking.control).toBe(tracking.system);
+    const tab = page.locator('button#quiet-tab');
+    await expect(tab).toHaveCSS('text-transform', 'none');
+    await expect(tab).toHaveCSS('letter-spacing', 'normal');
+
+    // The other half of the same rule, so that
+    // "nothing shouts" cannot pass by nothing
+    // carrying the rule at all.
+    const word = page.locator('span#loud-word');
+    await expect(word).toHaveCSS('text-transform', 'uppercase');
+    await expect(word).not.toHaveCSS('letter-spacing', 'normal');
   });
 
   test('draws a derived chip dashed, in the strong hairline', async ({

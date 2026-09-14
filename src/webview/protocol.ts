@@ -173,7 +173,7 @@ export type CanvasInit = {
 };
 
 export type CanvasPreview = {
-  /** `PREVIEW — proposed by claude code · not
+  /** `Preview — proposed by claude code · not
    *  applied yet` */
   headline: string;
 

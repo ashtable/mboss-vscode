@@ -22,8 +22,8 @@
     "lib": "/lib · from manifest",
     "noLib": "No code-behind has been scanned yet.",
     "unassigned": "unassigned",
-    "runningDerived": "RUNNING · derived",
-    "waitingSince": "WAITING · since {0}",
+    "runningDerived": "Running · derived",
+    "waitingSince": "Waiting · since {0}",
     "waitingWakes": "waiting · wakes {0}",
     "queueCounts": "{0} running · {1} queued",
     "derived": "derived",
@@ -305,7 +305,7 @@
     "callouts": {
       "branch": {
         "title": "Branches own no code.",
-        "body": "The Lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph."
+        "body": "The lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph."
       },
       "transaction": {
         "title": "One commit.",

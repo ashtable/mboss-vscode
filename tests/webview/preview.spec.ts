@@ -63,10 +63,10 @@ const boxes = fixture(
   'golden/layout/groom_booking.layout.json',
 ) as CanvasInit['boxes'];
 
-const HEADLINE = 'PREVIEW — proposed by claude code · not applied yet';
+const HEADLINE = 'Preview — proposed by claude code · not applied yet';
 
 const BANNER =
-  'PREVIEW CHANGES · +2 nodes +2 edges · deterministic layout — ' +
+  'Preview changes · +2 nodes +2 edges · deterministic layout — ' +
   'the agent sent semantics, never coordinates';
 
 const WARNING =

@@ -908,7 +908,7 @@ export const messages = {
     ),
   runResumeStartedOlder: (id: string, version: string, latest: string) =>
     l10n.t(
-      'Resuming {0} under version {1}, and your app is running {2}. Replay From Here forks it under the current version instead.',
+      'Resuming {0} under version {1}, and your app is running {2}. Replay from here forks it under the current version instead.',
       id,
       version,
       latest,
@@ -1153,7 +1153,7 @@ export const messages = {
    * so it goes at the top of the canvas itself.
    */
   previewHeadline: (agent: string) =>
-    l10n.t('PREVIEW — proposed by {0} · not applied yet', agent),
+    l10n.t('Preview — proposed by {0} · not applied yet', agent),
 
   /**
    * What a proposal would change, over the sentence
@@ -1167,7 +1167,7 @@ export const messages = {
    */
   previewBanner: (counts: string) =>
     l10n.t(
-      'PREVIEW CHANGES · {0} · deterministic layout — the agent sent semantics, never coordinates',
+      'Preview changes · {0} · deterministic layout — the agent sent semantics, never coordinates',
       counts,
     ),
 
@@ -1204,7 +1204,7 @@ export const messages = {
     ),
 
   previewApplied: (counts: string, revision: number) =>
-    l10n.t('APPLIED · {0} · v{1}', counts, revision),
+    l10n.t('Applied · {0} · v{1}', counts, revision),
 
   previewRefused: (detail: string) =>
     l10n.t('That proposal was not applied: {0}', detail),

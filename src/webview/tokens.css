@@ -101,6 +101,7 @@
   --info: #3ca7e8;
   --on-brand: #ffffff;
 
+  --r-xs: 4px;
   --r-sm: 6px;
   --r-md: 10px;
   --r-lg: 14px;
@@ -135,7 +136,17 @@
   --ease-in-out: cubic-bezier(0.45, 0, 0.2, 1);
   --dur-fast: 120ms;
   --dur-med: 200ms;
-  --dur-slow: 1600ms;
+  --dur-slow: 400ms;
+
+  /* The two periods a loop runs at, apart from the
+     three durations a transition runs for. A loop
+     is read as a rhythm rather than watched to its
+     end, so it is named by what it is doing: a
+     pulse for a word that is still true and not yet
+     final, a breath for something a run is inside
+     right now. */
+  --dur-pulse: 1.2s;
+  --dur-breathe: 2s;
 
   /* Albert Sans for everything a person wrote,
      Spline Sans Mono for everything a machine did:
@@ -155,26 +166,74 @@
   /* Signal's scale is 10–20px. Anchored on the
      editor's own size rather than fixed, so a
      person who set their editor dense gets a dense
-     panel. */
+     panel.
+
+     The floor under the two smallest steps is
+     absolute: the ratios alone put a caption at
+     9.24px in a 12px editor, which is below what
+     this system will draw text at however dense
+     the rest of the panel gets.
+
+     A state word has its own name at the smallest
+     step rather than borrowing the caption's: it
+     is the one thing here sized by what it says
+     rather than by where it sits. */
   --font-size: var(--vscode-font-size, 13px);
-  --text-xs: calc(var(--font-size) * 0.77);
-  --text-sm: calc(var(--font-size) * 0.85);
+  --text-state: max(10px, calc(var(--font-size) * 0.77));
+  --text-xs: max(10px, calc(var(--font-size) * 0.77));
+  --text-sm: max(10px, calc(var(--font-size) * 0.85));
+  /* The step a control is set at: a tab, a property
+     value, a short id. Between a caption and body
+     text, where neither reads right. */
+  --text-control: calc(var(--font-size) * 0.923);
   --text-md: var(--font-size);
   --text-lg: calc(var(--font-size) * 1.23);
   --text-xl: calc(var(--font-size) * 1.54);
 
-  /* Every small uppercase label in the system opens
-     up by the same amount. Uppercase set at the
-     tracking body text is set in reads as a word
+  --w-regular: 400;
+  --w-medium: 500;
+  --w-semibold: 600;
+  --w-bold: 700;
+
+  --leading-tight: 1.25;
+  --leading-body: 1.5;
+
+  /* The two things this system opens up, and
+     nothing else. A section label is tracked
+     because it sits over a group and has to read
+     as a heading. A state word is tracked harder
+     because it is the one thing set in capitals,
+     and capitals at body tracking read as a word
      somebody shouted rather than as a label. */
   --label-tracking: 0.05em;
+  --state-tracking: 0.08em;
 
+  /* The four-point rhythm, and the half steps the
+     small components are drawn on: a chip's
+     padding, the gap inside one line. */
+  --space-0-5: 2px;
   --space-1: 4px;
+  --space-1-5: 6px;
   --space-2: 8px;
+  --space-2-5: 10px;
   --space-3: 12px;
+  --space-3-5: 14px;
   --space-4: 16px;
+  --space-5: 20px;
   --space-6: 24px;
+  --space-7: 28px;
   --space-8: 32px;
+
+  /* The edges that are not there, named so that a
+     theme which draws structure in borders can put
+     them back in one place. A field at rest, a
+     tinted control with no outline of its own, and
+     a row that answers the pointer with a ground
+     rather than with a line: each reserves its edge
+     here and spends nothing on it. */
+  --rest-border: transparent;
+  --control-edge: transparent;
+  --hover-outline: transparent;
 }
 
 /**
@@ -345,8 +404,6 @@ body.vscode-high-contrast-light {
   margin: 0;
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .title {
@@ -354,7 +411,20 @@ body.vscode-high-contrast-light {
   font-weight: 600;
   font-size: var(--text-lg);
   line-height: 1.2;
-  letter-spacing: -0.01em;
+}
+
+/* The one thing in this system set in capitals:
+   what a run, a step or a service is doing right
+   now. Capitals are a signal rather than a
+   treatment, so they are spent here and nowhere
+   else — a page of shouting labels is a page with
+   nothing to find in it. The word itself is
+   lowercase data; the shouting is the rule's. */
+.state-word {
+  font-size: var(--text-state);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--state-tracking);
+  text-transform: uppercase;
 }
 
 /* Machine evidence: ids, types, signatures, SQL,
@@ -368,14 +438,14 @@ body.vscode-high-contrast-light {
 }
 
 /* The label over a group of things, in the small
-   uppercase the system sets every label in. Quieter
-   than `.eyebrow`, which titles a whole card. */
+   tracked type the system sets every label in.
+   Quieter than `.eyebrow`, which titles a whole
+   card. */
 .section-label {
   margin: 0;
   font-weight: 600;
   font-size: var(--text-xs);
   letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
   color: var(--ink-muted);
 }
 
@@ -404,7 +474,6 @@ body.vscode-high-contrast-light {
   font-weight: 600;
   font-size: var(--text-xs);
   letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
   color: var(--ink-muted);
 }
 
@@ -438,7 +507,6 @@ body.vscode-high-contrast-light {
   font-weight: 600;
   line-height: 1.4;
   letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
   color: var(--ink-muted);
   white-space: nowrap;
 }
@@ -472,8 +540,6 @@ body.vscode-high-contrast-light {
   font-family: var(--font-body);
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
   color: var(--ink);
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);
@@ -553,8 +619,6 @@ body.vscode-high-contrast-light {
   font-family: var(--font-body);
   font-weight: 600;
   font-size: var(--text-xs);
-  letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
   color: var(--ink-muted);
   cursor: pointer;
 }
@@ -578,7 +642,6 @@ body.vscode-high-contrast-light {
 .tab-count {
   font-family: var(--font-mono);
   font-weight: 400;
-  letter-spacing: 0;
   color: var(--ink-faint);
 }
 
@@ -593,7 +656,6 @@ body.vscode-high-contrast-light {
   font-weight: 600;
   font-size: var(--text-xs);
   letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
 }
 
 /* — evidence — */
@@ -625,7 +687,6 @@ body.vscode-high-contrast-light {
   font-weight: 600;
   font-size: var(--text-xs);
   letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
   color: var(--ink-muted);
 }
 
@@ -722,7 +783,6 @@ body.vscode-high-contrast-light {
 .evidence-line-name {
   font-size: var(--text-xs);
   letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
   color: var(--ink-muted);
 }
 
@@ -870,7 +930,6 @@ body.vscode-high-contrast-light {
   font-weight: 600;
   font-size: var(--text-xs);
   letter-spacing: var(--label-tracking);
-  text-transform: uppercase;
   color: var(--ink-muted);
 }
 
@@ -948,7 +1007,8 @@ body.vscode-high-contrast-light {
   --glow-tone: var(--ok);
   border-color: transparent;
   box-shadow: var(--glow-ok);
-  animation: sig-breathe var(--dur-slow) var(--ease-in-out) infinite alternate;
+  animation: sig-breathe var(--dur-breathe) var(--ease-in-out) infinite
+    alternate;
 }
 .node[data-state='waiting'] {
   border-color: transparent;
@@ -1081,7 +1141,7 @@ body.vscode-high-contrast-light {
   height: 7px;
   border-radius: 50%;
   background: var(--ok);
-  animation: sig-pulse 1.2s ease-in-out infinite;
+  animation: sig-pulse var(--dur-pulse) ease-in-out infinite;
 }
 
 /* — the block glyph — */
@@ -1174,6 +1234,8 @@ body.vscode-high-contrast-light {
     --dur-fast: 0.01ms;
     --dur-med: 0.01ms;
     --dur-slow: 0.01ms;
+    --dur-pulse: 0.01ms;
+    --dur-breathe: 0.01ms;
   }
 
   *,
