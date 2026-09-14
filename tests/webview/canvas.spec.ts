@@ -1709,7 +1709,7 @@ test.describe('the colour a wire is drawn in', () => {
 
     await expect(wireBody(page, 'e2')).toHaveCSS(
       'stroke',
-      'color(srgb 0.0901961 0.721569 0.564706 / 0.5)',
+      'color(srgb 0.104705 0.67119 0.530448 / 0.613)',
     );
   });
 
@@ -1756,22 +1756,22 @@ const TONE_COLOURS = [
   },
   {
     tone: 'agent',
-    tint: 'color(srgb 0.933725 0.915686 0.975294)',
+    tint: 'color(srgb 0.94149 0.927059 0.974745)',
     ink: 'rgb(149, 103, 255)',
   },
   {
     tone: 'ok',
-    tint: 'color(srgb 0.866667 0.942431 0.923608)',
+    tint: 'color(srgb 0.893137 0.949961 0.935843)',
     ink: 'rgb(23, 184, 144)',
   },
   {
     tone: 'warn',
-    tint: 'color(srgb 0.964314 0.925333 0.868784)',
+    tint: 'color(srgb 0.966078 0.935451 0.89102)',
     ink: 'rgb(233, 162, 59)',
   },
   {
     tone: 'fail',
-    tint: 'color(srgb 0.967843 0.899608 0.904784)',
+    tint: 'color(srgb 0.96902 0.917843 0.921725)',
     ink: 'rgb(238, 93, 104)',
   },
 ] as const;
@@ -3967,7 +3967,7 @@ test.describe('dragging a block onto the canvas', () => {
     // the surface behind it.
     await expect(under).toHaveCSS(
       'background-color',
-      'color(srgb 0.907843 0.915686 0.975294)',
+      'color(srgb 0.920784 0.927059 0.974745)',
     );
     await expect(page.locator('[data-splice-gap="e3"]')).toHaveCSS(
       'background-color',

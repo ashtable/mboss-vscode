@@ -20,6 +20,14 @@ import { THEMES, type ThemeKind } from './harness.js';
  * below for voice — mixing in sRGB the way
  * `color-mix()` does.
  *
+ * The source tables under them are the cascade
+ * written out: what the `body` block says, what the
+ * dark retune changes, and what each high-contrast
+ * theme re-points on top. A theme that declares a
+ * role nowhere has no colour for it, which is a
+ * different answer from a colour of zero alpha and
+ * is why a role can resolve to nothing here.
+ *
  * What it cannot do is say whether its answer is
  * right. That is the agreement check in the gallery
  * spec: it mounts each theme and holds every role
@@ -68,6 +76,10 @@ export const ROLES = {
   'edge-done': '--edge-done',
   'brand-ring': '--brand-ring',
   'grid-dot': '--grid-dot',
+  'brand-hover': '--brand-hover',
+  'primary-ground': '--primary-ground',
+  'selection-ring': '--selection-ring',
+  'state-ink': '--state-ink',
 } as const;
 
 export type Role = keyof typeof ROLES;
@@ -128,41 +140,118 @@ type Mix = {
   readonly over: Role | 'transparent';
 };
 
-const MIXES: Partial<Record<Role, Mix>> = {
+/**
+ * Where a role that is neither chrome nor voice gets
+ * its colour: a mix, the same colour as another
+ * role, the first of these the editor publishes, or
+ * nothing at all.
+ */
+type Source =
+  | Mix
+  | { readonly as: Role }
+  | { readonly published: readonly string[]; readonly or: Role }
+  | 'undeclared';
+
+/** What the `body` block says, which every theme
+ *  starts from. */
+const BASE: Partial<Record<Role, Source>> = {
   'surface-2': { of: 'ink', percent: 6, over: 'surface' },
   'ink-muted': { of: 'ink', percent: 62, over: 'transparent' },
   'ink-soft': { of: 'ink', percent: 82, over: 'transparent' },
   'ink-faint': { of: 'ink', percent: 38, over: 'transparent' },
   hairline: { of: 'ink', percent: 14, over: 'transparent' },
   'hairline-strong': { of: 'ink', percent: 22, over: 'transparent' },
-  'brand-tint': { of: 'brand', percent: 10, over: 'surface' },
+  'brand-tint': { of: 'brand', percent: 8, over: 'surface' },
   'brand-tint-2': { of: 'brand', percent: 14, over: 'surface' },
-  'agent-tint': { of: 'agent', percent: 10, over: 'surface' },
-  'info-tint': { of: 'info', percent: 12, over: 'surface' },
-  'ok-tint': { of: 'ok', percent: 12, over: 'surface' },
-  'warn-tint': { of: 'warn', percent: 14, over: 'surface' },
-  'fail-tint': { of: 'fail', percent: 12, over: 'surface' },
-  'diff-add-bg': { of: 'ok', percent: 14, over: 'surface' },
-  'diff-del-bg': { of: 'fail', percent: 14, over: 'surface' },
+  'agent-tint': { of: 'agent', percent: 8, over: 'surface' },
+  'info-tint': { of: 'info', percent: 9, over: 'surface' },
+  'ok-tint': { of: 'ok', percent: 9, over: 'surface' },
+  'warn-tint': { of: 'warn', percent: 11, over: 'surface' },
+  'fail-tint': { of: 'fail', percent: 9, over: 'surface' },
+  'diff-add-bg': { of: 'ok', percent: 10, over: 'surface' },
+  'diff-del-bg': { of: 'fail', percent: 9, over: 'surface' },
   'surface-ghost': { of: 'surface', percent: 72, over: 'transparent' },
-  'edge-done': { of: 'ok', percent: 50, over: 'transparent' },
+  'edge-done': { of: 'ok', percent: 55, over: 'hairline' },
   'brand-ring': { of: 'brand', percent: 45, over: 'transparent' },
-  'grid-dot': { of: 'ink', percent: 10, over: 'transparent' },
+  'grid-dot': { of: 'ink', percent: 9, over: 'transparent' },
+  'brand-hover': { of: 'brand', percent: 88, over: 'ink' },
+  'primary-ground': { as: 'brand' },
+  'selection-ring': { as: 'brand-ring' },
+  'state-ink': 'undeclared',
 };
 
-/** The two roles a high-contrast theme draws in the
- *  one border colour it publishes, rather than in a
- *  mix of its foreground. */
-const BORDERS = new Set<Role>(['hairline', 'hairline-strong']);
+/** What a dark theme re-mixes: quiet text and
+ *  hairlines carry further on a dark ground, and the
+ *  washes need more colour in them to be seen at
+ *  all. A high-contrast dark theme is not this
+ *  theme and keeps the values above. */
+const DARK: Partial<Record<Role, Source>> = {
+  'ink-soft': { of: 'ink', percent: 84, over: 'transparent' },
+  'ink-faint': { of: 'ink', percent: 45, over: 'transparent' },
+  'hairline-strong': { of: 'ink', percent: 26, over: 'transparent' },
+  'brand-tint': { of: 'brand', percent: 13, over: 'surface' },
+  'brand-tint-2': { of: 'brand', percent: 20, over: 'surface' },
+  'agent-tint': { of: 'agent', percent: 13, over: 'surface' },
+  'info-tint': { of: 'info', percent: 13, over: 'surface' },
+  'ok-tint': { of: 'ok', percent: 13, over: 'surface' },
+  'warn-tint': { of: 'warn', percent: 14, over: 'surface' },
+  'fail-tint': { of: 'fail', percent: 13, over: 'surface' },
+  'diff-add-bg': { of: 'ok', percent: 16, over: 'surface' },
+  'diff-del-bg': { of: 'fail', percent: 16, over: 'surface' },
+  'edge-done': { of: 'ok', percent: 60, over: 'hairline' },
+  'brand-ring': { of: 'brand', percent: 50, over: 'transparent' },
+  'brand-hover': { of: 'brand', percent: 85, over: 'ink' },
+  'grid-dot': { of: 'ink', percent: 8, over: 'transparent' },
+};
+
+/** What both high-contrast themes draw in the
+ *  colours they publish, rather than in a mix of
+ *  their own foreground. */
+const HIGH_CONTRAST: Partial<Record<Role, Source>> = {
+  hairline: { published: ['--vscode-contrastBorder'], or: 'ink' },
+  'hairline-strong': { published: ['--vscode-contrastBorder'], or: 'ink' },
+  'brand-ring': { published: ['--vscode-contrastBorder'], or: 'ink' },
+  'selection-ring': {
+    published: ['--vscode-contrastActiveBorder', '--vscode-focusBorder'],
+    or: 'ink',
+  },
+  'ink-muted': { as: 'ink' },
+  'ink-faint': { as: 'ink' },
+  'edge-done': { as: 'ok' },
+};
+
+/** And what the light one re-points on top: state
+ *  is carried in the ink there, and the primary
+ *  ground is the editor's own button. */
+const HIGH_CONTRAST_LIGHT: Partial<Record<Role, Source>> = {
+  'state-ink': { as: 'ink' },
+  'edge-done': { as: 'ink' },
+  'primary-ground': { published: ['--vscode-button-background'], or: 'ink' },
+  'brand-hover': { as: 'primary-ground' },
+};
+
+/** The cascade, resolved: each theme's own layers
+ *  laid over the base in the order the stylesheet
+ *  declares them. */
+const SOURCES: Record<ThemeKind, Partial<Record<Role, Source>>> = {
+  light: BASE,
+  dark: { ...BASE, ...DARK },
+  'high-contrast': { ...BASE, ...HIGH_CONTRAST },
+  'high-contrast-light': { ...BASE, ...HIGH_CONTRAST, ...HIGH_CONTRAST_LIGHT },
+};
 
 type Rgba = { r: number; g: number; b: number; a: number };
 
 const CLEAR: Rgba = { r: 0, g: 0, b: 0, a: 0 };
 
 /** What `theme` paints `role`, in the shape a
- *  computed style is read back in. */
+ *  computed style is read back in, and the empty
+ *  string where the theme declares the role
+ *  nowhere. */
 export function colourOf(theme: ThemeKind, role: Role): string {
-  return format(resolve(theme, role));
+  const colour = resolve(theme, role);
+
+  return colour === undefined ? '' : format(colour);
 }
 
 /**
@@ -173,8 +262,17 @@ export function colourOf(theme: ThemeKind, role: Role): string {
  * nor a person would type, so the comparison is
  * numeric and the tolerance is the smallest step a
  * channel can actually show.
+ *
+ * Nothing is a colour of its own: a role a theme
+ * never declared matches only the same absence, so
+ * a token that quietly appears is a failure rather
+ * than a colour that happens to be close.
  */
 export function sameColour(one: string, other: string): boolean {
+  if (one.trim() === '' || other.trim() === '') {
+    return one.trim() === other.trim();
+  }
+
   const left = parse(one);
   const right = parse(other);
 
@@ -190,7 +288,7 @@ function near(one: number, other: number): boolean {
   return Math.abs(one - other) <= 1;
 }
 
-function resolve(theme: ThemeKind, role: Role): Rgba {
+function resolve(theme: ThemeKind, role: Role): Rgba | undefined {
   const chrome = CHROME[role];
 
   if (chrome !== undefined) {
@@ -203,37 +301,58 @@ function resolve(theme: ThemeKind, role: Role): Rgba {
     return parse(voice);
   }
 
-  if (BORDERS.has(role) && highContrast(theme)) {
-    return parse(published(theme, '--vscode-contrastBorder'));
-  }
+  const source = SOURCES[theme][role];
 
-  const mix = MIXES[role];
-
-  if (mix === undefined) {
+  if (source === undefined) {
     throw new Error(`no source for ${role}`);
   }
 
+  if (source === 'undeclared') {
+    return undefined;
+  }
+
+  if ('as' in source) {
+    return resolve(theme, source.as);
+  }
+
+  if ('published' in source) {
+    const value = source.published
+      .map((name) => THEMES[theme][name])
+      .find((candidate) => candidate !== undefined);
+
+    return value === undefined ? resolve(theme, source.or) : parse(value);
+  }
+
   return blend(
-    resolve(theme, mix.of),
-    mix.over === 'transparent' ? CLEAR : resolve(theme, mix.over),
-    mix.percent,
+    need(theme, source.of),
+    source.over === 'transparent' ? CLEAR : need(theme, source.over),
+    source.percent,
   );
 }
 
-/**
- * A high-contrast light theme reads the dark voice
- * today: the rule that lifts the six colours is
- * written for the class every high-contrast theme
- * carries, and that theme carries it too. Stated
- * here because this file has to expect what the
- * token layer paints rather than what it should.
- */
-function voiceOf(theme: ThemeKind): Partial<Record<Role, string>> {
-  return theme === 'light' ? VOICE_LIGHT : VOICE_DARK;
+/** A role a mix is made from, which every theme has
+ *  to have a colour for: mixing into nothing is a
+ *  hole in the table above rather than a value. */
+function need(theme: ThemeKind, role: Role): Rgba {
+  const colour = resolve(theme, role);
+
+  if (colour === undefined) {
+    throw new Error(`${theme} declares no ${role} to mix from`);
+  }
+
+  return colour;
 }
 
-function highContrast(theme: ThemeKind): boolean {
-  return theme === 'high-contrast' || theme === 'high-contrast-light';
+/**
+ * A high-contrast light theme is a light theme
+ * wearing both high-contrast classes, so the six
+ * colours it reads are the light ones. Only the two
+ * dark appearances lift them.
+ */
+function voiceOf(theme: ThemeKind): Partial<Record<Role, string>> {
+  return theme === 'dark' || theme === 'high-contrast'
+    ? VOICE_DARK
+    : VOICE_LIGHT;
 }
 
 function published(theme: ThemeKind, variable: string): string {

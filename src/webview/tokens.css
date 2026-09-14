@@ -265,28 +265,56 @@ body {
   --hairline: color-mix(in srgb, var(--ink) 14%, transparent);
   --hairline-strong: color-mix(in srgb, var(--ink) 22%, transparent);
 
-  --brand-tint: color-mix(in srgb, var(--brand) 10%, var(--surface));
+  /* The washes. A tint is a ground for text set in
+     the ink, so it is a whisper of the colour and
+     not a swatch of it: what it says is which of
+     the six this row is about, and everything on it
+     still has to read. */
+  --brand-tint: color-mix(in srgb, var(--brand) 8%, var(--surface));
   /* The same tint with enough in it to hold a glyph
-     drawn in `--brand`. The 10% mix is a background
+     drawn in `--brand`. The 8% mix is a background
      for text set in the ink; a brand glyph on it
      has almost nothing to sit against. */
   --brand-tint-2: color-mix(in srgb, var(--brand) 14%, var(--surface));
-  --agent-tint: color-mix(in srgb, var(--agent) 10%, var(--surface));
-  --info-tint: color-mix(in srgb, var(--info) 12%, var(--surface));
-  --ok-tint: color-mix(in srgb, var(--ok) 12%, var(--surface));
-  --warn-tint: color-mix(in srgb, var(--warn) 14%, var(--surface));
-  --fail-tint: color-mix(in srgb, var(--fail) 12%, var(--surface));
-  --diff-add-bg: color-mix(in srgb, var(--ok) 14%, var(--surface));
-  --diff-del-bg: color-mix(in srgb, var(--fail) 14%, var(--surface));
+  --agent-tint: color-mix(in srgb, var(--agent) 8%, var(--surface));
+  --info-tint: color-mix(in srgb, var(--info) 9%, var(--surface));
+  --ok-tint: color-mix(in srgb, var(--ok) 9%, var(--surface));
+  /* Amber over a light ground is the weakest of the
+     six, so it is mixed a little stronger to land
+     at the same weight as the rest. */
+  --warn-tint: color-mix(in srgb, var(--warn) 11%, var(--surface));
+  --fail-tint: color-mix(in srgb, var(--fail) 9%, var(--surface));
+  --diff-add-bg: color-mix(in srgb, var(--ok) 10%, var(--surface));
+  --diff-del-bg: color-mix(in srgb, var(--fail) 9%, var(--surface));
   --surface-ghost: color-mix(in srgb, var(--surface) 72%, transparent);
-  --edge-done: color-mix(in srgb, var(--ok) 50%, transparent);
+  /* A finished edge is a hairline that went green,
+     so it is mixed into the hairline rather than
+     faded towards nothing: a wire that thinned as
+     it completed would read as one losing its way
+     rather than as one that arrived. */
+  --edge-done: color-mix(in srgb, var(--ok) 55%, var(--hairline));
   /* A ring drawn on its own, with nothing else
      under it to carry the colour — the picker's
      assigned row and the match ring around a block.
      Thirty per cent was too faint to find either
      one at a glance. */
   --brand-ring: color-mix(in srgb, var(--brand) 45%, transparent);
-  --grid-dot: color-mix(in srgb, var(--ink) 10%, transparent);
+  /* The same line, named for what it means: a theme
+     that draws structure in borders re-points this
+     at the colour it marks the thing being acted on
+     in, and every picked row follows without
+     knowing which theme it is in. */
+  --selection-ring: var(--brand-ring);
+  --grid-dot: color-mix(in srgb, var(--ink) 9%, transparent);
+
+  /* The ground a primary control is filled with and
+     the step it darkens by under a pointer. Named
+     apart from `--brand` because a theme that
+     guarantees contrast has to be able to move the
+     fill without moving the colour the product is
+     recognised by. */
+  --primary-ground: var(--brand);
+  --brand-hover: color-mix(in srgb, var(--brand) 88%, var(--ink));
 
   /* Selection is a ring, not a fill: the thing
      selected still has to read as what it is. The
@@ -321,6 +349,13 @@ body {
   font-family: var(--font-body);
   font-size: var(--text-md);
   line-height: 1.55;
+
+  /* The parts the browser draws rather than this
+     extension — a select's popup, a spinner, a
+     scrollbar — are painted for whichever scheme
+     the page claims, and a panel that claims none
+     gets light ones inside a dark editor. */
+  color-scheme: light;
 }
 
 /* The same six colours, lifted for a dark ground,
@@ -335,9 +370,15 @@ body {
    deliberately not among them: a view docked in the
    activity bar re-points it at the side bar's own
    ground, and a rule keyed on a theme class would
-   outrank that. */
+   outrank that.
+
+   A high-contrast light theme wears both
+   high-contrast classes, so it is excluded by name:
+   it is a light appearance, and lifting the six
+   colours for it would put the dark voice on a
+   white ground. */
 body.vscode-dark,
-body.vscode-high-contrast {
+body.vscode-high-contrast:not(.vscode-high-contrast-light) {
   --surface: var(--vscode-editorWidget-background, #1b1e26);
   --ink: var(--vscode-foreground, #e7e9f0);
 
@@ -351,16 +392,90 @@ body.vscode-high-contrast {
   --elev-1: 0 1px 2px rgb(0 0 0 / 30%);
   --elev-2: 0 1px 3px rgb(0 0 0 / 35%), 0 4px 12px rgb(0 0 0 / 40%);
   --elev-3: 0 2px 6px rgb(0 0 0 / 40%), 0 12px 32px rgb(0 0 0 / 50%);
+
+  color-scheme: dark;
+}
+
+/* A dark ground is not a light one turned down.
+   Quiet ink disappears into it at the share that
+   reads as quiet on white, a hairline needs more of
+   the foreground to be a line at all, and a wash
+   needs more colour in it before it is a colour.
+   These are the mixes the system is drawn with in
+   the dark, re-declared in the same scope so they
+   resolve against the dark sources above.
+
+   High contrast is excluded: it draws structure in
+   the colours it publishes rather than in shares of
+   its own foreground, so a retune of those shares
+   has nothing to say there. */
+body.vscode-dark:not(.vscode-high-contrast) {
+  --ink-soft: color-mix(in srgb, var(--ink) 84%, transparent);
+  --ink-faint: color-mix(in srgb, var(--ink) 45%, transparent);
+  --hairline-strong: color-mix(in srgb, var(--ink) 26%, transparent);
+  --diff-add-bg: color-mix(in srgb, var(--ok) 16%, var(--surface));
+  --diff-del-bg: color-mix(in srgb, var(--fail) 16%, var(--surface));
+  --edge-done: color-mix(in srgb, var(--ok) 60%, var(--hairline));
+  --brand-ring: color-mix(in srgb, var(--brand) 50%, transparent);
+  --brand-hover: color-mix(in srgb, var(--brand) 85%, var(--ink));
+  --brand-tint: color-mix(in srgb, var(--brand) 13%, var(--surface));
+  --brand-tint-2: color-mix(in srgb, var(--brand) 20%, var(--surface));
+  --agent-tint: color-mix(in srgb, var(--agent) 13%, var(--surface));
+  --ok-tint: color-mix(in srgb, var(--ok) 13%, var(--surface));
+  --warn-tint: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  --fail-tint: color-mix(in srgb, var(--fail) 13%, var(--surface));
+  --info-tint: color-mix(in srgb, var(--info) 13%, var(--surface));
+  --grid-dot: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
 /* High-contrast themes draw structure with borders
-   rather than with fills, and publish the one
-   colour they draw them in. A mix of the foreground
-   is not that colour. */
-body.vscode-high-contrast,
-body.vscode-high-contrast-light {
+   rather than with fills, and publish the colours
+   they draw them in. A mix of the foreground is not
+   those colours, so every edge this system reserves
+   is re-pointed at them here — and the two quiet
+   inks stop being quiet, because a contrast-tuned
+   theme has one foreground and means it.
+
+   One block for both appearances: what changes
+   between them is the voice, which is settled
+   above, not the structure. */
+body.vscode-high-contrast {
   --hairline: var(--vscode-contrastBorder, var(--ink));
   --hairline-strong: var(--vscode-contrastBorder, var(--ink));
+  --rest-border: var(--vscode-contrastBorder, var(--ink));
+  --control-edge: var(--vscode-contrastBorder, var(--ink));
+  --selection-ring: var(
+    --vscode-contrastActiveBorder,
+    var(--vscode-focusBorder, var(--ink))
+  );
+  --hover-outline: var(
+    --vscode-contrastActiveBorder,
+    var(--vscode-focusBorder, var(--ink))
+  );
+  --brand-ring: var(--vscode-contrastBorder, var(--ink));
+  --ink-muted: var(--ink);
+  --ink-faint: var(--ink);
+  --edge-done: var(--ok);
+}
+
+/* And what the light one takes back. Its voice is
+   the light palette, which is chosen to sit on
+   white as a fill and not as a word: green on white
+   is barely two and a half to one. So state-toned
+   text reads the ink here instead, a finished edge
+   is drawn in it rather than in a green quieter
+   than the pending edge beside it, and a primary
+   button borrows the ground the editor itself
+   publishes so a white label on it still reads.
+
+   It comes after the block above, at the same
+   weight, which is what lets it re-point what that
+   block set. */
+body.vscode-high-contrast-light {
+  --state-ink: var(--ink);
+  --edge-done: var(--ink);
+  --primary-ground: var(--vscode-button-background, var(--ink));
+  --brand-hover: var(--primary-ground);
 }
 
 :focus {

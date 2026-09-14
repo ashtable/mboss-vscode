@@ -296,7 +296,7 @@ async function showRun(page: Page, init: SeeInit): Promise<Harness> {
 const WARN = 'rgb(233, 162, 59)';
 
 /** The tint of it a whole surface is washed in. */
-const WARN_TINT = 'color(srgb 0.964314 0.925333 0.868784)';
+const WARN_TINT = 'color(srgb 0.966078 0.935451 0.89102)';
 
 function tagColour(page: Page, runId: string): Promise<string> {
   return page

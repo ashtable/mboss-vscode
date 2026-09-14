@@ -1,7 +1,8 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
 import type { GalleryCard, GalleryInit } from '../../src/webview/protocol.js';
 
+import { painted } from './fixtures/paint.js';
 import { mount, THEMES, THEMES_ALL } from './harness.js';
 import { colourOf, ROLES, sameColour, type Role } from './palette.js';
 import { galleryWords as galleryStrings, paletteLabels } from './words.js';
@@ -238,30 +239,6 @@ test.describe('the gallery', () => {
  * own sheet as well as for the theme.
  */
 test.describe('the theme the editor publishes', () => {
-  /** What each role resolves to on the page, read
-   *  through a probe: a custom property computes to
-   *  its own tokens, so a mix is only worked out
-   *  where something actually paints with it. */
-  async function painted(
-    page: Page,
-    variables: readonly string[],
-  ): Promise<string[]> {
-    return page.evaluate((names) => {
-      const probe = document.createElement('span');
-      document.body.append(probe);
-
-      const read = names.map((name) => {
-        probe.style.color = `var(${name})`;
-
-        return getComputedStyle(probe).color;
-      });
-
-      probe.remove();
-
-      return read;
-    }, variables);
-  }
-
   for (const theme of THEMES_ALL) {
     test(`stamps what VS Code stamps for ${theme}`, async ({ page }) => {
       await mount(page, 'gallery', theme);

@@ -34,6 +34,14 @@ const THEME = /vscode-(?:dark|light|high-contrast)(?!\w)/;
 /** A control, as the subject of a rule. */
 const CONTROL = /(^|[\s,>+~])(button|\.btn|\.tab)(?![\w-])/;
 
+/** Every custom property one value reads. */
+const READS = /var\(\s*(--[\w-]+)/g;
+
+/** A body wearing nothing but theme classes, named
+ *  or ruled out. One appearance can only be told
+ *  from another it also wears by excluding it. */
+const THEMED = /^body(\.vscode-[\w-]+|:not\(\.vscode-[\w-]+\))+$/;
+
 const TOKENS = 'src/webview/tokens.css';
 
 /** The two tracked labels, and no tracking at all. */
@@ -114,7 +122,23 @@ function declarationsOf(body: string): Declaration[] {
  * change is allowed to reach.
  */
 function isSource(selector: string): boolean {
-  return /^(:root|body\.vscode-[\w-]+(, body\.vscode-[\w-]+)*)$/.test(selector);
+  return selector
+    .split(',')
+    .every((one) => one.trim() === ':root' || THEMED.test(one.trim()));
+}
+
+/**
+ * A rule the body itself carries: the block a theme
+ * is chosen by, its per-theme twins, and a view's
+ * own re-points. A rule that only reaches through
+ * the body to something inside it is not one.
+ */
+function isBody(selector: string): boolean {
+  return selector.split(',').every((one) => /^body[^\s>+~]*$/.test(one.trim()));
+}
+
+function reads(value: string): string[] {
+  return [...value.matchAll(READS)].flatMap((found) => found[1] ?? []);
 }
 
 /** The text of every `style=` prop in one file. */
@@ -260,6 +284,49 @@ describe('the stylesheets this extension ships', () => {
     ).toEqual([]);
     expect(
       where(tracked.filter((rule) => CONTROL.test(rule.selector))),
+    ).toEqual([]);
+  });
+
+  /**
+   * A custom property is worked out where it is
+   * written, and the classes a theme is chosen by
+   * are on the body — one element below the root.
+   * So a value worked out on the root is worked out
+   * from the light sources and then inherits down
+   * already wrong: white cards on a dark panel.
+   * Every derived value belongs on the body, and
+   * the root is left holding only what no theme
+   * moves.
+   */
+  it('work out no value on the root that a theme re-points', () => {
+    const roots = rules.filter((rule) => rule.selector === ':root');
+    const themed = new Set(
+      rules
+        .filter((rule) => isBody(rule.selector))
+        .flatMap((rule) => declarationsOf(rule.body))
+        .map((declaration) => declaration.name)
+        .filter((name) => name.startsWith('--')),
+    );
+
+    expect(roots).not.toEqual([]);
+    expect(themed.size).toBeGreaterThan(0);
+
+    const written = roots.flatMap((rule) =>
+      declarationsOf(rule.body).map((declaration) => ({ rule, declaration })),
+    );
+
+    expect(
+      written
+        .filter(({ declaration }) => declaration.value.includes('color-mix('))
+        .map(({ rule, declaration }) => `${rule.sheet} ${declaration.name}`),
+    ).toEqual([]);
+
+    expect(
+      written.flatMap(({ rule, declaration }) =>
+        reads(declaration.value)
+          .filter((name) => themed.has(name))
+          .map((name) => `${rule.sheet} ${declaration.name} reads ${name}`),
+      ),
     ).toEqual([]);
   });
 

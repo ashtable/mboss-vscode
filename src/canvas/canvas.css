@@ -456,8 +456,12 @@ button.lib-fn {
   font-size: var(--text-xs);
 }
 
+/* The ring role rather than a share of the brand:
+   a theme that draws structure in borders re-points
+   that role at the colour it publishes, and the
+   proposal's dash stays visible there. */
 .preview-node {
-  border: 1px dashed color-mix(in srgb, var(--brand) 60%, transparent);
+  border: 1px dashed var(--brand-ring);
   padding: 0 var(--space-1);
 }
 
