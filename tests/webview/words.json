@@ -36,7 +36,10 @@
       "failed": "failed",
       "waiting": "waiting",
       "quiet": "quiet",
-      "cancelled": "cancelled"
+      "cancelled": "cancelled",
+      "recovering": "recovering",
+      "queued": "queued",
+      "gaveUp": "gave up"
     },
     "blockDragging": "{0} · dragging",
     "spliceHere": "splice here",
