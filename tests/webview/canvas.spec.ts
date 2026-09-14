@@ -29,6 +29,7 @@ import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
 import type { LiveRun, LiveStep, QueueCounts } from '../../src/runs/watch.js';
 import { liveStep } from '../../src/test-support/runs.js';
 import { filled } from '../../src/webview/fill.js';
+import { shortRunId } from '../../src/webview/ids.js';
 import type {
   CanvasInit,
   InspectorMode,
@@ -594,6 +595,43 @@ test.describe('the graph', () => {
       'none',
     );
   });
+
+  /**
+   * What a keyboard on this board is told is this
+   * product's, in the language the editor is running
+   * in. The graph library describes its own keyboard
+   * otherwise — in English, and in terms of a press
+   * that selects and an escape that calls a deletion
+   * off, neither of which this board has.
+   *
+   * Read off the elements the blocks and wires
+   * actually point at rather than off what was
+   * passed in: the library keeps two node
+   * descriptions and picks between them by a flag,
+   * so a sentence sent under the other key would be
+   * a sentence nobody hears.
+   */
+  test('tells a keyboard about this board and not the library’s', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    const said = async (from: Locator): Promise<string> => {
+      const named = await from.getAttribute('aria-describedby');
+
+      expect(named).not.toBeNull();
+
+      return page.locator(`#${named ?? ''}`).innerText();
+    };
+
+    expect(
+      await said(page.locator('.react-flow__node[data-id="find_slot"]')),
+    ).toBe(canvasStrings.ariaLabels['node.a11yDescription.default']);
+
+    expect(await said(page.locator('.react-flow__edge[data-id="e2"]'))).toBe(
+      canvasStrings.ariaLabels['edge.a11yDescription.default'],
+    );
+  });
 });
 
 /**
@@ -751,8 +789,8 @@ test.describe('one block', () => {
   }) => {
     await openEveryKind(page);
 
-    await expect(nodeLine(page, 'step')).toHaveText('Step · unassigned');
-    await expect(nodeLine(page, 'branch')).toHaveText('Branch · unassigned');
+    await expect(nodeLine(page, 'step')).toHaveText('step · unassigned');
+    await expect(nodeLine(page, 'branch')).toHaveText('branch · unassigned');
   });
 
   test('says only what a block that runs no code of its own is', async ({
@@ -760,8 +798,19 @@ test.describe('one block', () => {
   }) => {
     await openEveryKind(page);
 
-    await expect(nodeLine(page, 'trigger')).toHaveText('Trigger');
-    await expect(nodeLine(page, 'loop')).toHaveText('Loop');
+    await expect(nodeLine(page, 'loop')).toHaveText('loop');
+    await expect(nodeLine(page, 'durable_wait')).toHaveText('durable wait');
+  });
+
+  /** Except a trigger, whose kind is not the thing
+   *  worth reading about it: how the run gets
+   *  started is. */
+  test('says how a trigger starts a run', async ({ page }) => {
+    await openEveryKind(page);
+
+    await expect(nodeLine(page, 'trigger')).toHaveText(
+      `${canvasStrings.kinds.trigger} · ${canvasStrings.triggerPhrases.manual}`,
+    );
   });
 
   /**
@@ -1458,16 +1507,49 @@ test.describe('the mark a run leaves on a block', () => {
     await expect(mark).toHaveCSS('animation-name', 'none');
   });
 
-  /** The dot is worked out from the ledger rather
-   *  than read off it, and every derived thing in
-   *  this extension says so. */
-  test('says the running dot is derived, not recorded', async ({ page }) => {
+  /**
+   * Two of the marks on this board were worked out
+   * rather than read off a row — the dot where the
+   * run is, which is derived from the rows either
+   * side of it, and the trigger's tick, which is
+   * read off there being a run at all. Neither has
+   * room for a word, so each carries the admission
+   * in its title and says it to a screen reader
+   * besides. A derived mark somebody takes for a
+   * recorded one is the whole failure mode of a
+   * flight recorder.
+   */
+  test('says which marks it worked out rather than read', async ({ page }) => {
     await openAtRest(page, { run: runOf(IN_FLIGHT) });
 
-    await expect(runMark(page, 'twilio_chat')).toHaveAttribute(
-      'title',
+    const ahead = runMark(page, 'twilio_chat');
+
+    await expect(ahead).toHaveAttribute('data-run', 'running');
+    await expect(ahead).toHaveAttribute('data-provenance', 'derived');
+    await expect(ahead).toHaveAttribute('title', canvasStrings.runningDerived);
+    await expect(ahead).toHaveAccessibleDescription(
       canvasStrings.runningDerived,
     );
+
+    const started = runMark(page, 'booking_requested');
+
+    await expect(started).toHaveAttribute('data-run', 'done');
+    await expect(started).toHaveAttribute('data-provenance', 'derived');
+    await expect(started).toHaveAttribute('title', canvasStrings.derived);
+    await expect(started).toHaveAccessibleDescription(canvasStrings.derived);
+  });
+
+  /** And a mark that came off a row says nothing
+   *  about itself, which is what tells a reader the
+   *  two apart. */
+  test('leaves a recorded mark claiming nothing', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    const recorded = runMark(page, 'find_slot');
+
+    await expect(recorded).toHaveText('✓');
+    await expect(recorded).not.toHaveAttribute('data-provenance');
+    await expect(recorded).not.toHaveAttribute('title');
   });
 
   /** The mark is the run's, so a canvas nobody is
@@ -1481,6 +1563,34 @@ test.describe('the mark a run leaves on a block', () => {
     await openAtRest(page);
 
     await expect(runMark(page, 'find_slot')).toHaveCount(0);
+  });
+
+  /**
+   * And a block somebody clicked keeps the mark it
+   * earned. The halo is what a click paints, so a
+   * block that lost its tick the moment it was asked
+   * about would answer the one gesture that should
+   * add to what it says by taking something away.
+   */
+  test('keeps the mark under the halo of a block picked', async ({ page }) => {
+    await openAtRest(page, {
+      run: runOf(IN_FLIGHT),
+      inspector: {
+        strings: inspectorStrings,
+        selected: 'find_slot',
+        mode: 'configure',
+      },
+    });
+
+    await expect(nodeBody(page, 'find_slot')).toHaveAttribute(
+      'data-state',
+      'selected',
+    );
+
+    const mark = runMark(page, 'find_slot');
+
+    await expect(mark).toHaveAttribute('data-run', 'done');
+    await expect(mark).toHaveText('✓');
   });
 
   /**
@@ -1583,7 +1693,9 @@ test.describe('the mark a run leaves on a block', () => {
     const line = nodeLine(page, 'queue');
 
     await expect(line).toHaveAttribute('data-line', 'unassigned');
-    await expect(line).toHaveText(`Queue · ${canvasStrings.unassigned}`);
+    await expect(line).toHaveText(
+      `${canvasStrings.kinds.queue} · ${canvasStrings.unassigned}`,
+    );
     await expect(runMark(page, 'queue')).toHaveText('✓');
   });
 });
@@ -1596,44 +1708,56 @@ test.describe('the mark a run leaves on a block', () => {
  * It says which run and where it has got to, and
  * nothing about how long ago anything happened: the
  * canvas keeps no clock, and a chip that counted
- * would be one.
+ * would be one. The workflow is not named either —
+ * the canvas the chip sits on is that workflow.
  */
 test.describe('the followed run on the toolbar', () => {
   test('names the run this canvas is following', async ({ page }) => {
     await openAtRest(page, { run: runOf(PARKED, 'waiting') });
 
-    await expect(page.locator('.following')).toHaveText(
-      filled(
-        canvasStrings.following,
-        ir.name,
-        'wf_1',
+    await expect(page.locator('[data-following]')).toHaveText(
+      `${canvasStrings.followingRun} ${shortRunId('wf_1')} · ` +
         canvasStrings.runOutcomes.waiting,
-      ),
     );
   });
 
-  /** The end of it, because the ids this window
-   *  mints open with a timestamp — two runs a minute
-   *  apart share their first fifteen characters. */
-  test('shows the end of a long run id, and the whole of it beside', async ({
-    page,
-  }) => {
+  /**
+   * A few characters of it, with the whole of one
+   * beside: four collide about once in fifty rows,
+   * and a reader holding two of them has to be able
+   * to tell which is which.
+   */
+  test('shows a run by the few characters it is known by', async ({ page }) => {
     const workflowId = 'run_1757232000000_a1b2c3d4';
 
     await openAtRest(page, {
       run: { ...runOf(IN_FLIGHT), workflowId },
     });
 
-    const chip = page.locator('.following');
+    const id = page.locator('[data-following] [data-short-run]');
 
-    await expect(chip).toContainText('…a1b2c3d4');
-    await expect(chip).toHaveAttribute('title', workflowId);
+    await expect(id).toHaveText(shortRunId(workflowId));
+    await expect(id).toHaveAttribute('title', workflowId);
+  });
+
+  /** And it is the way from here to the run itself,
+   *  now that the card beside the graph is about one
+   *  block rather than the whole run. */
+  test('opens the run it names', async ({ page }) => {
+    const harness = await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    await page.locator('[data-following]').click();
+
+    expect(await harness.posted()).toContainEqual({
+      type: 'openRun',
+      workflowId: 'wf_1',
+    });
   });
 
   test('says nothing on a canvas following no run', async ({ page }) => {
     await openAtRest(page);
 
-    await expect(page.locator('.following')).toHaveCount(0);
+    await expect(page.locator('[data-following]')).toHaveCount(0);
   });
 });
 

@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import type { FileEditEntry, ToolEntry } from '../../src/acp/transcript.js';
 import { WEBVIEW_ENTRIES } from '../../src/build.js';
 import type { CanvasInit, SidebarInit } from '../../src/webview/protocol.js';
+import { glyphOf, type GlyphState } from '../../src/webview/states.js';
 
 import { canvasInit, openCanvas } from './fixtures/canvas.js';
 import { painted } from './fixtures/paint.js';
@@ -357,6 +358,72 @@ test.describe('the tokens every view is painted from', () => {
  * the parts of that shape no single view's spec can
  * ask about, because no single view draws all of it.
  */
+/**
+ * What each state paints, in each appearance.
+ *
+ * The tone is read out of the one table every
+ * surface says a state with rather than typed again
+ * here, so what is being asked is what the token
+ * layer makes of that token — and in particular
+ * whether the one appearance whose voice is
+ * unreadable as text lifts every state to its own
+ * ink instead. Green on white is barely two and a
+ * half to one.
+ *
+ * What this cannot answer is whether the component
+ * writes this style. The spec beside the component
+ * answers that.
+ */
+async function toned(
+  page: Page,
+  states: readonly GlyphState[],
+): Promise<string[]> {
+  return page.evaluate(
+    (asked) =>
+      asked.map((tone) => {
+        const glyph = document.createElement('span');
+
+        glyph.className = 'status-glyph';
+        glyph.dataset.glyph = 'mark';
+        glyph.style.color = `var(--state-ink, var(${tone}))`;
+        document.body.append(glyph);
+
+        const painted = getComputedStyle(glyph).color;
+        glyph.remove();
+
+        return painted;
+      }),
+    states.map((state) => glyphOf(state).tone),
+  );
+}
+
+test.describe('the glyph every state is drawn as', () => {
+  /** One state per tone the table has. */
+  const STATES: readonly GlyphState[] = ['done', 'waiting', 'failed', 'queued'];
+
+  for (const theme of THEMES_ALL) {
+    test(`says each state in its own voice in ${theme}`, async ({ page }) => {
+      await mount(page, 'gallery', theme);
+
+      const painted = await toned(page, STATES);
+      const lifted = colourOf(theme, 'state-ink');
+
+      expect(painted).toHaveLength(STATES.length);
+
+      for (const [at, state] of STATES.entries()) {
+        const role = glyphOf(state).tone.slice(2) as Role;
+        const expected = lifted === '' ? colourOf(theme, role) : lifted;
+        const actual = painted[at] ?? '';
+
+        expect(
+          sameColour(actual, expected),
+          `${state} in ${theme}: ${actual} ≠ ${expected}`,
+        ).toBe(true);
+      }
+    });
+  }
+});
+
 test.describe('the Button every surface presses', () => {
   /**
    * Quiet without the brand takes the quiet ink,

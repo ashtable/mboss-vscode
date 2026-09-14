@@ -53,6 +53,7 @@ import { misfitNote } from './misfit.js';
 import {
   canvasWords,
   inspectorWords,
+  kindWords,
   misfitWords,
   paletteLabels,
 } from './words.js';
@@ -504,6 +505,8 @@ export class CanvasSession {
       view: 'canvas',
       strings: canvasWords(),
       paletteLabels: paletteLabels(),
+      kindWords: kindWords(),
+      triggerPhrases: canvasWords().triggerPhrases,
       document: this.read,
 
       // Said once. Every gesture the panel sends

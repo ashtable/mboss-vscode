@@ -116,6 +116,8 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     paletteLabels: Object.fromEntries(
       NODE_PALETTE.map((entry) => [entry.kind, entry.label]),
     ) as CanvasInit['paletteLabels'],
+    kindWords: canvasStrings.kinds,
+    triggerPhrases: canvasStrings.triggerPhrases,
     document: { ok: true, ir },
     boxes,
     layoutKey: layoutKeyOf(ir, boxes),

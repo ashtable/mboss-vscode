@@ -175,12 +175,11 @@
 /* Which run this canvas is drawing itself against,
    at the far end of the toolbar beside the two
    other things that are true of the moment rather
-   than of the file. Nothing is timed here: the run
-   moves, and a chip that counted would need a clock
-   the canvas does not keep. */
-.following {
-  margin: 0 0 0 auto;
-  font-size: var(--text-xs);
+   than of the file. Where it sits is all this says:
+   the chip is a Button, and what a Button looks like
+   is not a per-view decision. */
+[data-following] {
+  margin-left: auto;
   white-space: nowrap;
 }
 

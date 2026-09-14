@@ -788,7 +788,8 @@ function RunGraph({
       graph === undefined
         ? undefined
         : toReactFlow(graph.ir, graph.boxes, {
-            labels: graph.labels,
+            kindWords: graph.kindWords,
+            triggerPhrases: graph.triggerPhrases,
             unassigned: graph.unassigned,
             runningDerived: strings.derived,
             queueCounts: graph.queueCounts,

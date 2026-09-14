@@ -1,8 +1,8 @@
 import {
-  paletteLabels,
   canvasWords,
   durationWords,
   inspectorWords,
+  kindWords,
 } from '../canvas/words.js';
 import { replayBoundaries, type Unoffered } from '../core/index.js';
 import { ownerOf, type NodeBox, type WorkflowIR } from '../core/rules.js';
@@ -351,7 +351,8 @@ function graphOf(
   return {
     ir,
     boxes,
-    labels: paletteLabels(),
+    kindWords: kindWords(),
+    triggerPhrases: canvasWords().triggerPhrases,
     unassigned: canvasWords().unassigned,
     queueCounts: canvasWords().queueCounts,
     caption: messages.runGraphCaption(ir.revision),

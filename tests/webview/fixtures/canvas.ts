@@ -77,6 +77,8 @@ export function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     view: 'canvas',
     strings: canvasWords,
     paletteLabels,
+    kindWords: canvasWords.kinds,
+    triggerPhrases: canvasWords.triggerPhrases,
     ...shown,
 
     // Worked out the way the host works it out, so a

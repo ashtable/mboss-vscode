@@ -47,6 +47,7 @@ export function RunNode({ data }: NodeProps<CanvasNode>) {
         counts={data.counts}
         lineTitle={data.lineTitle}
         state={data.state}
+        run={data.run}
         runTitle={data.runTitle}
       />
 

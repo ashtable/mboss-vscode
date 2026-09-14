@@ -22,6 +22,24 @@
     "blocks": "blocks",
     "lib": "lib · from manifest",
     "noLib": "No code-behind has been scanned yet.",
+    "kinds": {
+      "trigger": "trigger",
+      "step": "step",
+      "transaction": "transaction",
+      "apiCall": "api call",
+      "codeStep": "code step",
+      "queue": "queue",
+      "branch": "branch",
+      "loop": "loop",
+      "durableWait": "durable wait",
+      "approval": "approval",
+      "emailSend": "email send"
+    },
+    "triggerPhrases": {
+      "manual": "on request",
+      "event": "on event · {0}",
+      "schedule": "on a schedule"
+    },
     "unassigned": "unassigned",
     "runningDerived": "Running · derived",
     "waitingSince": "Waiting · since {0}",
@@ -31,7 +49,7 @@
     "typedWiring": "Typed wiring",
     "arrange": "Arrange",
     "libFnDragging": "dragging {0}…",
-    "following": "{0} · {1} · {2}",
+    "followingRun": "run",
     "runOutcomes": {
       "running": "running",
       "done": "done",
@@ -51,6 +69,12 @@
     "snapped": "{0} — snapped",
     "releaseToConnect": "{0} → {1} ✓ · release to connect",
     "quickAdd": "Put a block here",
+    "ariaLabels": {
+      "node.a11yDescription.default": "Arrow keys move this block. Delete removes it.",
+      "node.a11yDescription.keyboardDisabled": "Arrow keys move this block. Delete removes it.",
+      "edge.a11yDescription.default": "Delete removes this wire.",
+      "handle.ariaLabel": "Drag to wire this block to another."
+    },
     "misfits": {
       "no-handler-kind": "this block runs no code of its own",
       "external-call": "calls {0} at line {1}, needs a step",

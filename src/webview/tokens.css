@@ -1672,6 +1672,77 @@ button.lib-fn {
   animation: sig-pulse var(--dur-pulse) ease-in-out infinite;
 }
 
+/* — the shared status glyph — */
+
+/* One state in three amounts of room. The tone
+   arrives on the element, out of the one table every
+   surface says a state with, so each shape below
+   paints itself in whatever that state's voice is —
+   and high contrast lifts all of them to its own ink
+   through the same fallback every other toned rule
+   reads. */
+.status-glyph {
+  flex: none;
+  line-height: 1;
+}
+
+/* Where a character fits. */
+.status-glyph[data-glyph='mark'] {
+  display: inline-block;
+  width: 1em;
+  text-align: center;
+  font-size: var(--text-sm);
+  font-variant-emoji: text;
+}
+
+/* And where nothing does. */
+.status-glyph[data-glyph='dot'] {
+  box-sizing: border-box;
+  display: inline-block;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+/* Nothing has happened here yet, and a filled glyph
+   is how this system says something has. */
+.status-glyph[data-glyph='dot'][data-hollow] {
+  border: 1.5px solid currentColor;
+  background: transparent;
+}
+
+/* Down the side of a row whose whole width is the
+   thing being toned, where a glyph would be a second
+   mark on something already marked. */
+.status-glyph[data-glyph='rail'] {
+  align-self: stretch;
+  width: var(--rail-w);
+  background: currentColor;
+}
+
+.status-glyph[data-pulse] {
+  animation: sig-pulse var(--dur-pulse) ease-in-out infinite;
+}
+
+.status-glyph[data-breathe] {
+  animation: sig-breathe var(--dur-breathe) var(--ease-in-out) infinite
+    alternate;
+}
+
+/* The same state with its word and whatever follows
+   it. One line and never two: a state word that
+   wrapped away from its detail reads as two states.
+   In the machine face, because a state is what a
+   ledger recorded rather than something anybody
+   wrote. */
+.status-line {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
 /* — the block glyph — */
 
 /* One inline mark: a run's state, an outcome, a

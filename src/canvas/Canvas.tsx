@@ -31,7 +31,13 @@ import {
 } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
-import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
+import { shortRunId } from '../webview/ids.js';
+import type {
+  CanvasInit,
+  CanvasPreview,
+  CanvasStrings,
+  ShownRun,
+} from '../webview/protocol.js';
 import { Button } from '../webview/signal/Button.js';
 import { SectionLabel } from '../webview/signal/SectionLabel.js';
 import { TabPanel, Tabs } from '../webview/signal/Tabs.js';
@@ -454,7 +460,8 @@ function inFlight(
       kind: carried.kind,
       title: block.title,
       line: lineOf(block, {
-        labels: init.paletteLabels,
+        kindWords: init.kindWords,
+        triggerPhrases: init.triggerPhrases,
         unassigned: init.strings.unassigned,
       }),
       wanting: wantsHandler(block),
@@ -523,14 +530,7 @@ function Toolbar({
       )}
 
       {init.run === undefined ? null : (
-        <p className="following mono text-muted" title={init.run.workflowId}>
-          {filled(
-            init.strings.following,
-            init.run.workflow,
-            shortRunId(init.run.workflowId),
-            init.strings.runOutcomes[init.run.outcome],
-          )}
-        </p>
+        <Following run={init.run} strings={init.strings} />
       )}
 
       {init.preview === undefined ? null : (
@@ -543,21 +543,44 @@ function Toolbar({
 }
 
 /**
- * How much of a run's id the chip shows.
+ * The run this canvas is drawing itself against, at
+ * the far end of the toolbar.
  *
- * Its end rather than its head: the ids this window
- * mints open with a timestamp, so two runs a minute
- * apart share their first fifteen characters and a
- * head would name neither of them. The whole of it
- * is on the chip itself for anybody who needs to
- * read it.
+ * A button rather than a line, because it is also
+ * the way from here to the run itself: the card
+ * beside the graph says what one block recorded, and
+ * the whole run is a page. Nothing here is timed —
+ * the run moves, and a chip that counted would need
+ * a clock the canvas does not keep.
+ *
+ * The short id is drawn in a span of its own
+ * carrying the whole of it, because four characters
+ * collide about once in fifty and a reader holding
+ * two of them has to be able to tell which is which.
  */
-const RUN_ID_SHOWN = 8;
-
-function shortRunId(workflowId: string): string {
-  return workflowId.length <= RUN_ID_SHOWN
-    ? workflowId
-    : `…${workflowId.slice(-RUN_ID_SHOWN)}`;
+function Following({
+  run,
+  strings,
+}: {
+  run: ShownRun;
+  strings: CanvasStrings;
+}) {
+  return (
+    <Button
+      variant="quiet"
+      mono
+      hook={{ following: '' }}
+      onClick={() =>
+        postToHost({ type: 'openRun', workflowId: run.workflowId })
+      }
+    >
+      {strings.followingRun}{' '}
+      <span data-short-run={run.workflowId} title={run.workflowId}>
+        {shortRunId(run.workflowId)}
+      </span>
+      {` · ${strings.runOutcomes[run.outcome]}`}
+    </Button>
+  );
 }
 
 function Graph({
@@ -596,7 +619,8 @@ function Graph({
   const drawn = useMemo(
     () =>
       toReactFlow(ir, init.boxes, {
-        labels: init.paletteLabels,
+        kindWords: init.kindWords,
+        triggerPhrases: init.triggerPhrases,
         unassigned: init.strings.unassigned,
         runningDerived: init.strings.runningDerived,
         waitingSince: init.strings.waitingSince,
@@ -611,7 +635,8 @@ function Graph({
     [
       ir,
       init.boxes,
-      init.paletteLabels,
+      init.kindWords,
+      init.triggerPhrases,
       init.strings.unassigned,
       init.strings.runningDerived,
       init.strings.waitingSince,
@@ -953,6 +978,13 @@ function Graph({
             nodesDraggable={editable}
             nodesConnectable={editable}
             elementsSelectable={editable}
+            // The library describes its own keyboard
+            // to a screen reader, in English, in
+            // terms of gestures this board does not
+            // have. These are the same sentences
+            // about what it does have, in whatever
+            // language the editor is running in.
+            ariaLabelConfig={init.strings.ariaLabels}
             fitView
             proOptions={{ hideAttribution: true }}
             isValidConnection={allow}

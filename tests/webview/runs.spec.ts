@@ -13,13 +13,13 @@ import type {
 
 import { GRID } from '../../src/canvas/grid.js';
 import { liveRun, liveStep } from '../../src/test-support/runs.js';
-
-import { paletteLabels } from './words.js';
+import { filled } from '../../src/webview/fill.js';
 
 import { LIBRARY_COLOURS } from './fixtures/library.js';
 import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
 import { colourOf, sameColour, type Role } from './palette.js';
 import {
+  canvasWords,
   inspectorWords as inspectorStrings,
   runsWords as runsStrings,
   seeWords as seeStrings,
@@ -2259,7 +2259,7 @@ test.describe('one run, as a graph', () => {
     await showRun(page, seeInit(seeRun({ graph: GRAPH }), 'graph'));
     await graphAtRest(page);
 
-    await expect(page.locator('[data-run-node]')).toHaveCount(2);
+    await expect(page.locator('[data-run-node]')).toHaveCount(3);
     await expect(
       page.locator('[data-run-node="parse_request"]'),
     ).toHaveAttribute('data-state', 'done');
@@ -2280,6 +2280,37 @@ test.describe('one run, as a graph', () => {
     await expect(page.locator('[data-run-node]')).toHaveCount(0);
     await expect(page.locator('[data-graph-caption]')).toHaveText(
       NO_SAVED_WORKFLOW,
+    );
+  });
+
+  /**
+   * A trigger writes no row of its own — it compiles
+   * into the way the workflow is started rather than
+   * into a durable operation — so the run itself is
+   * the evidence that it fired. Left grey it would
+   * be the one block on a page about a run claiming
+   * nothing happened at it.
+   */
+  test('draws the trigger of a run that exists as done', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(seeRun({ graph: RUNNING_GRAPH, live: RUNNING }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    const blocks = page.locator('[data-run-node]');
+
+    await expect(blocks).toHaveCount(7);
+    await expect(blocks.first()).toHaveAttribute(
+      'data-run-node',
+      'booking_requested',
+    );
+    await expect(blocks.first()).toHaveAttribute('data-state', 'done');
+    await expect(blocks.first().locator('.node-line')).toHaveText(
+      `${canvasWords.kinds.trigger} · ${filled(
+        canvasWords.triggerPhrases.event,
+        'booking.requested',
+      )}`,
     );
   });
 
@@ -2419,9 +2450,9 @@ test.describe('one run, as a graph', () => {
     const block = page.locator('[data-run-node="parse_request"]');
     const ports = page.locator('.react-flow__handle');
 
-    // Two blocks, each with the two the library
+    // Three blocks, each with the two the library
     // routes its wires between.
-    await expect(ports).toHaveCount(4);
+    await expect(ports).toHaveCount(6);
 
     for (const port of await ports.all()) {
       await expect(port).toHaveCSS('opacity', '0');
@@ -2582,9 +2613,17 @@ test.describe('one run, as a graph', () => {
 
       if (role === undefined) throw new Error(`no wire state: ${state}`);
 
+      // The one wire whose state was just read, and
+      // not simply the first on the page: the graph
+      // draws several, in several states, and reading
+      // one against another's role would hold a
+      // failure to the colour a finished wire is
+      // drawn in.
       const painted = await page.evaluate(() => {
         const port = document.querySelector('.react-flow__handle-bottom');
-        const wire = document.querySelector('.react-flow__edge .wire');
+        const wire = document.querySelector(
+          '.react-flow__edge[data-id="e1"] .wire',
+        );
 
         if (port === null || wire === null) return undefined;
 
@@ -2834,6 +2873,14 @@ const GRAPH: SeeGraph = {
     revision: 4,
     name: 'groom_booking',
     nodes: [
+      // Every saved workflow has one, and it is the
+      // block the page draws first.
+      {
+        id: 'booking_requested',
+        kind: 'trigger',
+        title: 'Booking requested',
+        config: { mode: 'manual' },
+      },
       { id: 'parse_request', kind: 'step', title: 'Parse', config: {} },
       {
         id: 'find_slot',
@@ -2848,6 +2895,11 @@ const GRAPH: SeeGraph = {
     ],
     edges: [
       {
+        id: 'e0',
+        from: { node: 'booking_requested', port: 'out' },
+        to: { node: 'parse_request' },
+      },
+      {
         id: 'e1',
         from: { node: 'parse_request', port: 'out' },
         to: { node: 'find_slot' },
@@ -2855,10 +2907,12 @@ const GRAPH: SeeGraph = {
     ],
   } as unknown as SeeGraph['ir'],
   boxes: {
+    booking_requested: { x: 0, y: -160, w: 230, h: 64 },
     parse_request: { x: 0, y: 0, w: 230, h: 64 },
     find_slot: { x: 0, y: 160, w: 230, h: 64 },
   },
-  labels: paletteLabels,
+  kindWords: canvasWords.kinds,
+  triggerPhrases: canvasWords.triggerPhrases,
   unassigned: 'unassigned',
   queueCounts: '{0} running · {1} queued',
   caption: 'workflow as saved · revision 4',
@@ -2869,11 +2923,12 @@ const GRAPH: SeeGraph = {
  * The same run, still going, on a workflow that
  * branches.
  *
- * Four things are true of it at once and each is
- * drawn differently: one block finished, one threw,
- * one is parked on a person, and one is where the
- * run is *now* — which the ledger does not record
- * and the page therefore works out.
+ * Five things are true of it at once and each is
+ * drawn differently: the trigger fired, one block
+ * finished, one threw, one is parked on a person,
+ * and one is where the run is *now* — which the
+ * ledger does not record and the page therefore
+ * works out.
  */
 const RUNNING_GRAPH: SeeGraph = {
   ir: {
@@ -2882,6 +2937,12 @@ const RUNNING_GRAPH: SeeGraph = {
     revision: 4,
     name: 'groom_booking',
     nodes: [
+      {
+        id: 'booking_requested',
+        kind: 'trigger',
+        title: 'Booking requested',
+        config: { mode: 'event', topic: 'booking.requested' },
+      },
       { id: 'parse_request', kind: 'step', title: 'Parse', config: {} },
       { id: 'find_slot', kind: 'step', title: 'Find a slot', config: {} },
       {
@@ -2908,6 +2969,11 @@ const RUNNING_GRAPH: SeeGraph = {
       { id: 'refund_it', kind: 'step', title: 'Refund it', config: {} },
     ],
     edges: [
+      {
+        id: 'e0',
+        from: { node: 'booking_requested', port: 'out' },
+        to: { node: 'parse_request' },
+      },
       {
         id: 'e1',
         from: { node: 'parse_request', port: 'out' },
@@ -2936,6 +3002,7 @@ const RUNNING_GRAPH: SeeGraph = {
     ],
   } as unknown as SeeGraph['ir'],
   boxes: {
+    booking_requested: { x: 0, y: -160, w: 230, h: 64 },
     parse_request: { x: 0, y: 0, w: 230, h: 64 },
     find_slot: { x: 0, y: 160, w: 230, h: 64 },
     await_reply: { x: 0, y: 320, w: 230, h: 64 },
@@ -2943,7 +3010,8 @@ const RUNNING_GRAPH: SeeGraph = {
     charge_it: { x: -160, y: 640, w: 230, h: 64 },
     refund_it: { x: 160, y: 640, w: 230, h: 64 },
   },
-  labels: paletteLabels,
+  kindWords: canvasWords.kinds,
+  triggerPhrases: canvasWords.triggerPhrases,
   unassigned: 'unassigned',
   queueCounts: '{0} running · {1} queued',
   caption: 'workflow as saved · revision 4',
@@ -3023,7 +3091,8 @@ const QUEUED_GRAPH: SeeGraph = {
     document_arrived: { x: 0, y: 0, w: 230, h: 64 },
     index_pages: { x: 0, y: 160, w: 230, h: 64 },
   },
-  labels: paletteLabels,
+  kindWords: canvasWords.kinds,
+  triggerPhrases: canvasWords.triggerPhrases,
   unassigned: 'unassigned',
   queueCounts: '{0} running · {1} queued',
   caption: 'workflow as saved · revision 4',

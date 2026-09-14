@@ -85,6 +85,14 @@ export type CanvasInit = {
    *  the active locale. */
   paletteLabels: Record<NodeKind, string>;
 
+  /** The same eleven as a line says them, inside a
+   *  sentence. */
+  kindWords: Record<NodeKind, string>;
+
+  /** How a run gets started, one phrase per way a
+   *  trigger can be set to. */
+  triggerPhrases: CanvasStrings['triggerPhrases'];
+
   document: CanvasDocument;
 
   /**
@@ -817,7 +825,13 @@ export type SeeGraph = {
 
   boxes: Record<string, NodeBox>;
 
-  labels: Record<NodeKind, string>;
+  /** What each kind is called inside a line, in the
+   *  active locale. */
+  kindWords: Record<NodeKind, string>;
+
+  /** How a run gets started, one phrase per way a
+   *  trigger can be set to. */
+  triggerPhrases: CanvasStrings['triggerPhrases'];
 
   /** The word after the kind of a block that runs
    *  code nobody has named yet. */

@@ -56,6 +56,32 @@ export const paletteLabels = once((): Record<NodeKind, string> => ({
 }));
 
 /**
+ * What a kind is called inside a sentence.
+ *
+ * Its own strings rather than the labels above put
+ * through `toLowerCase`: that call is the locale's
+ * business and not this file's, and in English alone
+ * it would turn "API call" into "api call" — which
+ * is right here and would be wrong on a label. A
+ * test holds the two tables to each other in the
+ * English source, which is the one language this
+ * repository writes.
+ */
+export const kindWords = once((): Record<NodeKind, string> => ({
+  trigger: l10n.t('trigger'),
+  step: l10n.t('step'),
+  transaction: l10n.t('transaction'),
+  apiCall: l10n.t('api call'),
+  codeStep: l10n.t('code step'),
+  queue: l10n.t('queue'),
+  branch: l10n.t('branch'),
+  loop: l10n.t('loop'),
+  durableWait: l10n.t('durable wait'),
+  approval: l10n.t('approval'),
+  emailSend: l10n.t('email send'),
+}));
+
+/**
  * Why a function cannot sit behind a block, per
  * the reason core gives.
  *
@@ -143,7 +169,20 @@ export const canvasWords = once(() => ({
   lib: l10n.t('lib · from manifest'),
   noLib: l10n.t('No code-behind has been scanned yet.'),
 
-  // Follows the kind — `Step · unassigned` —
+  kinds: kindWords(),
+
+  // How a trigger starts a run, said under it. Read
+  // off each trigger's own configuration, because a
+  // draft may hold several and they need not agree —
+  // which is why the topic rides in the phrase
+  // rather than being a word of its own.
+  triggerPhrases: {
+    manual: l10n.t('on request'),
+    event: l10n.t('on event · {0}'),
+    schedule: l10n.t('on a schedule'),
+  },
+
+  // Follows the kind — `step · unassigned` —
   // rather than standing alone, which is why it
   // is lowercase and why it is one word.
   unassigned: l10n.t('unassigned'),
@@ -198,14 +237,13 @@ export const canvasWords = once(() => ({
   // while a chip is on its way to a block.
   libFnDragging: l10n.t('dragging {0}…'),
 
-  // At the far end of the toolbar while this window
-  // is following a run of the workflow on screen:
-  // which workflow, which run, and where it has got
-  // to. The run carries no label of its own because
-  // the ids this window mints already open with the
-  // word, and the whole of one is on the chip
-  // itself for anybody who needs to read it.
-  following: l10n.t('{0} · {1} · {2}'),
+  // Opens the chip at the far end of the toolbar
+  // while this window is following a run of the
+  // workflow on screen, before the run's short id
+  // and the word for where it has got to. The
+  // workflow is not named: the canvas the chip sits
+  // on is that workflow.
+  followingRun: l10n.t('run'),
 
   // Where a run or a step has got to, in the one
   // vocabulary every panel says it in: the keys are
@@ -281,8 +319,40 @@ export const canvasWords = once(() => ({
   // rather than that some of it is missing.
   quickAdd: l10n.t('Put a block here'),
 
+  ariaLabels: boardLabels(),
+
   misfits: misfitWords(),
 }));
+
+/**
+ * What a screen reader is told about the board,
+ * where the graph library would otherwise speak for
+ * itself.
+ *
+ * It says, in English, that enter selects a block
+ * and escape calls a deletion off — neither of which
+ * this board does. Only a screen reader ever reaches
+ * these, which is exactly why they cannot be left in
+ * a language nobody chose saying things that are not
+ * true. The keys are the library's own.
+ *
+ * Both node descriptions are the same sentence: the
+ * library picks between them by whether its own
+ * keyboard handling is on, this board has it on for
+ * the arrow-key nudge, and two different sentences
+ * about one board is what a reader would then be
+ * told depending on a flag they cannot see.
+ */
+function boardLabels(): Record<string, string> {
+  const block = l10n.t('Arrow keys move this block. Delete removes it.');
+
+  return {
+    'node.a11yDescription.default': block,
+    'node.a11yDescription.keyboardDisabled': block,
+    'edge.a11yDescription.default': l10n.t('Delete removes this wire.'),
+    'handle.ariaLabel': l10n.t('Drag to wire this block to another.'),
+  };
+}
 
 /**
  * Everything the third column says, kept apart
