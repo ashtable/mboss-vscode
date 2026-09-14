@@ -618,11 +618,19 @@ body.vscode-high-contrast-light {
 /* The content moves, not the box. A button that rose
    under the finger pressing it is moving away from
    the person pressing it. */
-.btn:active:not(:disabled) > * {
+.btn:active:not(:disabled, [aria-disabled='true']) > * {
   transform: translateY(0.5px);
 }
 
-.btn:disabled {
+/* Switched off and refused are drawn the same way.
+   A Button with a reason to give keeps the native
+   attribute off so a keyboard can land on it and
+   read the reason, which leaves the browser drawing
+   it as a control that answers — and one that
+   lights up under the pointer and then ignores the
+   press is worse than one nobody could reach. */
+.btn:disabled,
+.btn[aria-disabled='true'] {
   opacity: 0.45;
   cursor: default;
 }
@@ -638,7 +646,7 @@ body.vscode-high-contrast-light {
   color: var(--on-brand);
 }
 
-.btn[data-variant='primary']:hover:not(:disabled) {
+.btn[data-variant='primary']:hover:not(:disabled, [aria-disabled='true']) {
   border-color: var(--brand-hover);
   background: var(--brand-hover);
 }
@@ -654,8 +662,8 @@ body.vscode-high-contrast-light {
   color: var(--ink-muted);
 }
 
-.btn[data-variant='secondary']:hover:not(:disabled),
-.btn[data-variant='quiet']:hover:not(:disabled) {
+.btn[data-variant='secondary']:hover:not(:disabled, [aria-disabled='true']),
+.btn[data-variant='quiet']:hover:not(:disabled, [aria-disabled='true']) {
   background: var(--surface-2);
 }
 
@@ -704,7 +712,7 @@ body.vscode-high-contrast-light {
   color: var(--ink-muted);
 }
 
-.btn.quiet:hover:not(:disabled) {
+.btn.quiet:hover:not(:disabled, [aria-disabled='true']) {
   color: var(--ink);
 }
 

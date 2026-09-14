@@ -1,19 +1,16 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import type { FileEditEntry, ToolEntry } from '../../src/acp/transcript.js';
+import type { ToolEntry } from '../../src/acp/transcript.js';
 import { WEBVIEW_ENTRIES } from '../../src/build.js';
 import type { CanvasInit, SidebarInit } from '../../src/webview/protocol.js';
 import { glyphOf, type GlyphState } from '../../src/webview/states.js';
 
 import { canvasInit, openCanvas } from './fixtures/canvas.js';
 import { painted } from './fixtures/paint.js';
+import { fileEntry, sidebarInit } from './fixtures/sidebar.js';
 import { mount, THEMES_ALL } from './harness.js';
 import { colourOf, ROLES, sameColour, type Role } from './palette.js';
-import {
-  canvasWords,
-  inspectorWords,
-  sidebarWords as strings,
-} from './words.js';
+import { canvasWords, inspectorWords } from './words.js';
 
 /**
  * What every view is painted from.
@@ -28,23 +25,6 @@ import {
  */
 
 const NEW_LINE = 'const confirmed = await sms.send(to, body);';
-
-function fileEdit(): FileEditEntry {
-  return {
-    at: 'file',
-    id: 'call-1:/project/lib/twilioChat.ts',
-    toolCallId: 'call-1',
-    by: 'agent',
-    path: '/project/lib/twilioChat.ts',
-    isNew: false,
-    added: 1,
-    removed: 0,
-    lines: [{ kind: 'add', text: NEW_LINE, newNo: 2 }],
-    oldText: 'old\n',
-    newText: 'new\n',
-    decision: 'pending',
-  };
-}
 
 /** A call the agent is still making, which is the
  *  one row in this panel that moves. */
@@ -61,18 +41,19 @@ function running(): ToolEntry {
   };
 }
 
-function sidebarInit(): SidebarInit {
-  return {
-    type: 'init',
-    view: 'sidebar',
-    strings,
-    agent: 'claude code',
-    status: 'ready',
-    transcript: [fileEdit(), running()],
-    prompt: undefined,
-    failure: undefined,
-    preview: undefined,
-  };
+/** The panel showing the two rows these cases read:
+ *  an added line, the one ground in it mixed from a
+ *  voice colour, and a call still being made. */
+function panel(): SidebarInit {
+  return sidebarInit({
+    transcript: [
+      fileEntry({
+        removed: 0,
+        lines: [{ kind: 'add', text: NEW_LINE, newNo: 2 }],
+      }),
+      running(),
+    ],
+  });
 }
 
 /**
@@ -276,7 +257,7 @@ test.describe('the tokens every view is painted from', () => {
     test(`grounds an added line in the ${theme} wash`, async ({ page }) => {
       const harness = await mount(page, 'sidebar', theme);
 
-      await harness.show(sidebarInit());
+      await harness.show(panel());
 
       const added = page.locator('.diff-line[data-kind="add"]');
 
@@ -306,7 +287,7 @@ test.describe('the tokens every view is painted from', () => {
   }) => {
     const harness = await mount(page, 'sidebar');
 
-    await harness.show(sidebarInit());
+    await harness.show(panel());
 
     await expect(page.locator('[data-status="in_progress"]')).toHaveCount(1);
     expect(Math.max(...(await durationsOf(page)))).toBeGreaterThan(STILL);
@@ -324,7 +305,7 @@ test.describe('the tokens every view is painted from', () => {
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
     const harness = await mount(page, 'sidebar');
-    await harness.show(sidebarInit());
+    await harness.show(panel());
 
     expect(Math.max(...(await durationsOf(page)))).toBeLessThanOrEqual(STILL);
   });
@@ -342,7 +323,7 @@ test.describe('the tokens every view is painted from', () => {
       bodyClass: 'vscode-reduce-motion',
     });
 
-    await harness.show(sidebarInit());
+    await harness.show(panel());
 
     expect(Math.max(...(await durationsOf(page)))).toBeLessThanOrEqual(STILL);
   });
@@ -424,6 +405,48 @@ test.describe('the glyph every state is drawn as', () => {
   }
 });
 
+/**
+ * One Button that answers and one that refuses,
+ * pinned where a pointer can reach them.
+ *
+ * These are hovered and pressed rather than only
+ * measured, so they are put on screen and on top
+ * instead of left wherever the mounted view happens
+ * to end.
+ */
+async function probes(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    for (const [at, probe] of ['live', 'refusing'].entries()) {
+      const button = document.createElement('button');
+      const label = document.createElement('span');
+
+      label.textContent = 'press';
+      button.className = 'btn';
+      button.dataset.variant = 'secondary';
+      button.dataset.probe = probe;
+      if (probe === 'refusing') button.setAttribute('aria-disabled', 'true');
+      button.style.position = 'fixed';
+      button.style.zIndex = '9';
+      button.style.top = '0';
+      button.style.left = `${at * 120}px`;
+      button.append(label);
+      document.body.append(button);
+    }
+  });
+}
+
+const ground = (button: Locator): Promise<string> =>
+  button.evaluate((element) => getComputedStyle(element).backgroundColor);
+
+/** Where the label sits: a press moves the content
+ *  rather than the box, so the nudge is read off the
+ *  child. */
+const nudge = (button: Locator): Promise<string> =>
+  button.evaluate(
+    (element) =>
+      getComputedStyle(element.firstElementChild as Element).transform,
+  );
+
 test.describe('the Button every surface presses', () => {
   /**
    * Quiet without the brand takes the quiet ink,
@@ -494,6 +517,52 @@ test.describe('the Button every surface presses', () => {
 
     expect(person?.face).toBe('Albert Sans');
     expect(machine?.face).toBe('Spline Sans Mono');
+  });
+
+  /**
+   * A Button with a reason to give refuses rather
+   * than switching off — it keeps the native
+   * attribute off so a keyboard can still land on it
+   * and read why. The browser then draws it exactly
+   * like one that answers, so the sheet has to say
+   * otherwise: a control that ignores a press while
+   * lighting up under the pointer is worse than one
+   * that was never reachable.
+   *
+   * The live Button beside it is what makes the
+   * other half mean anything. A sheet with no hover
+   * and no press rule at all would satisfy the
+   * refusal on its own.
+   */
+  test('draws a Button that refuses as one that will not answer', async ({
+    page,
+  }) => {
+    await mount(page, 'gallery');
+    await probes(page);
+
+    const live = page.locator('[data-probe="live"]');
+    const refusing = page.locator('[data-probe="refusing"]');
+
+    await expect(live).toHaveCSS('opacity', '1');
+    await expect(refusing).toHaveCSS('opacity', '0.45');
+    await expect(refusing).toHaveCSS('cursor', 'default');
+
+    const answering = await ground(live);
+    const resting = await ground(refusing);
+
+    await live.hover();
+    expect(await ground(live)).not.toBe(answering);
+
+    await page.mouse.down();
+    expect(await nudge(live)).not.toBe('none');
+    await page.mouse.up();
+
+    await refusing.hover();
+    expect(await ground(refusing)).toBe(resting);
+
+    await page.mouse.down();
+    expect(await nudge(refusing)).toBe('none');
+    await page.mouse.up();
   });
 });
 

@@ -2,13 +2,13 @@ import { expect, test, type Page } from '@playwright/test';
 
 import type {
   DiagnosticEntry,
-  FileEditEntry,
   SessionUpdate,
   ToolEntry,
 } from '../../src/acp/transcript.js';
 import { foldUpdates } from '../../src/acp/transcript.js';
 import type { SidebarInit } from '../../src/webview/protocol.js';
 
+import { fileEntry, sidebarInit } from './fixtures/sidebar.js';
 import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
 import { sidebarWords as strings } from './words.js';
 
@@ -36,21 +36,6 @@ const said = (body: string): SessionUpdate => ({
   content: { type: 'text', text: body },
 });
 
-function sidebarInit(over: Partial<SidebarInit> = {}): SidebarInit {
-  return {
-    type: 'init',
-    view: 'sidebar',
-    strings,
-    agent: 'claude code',
-    status: 'ready',
-    transcript: [],
-    prompt: undefined,
-    failure: undefined,
-    preview: undefined,
-    ...over,
-  };
-}
-
 /** The panel, showing what these updates fold
  *  into. */
 async function showing(
@@ -72,26 +57,6 @@ async function openPanel(
   await harness.show(sidebarInit());
 
   return harness;
-}
-
-/** A pending file edit, ready to be overridden for
- *  one thing at a time. */
-function fileEntry(over: Partial<FileEditEntry> = {}): FileEditEntry {
-  return {
-    at: 'file',
-    id: 'call-1:/project/lib/twilioChat.ts',
-    toolCallId: 'call-1',
-    by: 'agent',
-    path: '/project/lib/twilioChat.ts',
-    isNew: false,
-    added: 1,
-    removed: 1,
-    lines: [],
-    oldText: 'old\n',
-    newText: 'new\n',
-    decision: 'pending',
-    ...over,
-  };
 }
 
 test.describe('the transcript', () => {
