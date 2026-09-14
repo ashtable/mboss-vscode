@@ -769,8 +769,8 @@ describe('the line under a title', () => {
 
   it('says only what a block that runs no code of its own is', () => {
     expect(lineOf('booking_requested')).toBe('Trigger');
-    expect(lineOf('await_reply')).toBe('Wait');
-    expect(lineOf('send_confirmation')).toBe('Email');
+    expect(lineOf('await_reply')).toBe('Durable wait');
+    expect(lineOf('send_confirmation')).toBe('Email send');
   });
 });
 
@@ -827,7 +827,7 @@ describe('the line under a block a run is parked at', () => {
     const { nodes } = toReactFlow(ir, boxes, drawing({ run: parked }));
 
     expect(nodes.find((node) => node.id === 'await_reply')?.data.line).toBe(
-      'Wait',
+      'Durable wait',
     );
   });
 });

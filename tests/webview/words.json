@@ -8,9 +8,9 @@
     "queue": "Queue",
     "branch": "Branch",
     "loop": "Loop",
-    "durableWait": "Wait",
+    "durableWait": "Durable wait",
     "approval": "Approval",
-    "emailSend": "Email"
+    "emailSend": "Email send"
   },
   "canvasWords": {
     "caption": "Workflow IR — source of truth for orchestration · blocks stay where you put them",
@@ -78,9 +78,9 @@
       "queue": "Queue",
       "branch": "Branch",
       "loop": "Loop",
-      "durableWait": "Wait",
+      "durableWait": "Durable wait",
       "approval": "Approval",
-      "emailSend": "Email"
+      "emailSend": "Email send"
     },
     "derived": "derived",
     "configured": "configured",

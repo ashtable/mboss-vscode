@@ -350,7 +350,7 @@ test.describe('the palette', () => {
     await expect(control.locator('[data-palette-kind]')).toHaveText([
       'Branch',
       'Loop',
-      'Wait',
+      'Durable wait',
     ]);
   });
 

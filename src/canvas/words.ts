@@ -48,9 +48,9 @@ export const paletteLabels = once((): Record<NodeKind, string> => ({
   queue: l10n.t('Queue'),
   branch: l10n.t('Branch'),
   loop: l10n.t('Loop'),
-  durableWait: l10n.t('Wait'),
+  durableWait: l10n.t('Durable wait'),
   approval: l10n.t('Approval'),
-  emailSend: l10n.t('Email'),
+  emailSend: l10n.t('Email send'),
 }));
 
 /**
