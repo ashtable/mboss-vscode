@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { messages } from '../messages.js';
 
@@ -184,9 +184,14 @@ function posted(origin: string, request: RunRequest): Post {
  * nobody heard is a run nothing on screen can
  * follow. The route starts the run this names, so
  * a request sent twice is one run.
+ *
+ * A UUID rather than the clock and a few random
+ * bytes: a run is shown by a few characters of its
+ * id, and ids that opened with the clock shared
+ * their heads with every run started near them.
  */
 export function newRunId(): string {
-  return `run_${Date.now()}_${randomBytes(4).toString('hex')}`;
+  return randomUUID();
 }
 
 /** What the app said, whatever it was. */

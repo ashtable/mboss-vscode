@@ -180,6 +180,11 @@ describe('starting a workflow by hand', () => {
    * the request goes — and a run the app started
    * under some id nobody heard is a run nothing on
    * screen can follow.
+   *
+   * A UUID, because a run is shown by a few
+   * characters of its id: the ids this used to mint
+   * opened with the clock, so runs started near
+   * each other shared the characters shown.
    */
   it('posts the payload under an id it minted itself', async () => {
     const { deps, project, sent, opened } = driven();
@@ -198,7 +203,9 @@ describe('starting a workflow by hand', () => {
     };
 
     expect(body.payload).toEqual({ count: 0 });
-    expect(body.workflowID).toMatch(/^run_\d+_[0-9a-f]+$/);
+    expect(body.workflowID).toMatch(
+      /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/,
+    );
     expect(start).toEqual({ ok: true, workflowId: body.workflowID });
 
     // The id came back with the answer; there is
