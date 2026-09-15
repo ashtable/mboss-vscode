@@ -981,6 +981,7 @@ test.describe('the fields every form is filled in with', () => {
   test('names a field by its label with no label element', async ({ page }) => {
     await openInspector(page, blockInit(blockSubject('slot_open')));
 
+    await page.locator('[data-picker-current]').click();
     await page.locator('[data-picker-new] button').click();
 
     const naming = page.getByRole('textbox', {

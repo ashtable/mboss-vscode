@@ -362,6 +362,11 @@ function boardLabels(): Record<string, string> {
 export const inspectorWords = once(() => ({
   heading: l10n.t('Inspector'),
 
+  // What the block's name is called where the name
+  // is a field of its own, at the top of the pane,
+  // with no label beside it to say so.
+  blockTitle: l10n.t('block title'),
+
   // A title, so no full stop, and the sentence
   // under it says where to pick from. Opening a run
   // is what gives the pane a run to be about: a row
@@ -462,10 +467,7 @@ export const inspectorWords = once(() => ({
   ),
 
   // The way into the code a block runs, offered on
-  // a card the way it is offered on the other face.
-  // Spelled out rather than borrowing the picker's
-  // `open ƒ`: that one sits at the end of a line of
-  // code and this one stands in a row of buttons.
+  // a card in a row of buttons, so spelled out.
   openHandler: l10n.t('Open function'),
 
   // The second door out of a failure, drawn only
@@ -679,10 +681,20 @@ export const inspectorWords = once(() => ({
   options: inspectorOptions(),
   hints: inspectorHints(),
 
-  // The picker's list is the palette's `/lib`
-  // section put through one rule, which is what
-  // its heading says and the palette's does not.
-  lib: l10n.t('/lib · matched by signature'),
+  // Under the function a block runs, while the list
+  // it opens is closed: where the list comes from,
+  // the one rule it is put through, how much of it
+  // that rule put away, and how to get at it. The
+  // palette's `/lib` section is the same list with
+  // no rule on it, which its heading says instead.
+  libAtRest: l10n.t(
+    'lib · matched by signature · {0} incompatible hidden · click to change',
+  ),
+
+  // Where the project's code has not been read,
+  // there is no list and no rule to have run.
+  libNotScanned: l10n.t('lib · not scanned yet'),
+
   hidden: l10n.t('{0} incompatible functions hidden · show'),
   hide: l10n.t('Hide incompatible functions'),
   newFunction: l10n.t('New function…'),
@@ -696,7 +708,6 @@ export const inspectorWords = once(() => ({
   dropHere: l10n.t('drop a ƒ here'),
   end: l10n.t('end'),
   database: l10n.t('app postgres · prisma tx'),
-  openFunction: l10n.t('open ƒ'),
 
   // What a transaction is told instead of the three
   // retry fields every other code-running kind

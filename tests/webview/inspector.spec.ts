@@ -56,7 +56,7 @@ import {
 import { THEMES_ALL } from './harness.js';
 import { labelBeforeValue } from './labels.js';
 import { colourOf, contrast, sameColour } from './palette.js';
-import { inspectorWords as inspectorStrings } from './words.js';
+import { canvasWords, inspectorWords as inspectorStrings } from './words.js';
 
 /**
  * The Inspector, on screen.
@@ -1097,58 +1097,152 @@ test.describe('a run with nothing picked', () => {
  * own beside every canvas rather than a column
  * inside each one.
  */
-test.describe('a block in the Inspector', () => {
-  /** The pane's half of a click on the canvas: the
-   *  host sends the block that was clicked. */
-  test('names the block that was clicked', async ({ page }) => {
-    await openInspector(page, blockInit(blockSubject('reply_decision')));
+/**
+ * The top of the pane over a block: its name, what
+ * kind of block it is, and the two faces.
+ *
+ * The name is the block's own title, and the one
+ * place it is renamed, so it is a field rather than
+ * a heading — drawn bare until somebody is in it, as
+ * every field in the pane is.
+ */
+test.describe('the head of a block in the Inspector', () => {
+  for (const theme of THEMES_ALL) {
+    test(`names the block above its faces in ${theme}`, async ({ page }) => {
+      await openInspector(page, blockInit(blockSubject('find_slot')), theme);
 
-    await expect(page.locator('[data-inspector-heading]')).toHaveText(
-      `${inspectorStrings.heading} · Branch`,
-    );
-    await expect(page.locator('[data-field="title"] input')).toHaveValue(
-      'Reply?',
-    );
-  });
+      const header = page.locator('[data-inspector-header]');
+      await expect(header).toHaveCount(1);
+      await expect(page.locator('[role="tablist"]')).toHaveCount(1);
 
-  /**
-   * A block with no revision to edit against is one
-   * nobody may edit, so its fields are not drawn at
-   * all rather than drawn to refuse every change.
-   */
-  test('draws no fields for a block that cannot be edited', async ({
+      expect(
+        await header.evaluate(
+          (head) =>
+            head.compareDocumentPosition(
+              document.querySelector('[role="tablist"]')!,
+            ) & Node.DOCUMENT_POSITION_FOLLOWING,
+        ),
+      ).not.toBe(0);
+
+      const heading = header.locator('[data-inspector-heading]');
+      await expect(heading).toHaveCount(1);
+      await expect(heading).toHaveValue('Find open slot');
+      await expect(heading).toHaveAccessibleName(inspectorStrings.blockTitle);
+      expect(
+        await page
+          .locator('[data-field="title"] input')
+          .evaluate((input) => input.matches('[data-inspector-heading]')),
+      ).toBe(true);
+
+      const type = await heading.evaluate((input) => ({
+        size: getComputedStyle(input).fontSize,
+        weight: getComputedStyle(input).fontWeight,
+      }));
+      expect(type).toEqual({ size: '13px', weight: '600' });
+
+      const kind = header.locator('[data-inspector-kind]');
+      await expect(kind).toHaveText(canvasWords.kinds.step);
+      await expect(kind).toHaveAttribute('data-mono', '');
+
+      const ink = await kind.evaluate((word) => getComputedStyle(word).color);
+      const faint = colourOf(theme, 'ink-faint');
+      expect(sameColour(ink, faint), `${ink} ≠ ${faint}`).toBe(true);
+
+      await expect(page.getByText(/node inspector/i)).toHaveCount(0);
+    });
+
+    test(`draws two faces as a strip a keyboard can walk in ${theme}`, async ({
+      page,
+    }) => {
+      await openInspector(page, blockInit(blockSubject('find_slot')), theme);
+
+      const configure = page.locator('[data-inspector-tab="configure"]');
+      const evidence = page.locator('[data-inspector-tab="evidence"]');
+      await expect(configure).toHaveCount(1);
+      await expect(evidence).toHaveCount(1);
+
+      const read = (tab: Locator) =>
+        tab.evaluate((one) => {
+          const style = getComputedStyle(one);
+
+          return {
+            size: Number.parseFloat(style.fontSize),
+            weight: style.fontWeight,
+            transform: style.textTransform,
+            rule: style.borderBottomColor,
+          };
+        });
+
+      const picked = await read(configure);
+      const other = await read(evidence);
+      const brand = colourOf(theme, 'brand');
+
+      await expect(configure).toHaveAttribute('aria-selected', 'true');
+      expect(picked.size).toBeCloseTo(11.999, 1);
+      expect(other.size).toBeCloseTo(11.999, 1);
+      expect(picked.weight).toBe('600');
+      expect(other.weight).toBe('500');
+      expect([picked.transform, other.transform]).toEqual(['none', 'none']);
+      expect(sameColour(picked.rule, brand), `${picked.rule}`).toBe(true);
+
+      await configure.focus();
+      await page.keyboard.press('ArrowRight');
+
+      await expect(evidence).toBeFocused();
+      await expect(evidence).toHaveAttribute('aria-disabled', 'true');
+
+      const reason = page.locator('[data-no-run]');
+      await expect(reason).toHaveText(inspectorStrings.noRun);
+      await expect(evidence).toHaveAttribute(
+        'aria-describedby',
+        (await reason.getAttribute('id'))!,
+      );
+
+      await expect(page.locator('[role="tabpanel"]')).toHaveCount(1);
+      for (const tab of [configure, evidence]) {
+        const panel = await tab.getAttribute('aria-controls');
+
+        expect(panel).not.toBeNull();
+        await expect(page.locator(`[id="${panel}"]`)).toHaveAttribute(
+          'role',
+          'tabpanel',
+        );
+      }
+    });
+  }
+
+  test('sets its head, strip and body out on the pane’s steps', async ({
     page,
   }) => {
-    await openInspector(
-      page,
-      blockInit({ ...blockSubject('find_slot'), revision: undefined }),
-    );
+    await openInspector(page, blockInit(blockSubject('find_slot')));
 
-    const column = page.locator('.inspector');
-    await expect(column).toHaveCount(1);
+    const header = page.locator('[data-inspector-header]');
+    const strip = page.locator('[data-inspector-strip]');
+    const body = page.locator('[role="tabpanel"]');
 
-    await expect(column.locator('.state')).toHaveText(
-      inspectorStrings.nothingSelected,
-    );
-    await expect(page.locator('[data-field]')).toHaveCount(0);
+    await expect(header).toHaveCSS('padding', '12px 14px 0px');
+    await expect(strip).toHaveCSS('padding', '6px 14px 0px');
+    await expect(body).toHaveCSS('padding', '12px 14px');
+    await expect(body).toHaveCSS('row-gap', '8px');
   });
+});
 
+test.describe('a block in the Inspector', () => {
   /**
    * A pane is usually shorter than a block's form,
-   * so the form scrolls under the header rather than
-   * being cut off at the bottom of the pane.
+   * so the form scrolls under the header and the
+   * faces rather than being cut off at the bottom of
+   * the pane.
    */
   test('scrolls a long form under its header', async ({ page }) => {
     const harness = await mountInspector(page);
     await page.setViewportSize({ width: 300, height: 320 });
     await harness.show(blockInit(queueSubject(INDEXING)));
 
-    const column = page.locator('.inspector');
+    const column = page.locator('[role="tabpanel"]');
     await expect(column).toHaveCount(1);
 
-    const header = (await page
-      .locator('[data-inspector-header]')
-      .boundingBox())!;
+    const strip = (await page.locator('[data-inspector-strip]').boundingBox())!;
     const sized = await column.evaluate((element) => ({
       top: element.getBoundingClientRect().top,
       bottom: element.getBoundingClientRect().bottom,
@@ -1157,12 +1251,16 @@ test.describe('a block in the Inspector', () => {
     }));
 
     expect(sized.overflows).toBe(true);
-    expect(sized.top).toBeGreaterThanOrEqual(header.y + header.height);
+    expect(sized.top).toBeGreaterThanOrEqual(strip.y + strip.height);
     expect(sized.bottom).toBeLessThanOrEqual(sized.pane);
 
     const last = page.locator('[data-field="enqueuePolicy"] .section-head');
     await last.scrollIntoViewIfNeeded();
     await expect(last).toBeInViewport();
+    await expect(page.locator('[data-inspector-heading]')).toBeInViewport();
+    await expect(
+      page.locator('[data-inspector-tab="configure"]'),
+    ).toBeInViewport();
   });
 
   test('offers a field per thing the kind carries', async ({ page }) => {
@@ -1495,10 +1593,6 @@ test.describe('a block in the Inspector', () => {
   test('offers two faces', async ({ page }) => {
     await openInspector(page, blockInit(blockSubject('find_slot')));
 
-    await expect(page.locator('[data-inspector-mode]')).toHaveAttribute(
-      'data-inspector-mode',
-      'configure',
-    );
     await expect(page.locator('button[data-inspector-tab]')).toHaveText([
       inspectorStrings.tabs.configure,
       inspectorStrings.tabs.evidence,
@@ -1506,32 +1600,38 @@ test.describe('a block in the Inspector', () => {
     await expect(
       page.locator('button[data-inspector-tab="configure"]'),
     ).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('[data-inspector-mode]')).toHaveCount(0);
   });
 
-  /** With no run there is nothing recorded to read,
-   *  and the face says what would give it
-   *  something. */
+  /**
+   * With no run there is nothing recorded to read,
+   * and the face says what would give it something.
+   * It refuses rather than switching off, so a
+   * keyboard still lands on it and hears why.
+   */
   test('disables Run Evidence with no run and says why', async ({ page }) => {
     const harness = await openInspector(
       page,
       blockInit(blockSubject('find_slot')),
     );
+    const evidence = page.locator('button[data-inspector-tab="evidence"]');
+    const reason = page.locator('[data-no-run]');
 
-    await expect(
-      page.locator('button[data-inspector-tab="evidence"]'),
-    ).toBeDisabled();
-    await expect(page.locator('.inspector .hint')).toHaveText(
-      inspectorStrings.noRun,
-    );
+    await expect(evidence).toHaveAttribute('aria-disabled', 'true');
+    await expect(reason).toHaveText(inspectorStrings.noRun);
+    // Refused, not switched off: a keyboard still
+    // reaches it.
+    expect(
+      await evidence.evaluate((tab) => (tab as HTMLButtonElement).disabled),
+    ).toBe(false);
 
     await harness.show(
       blockInit({ ...blockSubject('find_slot'), run: runOf(IN_FLIGHT) }),
     );
 
-    await expect(
-      page.locator('button[data-inspector-tab="evidence"]'),
-    ).toBeEnabled();
-    await expect(page.locator('.inspector .hint')).toHaveCount(0);
+    await expect(page.locator('[data-inspector-tab]')).toHaveCount(2);
+    await expect(evidence).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(reason).toHaveCount(0);
   });
 
   /**
@@ -1550,31 +1650,37 @@ test.describe('a block in the Inspector', () => {
       run: runOf(IN_FLIGHT),
     });
     const configure = page.locator('button[data-inspector-tab="configure"]');
+    const reason = page.locator('[data-not-in-workflow]');
 
     const harness = await openInspector(page, blockInit(onRunTab('find_slot')));
 
-    await expect(configure).toBeEnabled();
-    await expect(page.locator('.inspector > .hint')).toHaveCount(0);
+    await expect(configure).toHaveCount(1);
+    await expect(configure).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(reason).toHaveCount(0);
 
     await harness.show(blockInit(onRunTab('deleted_block')));
 
-    await expect(configure).toBeDisabled();
-    await expect(page.locator('.inspector > .hint')).toHaveText(
-      inspectorStrings.notInWorkflow,
+    await expect(configure).toHaveAttribute('aria-disabled', 'true');
+    await expect(reason).toHaveText(inspectorStrings.notInWorkflow);
+    await expect(configure).toHaveAttribute(
+      'aria-describedby',
+      (await reason.getAttribute('id'))!,
     );
   });
 
   /** Two faces, not one long form: a field somebody
    *  may change never sits beside a fact they may
-   *  not. */
+   *  not. The block's name is the one field over
+   *  both, in the head rather than in either face. */
   test('shows a block’s fields on Configure only', async ({ page }) => {
     const harness = await mountInspector(page);
+    const face = page.locator('[role="tabpanel"]');
 
     await harness.show(
       blockInit({ ...blockSubject('find_slot'), run: runOf(IN_FLIGHT) }),
     );
 
-    await expect(page.locator('[data-field="title"]')).toHaveCount(1);
+    await expect(face.locator('[data-field]').first()).toBeVisible();
 
     await harness.show(
       blockInit({
@@ -1583,7 +1689,11 @@ test.describe('a block in the Inspector', () => {
       }),
     );
 
-    await expect(page.locator('[data-field]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-inspector-header] [data-field="title"]'),
+    ).toHaveCount(1);
+    await expect(face).toHaveCount(1);
+    await expect(face.locator('[data-field]')).toHaveCount(0);
   });
 
   /**
@@ -2534,9 +2644,9 @@ test.describe('a field at rest and in use', () => {
             section.previousElementSibling?.matches('[data-property]'),
           )
           .map((section) => width(section, 'Top')),
-        hints: [...document.querySelectorAll('.inspector .field-hint')].map(
-          (hint) => width(hint, 'Top'),
-        ),
+        hints: [
+          ...document.querySelectorAll('[role="tabpanel"] .field-hint'),
+        ].map((hint) => width(hint, 'Top')),
       };
     });
 
@@ -2618,6 +2728,60 @@ test.describe('a field at rest and in use', () => {
     await expect(field).toHaveValue('5');
     expect(await focusedField(page)).toBe('retryMaxAttempts');
     expect(await harness.postedOfType('edit')).toHaveLength(1);
+  });
+
+  /** The block's name is drawn over the faces rather
+   *  than among the fields, and a rename coming back
+   *  hands focus back to it all the same. */
+  test('keeps somebody in the block’s name after a rename comes back', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('find_slot')),
+    );
+    const title = page.locator('[data-inspector-heading]');
+
+    await title.fill('Find a slot');
+    await title.press('Enter');
+    expect(await harness.postedOfType('edit')).toHaveLength(1);
+
+    await title.evaluate((input) => input.setAttribute('data-probe', ''));
+
+    const next = blockSubject('find_slot', { title: 'Find a slot' });
+    const revision = next.ir.revision + 1;
+    await harness.show(
+      blockInit({ ...next, ir: { ...next.ir, revision }, revision }),
+    );
+
+    await expect(page.locator('[data-probe]')).toHaveCount(0);
+    await expect(title).toHaveValue('Find a slot');
+    await expect(title).toBeFocused();
+  });
+
+  /** A rename made before the host has answered an
+   *  earlier edit carries that edit too: the name and
+   *  the fields are one block somebody is setting. */
+  test('renames a block without dropping what was set under its name', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('find_slot')),
+    );
+
+    await attempts(page).fill('5');
+    await attempts(page).press('Enter');
+
+    const title = page.locator('[data-inspector-heading]');
+    await title.fill('Find a slot');
+    await title.press('Enter');
+
+    const sent = await harness.postedOfType('edit');
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toMatchObject({
+      node: { title: 'Find a slot', retry: { maxAttempts: 5 } },
+    });
   });
 
   /**
@@ -2765,12 +2929,22 @@ test.describe('a field at rest and in use', () => {
   }) => {
     await openInspector(page, blockInit(blockSubject('find_slot')));
 
-    const assigned = page.locator('[data-picker-fn="findSlot"]');
+    const assigned = page.locator('[data-picker-current]');
 
     await expect(assigned).toHaveAttribute('data-state', 'assigned');
     await expect(assigned).toHaveCSS('padding', '7px 11px');
   });
 });
+
+/** What core says can sit behind that block, so
+ *  an assertion cannot drift from the rule. */
+function fitting(nodeId: string): string[] {
+  const node = ir.nodes.find((one) => one.id === nodeId)!;
+
+  return manifest.functions
+    .filter((fn) => handlerFit(node, fn).fits)
+    .map((fn) => fn.export);
+}
 
 /**
  * Which function a block runs, chosen from what the
@@ -2784,18 +2958,13 @@ test.describe('a field at rest and in use', () => {
  * no explanation is a bug report nobody can write.
  */
 test.describe('the function picker', () => {
-  /** What core says can sit behind that block, so
-   *  the assertion cannot drift from the rule. */
-  function fitting(nodeId: string): string[] {
-    const node = ir.nodes.find((one) => one.id === nodeId)!;
-
-    return manifest.functions
-      .filter((fn) => handlerFit(node, fn).fits)
-      .map((fn) => fn.export);
-  }
-
+  /** The picker open over a block, the way a person
+   *  opens it: by pressing the function it runs. */
   async function openPicker(page: Page, nodeId = 'slot_open') {
     const harness = await openInspector(page, blockInit(blockSubject(nodeId)));
+
+    await page.locator('[data-picker-current]').click();
+    await expect(page.locator('[data-picker-new]')).toBeVisible();
 
     return harness;
   }
@@ -2884,7 +3053,7 @@ test.describe('the function picker', () => {
   test('takes a name for a function nobody has written', async ({ page }) => {
     const harness = await openPicker(page);
 
-    await page.locator('[data-picker-new]').click();
+    await page.locator('[data-picker-new] button').click();
 
     const field = page.locator('[data-picker-new] input');
     await field.fill('decideLater');
@@ -2903,7 +3072,7 @@ test.describe('the function picker', () => {
   test('puts the row back when the name is abandoned', async ({ page }) => {
     const harness = await openPicker(page);
 
-    await page.locator('[data-picker-new]').click();
+    await page.locator('[data-picker-new] button').click();
 
     const field = page.locator('[data-picker-new] input');
     await field.fill('decideLater');
@@ -2916,7 +3085,7 @@ test.describe('the function picker', () => {
 
     // And leaving the field is not a way to name one:
     // a name given by accident is a stub on disk.
-    await page.locator('[data-picker-new]').click();
+    await page.locator('[data-picker-new] button').click();
     await field.fill('decideLater');
     await page.locator('[data-inspector-header]').click();
 
@@ -2933,10 +3102,17 @@ test.describe('the function picker', () => {
       }),
     );
 
+    await page.locator('[data-picker-current]').click();
+
+    const empty = page.locator('[data-field="logic"] .empty-state');
+
+    await expect(empty).toHaveCount(1);
     await expect(page.locator('[data-picker-fn]')).toHaveCount(0);
-    await expect(page.locator('.picker-empty')).toHaveText(
+    await expect(empty.locator('.empty-title')).toHaveText(
       inspectorStrings.noLib,
     );
+    await expect(empty.locator('.empty-detail')).toHaveCount(0);
+    await expect(empty.locator('.btn')).toHaveCount(0);
     await expect(page.locator('[data-picker-new]')).toBeVisible();
   });
 
@@ -3058,28 +3234,6 @@ test.describe('the function picker', () => {
   });
 
   /**
-   * The value is the way in: there is no native
-   * select here, so the caret is what says the name
-   * can be changed at all.
-   */
-  test('wears a caret on the name, and asks for one when there is none', async ({
-    page,
-  }) => {
-    const harness = await openInspector(
-      page,
-      blockInit(blockSubject('find_slot')),
-    );
-
-    await expect(page.locator('[data-picker-value]')).toHaveText('findSlot ▾');
-
-    await harness.show(blockInit(blockSubject('slot_open')));
-
-    await expect(page.locator('[data-picker-value]')).toHaveText(
-      inspectorStrings.dropHere,
-    );
-  });
-
-  /**
    * The row a block already runs is marked, and the
    * mark is a tick and a ring rather than a colour
    * alone — the column is read at a glance and a
@@ -3093,6 +3247,8 @@ test.describe('the function picker', () => {
         ...blockSubject('slot_open', { handler: { export: 'tryAgain' } }),
       }),
     );
+
+    await page.locator('[data-picker-current]').click();
 
     const chosen = page.locator('[data-picker-fn="tryAgain"]');
 
@@ -3151,21 +3307,331 @@ test.describe('the function picker', () => {
       `${manifest.functions.length - fitting('slot_open').length} incompatible functions hidden · show`,
     );
   });
+});
+
+/**
+ * The function a block runs, before anybody asks
+ * to change it.
+ *
+ * One row: the function, what it takes and gives
+ * back, and what is wrong with it where something
+ * is. What else could go there is a list that opens
+ * from that row, because a pane that always showed
+ * the list would spend most of itself on functions
+ * the block does not run.
+ */
+test.describe('the function a block runs, at rest', () => {
+  test('shows the function a block runs as one row until pressed', async ({
+    page,
+  }) => {
+    await openInspector(page, blockInit(blockSubject('find_slot')));
+
+    const current = page.locator('.lib-fn[data-picker-current]');
+
+    await expect(current).toHaveCount(1);
+    await expect(page.locator('[data-picker-current]')).toHaveCount(1);
+    await expect(page.locator('[data-picker-fn]')).toHaveCount(0);
+    await expect(page.locator('[data-picker-hidden]')).toHaveCount(0);
+    await expect(page.locator('[data-picker-new]')).toHaveCount(0);
+
+    await expect(current).toHaveAttribute('data-state', 'assigned');
+    await expect(current.locator('.lib-name')).toHaveText('findSlot');
+    await expect(current.locator('.signature')).toHaveCount(1);
+
+    // A control that opens something, and says so.
+    expect(await current.evaluate((row) => row.tagName)).toBe('BUTTON');
+    await expect(current).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('offers somewhere to put a function on a block that has none', async ({
+    page,
+  }) => {
+    await openInspector(
+      page,
+      blockInit(blockSubject('find_slot', { handler: undefined })),
+    );
+
+    const current = page.locator('[data-picker-current]');
+
+    await expect(current).toHaveCount(1);
+    await expect(current).toHaveAttribute('data-state', 'empty');
+    await expect(current).toHaveText(inspectorStrings.dropHere);
+    await expect(current).toHaveCSS('border-top-style', 'dashed');
+    expect(await current.evaluate((row) => row.tagName)).toBe('BUTTON');
+
+    // The words carry their own ƒ; a mark in front
+    // of them would stand for a function that is not
+    // there.
+    expect(
+      await current.evaluate(
+        (row) => getComputedStyle(row, '::before').content,
+      ),
+    ).toBe('none');
+  });
+
+  test('opens on a press and closes on Escape', async ({ page }) => {
+    await openInspector(page, blockInit(blockSubject('find_slot')));
+
+    const current = page.locator('[data-picker-current]');
+    const offers = page.locator('[data-picker-fn]');
+    const aside = page.locator('[data-picker-lib]');
+
+    await expect(aside).toHaveCount(1);
+    await current.click();
+
+    await expect(offers.first()).toBeVisible();
+    await expect(current).toHaveAttribute('aria-expanded', 'true');
+    // The count it would give is the list's own
+    // Button now.
+    await expect(aside).toHaveCount(0);
+
+    // From inside the list, which Escape takes off
+    // the page along with the row that had focus.
+    await offers.first().focus();
+    await page.keyboard.press('Escape');
+
+    await expect(offers).toHaveCount(0);
+    await expect(current).toBeFocused();
+    await expect(current).toHaveAttribute('aria-expanded', 'false');
+    await expect(aside).toHaveCount(1);
+  });
 
   /**
-   * The way out of the column and into the code.
-   * The block travels and nothing else: where that
-   * function is written, and whether the project's
-   * code-behind still has one of that name, is the
-   * extension's answer rather than the panel's.
+   * The host draws the pane afresh on every tick of
+   * a run and every event on the canvas. A list
+   * somebody opened is how they are reading the
+   * block, so it stays open for the same block and
+   * goes with a block they have left.
    */
-  test('asks for the code the block already runs', async ({ page }) => {
-    const harness = await openPicker(page, 'find_slot');
+  test('stays open for the same block, and closes for another', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('slot_open')),
+    );
+    const offers = page.locator('[data-picker-fn]');
+    const toggle = page.locator('[data-picker-hidden]');
 
-    await page.locator('[data-open-function]').click();
+    await page.locator('[data-picker-current]').click();
+    await toggle.click();
+    await expect(offers).toHaveCount(manifest.functions.length);
 
-    expect(await harness.postedOfType('openFunction')).toEqual([
-      { type: 'openFunction', nodeId: 'find_slot' },
-    ]);
+    await harness.show(blockInit(blockSubject('slot_open')));
+
+    await expect(offers).toHaveCount(manifest.functions.length);
+    await expect(toggle).toHaveText(inspectorStrings.hide);
+
+    await harness.show(blockInit(blockSubject('find_slot')));
+
+    await expect(page.locator('[data-picker-current]')).toHaveCount(1);
+    await expect(offers).toHaveCount(0);
+    await expect(toggle).toHaveCount(0);
+  });
+
+  test('says at rest how many functions it hid', async ({ page }) => {
+    await openInspector(page, blockInit(blockSubject('slot_open')));
+
+    const hidden = manifest.functions.length - fitting('slot_open').length;
+    expect(hidden).toBeGreaterThan(0);
+
+    await expect(page.locator('[data-picker-lib]')).toHaveText(
+      filled(inspectorStrings.libAtRest, String(hidden)),
+    );
+  });
+
+  /**
+   * Naming a function is how its stub gets written,
+   * so starting a name is an action somebody takes
+   * and leaving the box half-typed writes nothing.
+   */
+  test('names a new function in a box that leaving does not commit', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('slot_open')),
+    );
+
+    await page.locator('[data-picker-current]').click();
+
+    const start = page.locator('[data-picker-new] .btn[data-variant="quiet"]');
+    await expect(start).toHaveText(inspectorStrings.newFunction);
+
+    await start.click();
+
+    const naming = page.getByRole('textbox', {
+      name: inspectorStrings.newFunction,
+      exact: true,
+    });
+    await expect(naming).toBeFocused();
+
+    await naming.fill('decideLater');
+    await naming.blur();
+
+    await expect(page.locator('[data-picker-new] input')).toHaveCount(0);
+    expect(await harness.postedOfType('assign')).toEqual([]);
+  });
+
+  /**
+   * Where the project's code has not been read, the
+   * name is all anybody knows: no signature to show,
+   * and no tick saying it was matched.
+   */
+  test('says the code has not been read where there is no manifest', async ({
+    page,
+  }) => {
+    await openInspector(
+      page,
+      blockInit({ ...blockSubject('find_slot'), manifest: undefined }),
+    );
+
+    const current = page.locator('[data-picker-current]');
+
+    await expect(current).toHaveCount(1);
+    await expect(page.locator('[data-picker-lib]')).toHaveText(
+      inspectorStrings.libNotScanned,
+    );
+    await expect(current.locator('.lib-name')).toHaveText('findSlot');
+    await expect(current.locator('.signature')).toHaveCount(0);
+    await expect(current).not.toHaveAttribute('data-state', 'assigned');
+    expect(
+      await current.evaluate((row) => getComputedStyle(row, '::after').content),
+    ).toBe('none');
+  });
+
+  test('says what is wrong with a function before it is pressed', async ({
+    page,
+  }) => {
+    await openInspector(
+      page,
+      blockInit(
+        blockSubject('slot_open', { handler: { export: 'parseRequest' } }),
+      ),
+    );
+
+    await expect(page.locator('[data-picker-fn]')).toHaveCount(0);
+    await expect(page.locator('[data-picker-current] .lib-note')).toHaveText(
+      'returns BookingReq, decides nothing',
+    );
+  });
+});
+
+/**
+ * A block picked on the run tab while an agent's
+ * proposal is waiting on its document.
+ *
+ * The document on screen is the proposal's, which
+ * nobody edits until it is approved or refused, so
+ * there is no revision to edit against. The block
+ * stays, because what it is set to is still worth
+ * reading, and the first thing under the faces says
+ * why nothing on it can be changed.
+ */
+test.describe('a block under a proposal, seen from the run tab', () => {
+  const HEADLINE = 'Preview — proposed by Claude · not applied yet';
+
+  function proposed(block: BlockSubject): InspectorInit {
+    return blockInit({
+      ...block,
+      source: 'run',
+      revision: undefined,
+      proposal: HEADLINE,
+      run: runOf(IN_FLIGHT),
+    });
+  }
+
+  test('keeps the block, and says why it cannot be edited', async ({
+    page,
+  }) => {
+    await openInspector(page, proposed(blockSubject('find_slot')));
+
+    await expect(page.locator('[data-inspector-heading]')).toHaveValue(
+      'Find open slot',
+    );
+    await expect(
+      page.locator('[role="tabpanel"] .field-hint').first(),
+    ).toHaveText(HEADLINE);
+  });
+
+  /** Asked of a step, a trigger, an email and a
+   *  queue, which between them draw every kind of
+   *  box the pane has. */
+  test('lets nothing on it be typed into or chosen', async ({ page }) => {
+    const harness = await mountInspector(page);
+    const drawn = { input: 0, textarea: 0, select: 0 };
+
+    for (const block of [
+      blockSubject('find_slot'),
+      blockSubject('booking_requested'),
+      blockSubject('send_confirmation'),
+      queueSubject(INDEXING),
+    ]) {
+      await harness.show(proposed(block));
+      await expect(page.locator('[data-inspector-heading]')).toHaveCount(1);
+
+      const read = await page.evaluate(() =>
+        [
+          ...document.querySelectorAll(
+            [
+              ':is([data-inspector-header], [role="tabpanel"])',
+              ':is(input, textarea, select)',
+            ].join(' '),
+          ),
+        ].map((box) => ({
+          tag: box.tagName.toLowerCase() as 'input' | 'textarea' | 'select',
+          locked:
+            box.tagName === 'SELECT'
+              ? (box as HTMLSelectElement).disabled
+              : (box as HTMLInputElement).readOnly,
+        })),
+      );
+
+      for (const box of read) {
+        drawn[box.tag] += 1;
+        expect(box, block.nodeId).toMatchObject({ locked: true });
+      }
+    }
+
+    expect(drawn.input).toBeGreaterThan(4);
+    expect(drawn.textarea).toBeGreaterThan(0);
+    expect(drawn.select).toBeGreaterThan(0);
+  });
+
+  test('opens nothing, and says nothing back to the host', async ({ page }) => {
+    const harness = await openInspector(
+      page,
+      proposed(blockSubject('find_slot')),
+    );
+
+    await page.locator('[data-picker-current]').click();
+    await expect(page.locator('[data-picker-fn]')).toHaveCount(0);
+
+    const title = page.locator('[data-inspector-heading]');
+    await title.focus();
+    await page.keyboard.type('Another name');
+    await page.keyboard.press('Enter');
+    await title.blur();
+
+    await expect(title).toHaveValue('Find open slot');
+
+    const said = (await harness.posted()).map(
+      (message) => (message as { type: string }).type,
+    );
+    expect(said).not.toContain('edit');
+    expect(said).not.toContain('assign');
+  });
+
+  /** A fold is how somebody reads the form, not a
+   *  change to it, so it still answers. */
+  test('still folds and unfolds a group', async ({ page }) => {
+    await openInspector(page, proposed(queueSubject(INDEXING)));
+
+    const fold = page.locator('[data-field="advanced"] .section-head');
+    await expect(fold).toHaveAttribute('aria-expanded', 'false');
+
+    await fold.click();
+
+    await expect(fold).toHaveAttribute('aria-expanded', 'true');
   });
 });

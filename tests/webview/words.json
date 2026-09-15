@@ -86,6 +86,7 @@
   },
   "inspectorWords": {
     "heading": "Inspector",
+    "blockTitle": "block title",
     "nothingSelected": "Pick a block to set what it does",
     "nothingSelectedDetail": "Select a node on the canvas, or open a run to see what it recorded.",
     "tabs": {
@@ -329,7 +330,8 @@
       "queuePolicy": "global = across processes · worker = per process",
       "enqueuePolicy": "partitioned queues cannot deduplicate — a partition limit and a deduplication path together are an error on the block"
     },
-    "lib": "/lib · matched by signature",
+    "libAtRest": "lib · matched by signature · {0} incompatible hidden · click to change",
+    "libNotScanned": "lib · not scanned yet",
     "hidden": "{0} incompatible functions hidden · show",
     "hide": "Hide incompatible functions",
     "newFunction": "New function…",
@@ -345,7 +347,6 @@
     "dropHere": "drop a ƒ here",
     "end": "end",
     "database": "app postgres · prisma tx",
-    "openFunction": "open ƒ",
     "retryPolicy": "retry policy",
     "retry": "runs once, inside its own commit",
     "callouts": {

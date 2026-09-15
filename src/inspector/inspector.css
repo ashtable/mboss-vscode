@@ -240,45 +240,70 @@ body {
   margin-inline-start: auto;
 }
 
-/* — the Inspector column — */
+/* — a block — */
 
-.inspector {
-  padding: var(--space-3);
+/* The block's name is the field it is renamed in,
+   at the title's size and weight. It is as wide as
+   the name, so the kind word follows it on the same
+   line, and it gives up room before the pane does.
+   Its text starts on the edge the strip and the
+   face start on: the field's padding and edge are
+   hung out into the header's own inset, where the
+   ring drawn around it while it is in use lands. */
+.inspector-name {
+  display: flex;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 100%;
+}
+
+.inspector-name > .field-input {
+  width: auto;
+  min-width: 4ch;
+  margin-inline-start: calc(-1 * (var(--space-1-5) + 1px));
+  field-sizing: content;
+  font-size: var(--text-md);
+  font-weight: var(--w-semibold);
+}
+
+/* The two faces, inset as the header is, so the
+   strip's hairline starts and ends on the edges
+   everything above and below it does. Why a face
+   refuses is said under the hairline, beside the
+   tab it is about. */
+.inspector-strip {
+  flex: none;
+  padding: var(--space-1-5) var(--space-3-5) 0;
+}
+
+.inspector-strip > .field-hint {
+  margin-top: var(--space-2);
+}
+
+/* The face scrolls under the header and the strip,
+   so somebody scrolled down a long form still sees
+   which block, and which face, it belongs to. A
+   scroll container shrinks below what it holds
+   without being told to. */
+.inspector-view > .tabpanel {
+  flex: 1;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3-5);
 }
 
-/* The two faces sit above everything either of
-   them draws, so the column reads as one panel
-   answering one of two questions rather than as two
-   panels stacked. */
-.inspector > .tabs {
-  margin-bottom: var(--space-2);
-}
-
-.inspector > .hint {
-  margin-bottom: var(--space-3);
-}
-
-.inspector > .eyebrow {
-  color: var(--brand);
-  margin-bottom: var(--space-3);
-}
-
-.state {
-  margin: 0;
-  font-size: var(--text-sm);
-}
-
-/* A header over the rows after it, and the label
-   over a repeating group. Each spans the column
-   rather than sitting in the label column, because
-   it names a group rather than the value beside
-   it, and each takes the space above that a
-   hairline alone does not give. The line under it
-   is the first row's own. */
+/* A header over the rows after it, the label over a
+   repeating group, and the function a block runs.
+   Each spans the face rather than sitting in the
+   label column, because it names a group or holds
+   something wider than a value, and each takes the
+   space above that a hairline alone does not give.
+   The line under it is the next row's own. */
 .form-section,
-.form-group {
+.form-group,
+.picker-field {
   padding-block: var(--space-3) var(--space-2);
 }
 
@@ -320,76 +345,55 @@ body {
 
 /* — the function picker — */
 
-/* The small heading over the picker's list. */
-.drawer-name {
-  margin: 0 0 var(--space-1);
-  font-size: var(--text-xs);
-}
-
-/* A block that runs nothing yet says where one
-   goes, rather than leaving a blank to guess at. */
-.picker-nothing {
-  display: inline-block;
-  padding: 2px var(--space-2);
-  border: 1.5px dashed var(--hairline-strong);
-  border-radius: var(--r-sm);
-  color: var(--ink-faint);
-}
-
-.picker {
-  margin-block: var(--space-1) var(--space-2);
-}
-
-.picker-empty {
-  margin: 0 0 var(--space-1);
-  font-size: var(--text-sm);
-}
-
-/* What was left out of the list, and the way to
-   see it. Plain text rather than a button's
-   clothes: it is an aside about the list, not an
-   action on the block. */
-.picker-hidden {
-  all: unset;
+/* The label over the one row a block's function is,
+   rather than beside it: the row carries a name and
+   a signature, and the label column would leave
+   them nothing to be read in. */
+.picker-field > .property-label {
   display: block;
-  margin: var(--space-1) 0 var(--space-2);
-  font-size: var(--text-xs);
-  cursor: pointer;
+  margin-bottom: var(--space-1-5);
 }
 
-/* The row a function nobody has written yet is
-   named in. It borrows the picker row's box and
-   nothing else — there is no function in it to mark
-   or to describe — so its one control is stretched
-   across the row and a press anywhere starts the
-   naming. */
-.picker-new {
+.picker-field > .lib-fn {
+  margin: 0;
+}
+
+.picker-field > .field-hint {
+  margin-top: var(--space-1-5);
+}
+
+/* What could go there instead, under the row that
+   opened it, with the aside about what was put away
+   and the way to name a new one in the same column.
+   The Buttons keep their own width. */
+.picker-list {
+  display: flex;
   flex-direction: column;
   align-items: stretch;
+  margin-top: var(--space-1);
 }
 
-.picker-name {
-  all: unset;
-  font-size: var(--text-sm);
-  cursor: pointer;
+.picker-list > .btn {
+  align-self: flex-start;
+  margin-block: var(--space-1);
 }
 
-/* The way to the code a block runs, set beside its
-   name rather than under the list: it is about the
-   function already chosen, not about choosing
-   one. */
-.picker-open {
-  all: unset;
-  color: var(--ink-faint);
-  font-size: var(--text-xs);
-  cursor: pointer;
+.picker-new {
+  display: flex;
+  margin-top: var(--space-1);
+}
+
+.picker-naming {
+  display: flex;
+  flex: 1;
+  min-width: 0;
 }
 
 /* Spent on the two kinds whose relationship with
    their code a person would otherwise have to be
-   told twice, under the list it is about. */
+   told twice, under the row it is about. */
 .picker-field > [data-callout] {
-  margin-bottom: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 /* A repeating group — a branch's cases, a form's

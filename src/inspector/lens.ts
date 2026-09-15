@@ -257,6 +257,63 @@ export function visible(
   });
 }
 
+/**
+ * Whether the function picker is open, and whether
+ * a new function is being named inside it.
+ *
+ * Written apart from the component so the rule can
+ * be read, and checked, without a page: which
+ * gestures close the list and which leave it open
+ * is the whole of what the picker decides.
+ */
+export type PickerState = { open: boolean; naming: boolean };
+
+/** What somebody did to the picker. A pick is a
+ *  function chosen from the list or a name given
+ *  for one. */
+export type PickerEvent =
+  | 'press-current'
+  | 'pick'
+  | 'escape'
+  | 'outside'
+  | 'start-naming'
+  | 'end-naming';
+
+const CLOSED: PickerState = { open: false, naming: false };
+
+/**
+ * The picker after one gesture.
+ *
+ * Escape and a press elsewhere close the list,
+ * except while a name is being typed: there they
+ * end the name, and the list it was being typed in
+ * stays, because that is still what the person is
+ * choosing from. A name exists only inside an open
+ * list.
+ */
+export function pickerAfter(
+  event: PickerEvent,
+  state: PickerState,
+): PickerState {
+  switch (event) {
+    case 'press-current':
+      return state.open ? CLOSED : { open: true, naming: false };
+
+    case 'pick':
+      return CLOSED;
+
+    case 'escape':
+    case 'outside':
+      return state.naming ? { open: true, naming: false } : CLOSED;
+
+    case 'start-naming':
+      return state.open ? { open: true, naming: true } : state;
+
+    case 'end-naming':
+      return { ...state, naming: false };
+  }
+}
+
 /** Every lens' answer, in the order they were
  *  declared. */
 export function readAll<S>(subject: S, lenses: Lens<S>[]): InspectorField[] {

@@ -122,4 +122,30 @@ describe('the function row every list of code-behind is drawn as', () => {
     expect(drawn).toContain('data-lib-fn="ab"');
     expect(drawn).toContain('title="cd"');
   });
+
+  /**
+   * A row that opens a list under it says whether
+   * the list is showing, as a state rather than as
+   * words of its own. Only a pressed row opens
+   * anything, so only a button says it.
+   */
+  it('says whether what it opens is showing', () => {
+    const opened = renderToStaticMarkup(
+      LibFunctionItem({
+        name: 'ab',
+        state: 'assigned',
+        as: 'button',
+        expanded: true,
+        onClick: () => {},
+      }),
+    );
+
+    expect(opened).toContain('aria-expanded="true"');
+
+    const dragged = renderToStaticMarkup(
+      LibFunctionItem({ name: 'ab', state: 'compatible', as: 'div' }),
+    );
+
+    expect(dragged).not.toContain('aria-expanded');
+  });
 });

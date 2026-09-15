@@ -23,6 +23,11 @@ import { hooked } from './hook.js';
  * row's label. The few no label points at — one
  * half of a pair, a name typed for something not
  * written yet — carry theirs in `label`.
+ *
+ * A value somebody may read and not set is still
+ * drawn in its field: read-only where the browser
+ * has such a state, so it can be read out and
+ * copied from, and switched off where it does not.
  */
 
 /** What every field is told about where it sits. */
@@ -61,6 +66,7 @@ export function Input({
   hook,
   value,
   placeholder,
+  readOnly,
   commitOnBlur = true,
   autoFocus,
   onCommit,
@@ -71,6 +77,8 @@ export function Input({
   /** The word standing in for a value nobody has
    *  given. */
   placeholder?: string;
+
+  readOnly?: boolean;
 
   commitOnBlur?: boolean;
 
@@ -100,6 +108,7 @@ export function Input({
       data-mono={mono === true ? '' : undefined}
       value={typed}
       placeholder={placeholder}
+      readOnly={readOnly}
       spellCheck={false}
       autoFocus={autoFocus}
       onChange={(event) => setTyped(event.target.value)}
@@ -144,6 +153,7 @@ export function TextArea({
   hook,
   value,
   placeholder,
+  readOnly,
   grow,
   onChange,
   onCommit,
@@ -151,6 +161,8 @@ export function TextArea({
   value: string;
 
   placeholder?: string;
+
+  readOnly?: boolean;
 
   grow?: { minLines: number; maxLines: number };
 
@@ -184,6 +196,7 @@ export function TextArea({
       style={lines}
       value={typed}
       placeholder={placeholder}
+      readOnly={readOnly}
       spellCheck={false}
       onChange={(event) => {
         setTyped(event.target.value);
@@ -219,11 +232,14 @@ export function Select({
   hook,
   value,
   options,
+  disabled,
   onChange,
 }: Placed & {
   value: string;
 
   options: readonly { value: string; label: string }[];
+
+  disabled?: boolean;
 
   onChange: (value: string) => void;
 }) {
@@ -236,6 +252,7 @@ export function Select({
         aria-describedby={describedBy}
         data-mono={mono === true ? '' : undefined}
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
         {...hooked(hook)}
       >

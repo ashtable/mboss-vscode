@@ -17,35 +17,33 @@ import './inspector.css';
  * The Inspector pane.
  *
  * One header row over whatever the pane is about.
- * A whole run names itself in that row. Otherwise
- * the row names the pane and, at its far end, the
- * canvas file a person is looking at, so an empty
- * pane still says which canvas it is waiting on.
- * With nothing to inspect there is nothing to
- * press: the way out is picking a block on the
- * canvas, or opening a run.
+ * A whole run and a block each name themselves in
+ * that row. Otherwise the row names the pane and,
+ * at its far end, the canvas file a person is
+ * looking at, so an empty pane still says which
+ * canvas it is waiting on. With nothing to inspect
+ * there is nothing to press: the way out is picking
+ * a block on the canvas, or opening a run.
  */
 function InspectorPanel({ strings, subject }: InspectorInit) {
   return (
     <div className="inspector-view" data-inspector>
       {subject.at === 'run' ? (
         <RunLevelCard strings={strings} run={subject.run} />
+      ) : subject.at === 'block' ? (
+        <Block strings={strings} block={subject.block} />
       ) : (
         <>
           <InspectorHeader
             title={<h1 className="inspector-title">{strings.heading}</h1>}
-            file={subject.at === 'none' ? subject.file : undefined}
+            file={subject.file}
           />
 
-          {subject.at === 'block' ? (
-            <Block strings={strings} block={subject.block} />
-          ) : (
-            <EmptyState
-              kind="empty"
-              title={strings.nothingSelected}
-              detail={strings.nothingSelectedDetail}
-            />
-          )}
+          <EmptyState
+            kind="empty"
+            title={strings.nothingSelected}
+            detail={strings.nothingSelectedDetail}
+          />
         </>
       )}
     </div>
@@ -53,9 +51,9 @@ function InspectorPanel({ strings, subject }: InspectorInit) {
 }
 
 /**
- * A block, in the two faces that used to be the
- * canvas's third column, drawn from what the host
- * sent about it rather than from a canvas around it.
+ * A block, named over its two faces, drawn from
+ * what the host sent about it rather than from a
+ * canvas around it.
  *
  * What a run did to the block is asked of the
  * board's own rule, so the card here and the block
@@ -77,6 +75,7 @@ function Block({
       selected={node === undefined ? undefined : { ir: block.ir, node }}
       mode={block.face}
       revision={block.revision}
+      proposal={block.proposal}
       run={block.run}
       runState={
         node === undefined
@@ -90,6 +89,7 @@ function Block({
       }
       lib={block.manifest?.functions}
       misfits={strings.misfits}
+      kindWords={block.kindWords}
       diagnostics={block.diagnostics}
     />
   );

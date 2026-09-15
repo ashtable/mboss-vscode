@@ -70,6 +70,22 @@ describe('the field a line is typed into', () => {
     expect(markup).toContain('data-mono=""');
     expect(markup).toContain('data-inspector-heading=""');
   });
+
+  /** Somewhere a value is shown but may not be set,
+   *  the box still reads out and can be copied from,
+   *  and the browser refuses the typing itself. */
+  it('can be read and not typed into', () => {
+    const markup = drawn(Input, {
+      value: 'ab',
+      readOnly: true,
+      onCommit: nothing,
+    });
+
+    expect(markup).toContain('readOnly=""');
+    expect(drawn(Input, { value: 'ab', onCommit: nothing })).not.toContain(
+      'readOnly',
+    );
+  });
 });
 
 describe('the field one of a few is picked in', () => {
@@ -102,6 +118,19 @@ describe('the field one of a few is picked in', () => {
     expect(markup).toContain('aria-label="ef"');
     expect(markup).not.toContain('<label');
   });
+
+  /** A native menu has no read-only state, so one
+   *  that may not be changed is switched off. */
+  it('can be switched off', () => {
+    const markup = drawn(Select, {
+      value: 'ab',
+      disabled: true,
+      options: [{ value: 'ab', label: 'AB' }],
+      onChange: nothing,
+    });
+
+    expect(markup).toMatch(/<select[^>]* disabled=""/);
+  });
 });
 
 describe('the field several lines are typed into', () => {
@@ -121,5 +150,11 @@ describe('the field several lines are typed into', () => {
     expect(growing).toContain('data-grow=""');
     expect(growing).toContain('--min-lines:3');
     expect(growing).toContain('--max-lines:12');
+  });
+
+  it('can be read and not typed into', () => {
+    expect(
+      drawn(TextArea, { value: 'ab', readOnly: true, onCommit: nothing }),
+    ).toMatch(/^<textarea[^>]* readOnly=""/);
   });
 });

@@ -1,4 +1,4 @@
-import type { DragEvent } from 'react';
+import type { DragEvent, Ref } from 'react';
 
 import { FieldHint } from './FieldHint.js';
 import { hooked } from './hook.js';
@@ -35,6 +35,8 @@ export function LibFunctionItem({
   note,
   as,
   onClick,
+  expanded,
+  ref,
   drag,
   title,
   hook,
@@ -52,6 +54,14 @@ export function LibFunctionItem({
   as: 'button' | 'div';
 
   onClick?: () => void;
+
+  /** Whether the list a pressed row opens under it
+   *  is showing. */
+  expanded?: boolean;
+
+  /** The pressed row, for a view that hands focus
+   *  back to it once what it opened has closed. */
+  ref?: Ref<HTMLButtonElement>;
 
   /** What the row does when it is carried rather
    *  than pressed. */
@@ -95,7 +105,7 @@ export function LibFunctionItem({
   );
 
   return as === 'button' ? (
-    <button type="button" {...row}>
+    <button type="button" ref={ref} aria-expanded={expanded} {...row}>
       {lines}
     </button>
   ) : (

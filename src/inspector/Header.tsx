@@ -48,7 +48,7 @@ export function InspectorHeader({
       {title}
 
       {kind === undefined ? null : (
-        <span className="inspector-kind" data-mono="">
+        <span className="inspector-kind" data-inspector-kind="" data-mono="">
           {kind}
         </span>
       )}

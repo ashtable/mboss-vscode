@@ -1190,14 +1190,22 @@ textarea.field-input[data-grow] {
   color: inherit;
   font: inherit;
   text-align: left;
+  cursor: default;
+}
+
+/* The pointer says what the row answers to: one that
+   is carried takes the hand that carries it, one
+   that is pressed the pointer, and one that is only
+   read neither. */
+.lib-fn[draggable='true'] {
   cursor: grab;
 }
 
-/* On a row that has a function in it. The picker's
-   last row borrows this box to name one nobody has
-   written yet, and a mark there would be standing in
-   front of nothing. */
-.lib-fn[data-state]::before {
+/* On a row that has a function in it. A slot with
+   nothing in it says where one goes in words that
+   carry their own mark, and a mark in front of them
+   would be standing in front of nothing. */
+.lib-fn[data-state]:not([data-state='empty'])::before {
   content: 'ƒ';
   font-family: var(--font-mono);
   font-weight: var(--w-semibold);
@@ -1302,7 +1310,6 @@ button.lib-fn {
    say about it. */
 .lib-fn[data-state='empty'] {
   border: 1px dashed var(--hairline-strong);
-  cursor: default;
 }
 
 .lib-fn[data-state='empty'] .lib-name {
