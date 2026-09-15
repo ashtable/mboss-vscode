@@ -203,6 +203,7 @@ export function blockSubject(
             saved: { name: document.name, mode: node.config.mode },
             needsTopic: false,
             unsaved: false,
+            trusted: true,
             problem: undefined,
           }
         : undefined,

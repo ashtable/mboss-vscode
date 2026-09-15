@@ -1057,6 +1057,11 @@ export type RunInputView = {
    *  one shown. */
   unsaved: boolean;
 
+  /** This window may run the project's code. A run
+   *  executes what the folder holds, which is the
+   *  decision trust exists to make. */
+  trusted: boolean;
+
   problem: TestRunProblem | undefined;
 };
 

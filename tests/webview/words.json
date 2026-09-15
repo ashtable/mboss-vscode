@@ -172,6 +172,7 @@
     "runWithInput": "Run with this input",
     "saveToRun": "save the workflow to run it",
     "needsTopic": "the trigger needs a topic to run",
+    "untrusted": "Reading a run history opens a database this folder names, so it waits until you trust this window.",
     "queueRows": {
       "queue": "queue",
       "active": "active",

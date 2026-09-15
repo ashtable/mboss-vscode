@@ -474,7 +474,10 @@ describe('what a trigger block knows of the Runs input', () => {
 
   /** The Runs panel over a real project, with every
    *  path it was asked about written down. */
-  function panel(dir: string, over: { unsaved?: boolean } = {}) {
+  function panel(
+    dir: string,
+    over: { unsaved?: boolean; trusted?: boolean } = {},
+  ) {
     const asked: string[] = [];
     const answer: RunsPanel = (path) => {
       asked.push(path);
@@ -488,6 +491,7 @@ describe('what a trigger block knows of the Runs input', () => {
         workflows: projectWorkflows(dir),
         needsTopic: needsTopic(path),
         unsaved: over.unsaved ?? false,
+        trusted: over.trusted ?? true,
       };
     };
 
@@ -624,6 +628,28 @@ describe('what a trigger block knows of the Runs input', () => {
         ).toMatchObject({
           block: { runInput: { saved: undefined, needsTopic: true } },
         });
+      });
+
+      /**
+       * A run executes the project's own code, which
+       * is the decision trust exists to make, so the
+       * card is told whether this window has been
+       * trusted rather than offering a start that
+       * would go nowhere.
+       */
+      it('says whether this window may start a run at all', () => {
+        const dir = project({ workflows: ['groom_booking'] });
+
+        expect(
+          about(
+            dir,
+            panel(dir, { trusted: false }).answer,
+            'booking_requested',
+          ),
+        ).toMatchObject({ block: { runInput: { trusted: false } } });
+        expect(
+          about(dir, panel(dir).answer, 'booking_requested'),
+        ).toMatchObject({ block: { runInput: { trusted: true } } });
       });
 
       /** A run starts the saved file, so changes

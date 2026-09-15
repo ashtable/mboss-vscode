@@ -416,6 +416,11 @@ export class InspectorView implements WebviewViewProvider {
    * view reads them. A document outside that project
    * is none of them, and no run from here can start
    * it.
+   *
+   * Trust is asked as the pane is drawn rather than
+   * held, the way every other door on to a run asks
+   * it: a window trusted mid-session draws the pane
+   * again, and the card offers the run it now can.
    */
   private runsPanel(path: string): ReturnType<RunsPanel> {
     const project = this.runs.project();
@@ -425,6 +430,7 @@ export class InspectorView implements WebviewViewProvider {
       workflows: project === undefined ? [] : projectWorkflows(project),
       needsTopic: needsTopic(path),
       unsaved: this.host.unsaved(path),
+      trusted: this.trust.isTrusted(),
     };
   }
 

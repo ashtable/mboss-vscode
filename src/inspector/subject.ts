@@ -61,8 +61,9 @@ export type StartRefusal = (
  * its last start was refused; the workflows its
  * project has saved that a run can start; whether
  * the file at that path is left out of them only
- * for want of a topic; and whether the editor holds
- * changes to it nobody has saved.
+ * for want of a topic; whether the editor holds
+ * changes to it nobody has saved; and whether this
+ * window may run the project's code at all.
  *
  * A question rather than an answer, because the
  * saved workflows are read off disk, and only a
@@ -73,6 +74,7 @@ export type RunsPanel = (path: string) => {
   workflows: readonly ProjectWorkflow[];
   needsTopic: boolean;
   unsaved: boolean;
+  trusted: boolean;
 };
 
 /**
@@ -471,6 +473,7 @@ function runInputOf(
         : { name: saved.name, mode: saved.trigger.mode },
     needsTopic: saved === undefined && panel.needsTopic,
     unsaved: panel.unsaved,
+    trusted: panel.trusted,
     problem: panel.testRun.problem,
   };
 }

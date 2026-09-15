@@ -789,7 +789,13 @@ function startFrom(
   strings: InspectorStrings,
   onRun: (workflow: string) => void,
 ): Start {
-  const { saved, unsaved, needsTopic } = input;
+  const { saved, unsaved, needsTopic, trusted } = input;
+
+  // Said before anything about the file, because
+  // nothing a person does to the document changes
+  // it: a window nobody has trusted runs nothing
+  // the folder holds.
+  if (!trusted) return { ok: false, reason: strings.untrusted };
 
   if (!unsaved && saved !== undefined && saved.mode !== 'schedule') {
     return { ok: true, onStart: () => onRun(saved.name) };

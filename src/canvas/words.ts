@@ -598,6 +598,12 @@ export const inspectorWords = once(() => ({
   saveToRun: l10n.t('save the workflow to run it'),
   needsTopic: l10n.t('the trigger needs a topic to run'),
 
+  // A run executes the folder's own code, so a
+  // window nobody has trusted starts none. Said in
+  // the Runs view's own sentence, which both views
+  // then share one translation of.
+  untrusted: runsWords().untrusted,
+
   /* — what a queue block’s children are doing — */
 
   // The readings a queue card draws, under the ids

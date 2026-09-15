@@ -334,7 +334,9 @@ export type RunsStore = Disposable & {
    * The Runs view is set to that workflow first, so
    * the run it starts and any refusal are drawn
    * against the workflow that was asked for, not
-   * whichever the view happened to be set to.
+   * whichever the view happened to be set to. A
+   * window nobody has trusted runs nothing, and its
+   * view is left where it was.
    */
   runTrigger(workflow: string): Promise<void>;
 
@@ -907,6 +909,13 @@ export function runsStore(deps: RunsDeps): RunsStore {
     runWorkflow: testRun.runWorkflow,
 
     runTrigger: async (workflow) => {
+      // Asked here rather than left to the start,
+      // which refuses quietly: moving the Runs view
+      // to a workflow it will not run would be the
+      // only mark a press in a window nobody has
+      // trusted left.
+      if (!deps.trust.isTrusted()) return;
+
       testRun.selectWorkflow(workflow);
       await testRun.runWorkflow(workflow);
     },

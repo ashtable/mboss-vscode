@@ -6460,6 +6460,35 @@ test.describe('a trigger block', () => {
     );
   });
 
+  /**
+   * A run executes the project's own code, so a
+   * window nobody has trusted starts none — and the
+   * card says so where the Run would be rather than
+   * offering a press that goes nowhere. Asking the
+   * agent about the block reads nothing of the
+   * project, so it stays.
+   */
+  test('says a run waits on trust in a restricted window', async ({ page }) => {
+    await openInspector(
+      page,
+      blockInit(
+        triggerSubject(MANUAL, {
+          text: '{"bookingId":7}',
+          saved: { name: 'groom_booking', mode: 'manual' },
+          trusted: false,
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-run-trigger]')).toHaveCount(0);
+    await expect(
+      actions(page).locator(':scope > [data-run-refused]'),
+    ).toHaveText(inspectorStrings.untrusted);
+    await expect(
+      actions(page).locator(':scope > [data-ask-block]'),
+    ).toHaveCount(1);
+  });
+
   test('offers nothing to do while an agent’s proposal holds it', async ({
     page,
   }) => {

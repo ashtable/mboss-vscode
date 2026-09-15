@@ -252,6 +252,28 @@ describe('one door for three zones', () => {
     expect(ingress.requests[0]?.workflow).toBe('groom_booking');
   });
 
+  /**
+   * A card in a window nobody has trusted cannot
+   * start anything, and moving the Runs view to the
+   * workflow it asked for would be the only mark a
+   * dead press left.
+   */
+  it('starts nothing from a card in a window nobody has trusted', async () => {
+    const ingress = echoing();
+    const store = runsStore(
+      deps({ runner: ingress.start, trust: fakeTrust(false) }),
+    );
+
+    store.refreshWorkflows();
+    const selected = store.list().testRun.selected;
+
+    store.setInput('{"n":1}');
+    await store.runTrigger('groom_booking');
+
+    expect(store.list().testRun.selected).toBe(selected);
+    expect(ingress.requests).toEqual([]);
+  });
+
   /** A start refused before anything is sent still
    *  says so against the workflow that was asked
    *  for. */
