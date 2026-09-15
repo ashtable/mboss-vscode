@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import { glyphOf, type GlyphState } from '../states.js';
 
 import { hooked } from './hook.js';
@@ -138,8 +140,9 @@ export function StatusLine({
   word: string;
 
   /** What follows it: a step number, how long it
-   *  took, when it woke. */
-  detail?: string;
+   *  took, when it woke. Markup where a surface
+   *  hooks a piece of it. */
+  detail?: ReactNode;
 
   /** The words admitting this state was worked out,
    *  where it was. Absent is the default and means
@@ -165,7 +168,7 @@ export function StatusLine({
 
       <span>{word}</span>
 
-      {detail === undefined ? null : <span>{` · ${detail}`}</span>}
+      {detail === undefined ? null : <span> · {detail}</span>}
     </span>
   );
 }

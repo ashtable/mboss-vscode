@@ -101,7 +101,10 @@ function session(
     openFunction: verb('openFunction'),
     openErrorLocation: verb('openErrorLocation'),
     openOutput: verb('openOutput'),
-    select: verb('select'),
+    select: (nodeId: string | null) => {
+      did.push(['select', nodeId]);
+      inputs.selected = nodeId ?? undefined;
+    },
   } as unknown as CanvasSession;
 
   return { canvas, inputs, did };
@@ -169,6 +172,7 @@ function mounted(
         : { run: liveRun({ workflowId: 'wf_1' }), decided: {} },
     project: () => options.project ?? PROJECT,
     chooseFace: (mode) => void asked.push(['chooseFace', mode]),
+    selectNode: (nodeId) => void asked.push(['selectNode', nodeId]),
     openRun: async (workflowId) => void asked.push(['openRun', workflowId]),
     replay: async (workflowId, picked) =>
       void asked.push(['replay', workflowId, picked]),
@@ -823,6 +827,44 @@ describe('what a run-tab subject says, and where it goes', () => {
         { type: 'askAgent', workflowId: 'wf_1', nodeId: 'find_slot' },
       ],
     ]);
+  });
+});
+
+/**
+ * A trigger writes no row of its own: it is how the
+ * run started. So its face offers the whole run
+ * instead, and asking for it lets go of the trigger
+ * on whichever surface it was picked on — which is
+ * what puts the card about the run in its place.
+ */
+describe('the whole run, shown again from a trigger', () => {
+  it('lets go of the trigger on the canvas it was selected on', () => {
+    const pane = mounted();
+    const canvas = session('groom_booking.workflow.json', {
+      selected: 'booking_requested',
+      mode: 'evidence',
+      run: liveRun({ workflowId: 'wf_1', workflow: 'groom_booking' }),
+    });
+
+    pane.focus.report({ at: 'canvas', session: canvas.canvas });
+    pane.frame.send({ type: 'inspectRun' });
+
+    expect(canvas.did).toEqual([['select', null]]);
+    expect(pane.asked).toEqual([]);
+    expect(pane.subjects().at(-1)).toMatchObject({
+      at: 'run',
+      run: { workflowId: 'wf_1' },
+    });
+  });
+
+  it('lets go of the trigger picked on the run tab', () => {
+    const pane = mounted();
+
+    pane.tab.reading = seeView({ selectedNode: 'booking_requested' });
+    pane.focus.report({ at: 'run' });
+    pane.frame.send({ type: 'inspectRun' });
+
+    expect(pane.asked).toEqual([['selectNode', null]]);
   });
 });
 

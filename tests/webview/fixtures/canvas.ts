@@ -542,6 +542,7 @@ export const THREW = liveStep({
   ...DONE,
   state: 'failed',
   output: undefined,
+  shown: undefined,
   error: {
     name: 'StripeTimeoutError',
     message: 'Request timed out after 30 s',
@@ -570,8 +571,18 @@ export const THREW_IN_LIB = liveStep({
 });
 
 /** And having thrown on every try DBOS allowed it,
- *  which is the one case that says so out loud. */
+ *  which is the one case that says so out loud. DBOS
+ *  stores each try's error inside the one it throws
+ *  once they run out, and the last of them is the
+ *  one drawn. */
 export const EXHAUSTED = liveStep({
   ...THREW,
-  error: { ...THREW.error!, retriesExhausted: true },
+  error: {
+    ...THREW.error!,
+    errors: [1, 2, 3].map(() => ({
+      name: 'StripeTimeoutError',
+      message: 'Request timed out after 30 s',
+    })),
+    retriesExhausted: true,
+  },
 });

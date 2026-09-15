@@ -7,6 +7,11 @@ import {
   type WorkflowIR,
 } from '../../src/core/rules.js';
 import { INLINE_LIMIT } from '../../src/runs/rows.js';
+import {
+  TIMER_THEN_ANSWER,
+  liveStep,
+  timerThenAnswerRun,
+} from '../../src/test-support/runs.js';
 import { filled } from '../../src/webview/fill.js';
 import { shortRunId } from '../../src/webview/ids.js';
 import type {
@@ -23,6 +28,7 @@ import {
   INDEXING,
   IN_FLIGHT,
   MARK,
+  RECORDED_AT,
   NO_PARTITION_KEY,
   PARTITIONED,
   THREW,
@@ -30,6 +36,7 @@ import {
   apiCallSubject,
   blockInit,
   blockSubject,
+  everyKind,
   inspectorInit,
   ir,
   labelTrack,
@@ -75,6 +82,18 @@ import { canvasWords, inspectorWords as inspectorStrings } from './words.js';
  *  canvas file when a canvas is in front. */
 function nothing(file: string | undefined) {
   return inspectorInit({ at: 'none', file });
+}
+
+/** How many lines the text in an element is set on,
+ *  read off the boxes its text draws. */
+function linesIn(element: Locator): Promise<number> {
+  return element.evaluate((held) => {
+    const text = document.createRange();
+    text.selectNodeContents(held);
+
+    return new Set([...text.getClientRects()].map((box) => Math.round(box.top)))
+      .size;
+  });
 }
 
 test.describe('an Inspector with nothing to show', () => {
@@ -218,19 +237,6 @@ test.describe('a run with nothing picked', () => {
     'nothing ran for about 2.9 s · derived',
     '2 durable operations reused · derived',
   ];
-
-  /** How many lines the text in an element is set
-   *  on, read off the boxes its text draws. */
-  function linesIn(element: Locator): Promise<number> {
-    return element.evaluate((held) => {
-      const text = document.createRange();
-      text.selectNodeContents(held);
-
-      return new Set(
-        [...text.getClientRects()].map((box) => Math.round(box.top)),
-      ).size;
-    });
-  }
 
   const CANCEL = {
     cancel: true,
@@ -1712,112 +1718,428 @@ test.describe('a block in the Inspector', () => {
    * block on screen.
    *
    * Everything on it was read off the ledger and can
-   * be edited by nobody. DBOS records no per-step
-   * input and no count of the tries a step made, so
-   * the first thing asked of the card is that it
-   * invents neither.
+   * be edited by nobody. The head says where the
+   * block got to and which row says so; the face
+   * reads down from the function that ran, through
+   * when it ran and what it returned, to the ways on
+   * from it. DBOS records no per-step input and no
+   * count of the tries a step made, so the face
+   * invents neither, and what is a fact about the
+   * whole run is left to the card about the run.
    */
   test.describe('what a run recorded about a block', () => {
-    test('never puts an attempt count or an INPUT section on a step card', async ({
-      page,
-    }) => {
+    /** The face under the strip. */
+    function face(page: Page) {
+      return page.locator('[data-evidence="block"]');
+    }
+
+    /** The state in the head of the pane. */
+    function status(page: Page) {
+      return page.locator('[data-inspector-header] .status-line');
+    }
+
+    /** What the state line says after its glyph. */
+    async function said(page: Page): Promise<string> {
+      const words = await status(page)
+        .locator(':scope > span:not(.status-glyph)')
+        .allTextContents();
+
+      return words.join('');
+    }
+
+    /** A block of the canonical document on Run
+     *  evidence, against a run. */
+    function onEvidence(
+      nodeId: string,
+      run: ShownRun,
+      over: Partial<BlockSubject> = {},
+      document: WorkflowIR = ir,
+    ): InspectorInit {
+      return blockInit({
+        ...blockSubject(nodeId, {}, 'evidence', document),
+        run,
+        ...over,
+      });
+    }
+
+    /** The ways on, in the order they are drawn. */
+    function actions(page: Page) {
+      return face(page).locator('[data-evidence-action]');
+    }
+
+    /** What the face says a recorded result is for,
+     *  word for word. */
+    const RECORDED_FOOTER =
+      'recorded result · reused on recovery and by a replay from a later step';
+
+    /** The completed step, having returned that. */
+    function returned(output: string) {
+      return liveStep({
+        name: DONE.name,
+        nodeId: DONE.nodeId,
+        functionId: DONE.functionId,
+        startedAt: DONE.startedAt,
+        completedAt: DONE.completedAt,
+        output,
+      });
+    }
+
+    /** A step that returned a value this long, as the
+     *  panel prints it. */
+    function returning(length: number) {
+      return returned(JSON.stringify('x'.repeat(length - 2)));
+    }
+
+    /** A block that fanned out over three items and
+     *  failed on the second. */
+    const FANNED_OUT = [
+      liveStep({ ...DONE, name: 'find_slot[0]', functionId: 3 }),
+      liveStep({ ...THREW, name: 'find_slot[1]', functionId: 4 }),
+      liveStep({ ...DONE, name: 'find_slot[2]', functionId: 5 }),
+    ];
+
+    test('heads a step with where it got to and its row', async ({ page }) => {
       const harness = await mountInspector(page);
-      const card = page.locator('[data-evidence="block"]');
+      await harness.show(onEvidence('find_slot', recording([DONE])));
 
-      for (const step of [DONE, THREW, EXHAUSTED]) {
-        await harness.show(
-          blockInit({
-            ...blockSubject('find_slot', {}, 'evidence'),
-            run: recording([step]),
-          }),
-        );
+      await expect(status(page)).toHaveCount(1);
+      await expect(status(page)).toHaveAttribute('data-run-state', 'done');
+      await expect(status(page).locator('.status-glyph')).toHaveText('✓');
+      expect(await said(page)).toBe('done · #3');
+      await expect(status(page).locator('[data-function-id]')).toHaveText('#3');
+      await expect(status(page)).not.toHaveAttribute('data-provenance');
 
-        await expect(card).toHaveCount(1);
+      // In the machine face, as the kind word beside
+      // it is: a state is what a ledger recorded.
+      const [line, kind] = await Promise.all([
+        status(page).evaluate((drawn) => getComputedStyle(drawn).fontFamily),
+        page
+          .locator('[data-inspector-kind]')
+          .evaluate((drawn) => getComputedStyle(drawn).fontFamily),
+      ]);
+      expect(line).toBe(kind);
 
-        const said = (await card.textContent()) ?? '';
+      // A row picked on the run tab heads the block
+      // with that row, not the block's last one.
+      const twice = recording([
+        DONE,
+        liveStep({ ...DONE, functionId: 5, name: 'find_slot' }),
+      ]);
 
-        expect(said).not.toMatch(/attempt/i);
-        expect(said).not.toMatch(/\bINPUT\b/);
-        await expect(page.locator('[data-field="input"]')).toHaveCount(0);
-      }
+      await harness.show(
+        onEvidence('find_slot', twice, { source: 'run', functionId: 3 }),
+      );
+      expect(await said(page)).toBe('done · #3');
+
+      await harness.show(onEvidence('find_slot', twice, { source: 'run' }));
+      expect(await said(page)).toBe('done · #5');
     });
 
-    test('shows a completed step’s timing, output and configured policy', async ({
-      page,
-    }) => {
-      const harness = await mountInspector(page);
-      await harness.show(
-        blockInit({
-          ...blockSubject('find_slot', {}, 'evidence'),
-          run: recording([DONE]),
-        }),
+    for (const theme of THEMES_ALL) {
+      test(`says a step’s state in its tone in ${theme}`, async ({ page }) => {
+        const harness = await mountInspector(page, theme);
+
+        for (const [step, role] of [
+          [DONE, 'ok'],
+          [THREW, 'fail'],
+        ] as const) {
+          await harness.show(onEvidence('find_slot', recording([step])));
+          await expect(status(page)).toHaveCount(1);
+
+          const drawn = await status(page).evaluate(
+            (line) => getComputedStyle(line).color,
+          );
+          const tone = colourOf(theme, 'state-ink') || colourOf(theme, role);
+
+          expect(sameColour(drawn, tone), `${drawn} ≠ ${tone}`).toBe(true);
+        }
+      });
+    }
+
+    /**
+     * On the run tab a pick in the trace can land on
+     * a row the SDK wrote under the block. That row
+     * is the one somebody asked about, so the head
+     * and the times are that row's — and with no row
+     * picked, the block's own row heads it again.
+     */
+    test('heads a block with the SDK row picked under it', async ({ page }) => {
+      const register = liveStep({
+        name: 'await_reply.register',
+        nodeId: 'await_reply',
+        functionId: 6,
+        startedAt: RECORDED_AT,
+        completedAt: RECORDED_AT + 5,
+      });
+      const received = liveStep({
+        name: 'DBOS.recv',
+        nodeId: 'await_reply',
+        functionId: 7,
+        startedAt: RECORDED_AT + 10_000,
+        completedAt: RECORDED_AT + 20_000,
+        sdk: true,
+      });
+      const run = recording([register, received]);
+      const started = face(page).locator(
+        '[data-evidence-field="started"] .value',
       );
 
-      // The epoch the fixture records reads as a
-      // different hour in every zone, so the shape
-      // is what is held — but the whole of it: a
-      // step timed to the millisecond is drawn to
-      // the millisecond, on a 24-hour clock this
-      // page's own 12-hour locale does not get a
-      // say in.
+      const harness = await openInspector(
+        page,
+        onEvidence('await_reply', run, { source: 'run', functionId: 7 }),
+      );
+
+      expect(await said(page)).toBe('done · #7');
+      await expect(started).toHaveText('10:31:24.218');
       await expect(
-        page.locator('[data-evidence-field="started"] .value'),
-      ).toHaveText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+        face(page).locator('[data-evidence-field="completed"] .value'),
+      ).toHaveText('10:31:34.218');
+
+      await harness.show(onEvidence('await_reply', run, { source: 'run' }));
+
+      expect(await said(page)).toBe('done · #6');
+      await expect(started).toHaveText('10:31:14.218');
+    });
+
+    /**
+     * A wait on the clock writes its wake-up time
+     * before it sleeps, so that row's completion is
+     * when it wakes rather than when anything
+     * finished. It says so, and says it woke once the
+     * run has passed it — never "done" beside a time
+     * still to come.
+     */
+    test('says a wait on the clock wakes, then that it woke', async ({
+      page,
+    }) => {
+      const waiting = (answered: boolean) =>
+        blockInit({
+          ...blockSubject('let_it_wait', {}, 'evidence', TIMER_THEN_ANSWER),
+          run: timerThenAnswerRun({ attributed: true, answered }),
+          manifest: undefined,
+          diagnostics: [],
+        });
+      const header = page.locator('[data-inspector-header]');
+
+      const harness = await openInspector(page, waiting(false));
+
+      await expect(header.locator('[data-run-state="waiting"]')).toHaveCount(1);
       await expect(
-        page.locator('[data-evidence-field="completed"] .value'),
-      ).toHaveText(/^\d{2}:\d{2}:\d{2}\.\d{3}$/);
+        face(page).locator('[data-evidence-field="wakes"] .property-label'),
+      ).toHaveText(inspectorStrings.wakes);
       await expect(
-        page.locator('[data-evidence-field="duration"] .value'),
+        face(page).locator('[data-evidence-field="wakes"] .value'),
+      ).toHaveText('00:01:01.000');
+      await expect(
+        face(page).locator('[data-evidence-field="woke"]'),
+      ).toHaveCount(0);
+      for (const gone of ['completed', 'duration']) {
+        await expect(
+          face(page).locator(`[data-evidence-field="${gone}"]`),
+        ).toHaveCount(0);
+      }
+
+      await harness.show(waiting(true));
+
+      await expect(header.locator('[data-run-state="done"]')).toHaveCount(1);
+      await expect(
+        face(page).locator('[data-evidence-field="woke"] .property-label'),
+      ).toHaveText(inspectorStrings.woke);
+      await expect(
+        face(page).locator('[data-evidence-field="wakes"]'),
+      ).toHaveCount(0);
+    });
+
+    /**
+     * One reading, top to bottom: the function that
+     * ran, when it ran, how hard it was allowed to
+     * try, what it returned, the ways on, and last
+     * what that returned value is for.
+     */
+    test('reads down from the function to what its result is for', async ({
+      page,
+    }) => {
+      await openInspector(page, onEvidence('find_slot', recording([DONE])));
+
+      await expect(face(page)).toHaveCount(1);
+
+      const order = await face(page).evaluate((drawn) =>
+        [...drawn.children].map(
+          (child) =>
+            (child as HTMLElement).dataset.evidenceField ??
+            ((child as HTMLElement).dataset.evidenceActions === undefined
+              ? child.className
+              : 'actions'),
+        ),
+      );
+      expect(order).toEqual([
+        'handler',
+        'started',
+        'completed',
+        'duration',
+        'retry',
+        'output',
+        'actions',
+        'recordedFooter',
+      ]);
+
+      // The function as the picker draws the one a
+      // block runs, but not a thing to press.
+      const fn = face(page).locator('[data-evidence-field="handler"]');
+      await expect(fn).toHaveClass(/\blib-fn\b/);
+      await expect(fn).toHaveAttribute('data-state', 'assigned');
+      expect(await fn.evaluate((row) => row.tagName)).toBe('DIV');
+      await expect(fn.locator('.lib-name')).toHaveText('findSlot');
+      await expect(fn.locator('.signature')).toHaveText(
+        signatureOf(
+          manifest.functions.find((one) => one.export === 'findSlot')!,
+        ),
+      );
+
+      // Every time on a 24-hour clock, to the
+      // millisecond, whatever this page's locale is.
+      for (const [field, time] of [
+        ['started', '10:31:14.218'],
+        ['completed', '10:31:14.266'],
+      ] as const) {
+        const value = face(page).locator(
+          `[data-evidence-field="${field}"] .value`,
+        );
+        await expect(value).toHaveText(time);
+        await expect(value.locator('[data-time="fine"]')).toHaveText(time);
+      }
+      await expect(
+        face(page).locator('[data-evidence-field="duration"] .value'),
       ).toHaveText('48 ms');
+
+      // The document's policy, marked as the
+      // document's rather than as anything the run
+      // recorded.
+      const retry = face(page).locator('[data-evidence-field="retry"]');
+      await expect(retry.locator('.section-label')).toHaveText(
+        `${inspectorStrings.retryPolicy} · ${inspectorStrings.configured}`,
+      );
+      await expect(
+        retry.locator('.section-label [data-provenance="configured"]'),
+      ).toHaveText(`· ${inspectorStrings.configured}`);
+      await expect(retry.locator('[data-evidence-policy]')).toHaveText(
+        'max 3 · interval 1 s · backoff 2×',
+      );
 
       // The value the step returned, not the wrapper
       // whatever serializer the project registered
       // stored it in.
+      const output = face(page).locator('[data-evidence-field="output"]');
+      await expect(output.locator('.section-label')).toHaveText(
+        inspectorStrings.outputLabel,
+      );
       await expect(
-        page.locator('[data-evidence-field="output"] .value'),
+        output.locator('[data-recorded] [data-verbatim]'),
       ).toHaveText(DONE.shown!);
-
-      // The fixture's block spells the defaults out,
-      // and the card says they are configuration
-      // rather than something the run recorded.
-      await expect(
-        page.locator('[data-evidence-field="retry"] .value'),
-      ).toHaveText('max 3 · interval 1 s · backoff 2×');
-      await expect(
-        page.locator('[data-evidence-field="retry"] .provenance'),
-      ).toHaveText(inspectorStrings.configured);
     });
 
     /**
-     * The class DBOS threw first, then its sentence.
-     * A step that ran out of tries says so on a
-     * third line and never lists the tries: one
-     * entry per try is exactly the per-step history
-     * nothing here may claim.
+     * A failure is set apart on the failure's tint:
+     * the class DBOS stored first, then its sentence,
+     * and under it what to do about it. The code is
+     * the main way on from a failure, so Open
+     * function is the one primary Button.
+     */
+    for (const theme of THEMES_ALL) {
+      test(`sets a failure apart and says the way out in ${theme}`, async ({
+        page,
+      }) => {
+        await openInspector(
+          page,
+          onEvidence('find_slot', recording([THREW_IN_LIB])),
+          theme,
+        );
+
+        const callout = face(page).locator('[data-evidence-field="error"]');
+        await expect(callout).toHaveCount(1);
+        await expect(callout).toHaveClass(/\bcallout\b/);
+        await expect(callout).toHaveAttribute('data-tone', 'fail');
+
+        const drawn = await callout.evaluate((box) => ({
+          ground: getComputedStyle(box).backgroundColor,
+          radius: getComputedStyle(box).borderTopLeftRadius,
+          name: getComputedStyle(box.querySelector('.callout-title')!)
+            .fontWeight,
+          first:
+            box.firstElementChild?.classList.contains('callout-title') ?? false,
+        }));
+        const tint = colourOf(theme, 'fail-tint');
+
+        expect(
+          sameColour(drawn.ground, tint),
+          `${drawn.ground} ≠ ${tint}`,
+        ).toBe(true);
+        expect(drawn.radius).toBe('6px');
+        expect(drawn.name).toBe('600');
+        expect(drawn.first).toBe(true);
+
+        await expect(callout.locator('.callout-title')).toHaveText(
+          'StripeTimeoutError',
+        );
+        await expect(
+          callout.locator('.callout-body [data-verbatim]'),
+        ).toHaveText('Request timed out after 30 s');
+
+        const wayOut = face(page).locator('[data-way-out]');
+        await expect(wayOut).toHaveText(inspectorStrings.wayOut);
+        expect(
+          await callout.evaluate((box) =>
+            box.nextElementSibling?.hasAttribute('data-way-out'),
+          ),
+        ).toBe(true);
+
+        await expect(
+          face(page).locator('[data-evidence-action="openFunction"]'),
+        ).toHaveAttribute('data-variant', 'primary');
+        await expect(
+          face(page).locator('[data-evidence-action="replayFrom"]'),
+        ).toHaveAttribute('data-variant', 'quiet');
+      });
+    }
+
+    /**
+     * The class DBOS threw first, then its sentence,
+     * then the way out. A step that ran out of tries
+     * says how many DBOS made — the tries it stored,
+     * not the most it was allowed — in place of the
+     * plain way out, and never lists them.
      */
     test('shows a failed step’s error, its class first', async ({ page }) => {
       const harness = await mountInspector(page);
-      await harness.show(
-        blockInit({
-          ...blockSubject('find_slot', {}, 'evidence'),
-          run: recording([THREW]),
-        }),
+      await harness.show(onEvidence('find_slot', recording([THREW])));
+
+      const callout = face(page).locator('[data-evidence-field="error"]');
+      const wayOut = face(page).locator('[data-way-out]');
+
+      await expect(callout.locator('.callout-title')).toHaveText(
+        'StripeTimeoutError',
       );
-
-      const error = page.locator('.evidence-error');
-
-      await expect(error).toContainText('StripeTimeoutError');
-      await expect(error).toContainText('Request timed out after 30 s');
-      await expect(error).not.toContainText(inspectorStrings.exhausted);
-
-      await harness.show(
-        blockInit({
-          ...blockSubject('find_slot', {}, 'evidence'),
-          run: recording([EXHAUSTED]),
-        }),
+      await expect(callout.locator('.callout-body')).toHaveText(
+        'Request timed out after 30 s',
       );
+      await expect(wayOut).toHaveText(inspectorStrings.wayOut);
 
-      await expect(error).toContainText(inspectorStrings.exhausted);
+      await harness.show(onEvidence('find_slot', recording([EXHAUSTED])));
+
+      await expect(wayOut).toHaveCount(1);
+      await expect(wayOut).toHaveText(
+        'DBOS tried 3 times · fix the function, then replay from here',
+      );
+      expect(
+        await callout.evaluate((box) => {
+          const after = box.nextElementSibling;
+
+          return {
+            hint: after?.classList.contains('field-hint'),
+            next: after?.nextElementSibling?.classList.contains('field-hint'),
+          };
+        }),
+      ).toEqual({ hint: true, next: false });
     });
 
     /**
@@ -1826,35 +2148,38 @@ test.describe('a block in the Inspector', () => {
      * project's own `lib/`. Most stacks name the SDK
      * and the generated workflow and nothing else,
      * and a button that opened one of those would be
-     * worse than no button.
+     * worse than no button. Where there is one, the
+     * sentence under the ways on says the line is
+     * the image's, not the folder's.
      */
     test('shows Open Error Location only when the step has a frame', async ({
       page,
     }) => {
       const harness = await mountInspector(page);
-      await harness.show(
-        blockInit({
-          ...blockSubject('find_slot', {}, 'evidence'),
-          run: recording([THREW]),
-        }),
-      );
+      await harness.show(onEvidence('find_slot', recording([THREW])));
 
       const door = page.locator('[data-evidence-action="openErrorLocation"]');
+      const where = face(page).locator('[data-evidence-field="errorLocation"]');
 
-      await expect(page.locator('.evidence-error')).toBeVisible();
+      await expect(
+        face(page).locator('[data-evidence-field="error"]'),
+      ).toBeVisible();
       await expect(door).toHaveCount(0);
+      await expect(where).toHaveCount(0);
 
-      await harness.show(
-        blockInit({
-          ...blockSubject('find_slot', {}, 'evidence'),
-          run: recording([THREW_IN_LIB]),
-        }),
-      );
+      await harness.show(onEvidence('find_slot', recording([THREW_IN_LIB])));
 
       await expect(door).toHaveText(inspectorStrings.openErrorLocation);
-      await expect(
-        page.locator('[data-evidence-field="errorLocation"] .hint'),
-      ).toHaveText(inspectorStrings.errorLocationFrom);
+      await expect(where.locator('.field-hint')).toHaveText(
+        inspectorStrings.errorLocationFrom,
+      );
+      expect(
+        await where.evaluate(
+          (hint) =>
+            (hint.previousElementSibling as HTMLElement | null)?.dataset
+              .evidenceActions,
+        ),
+      ).toBe('');
     });
 
     /**
@@ -1863,12 +2188,9 @@ test.describe('a block in the Inspector', () => {
      * tries, and each wrote a stack of its own.
      */
     test('asks for the line by block and row', async ({ page }) => {
-      const harness = await mountInspector(page);
-      await harness.show(
-        blockInit({
-          ...blockSubject('find_slot', {}, 'evidence'),
-          run: recording([THREW_IN_LIB]),
-        }),
+      const harness = await openInspector(
+        page,
+        onEvidence('find_slot', recording([THREW_IN_LIB])),
       );
 
       await page.locator('[data-evidence-action="openErrorLocation"]').click();
@@ -1879,33 +2201,39 @@ test.describe('a block in the Inspector', () => {
     });
 
     /**
-     * The ways on from a recorded step, in the order
-     * somebody reaches for them: the code, the line
-     * it broke on, a second run from here, and the
+     * The ways on from a failed step, in the order
+     * somebody reaches for them: the code, a second
+     * run from here, the line it broke on, and the
      * agent.
      *
      * Every one of them carries the block, and the
      * two that start something carry the run as
      * well — a panel may be drawing a run the
      * extension has since moved past, and which run
-     * is being asked about is not a question a card
+     * is being asked about is not a question a face
      * gets to answer from memory.
      */
     test('offers the four ways on from a failed step', async ({ page }) => {
-      const harness = await mountInspector(page);
-      await harness.show(
-        blockInit({
-          ...blockSubject('find_slot', {}, 'evidence'),
-          run: recording([THREW_IN_LIB]),
-        }),
+      const harness = await openInspector(
+        page,
+        onEvidence('find_slot', recording([THREW_IN_LIB])),
       );
 
-      await expect(
-        page.locator('.evidence-actions [data-evidence-action]'),
-      ).toHaveText([
+      await expect(actions(page)).toHaveCount(4);
+      expect(
+        await actions(page).evaluateAll((drawn) =>
+          drawn.map((one) => (one as HTMLElement).dataset.evidenceAction),
+        ),
+      ).toEqual([
+        'openFunction',
+        'replayFrom',
+        'openErrorLocation',
+        'askAgent',
+      ]);
+      await expect(actions(page)).toHaveText([
         inspectorStrings.openHandler,
-        inspectorStrings.openErrorLocation,
         inspectorStrings.replayFrom,
+        inspectorStrings.openErrorLocation,
         inspectorStrings.askAgent,
       ]);
 
@@ -1931,22 +2259,472 @@ test.describe('a block in the Inspector', () => {
     test('keeps the other three ways on where there is no line', async ({
       page,
     }) => {
+      await openInspector(page, onEvidence('find_slot', recording([THREW])));
+
+      await expect(actions(page)).toHaveCount(3);
+      expect(
+        await actions(page).evaluateAll((drawn) =>
+          drawn.map((one) => (one as HTMLElement).dataset.evidenceAction),
+        ),
+      ).toEqual(['openFunction', 'replayFrom', 'askAgent']);
+    });
+
+    /**
+     * What the run was started with, its status
+     * column, who ran it and which build are facts
+     * about the whole run, and are drawn on the card
+     * about the run. A step's face that repeated
+     * them would be one more place a raw status
+     * word or a full id turns up.
+     */
+    test('never shows the run’s own facts on a step', async ({ page }) => {
       const harness = await mountInspector(page);
-      await harness.show(
-        blockInit({
-          ...blockSubject('find_slot', {}, 'evidence'),
-          run: recording([THREW]),
-        }),
+      const uuid = '7089cd29-881b-4319-a16d-1af70cc1e9a7';
+      const pane = page.locator('[data-inspector]');
+
+      for (const step of [DONE, THREW, EXHAUSTED]) {
+        await harness.show(
+          onEvidence(
+            'find_slot',
+            recording([step], {
+              workflowId: uuid,
+              status: 'SUCCESS',
+              executorId: 'executor-7f3a',
+              applicationVersion: 'build-2291',
+              input: '{ "requestId": "req_551" }',
+            }),
+          ),
+        );
+
+        await expect(face(page)).toHaveCount(1);
+
+        const text = (await pane.textContent()) ?? '';
+
+        expect(text).not.toContain('SUCCESS');
+        expect(text).not.toContain(uuid);
+        expect(text).not.toContain('executor');
+        expect(text).not.toContain('build-2291');
+        expect(text).not.toContain('application_version');
+        expect(text).not.toContain('req_551');
+        expect(text).not.toMatch(/attempt/i);
+        await expect(page.locator('[data-workflow-input]')).toHaveCount(0);
+      }
+    });
+
+    /**
+     * A step offers its code, a replay from here and
+     * the agent, and no way to the run — the run is
+     * already open, and a door to where somebody is
+     * standing is not an offer. On a step that
+     * worked the code is a second choice, drawn in
+     * outline; on one that failed it is the first.
+     */
+    test('offers what a step offers, and no Open run', async ({ page }) => {
+      const harness = await openInspector(
+        page,
+        onEvidence('find_slot', recording([DONE])),
       );
 
-      await expect(
-        page.locator('.evidence-actions [data-evidence-action]'),
-      ).toHaveText([
+      await expect(actions(page)).toHaveCount(3);
+      await expect(actions(page)).toHaveText([
         inspectorStrings.openHandler,
         inspectorStrings.replayFrom,
         inspectorStrings.askAgent,
       ]);
+
+      const open = face(page).locator('[data-evidence-action="openFunction"]');
+      await expect(open).toHaveAttribute('data-variant', 'secondary');
+      await expect(open).toHaveAttribute('data-ink', 'brand');
+      for (const quiet of ['replayFrom', 'askAgent']) {
+        await expect(
+          face(page).locator(`[data-evidence-action="${quiet}"]`),
+        ).toHaveAttribute('data-variant', 'quiet');
+      }
+      await expect(
+        page.locator('[data-evidence-action="openRun"]'),
+      ).toHaveCount(0);
+
+      await harness.show(onEvidence('find_slot', recording([THREW])));
+
+      await expect(actions(page)).toHaveCount(3);
+      await expect(open).toHaveAttribute('data-variant', 'primary');
+      await expect(
+        page.locator('[data-evidence-action="openRun"]'),
+      ).toHaveCount(0);
     });
+
+    /**
+     * Under everything, what the recorded result is
+     * for: a recovery reads it back rather than
+     * running the step again, and so does a replay
+     * that starts after it. A replay from this step
+     * runs it again, which is why the sentence says
+     * "a later step".
+     */
+    test('ends with what the recorded result is for', async ({ page }) => {
+      const harness = await openInspector(
+        page,
+        onEvidence('find_slot', recording([DONE])),
+      );
+
+      const footer = face(page).locator(
+        '[data-evidence-field="recordedFooter"]',
+      );
+      await expect(footer).toHaveCount(1);
+      await expect(footer).toHaveText(RECORDED_FOOTER);
+      expect(await footer.evaluate((hint) => hint.nextElementSibling)).toBe(
+        null,
+      );
+      await expect(footer).toHaveAttribute('data-mono', '');
+
+      await harness.show(onEvidence('find_slot', recording([THREW])));
+      await expect(face(page)).toHaveCount(1);
+      await expect(footer).toHaveCount(0);
+    });
+
+    for (const [width, length, lines] of [
+      [300, 20, 1],
+      [300, 118, 2],
+      [240, 118, 2],
+    ] as const) {
+      test(`fits ${length} characters in its chip at ${width}px`, async ({
+        page,
+      }) => {
+        const harness = await mountInspector(page);
+        await page.setViewportSize({ width, height: 700 });
+        await harness.show(
+          onEvidence('find_slot', recording([returning(length)])),
+        );
+
+        const chip = face(page).locator('[data-recorded] .inline-chip');
+        await expect(chip).toHaveCount(1);
+
+        if (lines === 1) {
+          expect(await linesIn(chip)).toBe(1);
+        } else {
+          expect(await linesIn(chip)).toBeGreaterThanOrEqual(lines);
+        }
+
+        const drawn = await chip.evaluate((held) => ({
+          radius: getComputedStyle(held).borderTopLeftRadius,
+          space: getComputedStyle(held).whiteSpace,
+          right: held.getBoundingClientRect().right,
+          pane: window.innerWidth,
+          scrolls:
+            document.documentElement.scrollWidth >
+            document.documentElement.clientWidth,
+        }));
+        expect(drawn.radius).toBe('4px');
+        expect(drawn.space).toBe('pre-wrap');
+        expect(drawn.right).toBeLessThanOrEqual(drawn.pane - 14 + 0.5);
+        expect(drawn.scrolls).toBe(false);
+      });
+    }
+
+    /** Neither the kind nor the state breaks inside
+     *  itself where the head runs out of room. */
+    test('keeps the kind word and the state on one line each', async ({
+      page,
+    }) => {
+      await openInspector(page, onEvidence('find_slot', recording([DONE])));
+
+      await expect(status(page)).toHaveCount(1);
+      for (const one of [page.locator('[data-inspector-kind]'), status(page)]) {
+        expect(
+          await one.evaluate((drawn) => getComputedStyle(drawn).whiteSpace),
+        ).toBe('nowrap');
+      }
+    });
+
+    /**
+     * A result short enough to read is drawn whole,
+     * and a longer one is named with its size and a
+     * way to open all of it, JSON or not. Past the
+     * limit a docked pane would be a page of one
+     * value.
+     */
+    test('draws a short result inline, and a long one to open', async ({
+      page,
+    }) => {
+      const harness = await mountInspector(page);
+      const output = face(page).locator('[data-evidence-field="output"]');
+
+      await harness.show(
+        onEvidence('find_slot', recording([returning(INLINE_LIMIT)])),
+      );
+
+      await expect(output.locator('.state-word')).toHaveText(
+        inspectorStrings.inline,
+      );
+      await expect(output.locator('.inline-chip')).toHaveCount(1);
+      await expect(output.locator('.artifact-ref')).toHaveCount(0);
+
+      await harness.show(
+        onEvidence('find_slot', recording([returning(INLINE_LIMIT + 1)])),
+      );
+
+      await expect(output.locator('.state-word')).toHaveText(
+        inspectorStrings.artifact,
+      );
+      await expect(output.locator('.inline-chip')).toHaveCount(0);
+      await expect(output.locator('.artifact-size')).toHaveText('121 B');
+
+      const preview = output.locator('.artifact-preview[data-verbatim]');
+      await expect(preview).toHaveCount(1);
+      expect(await linesIn(preview)).toBe(1);
+      expect(
+        await preview.evaluate((cut) => getComputedStyle(cut).textOverflow),
+      ).toBe('ellipsis');
+
+      const open = output.locator('[data-evidence-action="openOutput"]');
+      await expect(open).toHaveText(inspectorStrings.openOutput);
+      await expect(open).toHaveAttribute('data-variant', 'quiet');
+      await expect(open).toHaveAttribute('data-ink', 'brand');
+
+      await open.click();
+      expect(await harness.postedOfType('openOutput')).toEqual([
+        { type: 'openOutput', workflowId: 'wf_1', functionId: 3 },
+      ]);
+
+      await harness.show(
+        onEvidence(
+          'find_slot',
+          recording([returned('y'.repeat(INLINE_LIMIT + 1))]),
+        ),
+      );
+
+      await expect(output.locator('.artifact-ref')).toHaveCount(1);
+      await expect(output.locator('.state-word')).toHaveText(
+        inspectorStrings.artifact,
+      );
+    });
+
+    for (const theme of THEMES_ALL) {
+      test(`puts every label before its value in ${theme}`, async ({
+        page,
+      }) => {
+        const harness = await openInspector(
+          page,
+          onEvidence('find_slot', recording([DONE])),
+          theme,
+        );
+
+        const timed = face(page).locator('[data-property]');
+        await expect(timed).toHaveCount(3);
+        for (const row of await timed.all()) await labelBeforeValue(row);
+
+        await harness.show(onEvidence('find_slot', recording(FANNED_OUT)));
+
+        const parts = face(page).locator('[data-evidence-part]');
+        await expect(parts).toHaveCount(3);
+        for (const row of await parts.all()) await labelBeforeValue(row);
+      });
+    }
+
+    /**
+     * A block clicked on the graph is the block, not
+     * one of its rows: it is headed by the row that
+     * failed, the rows under it are listed, and a
+     * replay from it names the block and leaves which
+     * of its rows to start from to the host.
+     */
+    test('replays a fanned-out block, not a row, from a graph click', async ({
+      page,
+    }) => {
+      const harness = await openInspector(
+        page,
+        onEvidence('find_slot', recording(FANNED_OUT), { source: 'run' }),
+      );
+
+      expect(await said(page)).toBe('failed · #4');
+      await expect(
+        face(page).locator('[data-evidence-field="rows"] [data-evidence-part]'),
+      ).toHaveCount(3);
+      await expect(
+        face(page).locator('[data-evidence-field="error"]'),
+      ).toHaveCount(1);
+
+      await page.locator('[data-evidence-action="replayFrom"]').click();
+
+      expect(await harness.postedOfType('replayFrom')).toEqual([
+        { type: 'replayFrom', workflowId: 'wf_1', nodeId: 'find_slot' },
+      ]);
+    });
+
+    /**
+     * A trigger writes no row: it compiles into how
+     * the workflow is started. So its face says so,
+     * and offers the whole run in its place. Its
+     * state is worked out from the run existing, and
+     * the head says that where a pointer or a screen
+     * reader finds it. Once the pane is about the
+     * run, focus is on the run's name.
+     */
+    test('says a trigger writes no row, and shows the run', async ({
+      page,
+    }) => {
+      const harness = await openInspector(
+        page,
+        onEvidence('booking_requested', runOf(IN_FLIGHT)),
+      );
+
+      await expect(status(page)).toHaveCount(1);
+      expect(await said(page)).toBe(inspectorStrings.runStates.done);
+      await expect(status(page)).toHaveAttribute('data-run-state', 'done');
+      await expect(status(page)).toHaveAttribute('data-provenance', 'derived');
+      await expect(status(page)).toHaveAccessibleDescription(
+        inspectorStrings.triggerDerived,
+      );
+
+      const trigger = page.locator('[data-evidence="trigger"]');
+      await expect(trigger.locator('.field-hint')).toHaveText(
+        inspectorStrings.triggerNoRow,
+      );
+      await expect(page.locator('[data-evidence-action]')).toHaveCount(0);
+
+      const show = trigger.locator('[data-inspect-run]');
+      await expect(show).toHaveText(inspectorStrings.showRun);
+      await expect(show).toHaveAttribute('data-variant', 'quiet');
+      await expect(show).toHaveAttribute('data-ink', 'brand');
+
+      await show.click();
+
+      expect(await harness.postedOfType('inspectRun')).toEqual([
+        { type: 'inspectRun' },
+      ]);
+
+      await harness.show(inspectorInit({ at: 'run', run: runLevel() }));
+
+      await expect(
+        page.locator('[data-inspector-header] .inspector-title'),
+      ).toBeFocused();
+    });
+
+    /**
+     * A block the run has not written a row for yet
+     * is where the graph says it is, and nothing
+     * more: no times, and nothing to replay from or
+     * ask about.
+     */
+    test('says nothing it does not have for a block with no row yet', async ({
+      page,
+    }) => {
+      await openInspector(page, onEvidence('twilio_chat', runOf(IN_FLIGHT)));
+
+      await expect(face(page)).toHaveCount(1);
+      await expect(
+        page.locator('[data-inspector-header] [data-run-state="running"]'),
+      ).toHaveCount(1);
+      await expect(
+        face(page).locator('[data-evidence-field="nothing"]'),
+      ).toHaveText(inspectorStrings.nothingRecorded);
+      for (const gone of ['started', 'completed', 'duration']) {
+        await expect(
+          face(page).locator(`[data-evidence-field="${gone}"]`),
+        ).toHaveCount(0);
+      }
+      await expect(page.locator('[data-evidence-action]')).toHaveCount(0);
+    });
+
+    /**
+     * What the face worked out rather than read says
+     * so: the state of a block the run has written
+     * nothing for, a row read back after a crash, a
+     * row carried over from the run this one was
+     * replayed from, and how often a loop went round.
+     */
+    test('says which states it worked out', async ({ page }) => {
+      const harness = await openInspector(
+        page,
+        onEvidence('twilio_chat', runOf(IN_FLIGHT)),
+      );
+
+      await expect(status(page)).toHaveAttribute('data-provenance', 'derived');
+      await expect(status(page)).toHaveAccessibleDescription(
+        inspectorStrings.runningDerived,
+      );
+
+      /** A fact on the face, and the mark after it. */
+      const fact = (field: string) =>
+        face(page).locator(`[data-evidence-field="${field}"]`);
+      const derived = `· ${inspectorStrings.derived}`;
+
+      await harness.show(
+        onEvidence(
+          'find_slot',
+          recording([liveStep({ ...DONE, restored: true, reused: true })]),
+        ),
+      );
+
+      await expect(status(page)).not.toHaveAttribute('data-provenance');
+      await expect(fact('restored')).toHaveText(
+        `${inspectorStrings.restored} ${derived}`,
+      );
+      await expect(fact('reused')).toHaveText(
+        `${inspectorStrings.reused} ${derived}`,
+      );
+
+      await harness.show(
+        blockInit({
+          ...blockSubject(
+            'loop',
+            { config: { minRounds: 1, maxRounds: 5, body: ['step'] } },
+            'evidence',
+            everyKind,
+          ),
+          run: recording([
+            liveStep({ name: 'step.r1', nodeId: 'step', functionId: 0 }),
+            liveStep({ name: 'step.r2', nodeId: 'step', functionId: 1 }),
+          ]),
+        }),
+      );
+
+      await expect(fact('rounds')).toHaveText(
+        `${filled(inspectorStrings.roundsObserved, '2')} ${derived}`,
+      );
+      await expect(
+        fact('rounds').locator('[data-provenance="derived"]'),
+      ).toHaveText(derived);
+    });
+
+    /**
+     * A worked-out fact wears a quiet lowercase word
+     * after it, in the faint voice, rather than a
+     * bordered chip in capitals: capitals are how
+     * this system says what state something is in.
+     */
+    for (const theme of THEMES_ALL) {
+      test(`marks a worked-out fact with a quiet word in ${theme}`, async ({
+        page,
+      }) => {
+        await openInspector(
+          page,
+          onEvidence(
+            'find_slot',
+            recording([liveStep({ ...DONE, restored: true })]),
+          ),
+          theme,
+        );
+
+        const mark = face(page).locator(
+          '[data-evidence-field="restored"] [data-provenance="derived"]',
+        );
+        await expect(mark).toHaveCount(1);
+
+        const drawn = await mark.evaluate((word) => ({
+          transform: getComputedStyle(word).textTransform,
+          border: getComputedStyle(word).borderTopStyle,
+          ink: getComputedStyle(word).color,
+        }));
+        const faint = colourOf(theme, 'ink-faint');
+
+        expect(drawn.transform).toBe('none');
+        expect(drawn.border).toBe('none');
+        expect(sameColour(drawn.ink, faint), `${drawn.ink} ≠ ${faint}`).toBe(
+          true,
+        );
+      });
+    }
   });
 
   /**
@@ -2202,13 +2980,11 @@ test.describe('a block in the Inspector', () => {
         picked('find_slot', GRAPH.ir, seeRun().live, 1),
       );
 
-      const card = page.locator('[data-evidence="block"]');
+      await expect(page.locator('[data-evidence="block"]')).toHaveCount(1);
 
-      await expect(card).toHaveCount(1);
-      await expect(card.locator('.evidence-title')).toHaveText('Find a slot');
-      await expect(card.locator('.run-status')).toContainText(
-        inspectorStrings.runStates.failed,
-      );
+      const status = page.locator('[data-inspector-header] .status-line');
+      await expect(status).toHaveAttribute('data-run-state', 'failed');
+      await expect(status.locator('[data-function-id]')).toHaveText('#1');
     });
 
     /**
@@ -2254,10 +3030,14 @@ test.describe('a block in the Inspector', () => {
       ]);
     });
 
-    /** The code the block runs and the agent, reached
-     *  from the card whichever surface the block was
-     *  picked on. */
-    test('reaches the code and the agent from a block picked there', async ({
+    /**
+     * The code the block runs and the agent, reached
+     * from the face whichever surface the block was
+     * picked on. A question about a row somebody
+     * picked names the row, so the agent is told
+     * which try it is being asked about.
+     */
+    test('reaches the code and the agent from a row picked there', async ({
       page,
     }) => {
       const harness = await openInspector(
@@ -2272,12 +3052,17 @@ test.describe('a block in the Inspector', () => {
         { type: 'openFunction', nodeId: 'find_slot' },
       ]);
       expect(await harness.postedOfType('askAgent')).toEqual([
-        { type: 'askAgent', workflowId: 'wf_c9d2f3', nodeId: 'find_slot' },
+        {
+          type: 'askAgent',
+          workflowId: 'wf_c9d2f3',
+          nodeId: 'find_slot',
+          functionId: 1,
+        },
       ]);
     });
 
     /** A replay of the run the tab is showing, from
-     *  the block the card is about. */
+     *  the block its graph had clicked. */
     test('replays the tab’s run from the block that is picked', async ({
       page,
     }) => {
@@ -2294,17 +3079,21 @@ test.describe('a block in the Inspector', () => {
     });
 
     /**
-     * One way to replay, whether a node or a row of
-     * it was picked. The block travels and the row
-     * does not: which of a block's rows a replay
-     * starts from is decided where the run's rows
-     * are.
+     * A row picked in the trace is the row the face
+     * draws, and the row a replay from here starts
+     * from: the block travels beside it, so the host
+     * can still answer about a pane that has moved
+     * on.
      */
-    test('offers one replay for a row picked on the tab', async ({ page }) => {
+    test('replays from the row picked in the trace', async ({ page }) => {
       const harness = await openInspector(
         page,
-        picked('find_slot', GRAPH.ir, seeRun().live, 1),
+        picked('find_slot', GRAPH.ir, recording([DONE]), 3),
       );
+
+      await expect(
+        page.locator('[data-inspector-header] [data-function-id]'),
+      ).toHaveText('#3');
 
       const replay = page.locator('[data-evidence-action="replayFrom"]');
 
@@ -2312,7 +3101,12 @@ test.describe('a block in the Inspector', () => {
       await replay.click();
 
       expect(await harness.postedOfType('replayFrom')).toEqual([
-        { type: 'replayFrom', workflowId: 'wf_c9d2f3', nodeId: 'find_slot' },
+        {
+          type: 'replayFrom',
+          workflowId: 'wf_1',
+          nodeId: 'find_slot',
+          functionId: 3,
+        },
       ]);
     });
   });
@@ -2568,7 +3362,7 @@ test.describe('the groups a block is set in', () => {
       }),
     );
     await expect(
-      page.locator('[data-evidence-field="retry"] .value'),
+      page.locator('[data-evidence-field="retry"] [data-evidence-policy]'),
     ).toHaveCount(1);
     await expect(
       page.getByText(inspectorStrings.durationCoversTries),

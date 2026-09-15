@@ -728,14 +728,36 @@ describe('what an open canvas tells the registry', () => {
     expect(sessions.forPath(GROOM_BOOKING)).toBeUndefined();
   });
 
-  it('signals a block its panel selected', async () => {
+  it('signals a block its panel selected, and draws it once', async () => {
     const moved = following();
+    const posted = panel.posted.length;
 
     panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
     await settled();
 
     expect(moved).toHaveLength(1);
     expect(moved[0]).toBe(canvasOn());
+    expect(panel.posted).toHaveLength(posted + 1);
+  });
+
+  /**
+   * The Inspector lets go of a canvas's selection
+   * from its own pane, and tells the registry. The
+   * board draws whatever the registry hears about
+   * it, so it does not keep a block ringed that the
+   * pane has already let go of.
+   */
+  it('draws a selection let go of from outside its frame', async () => {
+    panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
+    await settled();
+
+    const posted = panel.posted.length;
+
+    canvasOn().select(null);
+    sessions.fire(canvasOn());
+
+    expect(panel.posted).toHaveLength(posted + 1);
+    expect(panel.posted.at(-1)).toMatchObject({ selected: undefined });
   });
 
   it('signals a change to the document while its frame is hidden', async () => {

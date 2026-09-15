@@ -199,6 +199,10 @@ describe('what each view may say', () => {
     resumeRun: ['runs', 'inspector'],
     openInput: ['inspector'],
 
+    // Only a trigger's face asks to be shown the
+    // whole run, and only the Inspector draws one.
+    inspectRun: ['inspector'],
+
     stepSelect: ['see'],
     replayFrom: ['inspector', 'sidebar'],
 
@@ -272,6 +276,7 @@ describe('what each view may say', () => {
     cancelRun: { workflowId: 'wf_c9d2f3' },
     resumeRun: { workflowId: 'wf_c9d2f3' },
     openInput: { workflowId: 'wf_c9d2f3' },
+    inspectRun: {},
 
     stepSelect: { functionId: 2 },
     replayFrom: { workflowId: 'wf_c9d2f3', functionId: 2 },

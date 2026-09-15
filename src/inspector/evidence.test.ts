@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import type { QueuePolicy } from '../core/rules.js';
-import { stepError } from '../runs/rows.js';
-import type { LiveRun, QueueCounts } from '../runs/watch.js';
+import { INLINE_LIMIT, stepError } from '../runs/rows.js';
+import type { LiveRun, LiveStep, QueueCounts } from '../runs/watch.js';
 import {
   TIMER_WAKES_AT,
   liveRun,
@@ -13,8 +13,9 @@ import { inspectorWords } from '../canvas/words.js';
 
 import {
   evidenceOf,
+  headlineOf,
+  outputOf,
   queueRowsOf,
-  runCardOf,
   type QueueRow,
 } from './evidence.js';
 
@@ -41,9 +42,6 @@ import {
  */
 const RUN = liveRun({
   workflowId: 'wf_c9d2f3',
-  recoveryAttempts: 2,
-  applicationVersion: '1',
-  input: '{ "orderId": "ord_123" }',
   steps: [
     liveStep({ name: 'parse_request', nodeId: 'parse_request', functionId: 0 }),
     liveStep({ name: 'pack[0]', nodeId: 'pack', functionId: 1 }),
@@ -231,52 +229,175 @@ describe('what a run recorded about one block', () => {
   it('counts no rounds for a block that encloses none', () => {
     expect(evidenceOf(RUN, 'find_slot', undefined).rounds).toBeUndefined();
   });
+});
 
-  describe('the run-level card', () => {
-    it('carries the workflow input, the recovery and the version', () => {
-      expect(runCardOf(RUN)).toMatchObject({
-        workflowId: 'wf_c9d2f3',
-        workflow: 'groom_booking',
-        input: '{ "orderId": "ord_123" }',
-        recoveries: 1,
-        applicationVersion: '1',
-      });
+/**
+ * The one row a block is headed by, where nobody
+ * picked one.
+ *
+ * The latest failure where there is one, since a
+ * block that failed on its third item is being
+ * looked at because of that item; the latest row
+ * otherwise. A row the SDK wrote for itself is
+ * drawn when somebody picks it in the trace, and
+ * is never what a block leads with: it is the
+ * machinery under the block, not the block.
+ */
+describe('the row a block is headed by', () => {
+  function rowsOf(...steps: LiveStep[]) {
+    return evidenceOf(liveRun({ steps }), 'find_slot', undefined).rows;
+  }
+
+  const row = (functionId: number, over: Partial<LiveStep> = {}) =>
+    liveStep({ name: 'find_slot', nodeId: 'find_slot', functionId, ...over });
+
+  it('is the last failed row', () => {
+    const rows = rowsOf(
+      row(0, { state: 'failed' }),
+      row(1, { state: 'failed' }),
+      row(2),
+    );
+
+    expect(headlineOf(rows)?.functionId).toBe(1);
+  });
+
+  it('is the last row where none failed', () => {
+    expect(headlineOf(rowsOf(row(0), row(1), row(2)))?.functionId).toBe(2);
+  });
+
+  it('is nothing for a block with no rows', () => {
+    expect(headlineOf([])).toBeUndefined();
+  });
+
+  it('is never a row the SDK wrote for itself', () => {
+    const rows = rowsOf(
+      row(0),
+      row(1, { name: 'DBOS.recv', state: 'failed', sdk: true }),
+      row(2, { name: 'DBOS.sleep', sdk: true }),
+    );
+
+    expect(rows).toHaveLength(3);
+    expect(headlineOf(rows)?.functionId).toBe(0);
+  });
+
+  /**
+   * On the run tab a block's run carries the rows
+   * the SDK wrote under it, so a pick in the trace
+   * can land on one. Both count among the block's
+   * rows; the block is still headed by its own.
+   */
+  it('heads a run-tab block by its own row, not the SDK’s under it', () => {
+    const run = liveRun({
+      steps: [
+        row(4, { name: 'await_reply.register', nodeId: 'await_reply' }),
+        row(5, { name: 'DBOS.sleep', nodeId: 'await_reply', sdk: true }),
+      ],
     });
 
-    /** The column counts dispatches rather than
-     *  crashes, so an ordinary run that worked first
-     *  time already carries one. */
-    it('says a run nobody picked back up was never recovered', () => {
-      expect(runCardOf(liveRun({ recoveryAttempts: 1 })).recoveries).toBe(0);
+    const found = evidenceOf(run, 'await_reply', undefined);
+
+    expect(found.rows.map((one) => one.functionId)).toEqual([4, 5]);
+    expect(found.headline?.functionId).toBe(4);
+    expect(found.rows.map((one) => one.sdk)).toEqual([false, true]);
+  });
+});
+
+/**
+ * The row the face draws in full: the one picked
+ * on the run tab, where it is one of the block's,
+ * and the headline otherwise — so a pick that
+ * belongs to another block, or none at all, still
+ * shows the block rather than nothing.
+ */
+describe('the row the face draws', () => {
+  const run = liveRun({
+    steps: [
+      liveStep({ name: 'pack[0]', nodeId: 'pack', functionId: 1 }),
+      liveStep({ name: 'pack[1]', nodeId: 'pack', functionId: 2 }),
+      liveStep({
+        name: 'pack[2]',
+        nodeId: 'pack',
+        functionId: 3,
+        state: 'failed',
+      }),
+      liveStep({ name: 'find_slot', nodeId: 'find_slot', functionId: 4 }),
+    ],
+  });
+
+  it('is the row somebody picked', () => {
+    const found = evidenceOf(run, 'pack', undefined, 2);
+
+    expect(found.drawn?.functionId).toBe(2);
+    expect(found.headline?.functionId).toBe(3);
+  });
+
+  it('is the headline where nothing was picked', () => {
+    expect(evidenceOf(run, 'pack', undefined).drawn?.functionId).toBe(3);
+  });
+
+  it('is the headline where the pick is another block’s row', () => {
+    expect(evidenceOf(run, 'pack', undefined, 4).drawn?.functionId).toBe(3);
+  });
+});
+
+/**
+ * What a row returned, drawn the way its size
+ * allows: whole up to the inline limit, and past it
+ * as something to open, with its size. A step that
+ * returned nothing at all has no output to draw.
+ */
+describe('what a row returned, as the face draws it', () => {
+  const sizes = inspectorWords().sizes;
+
+  function outputOfStep(output: string | undefined) {
+    const found = evidenceOf(
+      liveRun({ steps: [liveStep({ output })] }),
+      'parse_request',
+      undefined,
+    );
+
+    return outputOf(found.drawn!, sizes);
+  }
+
+  it('draws a value as long as the limit inline', () => {
+    const text = JSON.stringify('x'.repeat(INLINE_LIMIT - 2));
+
+    expect(outputOfStep(text)).toEqual({ kind: 'inline', text });
+  });
+
+  it('draws a longer one as something to open, with its size', () => {
+    const text = JSON.stringify('x'.repeat(INLINE_LIMIT - 1));
+
+    expect(outputOfStep(text)).toEqual({
+      kind: 'artifact',
+      preview: text,
+      size: '121 B',
+    });
+  });
+
+  it('draws text that is not JSON by the same rule', () => {
+    expect(outputOfStep('y'.repeat(INLINE_LIMIT + 1))).toMatchObject({
+      kind: 'artifact',
+      size: '121 B',
+    });
+  });
+
+  it('draws nothing for a step that returned nothing', () => {
+    const nothing = JSON.stringify({
+      json: null,
+      meta: { values: ['undefined'] },
+      __dbos_serializer: 'superjson',
     });
 
-    /**
-     * From when the run was filed, not from when a
-     * worker picked it up: the wall time somebody
-     * waited is the number they came to read, and a
-     * run that sat in a queue for an hour waited an
-     * hour. It is also the one base every other
-     * panel measures a run by, and a card that
-     * subtracted the queue delay would put a
-     * smaller number beside the same run.
-     */
-    it('times a run from when it was filed', () => {
-      expect(
-        runCardOf(
-          liveRun({ createdAt: 1000, startedAt: 4000, completedAt: 6200 }),
-        ).durationMs,
-      ).toBe(5200);
-      expect(runCardOf(liveRun({ completedAt: undefined })).durationMs).toBe(
-        undefined,
-      );
-    });
+    expect(outputOfStep(undefined)).toBeUndefined();
+    expect(outputOfStep(nothing)).toBeUndefined();
   });
 });
 
 /**
  * A row a replay carried over.
  *
- * The card marks it `↺ recorded` rather than
+ * The face says it was reused rather than
  * drawing the block differently: what the earlier
  * run recorded is this run's evidence too, and the
  * block did what it did.

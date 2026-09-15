@@ -241,6 +241,7 @@ export function activate(context: ExtensionContext): void {
       // The project the store reads its runs from.
       project: () => runsEditor.projects()[0],
       chooseFace: (mode) => runs.chooseFace(mode),
+      selectNode: (nodeId) => runs.selectNode(nodeId),
       openRun,
       replay: (workflowId, picked) => runs.replay(workflowId, picked),
       askAgent: (ask) => runs.askAgent(ask),

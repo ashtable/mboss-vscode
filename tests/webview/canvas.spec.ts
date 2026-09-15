@@ -3371,7 +3371,7 @@ test.describe('every theme', () => {
 
 /**
  * Two views draw the same tab strip and the same
- * provenance chip, so both live in the token layer
+ * focus ring, so both live in the token layer
  * rather than twice in two sheets. These mount a
  * view and put the bare markup on the page: what is
  * being checked is the rule, not the component that
@@ -3446,57 +3446,6 @@ test.describe('the controls two views share', () => {
     const word = page.locator('span#loud-word');
     await expect(word).toHaveCSS('text-transform', 'uppercase');
     await expect(word).not.toHaveCSS('letter-spacing', 'normal');
-  });
-
-  test('draws a derived chip dashed, in the strong hairline', async ({
-    page,
-  }) => {
-    await openCanvas(page);
-
-    await page.evaluate(() => {
-      const row = document.createElement('div');
-      row.id = 'told-row';
-      row.style.background = 'var(--surface-2)';
-      row.style.padding = '10px 14px';
-      row.style.width = 'max-content';
-      row.innerHTML =
-        '<span class="mono">await_reply</span>' +
-        '<span class="provenance" data-provenance="derived">derived</span>';
-      document.body.prepend(row);
-    });
-
-    const chip = page.locator('.provenance[data-provenance="derived"]');
-
-    await expect(chip).toHaveCSS('border-top-style', 'dashed');
-
-    const border = await page.evaluate(() => {
-      const probe = document.createElement('span');
-      probe.style.border = '1px solid var(--hairline-strong)';
-      document.body.append(probe);
-
-      const read = {
-        chip: getComputedStyle(
-          document.querySelector('.provenance') as HTMLElement,
-        ).borderTopColor,
-        strong: getComputedStyle(probe).borderTopColor,
-      };
-
-      probe.remove();
-
-      return read;
-    });
-
-    expect(border.chip).toBe(border.strong);
-
-    // The dash has to read as a dash at the size it
-    // is actually drawn, which is a thing only an
-    // eye can answer. The scratch directory is
-    // outside the repository on purpose: a
-    // screenshot committed here becomes a golden
-    // nobody maintains.
-    await page
-      .locator('#told-row')
-      .screenshot({ path: '../scratch/provenance-chip.png' });
   });
 });
 

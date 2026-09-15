@@ -346,6 +346,69 @@ body {
   margin-top: var(--space-2);
 }
 
+/* — what a run recorded about a block — */
+
+/* Read top to bottom as one answer, a step apart.
+   Rows of one reading abut, each drawing the
+   hairline above itself; a sentence about the thing
+   above it sits closer to it than to the next. */
+.evidence-face {
+  min-width: 0;
+}
+
+.evidence-face > * + * {
+  margin-top: var(--space-2);
+}
+
+.evidence-face > .property + .property {
+  margin-top: 0;
+}
+
+.evidence-face > .lib-fn {
+  margin-bottom: 0;
+}
+
+.evidence-face > .callout + .field-hint {
+  margin-top: var(--space-1-5);
+}
+
+/* A group under its own label takes the room above
+   it that the label needs to be read as a heading. */
+.evidence-face > .evidence-section {
+  margin-top: var(--space-3);
+}
+
+.evidence-section > .section-label {
+  margin-bottom: var(--space-1-5);
+}
+
+.evidence-policy {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+/* The ways on, after the evidence for taking one,
+   and what the recorded result is for under them:
+   set further off than the readings are from each
+   other, since nothing in them is a reading. */
+.evidence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.evidence-face > .evidence-actions,
+.evidence-face > .evidence-actions ~ .field-hint {
+  margin-top: var(--space-3);
+}
+
+.evidence-face > .evidence-where {
+  margin-top: var(--space-1-5);
+}
+
 /* The whole header is the target. Only what a
    button brings is reset here, so the type
    treatment stays `.section-label`'s. */

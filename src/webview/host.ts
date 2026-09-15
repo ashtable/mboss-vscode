@@ -572,6 +572,20 @@ const OpenInput = z.object({
 });
 
 /**
+ * Somebody on a trigger's face asked for the whole
+ * run instead.
+ *
+ * A trigger writes no row, so there is nothing of
+ * its own to show; what it started is. It names
+ * nothing: the run is whichever one the surface in
+ * front is drawing, and showing it is letting go of
+ * the block picked on that surface.
+ */
+const InspectRun = z.object({
+  type: z.literal('inspectRun'),
+});
+
+/**
  * Which of the two views of one run is on screen.
  *
  * Held by the extension rather than by the frame,
@@ -739,6 +753,7 @@ const SCHEMAS = {
     CancelRun,
     ResumeRun,
     OpenInput,
+    InspectRun,
   ]),
   gallery: z.discriminatedUnion('type', [Ready, UsePattern, StartBlank]),
 };

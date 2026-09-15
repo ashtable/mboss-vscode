@@ -1,4 +1,7 @@
+import { useEffect, useRef } from 'react';
+
 import { runStateOf } from '../canvas/graph.js';
+import { postToHost } from '../webview/client.js';
 import { mountView } from '../webview/mount.js';
 import type {
   BlockSubject,
@@ -26,12 +29,35 @@ import './inspector.css';
  * a block on the canvas, or opening a run.
  */
 function InspectorPanel({ strings, subject }: InspectorInit) {
+  // Whether somebody just asked for the whole run in
+  // a block's place. The Button they pressed goes
+  // with the block, so the card the host answers
+  // with takes focus onto its title — once, and only
+  // from the drawing that answers: anything else
+  // drawn first lets the ask go.
+  const askedForRun = useRef(false);
+
+  useEffect(() => {
+    askedForRun.current = false;
+  });
+
   return (
     <div className="inspector-view" data-inspector>
       {subject.at === 'run' ? (
-        <RunLevelCard strings={strings} run={subject.run} />
+        <RunLevelCard
+          strings={strings}
+          run={subject.run}
+          takesFocus={askedForRun}
+        />
       ) : subject.at === 'block' ? (
-        <Block strings={strings} block={subject.block} />
+        <Block
+          strings={strings}
+          block={subject.block}
+          onShowRun={() => {
+            askedForRun.current = true;
+            postToHost({ type: 'inspectRun' });
+          }}
+        />
       ) : (
         <>
           <InspectorHeader
@@ -62,9 +88,11 @@ function InspectorPanel({ strings, subject }: InspectorInit) {
 function Block({
   strings,
   block,
+  onShowRun,
 }: {
   strings: InspectorStrings;
   block: BlockSubject;
+  onShowRun: () => void;
 }) {
   const node = block.ir.nodes.find((one) => one.id === block.nodeId);
 
@@ -73,11 +101,13 @@ function Block({
       strings={strings}
       source={block.source}
       workflow={block.workflow}
+      nodeId={block.nodeId}
       selected={node === undefined ? undefined : { ir: block.ir, node }}
       mode={block.face}
       revision={block.revision}
       proposal={block.proposal}
       run={block.run}
+      functionId={block.functionId}
       runState={
         node === undefined
           ? undefined
@@ -92,6 +122,7 @@ function Block({
       misfits={strings.misfits}
       kindWords={block.kindWords}
       diagnostics={block.diagnostics}
+      onShowRun={onShowRun}
     />
   );
 }

@@ -1,10 +1,15 @@
 import { ownerOf } from '../core/rules.js';
 import type { QueuePolicy } from '../core/rules.js';
 import type { StepState } from '../runs/reading.js';
-import { FIRST_DISPATCH, type StepError } from '../runs/rows.js';
-import type { LiveOutcome, LiveRun, LiveStep } from '../runs/watch.js';
+import {
+  INLINE_LIMIT,
+  sizeOf,
+  type SizeWords,
+  type StepError,
+} from '../runs/rows.js';
+import type { LiveRun, LiveStep } from '../runs/watch.js';
 import { filled } from '../webview/fill.js';
-import type { InspectorStrings } from '../webview/protocol.js';
+import type { InspectorStrings, RecordedValue } from '../webview/protocol.js';
 
 /**
  * What a run recorded about one block, read off the
@@ -79,7 +84,12 @@ export type EvidenceRow = {
    *  off, which is the form a person reads. */
   shown: string | undefined;
 
-  outputCut: boolean;
+  /** How big the stored value was before any cut. */
+  bytes: number;
+
+  /** Whether the step returned nothing at all, which
+   *  is not the same as returning `null`. */
+  absent: boolean;
 
   error: StepError | undefined;
 
@@ -90,6 +100,10 @@ export type EvidenceRow = {
   /** Whether the row was carried over from the run
    *  this one was replayed from. */
   reused: boolean;
+
+  /** Whether the SDK wrote the row for itself under
+   *  the block, rather than the block writing it. */
+  sdk: boolean;
 };
 
 /** What one run recorded about one block. */
@@ -97,17 +111,20 @@ export type BlockEvidence = {
   /** Its rows, in the order DBOS numbered them. */
   rows: EvidenceRow[];
 
-  /**
-   * The one row the card draws in full.
-   *
-   * The latest failure where there is one, and the
-   * latest row otherwise. A block that failed on
-   * its third item is a block somebody is looking at
-   * because of that item, and burying it under two
-   * that worked would be the card answering a
-   * question nobody asked.
-   */
+  /** The row the block is headed by where nobody
+   *  picked one. See `headlineOf`. */
   headline: EvidenceRow | undefined;
+
+  /**
+   * The one row the face draws in full: the row
+   * somebody picked, where it is one of this
+   * block's, and the headline otherwise.
+   *
+   * A pick that is another block's row is not an
+   * answer about this block, so it falls back to
+   * the headline rather than to nothing.
+   */
+  drawn: EvidenceRow | undefined;
 
   /**
    * When the run parked here, where it is parked
@@ -133,38 +150,6 @@ export type BlockEvidence = {
   rounds: number | undefined;
 };
 
-/** What the run itself says, which is where what it
- *  was started with is drawn and nowhere else. */
-export type RunCard = {
-  workflowId: string;
-
-  workflow: string;
-
-  /** DBOS's own word, passed through rather than
-   *  translated. */
-  status: string;
-
-  /** Where the run got to, which is what that word
-   *  is coloured by — the word itself is the
-   *  application's and cannot be. */
-  outcome: LiveOutcome;
-
-  startedAt: number | undefined;
-
-  completedAt: number | undefined;
-
-  durationMs: number | undefined;
-
-  /** What the run was started with, printed. */
-  input: string | undefined;
-
-  /** How many times DBOS picked it back up, which
-   *  is one fewer than the column says. */
-  recoveries: number;
-
-  applicationVersion: string | undefined;
-};
-
 /**
  * What one run recorded about one block.
  *
@@ -181,17 +166,67 @@ export function evidenceOf(
   run: LiveRun,
   nodeId: string,
   body: readonly string[] | undefined,
+  functionId?: number,
 ): BlockEvidence {
   const rows = run.steps
     .filter((step) => step.nodeId === nodeId)
     .map((step) => rowOf(step, nodeId));
+  const headline = headlineOf(rows);
 
   return {
     rows,
-    headline: rows.findLast((row) => row.state === 'failed') ?? rows.at(-1),
+    headline,
+    drawn: rows.find((row) => row.functionId === functionId) ?? headline,
     waitingSince: parkedSince(rows),
     rounds: roundsIn(run.steps, body),
   };
+}
+
+/**
+ * The row a block is headed by: its latest failure,
+ * else its latest row.
+ *
+ * A block that failed on its third item is being
+ * looked at because of that item, and burying it
+ * under two that worked would answer a question
+ * nobody asked. A row the SDK wrote under the block
+ * is never it: that row is the machinery a block
+ * runs on, drawn when somebody picks it in the
+ * trace, and a block headed by it would lead with a
+ * `DBOS.sleep` rather than with what the block did.
+ */
+export function headlineOf(
+  rows: readonly EvidenceRow[],
+): EvidenceRow | undefined {
+  const own = rows.filter((row) => !row.sdk);
+
+  return own.findLast((row) => row.state === 'failed') ?? own.at(-1);
+}
+
+/**
+ * What a row returned, drawn the way its size
+ * allows: whole where its printed form is short
+ * enough to read on the face, and past that as its
+ * size and the front of it, with the rest one press
+ * away.
+ *
+ * Nothing where the row returned nothing — no output
+ * recorded, or a step that returned `undefined` —
+ * rather than a section with nothing in it.
+ */
+export function outputOf(
+  row: EvidenceRow,
+  sizes: SizeWords,
+): RecordedValue | undefined {
+  if (row.shown === undefined || row.absent) return undefined;
+
+  return row.shown.length <= INLINE_LIMIT
+    ? { kind: 'inline', text: row.shown }
+    : {
+        kind: 'artifact',
+        preview: row.shown,
+        size: sizeOf(row.bytes, sizes),
+      };
 }
 
 /** Which reading a row is, which is also the word
@@ -315,25 +350,6 @@ export function queueRowsOf(
   }));
 }
 
-export function runCardOf(run: LiveRun): RunCard {
-  return {
-    workflowId: run.workflowId,
-    workflow: run.workflow,
-    status: run.status,
-    outcome: run.outcome,
-    startedAt: run.startedAt,
-    completedAt: run.completedAt,
-    // From when the run was filed rather than from
-    // when a worker picked it up, which is how a
-    // run is timed on every panel: the wall time
-    // somebody waited, queue delay and all.
-    durationMs: spanOf(run.createdAt, run.completedAt),
-    input: run.input,
-    recoveries: Math.max(run.recoveryAttempts - FIRST_DISPATCH, 0),
-    applicationVersion: run.applicationVersion,
-  };
-}
-
 function rowOf(step: LiveStep, nodeId: string): EvidenceRow {
   // The region inside the block, which is what is
   // left of the name once the block's own id comes
@@ -355,10 +371,12 @@ function rowOf(step: LiveStep, nodeId: string): EvidenceRow {
     durationMs: spanOf(step.startedAt, step.completedAt),
     output: step.output,
     shown: step.shown,
-    outputCut: step.outputCut,
+    bytes: step.bytes,
+    absent: step.absent,
     error: step.error,
     restored: step.restored,
     reused: step.reused,
+    sdk: step.sdk === true,
   };
 }
 

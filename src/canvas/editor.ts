@@ -255,17 +255,16 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     // focus move to this canvas finds it open.
     const focused = this.focus.follow({ at: 'canvas', session }, panel);
 
-    // Whatever moved this canvas is drawn, and said
-    // to the registry — the second whether or not the
-    // frame is showing. A hidden frame is not
-    // painted, and the Inspector drawing this canvas's
-    // block has to be right all the same.
-    const changed = (): void => {
-      mounted.repaint();
-      this.sessions.fire(session);
-    };
+    // Whatever moved this canvas is said to the
+    // registry, whether or not the frame is showing:
+    // a hidden frame is not painted, and the Inspector
+    // drawing this canvas's block has to be right all
+    // the same. The frame draws itself from what the
+    // registry hears about it, so a selection the
+    // Inspector lets go of is drawn on the board too.
+    const changed = (): void => this.sessions.fire(session);
 
-    const mounted = mountWebview(panel, {
+    mountWebview(panel, {
       extensionUri: this.extensionUri,
       view: 'canvas',
       title: basename(document.uri.path),
@@ -274,6 +273,11 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         if (session.heard(message)) changed();
       },
       follows: [
+        (repaint) =>
+          this.sessions.onChanged((moved) => {
+            if (moved === session) repaint();
+          }),
+
         // A change to the file from anywhere — a hand
         // edit in the JSON view, an agent writing
         // through the control plane — is read again

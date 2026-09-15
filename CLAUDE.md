@@ -263,7 +263,9 @@ none of that.
   `CanvasSession` per panel). Open sessions live in the `canvasSessions()`
   registry (`sessions.ts`), built once in `extension.ts`: `active()` for the
   Arrange command, `forPath`/`whenOpen`, and `onChanged` naming the session that
-  moved, fired whether or not its frame is visible. Beside it,
+  moved, fired whether or not its frame is visible; the canvas's own frame is
+  drawn from that signal too, so a selection the Inspector lets go of (a
+  trigger's Show the run) is drawn on the board. Beside it,
   `inspector/focus.ts` (`inspectorFocus()`, also built once) holds the canvas or
   run tab somebody last brought forward; both panels go through its `follow`,
   which reads `panel.active` once because VS Code fires no view-state event for

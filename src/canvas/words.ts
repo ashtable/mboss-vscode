@@ -412,7 +412,7 @@ export const inspectorWords = once(() => ({
   // Where the ledger got to with the block. The
   // first three are states a row carries; the fourth
   // is worked out from the rows either side of it,
-  // which is why it is the one that wears a chip.
+  // which is why it is the one whose line says so.
   runStates: {
     done: l10n.t('done'),
     failed: l10n.t('failed'),
@@ -420,12 +420,32 @@ export const inspectorWords = once(() => ({
     running: l10n.t('running'),
   } satisfies Record<string, string>,
 
+  // What a state line with no room for a word says
+  // about itself, to a pointer and a screen reader:
+  // a block the run has written nothing for is
+  // placed by the rows around it, and a trigger's
+  // state is read off the run existing at all.
+  runningDerived: l10n.t('derived from the rows either side'),
+  triggerDerived: l10n.t('derived from the run’s workflow_status row'),
+
   started: l10n.t('started'),
   completed: l10n.t('completed'),
   duration: l10n.t('duration'),
   notTimed: l10n.t('not timed'),
 
+  // A wait on the clock records when it will wake
+  // before it sleeps, so its row's completion is a
+  // wake-up time rather than a moment anything
+  // finished — and the row says which of the two
+  // it is, not "completed".
+  wakes: l10n.t('wakes'),
+  woke: l10n.t('woke'),
+
   durations: durationWords(),
+
+  // What a recorded value's size is said in, where
+  // it is too long to draw whole.
+  sizes: sizeWords(),
 
   // A configured number of milliseconds, which is a
   // setting rather than a length of time something
@@ -434,7 +454,7 @@ export const inspectorWords = once(() => ({
   milliseconds: durationWords().milliseconds,
 
   // The numbers the block will actually run under,
-  // which are configuration and are chipped as
+  // which are configuration and are marked as
   // such. A policy of one is spelled out rather
   // than drawn as `max 1`, because "max 1" reads
   // like a limit somebody hit.
@@ -450,20 +470,27 @@ export const inspectorWords = once(() => ({
   ),
 
   outputLabel: l10n.t('output · recorded result'),
-
-  // Said where the reading kept only the front of
-  // what the step returned, so that nobody reads a
-  // value that stops mid-object as the value.
-  outputCut: l10n.t('cut at {0} characters'),
   openOutput: l10n.t('Open'),
 
-  // The one place the wrapper DBOS stores over a
-  // step that ran out of tries is named. The
-  // attempts it carries are not drawn: one entry
-  // per try is exactly the per-step history nothing
-  // here may claim.
+  // Under a failure, what to do about it.
+  wayOut: l10n.t('fix the function, then replay from here'),
+
+  // The same, where the step ran out of tries: how
+  // many DBOS made, counted from the tries it
+  // stored with the error it threw. Never how many
+  // it was allowed, which is configuration, and
+  // never the tries themselves — one entry per try
+  // is per-step history nothing here may claim.
   exhausted: l10n.t(
-    'every configured try failed · DBOS recorded DBOSMaxStepRetriesError',
+    'DBOS tried {0} times · fix the function, then replay from here',
+  ),
+
+  // Under a recorded result, what it is for. "A
+  // later step", because a replay from this one
+  // runs it again: a fork copies only the rows
+  // before the step it starts at.
+  recordedFooter: l10n.t(
+    'recorded result · reused on recovery and by a replay from a later step',
   ),
 
   // The way into the code a block runs, offered on
@@ -522,11 +549,17 @@ export const inspectorWords = once(() => ({
   restored: l10n.t('restored'),
 
   // On a row a replay carried over from the run it
-  // came from. The glyph is part of the word: it is
-  // the mark Replay wears, and what it says here is
-  // that the row is the earlier run's rather than
-  // work this one did.
-  recorded: l10n.t('↺ recorded'),
+  // came from: the earlier run's work, not this
+  // one's.
+  reused: l10n.t('reused'),
+
+  // A trigger compiles into how the workflow is
+  // started rather than into a durable operation,
+  // so its face says so and offers the whole run.
+  triggerNoRow: l10n.t(
+    'a Trigger writes no row of its own — it is how this run started',
+  ),
+  showRun: l10n.t('Show the run'),
 
   /* — what a queue block’s children are doing — */
 
@@ -602,10 +635,6 @@ export const inspectorWords = once(() => ({
 
   /* — the run itself — */
 
-  run: l10n.t('run'),
-  span: l10n.t('started {0} · finished {1}'),
-  spanRunning: l10n.t('started {0}'),
-
   // What the run was started with, drawn here and
   // nowhere else: the schema has no per-step input
   // column, and a step card that showed one would
@@ -668,15 +697,7 @@ export const inspectorWords = once(() => ({
   replayStart: l10n.t('Replay from start'),
 
   recovery: l10n.t('recovery'),
-  neverRecovered: l10n.t('never recovered'),
-  recoveredTimes: l10n.t('recovered {0}×'),
-  pickedBackUp: l10n.t('picked back up by DBOS'),
-  applicationVersion: l10n.t('application version'),
 
-  // The way out of the column: a card says what one
-  // run recorded about one block, and the whole run
-  // is a page.
-  openRun: l10n.t('Open run'),
   fields: inspectorFields(),
   fieldsByKind: inspectorFieldsByKind(),
   units: inspectorUnits(),

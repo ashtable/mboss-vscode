@@ -73,6 +73,10 @@ export type InspectorRuns = {
    *  on the run tab. */
   chooseFace(mode: InspectorMode): void;
 
+  /** Picks a block on the run tab, or lets go of
+   *  the one picked, which leaves the whole run. */
+  selectNode(nodeId: string | null): void;
+
   /** Reads the run and puts the run tab in front. */
   openRun(workflowId: string): Promise<void>;
 
@@ -488,6 +492,11 @@ export class InspectorView implements WebviewViewProvider {
         void this.askAboutBlock(message.workflow, message.nodeId);
 
         return;
+
+      case 'inspectRun':
+        this.showWholeRun();
+
+        return;
     }
 
     // The rest is about the block, and a block is on
@@ -614,6 +623,30 @@ export class InspectorView implements WebviewViewProvider {
 
     canvas.select(nodeId);
     await canvas.edit(message);
+  }
+
+  /**
+   * Shows the run a trigger started, by letting go
+   * of the block picked on the surface in front:
+   * with nothing picked, that surface is about its
+   * run.
+   *
+   * A canvas lets go of its selection and says so to
+   * the registry, which is what draws it — on the
+   * board and in this pane — since nothing the
+   * canvas's own frame said moved it. The run tab's
+   * selection is the store's, and the store draws
+   * both views when it changes.
+   */
+  private showWholeRun(): void {
+    const holder = this.focus.holder();
+
+    if (holder?.at === 'canvas') {
+      holder.session.select(null);
+      this.sessions.fire(holder.session);
+    }
+
+    if (holder?.at === 'run') this.runs.selectNode(null);
   }
 
   /**

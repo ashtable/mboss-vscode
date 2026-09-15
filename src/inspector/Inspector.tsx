@@ -8,12 +8,12 @@ import type {
   WorkflowIR,
   WorkflowNode,
 } from '../core/rules.js';
-import type { LiveRun } from '../runs/watch.js';
 import { postToHost } from '../webview/client.js';
 import type {
   BlockSubject,
   InspectorMode,
   InspectorStrings,
+  ShownRun,
 } from '../webview/protocol.js';
 import { FieldHint } from '../webview/signal/FieldHint.js';
 import { TabPanel, Tabs } from '../webview/signal/Tabs.js';
@@ -26,8 +26,13 @@ import {
   initiallyFolded,
   type Held,
 } from './ConfigureFace.js';
-import { Evidence } from './EvidenceCard.js';
+import {
+  EvidenceFace,
+  evidenceStatus,
+  type EvidenceBlock,
+} from './EvidenceFace.js';
 import { InspectorHeader } from './Header.js';
+import { evidenceOf } from './evidence.js';
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
 
 /**
@@ -66,6 +71,10 @@ export type InspectorProps = {
    *  about the block names it by. */
   workflow: string;
 
+  /** The block's id, which is all a run's rows know
+   *  it by — the document may have lost the rest. */
+  nodeId: string;
+
   /** Nothing where the document does not have the
    *  block: one a run recorded and the document has
    *  lost since, which has nothing to configure. */
@@ -94,7 +103,11 @@ export type InspectorProps = {
    *  itself against, which is what the second face
    *  reads. Nothing being followed is what that face
    *  has nothing to say about. */
-  run: LiveRun | undefined;
+  run: ShownRun | undefined;
+
+  /** The row somebody picked on the run tab, where
+   *  they picked one. */
+  functionId: number | undefined;
 
   /** What that run says about the selected block, as
    *  the graph says it — asked there rather than
@@ -118,6 +131,9 @@ export type InspectorProps = {
    *  finding a field on this form is a way out of
    *  can be drawn on that field. */
   diagnostics: Diagnostic[];
+
+  /** Asks for the whole run in the block's place. */
+  onShowRun: () => void;
 };
 
 /** The one panel both faces draw in, and the two
@@ -131,16 +147,19 @@ export function Inspector({
   strings,
   source,
   workflow,
+  nodeId,
   selected,
   mode,
   revision,
   proposal,
   run,
+  functionId,
   runState,
   lib,
   misfits,
   kindWords,
   diagnostics,
+  onShowRun,
 }: InspectorProps) {
   const selectedId = selected?.node.id;
   const [folded, setFolded] = useState<Set<string>>(() =>
@@ -213,12 +232,17 @@ export function Inspector({
             field.id === TITLE && field.control === 'text',
         );
 
-  // The card is handed the block's identity and its
-  // policy rather than the node, because the other
-  // face is where configuration is read and set: a
-  // card that could reach `config` would drift into
-  // being a second form.
   const node = selected?.node;
+  const evidence = evidenceBlockOf(nodeId, node);
+
+  // What the run recorded about the block, read once
+  // for the head and the face, so both draw one row.
+  const found =
+    run === undefined
+      ? undefined
+      : evidenceOf(run, nodeId, evidence.body, functionId);
+  const picked =
+    found?.drawn !== undefined && found.drawn.functionId === functionId;
 
   return (
     <>
@@ -241,6 +265,18 @@ export function Inspector({
           )
         }
         kind={node === undefined ? undefined : kindWords[node.kind]}
+        // Where the block got to is the same answer on
+        // either face, so the head carries it.
+        status={
+          found === undefined
+            ? undefined
+            : evidenceStatus({
+                strings,
+                block: evidence,
+                row: found.drawn,
+                runState,
+              })
+        }
       />
 
       <Faces
@@ -287,26 +323,15 @@ export function Inspector({
               }
             />
           )
-        ) : run === undefined ? null : (
-          <Evidence
+        ) : run === undefined || found === undefined ? null : (
+          <EvidenceFace
             strings={strings}
             run={run}
-            block={
-              node === undefined
-                ? undefined
-                : {
-                    id: node.id,
-                    kind: node.kind,
-                    title: node.title,
-                    handler: node.handler?.export,
-                    retry: node.retry,
-                    body: node.kind === 'loop' ? node.config.body : undefined,
-                    queue:
-                      node.kind === 'queue' ? node.config.queue : undefined,
-                  }
-            }
-            runState={runState}
-            onRunPage={false}
+            block={evidence}
+            found={found}
+            picked={picked}
+            lib={lib}
+            onShowRun={onShowRun}
           />
         )}
       </TabPanel>
@@ -336,7 +361,7 @@ function Faces({
 }: {
   strings: InspectorStrings;
   mode: InspectorMode;
-  run: LiveRun | undefined;
+  run: ShownRun | undefined;
   inWorkflow: boolean;
 }) {
   const refused = {
@@ -383,4 +408,41 @@ function Faces({
       ) : null}
     </div>
   );
+}
+
+/**
+ * The block as the Run evidence face reads it: its
+ * identity and its policy rather than the node,
+ * because Configure is where configuration is read
+ * and set, and a face that could reach `config`
+ * would drift into being a second form.
+ *
+ * A block the document has lost keeps only its id,
+ * which is all its rows know it by.
+ */
+function evidenceBlockOf(
+  nodeId: string,
+  node: WorkflowNode | undefined,
+): EvidenceBlock {
+  if (node === undefined) {
+    return {
+      id: nodeId,
+      kind: undefined,
+      handler: undefined,
+      retry: undefined,
+      body: undefined,
+      queue: undefined,
+      onClock: false,
+    };
+  }
+
+  return {
+    id: node.id,
+    kind: node.kind,
+    handler: node.handler?.export,
+    retry: node.retry,
+    body: node.kind === 'loop' ? node.config.body : undefined,
+    queue: node.kind === 'queue' ? node.config.queue : undefined,
+    onClock: node.kind === 'durableWait' && node.config.source.kind === 'timer',
+  };
 }

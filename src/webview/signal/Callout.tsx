@@ -26,7 +26,9 @@ export function Callout({
 }: {
   tone: 'fail' | 'info' | 'warn';
 
-  title: string;
+  /** Markup where what it names was written by
+   *  somebody else and is marked so. */
+  title: ReactNode;
 
   children?: ReactNode;
 

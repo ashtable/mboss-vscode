@@ -1,4 +1,10 @@
-import { Fragment, useRef, type ReactNode } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
@@ -41,11 +47,24 @@ import { Recorded } from './Value.js';
 export function RunLevelCard({
   strings,
   run,
+  takesFocus,
 }: {
   strings: InspectorStrings;
   run: RunLevel;
+
+  /** Whether the card is the answer to somebody
+   *  asking for the whole run from a block, whose
+   *  Button went with the block. */
+  takesFocus: RefObject<boolean>;
 }) {
   const title = useRef<HTMLHeadingElement>(null);
+
+  // Asked for from a block's face: the Button that
+  // was pressed is gone, so focus goes to the name of
+  // what the pane is about now.
+  useEffect(() => {
+    if (takesFocus.current) title.current?.focus();
+  }, []);
 
   // Following an id changes what the pane is about,
   // and the Button that was pressed may not be drawn
