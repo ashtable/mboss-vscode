@@ -5,12 +5,18 @@ import { WEBVIEW_ENTRIES } from '../../src/build.js';
 import type { CanvasInit, SidebarInit } from '../../src/webview/protocol.js';
 import { glyphOf, type GlyphState } from '../../src/webview/states.js';
 
-import { canvasInit, openCanvas } from './fixtures/canvas.js';
+import {
+  blockInit,
+  blockSubject,
+  canvasInit,
+  openCanvas,
+  openInspector,
+} from './fixtures/canvas.js';
 import { painted } from './fixtures/paint.js';
 import { fileEntry, sidebarInit } from './fixtures/sidebar.js';
 import { mount, THEMES_ALL } from './harness.js';
 import { colourOf, ROLES, sameColour, type Role } from './palette.js';
-import { canvasWords } from './words.js';
+import { canvasWords, inspectorWords } from './words.js';
 
 /**
  * What every view is painted from.
@@ -959,4 +965,40 @@ test.describe('the block that says something went wrong', () => {
       );
     });
   }
+});
+
+/**
+ * A field that no row's label points at.
+ *
+ * Most fields sit in a row whose label names them.
+ * The few that do not — one half of a pair, a name
+ * being typed for a function nobody has written yet
+ * — carry their name themselves, and a screen
+ * reader finds them by it all the same. The
+ * Inspector's picker draws one.
+ */
+test.describe('the fields every form is filled in with', () => {
+  test('names a field by its label with no label element', async ({ page }) => {
+    await openInspector(page, blockInit(blockSubject('slot_open')));
+
+    await page.locator('[data-picker-new] button').click();
+
+    const naming = page.getByRole('textbox', {
+      name: inspectorWords.newFunction,
+      exact: true,
+    });
+
+    await expect(naming).toHaveCount(1);
+    await expect(naming).toBeFocused();
+    await expect(naming).toHaveAttribute(
+      'aria-label',
+      inspectorWords.newFunction,
+    );
+    expect(
+      await naming.evaluate(
+        (input: HTMLInputElement) =>
+          (input.labels?.length ?? 0) + (input.closest('label') ? 1 : 0),
+      ),
+    ).toBe(0);
+  });
 });

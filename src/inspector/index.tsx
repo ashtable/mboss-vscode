@@ -73,6 +73,7 @@ function Block({
   return (
     <Inspector
       strings={strings}
+      source={block.source}
       selected={node === undefined ? undefined : { ir: block.ir, node }}
       mode={block.face}
       revision={block.revision}

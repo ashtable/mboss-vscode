@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { handlerFit, withDecisionCases } from '../../src/core/rules.js';
 import { filled } from '../../src/webview/fill.js';
@@ -31,7 +31,8 @@ import {
   word,
 } from './fixtures/canvas.js';
 import { THEMES_ALL } from './harness.js';
-import { colourOf, sameColour } from './palette.js';
+import { labelBeforeValue } from './labels.js';
+import { colourOf, contrast, sameColour } from './palette.js';
 import { inspectorWords as inspectorStrings } from './words.js';
 
 /**
@@ -279,6 +280,7 @@ test.describe('a block in the Inspector', () => {
     await title.press('Escape');
 
     await expect(title).toHaveValue('Find open slot');
+    await expect(title).toBeFocused();
     expect(await harness.postedOfType('edit')).toEqual([]);
   });
 
@@ -313,12 +315,12 @@ test.describe('a block in the Inspector', () => {
   }) => {
     await openInspector(page, blockInit(blockSubject('record_booking')));
 
-    await expect(page.locator('[data-field="retry"] .field-name')).toHaveText(
+    const retry = page.locator('[data-field="retry"]');
+
+    await expect(retry.locator('.property-label')).toHaveText(
       inspectorStrings.retryPolicy,
     );
-    await expect(page.locator('[data-field="retry"] .field-value')).toHaveText(
-      inspectorStrings.retry,
-    );
+    await expect(retry.locator('.value')).toHaveText(inspectorStrings.retry);
     await expect(page.locator('[data-field="retryMaxAttempts"]')).toHaveCount(
       0,
     );
@@ -533,27 +535,25 @@ test.describe('a block in the Inspector', () => {
 
     /**
      * And the labels get the room their scopes need.
-     * `worker concurrency / partition` in the 8.5ch
-     * column every other form is set in is four
-     * stacked fragments beside a one-line box.
+     * `worker concurrency / partition` in the column
+     * every other form is set in is four stacked
+     * fragments beside a one-line box.
      */
     test('are labelled in a column wide enough to read', async ({ page }) => {
       const harness = await openInspector(
         page,
         blockInit(queueSubject(INDEXING)),
       );
+      await expect(page.locator('[data-property]').first()).toBeVisible();
 
-      const labels = page.locator('.fields');
-      await expect(labels).toHaveAttribute('data-labels', 'wide');
-
-      const wide = await labelTrack(page);
+      expect(await labelTrack(page)).toBe(120);
 
       await harness.show(blockInit(blockSubject('find_slot')));
       await expect(page.locator('[data-field="title"] input')).toHaveValue(
         'Find open slot',
       );
 
-      expect(wide / (await labelTrack(page))).toBeCloseTo(12 / 8.5, 2);
+      expect(await labelTrack(page)).toBe(76);
     });
   });
 
@@ -1142,6 +1142,558 @@ test.describe('a block in the Inspector', () => {
 });
 
 /**
+ * A field at rest and in use.
+ *
+ * A form is read far more often than it is typed
+ * into, so a field spends nothing on a box until
+ * somebody is in it: no edge, no ground, and one
+ * ring while it has focus. A theme that draws
+ * structure in lines keeps the edge at rest,
+ * because there it is the only thing saying a field
+ * is a field.
+ *
+ * Every row sets its label first, on the value's
+ * line, and every control in a row answers to a
+ * name.
+ */
+test.describe('a field at rest and in use', () => {
+  /** The field a step's tries are counted in, found
+   *  the way a screen reader finds it: by the label
+   *  its row points at it. */
+  function attempts(page: Page) {
+    return page.getByRole('textbox', {
+      name: word(inspectorStrings.fields, 'retryMaxAttempts'),
+      exact: true,
+    });
+  }
+
+  /** The same block at the revision after, carrying
+   *  what was committed — what the host sends once
+   *  the edit has landed. */
+  function landed(maxAttempts: number) {
+    const next = blockSubject('find_slot', {
+      retry: { maxAttempts, intervalSeconds: 1, backoffRate: 2 },
+    });
+    const revision = next.ir.revision + 1;
+
+    return blockInit({ ...next, ir: { ...next.ir, revision }, revision });
+  }
+
+  /** Marks every field on the page, so a spec can
+   *  tell a form drawn afresh from one that stayed. */
+  async function probe(page: Page): Promise<void> {
+    await page
+      .locator('[data-property] input')
+      .first()
+      .evaluate((input) => input.setAttribute('data-probe', ''));
+  }
+
+  /**
+   * The colour a field's placeholder is painted in.
+   *
+   * The browser draws a placeholder in an element of
+   * its own inside the field, which the page cannot
+   * reach: asked for the placeholder's style, it
+   * answers with the field's. The DevTools protocol
+   * can reach it, so that is what is asked. The field
+   * is given a placeholder and emptied by hand, since
+   * no form draws one yet, and nothing is told: the
+   * page's own idea of the value is left alone.
+   */
+  async function placeholderColour(
+    page: Page,
+    field: Locator,
+  ): Promise<string> {
+    await field.evaluate((input: HTMLInputElement) => {
+      input.setAttribute('placeholder', '·');
+      input.value = '';
+    });
+
+    const devtools = await page.context().newCDPSession(page);
+    await devtools.send('DOM.enable');
+    await devtools.send('CSS.enable');
+
+    const { root } = await devtools.send('DOM.getDocument', {
+      depth: -1,
+      pierce: true,
+    });
+
+    type Node = typeof root;
+    const drawn: Node[] = [];
+    const walk = (node: Node): void => {
+      if (node.attributes?.includes('-webkit-input-placeholder')) {
+        drawn.push(node);
+      }
+      [...(node.children ?? []), ...(node.shadowRoots ?? [])].forEach(walk);
+    };
+    walk(root);
+
+    // The one field given a placeholder is the one
+    // field that draws the element.
+    expect(drawn).toHaveLength(1);
+
+    const { computedStyle } = await devtools.send(
+      'CSS.getComputedStyleForNode',
+      { nodeId: drawn[0]!.nodeId },
+    );
+
+    return computedStyle.find((one) => one.name === 'color')?.value ?? '';
+  }
+
+  /** Which lens the focused control belongs to. */
+  function focusedField(page: Page): Promise<string | undefined> {
+    return page.evaluate(
+      () =>
+        document.activeElement
+          ?.closest('[data-field]')
+          ?.getAttribute('data-field') ?? undefined,
+    );
+  }
+
+  for (const theme of THEMES_ALL) {
+    test(`leaves a field bare until it is used in ${theme}`, async ({
+      page,
+    }) => {
+      await openInspector(page, blockInit(blockSubject('find_slot')), theme);
+
+      const field = attempts(page);
+      await expect(field).toHaveCount(1);
+
+      const read = () =>
+        field.evaluate((input) => {
+          const style = getComputedStyle(input);
+
+          return {
+            edges: [
+              style.borderTopColor,
+              style.borderRightColor,
+              style.borderBottomColor,
+              style.borderLeftColor,
+            ],
+            ground: style.backgroundColor,
+            ring: style.outlineColor,
+            ringStyle: style.outlineStyle,
+            ringWidth: style.outlineWidth,
+            offset: style.outlineOffset,
+          };
+        });
+      const edge = colourOf(theme, 'rest-border');
+
+      const rest = await read();
+
+      for (const one of rest.edges) {
+        expect(sameColour(one, edge), `${one} ≠ ${edge}`).toBe(true);
+      }
+      expect(rest.ground).toBe('rgba(0, 0, 0, 0)');
+      expect(rest.ringStyle).toBe('none');
+
+      // Where the edge is the affordance, it has to
+      // be seen against the pane it sits on.
+      if (theme.startsWith('high-contrast')) {
+        expect(
+          contrast(edge, colourOf(theme, 'side-bar')),
+        ).toBeGreaterThanOrEqual(3);
+      }
+
+      await field.focus();
+
+      const focused = await read();
+      const ring = colourOf(theme, 'focus-ring');
+
+      expect(sameColour(focused.ring, ring), `${focused.ring}`).toBe(true);
+      expect(focused.ringStyle).toBe('solid');
+      expect(focused.ringWidth).toBe('1px');
+      expect(focused.offset).toBe('-1px');
+
+      // One ring: nothing under it changes colour.
+      for (const one of focused.edges) {
+        expect(sameColour(one, edge), `${one} ≠ ${edge}`).toBe(true);
+      }
+      expect(focused.ground).toBe('rgba(0, 0, 0, 0)');
+    });
+
+    /**
+     * A word standing in for a value — what an empty
+     * field would say — is set in the colour the
+     * editor sets its own placeholders in, so even a
+     * theme with one foreground keeps it apart from a
+     * value somebody typed.
+     */
+    test(`sets a placeholder apart from a value in ${theme}`, async ({
+      page,
+    }) => {
+      await openInspector(page, blockInit(blockSubject('find_slot')), theme);
+
+      const field = attempts(page);
+      await expect(field).toHaveCount(1);
+
+      const value = await field.evaluate(
+        (input) => getComputedStyle(input).color,
+      );
+      const placeholder = await placeholderColour(page, field);
+      const expected = colourOf(theme, 'input-placeholder');
+
+      expect(
+        sameColour(placeholder, expected),
+        `${placeholder} ≠ ${expected}`,
+      ).toBe(true);
+      expect(sameColour(placeholder, value)).toBe(false);
+    });
+
+    /**
+     * Asked of the forms the fixture's blocks really
+     * have — a step, a branch, a transaction, a
+     * trigger, an email and a queue — because a rule
+     * held only on the form somebody thought to check
+     * is a rule the other five are free to break.
+     */
+    test(`names every control and puts every label first in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await mountInspector(page, theme);
+
+      for (const block of [
+        blockSubject('find_slot'),
+        blockSubject('slot_open'),
+        blockSubject('record_booking'),
+        blockSubject('booking_requested'),
+        blockSubject('send_confirmation'),
+        queueSubject(INDEXING),
+      ]) {
+        await harness.show(blockInit(block));
+
+        const rows = page.locator('[data-property]');
+        await expect(rows.first()).toBeVisible();
+
+        for (const row of await rows.all()) {
+          await labelBeforeValue(row);
+        }
+
+        const controls = await page
+          .locator('[data-property] :is(input, select, textarea, button)')
+          .all();
+
+        expect(controls.length, block.nodeId).toBeGreaterThan(0);
+
+        for (const control of controls) {
+          await expect(control).toHaveAccessibleName(/\S/);
+        }
+      }
+    });
+
+    test(`spends no ground on a row at rest in ${theme}`, async ({ page }) => {
+      const harness = await openInspector(
+        page,
+        blockInit(blockSubject('find_slot')),
+        theme,
+      );
+
+      for (const block of [blockSubject('find_slot'), queueSubject(INDEXING)]) {
+        await harness.show(blockInit(block));
+        await expect(page.locator('[data-property]').first()).toBeVisible();
+
+        const grounds = await page
+          .locator('[data-property]')
+          .evaluateAll((rows) =>
+            rows.map((row) => getComputedStyle(row).backgroundColor),
+          );
+
+        expect(grounds.length).toBeGreaterThan(0);
+        expect(new Set(grounds)).toEqual(new Set(['rgba(0, 0, 0, 0)']));
+      }
+    });
+  }
+
+  test('hides a menu’s chevron until the menu is used', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await openInspector(page, blockInit(blockSubject('booking_requested')));
+
+    const menu = page.locator('[data-field="mode"] select');
+    const chevron = page.locator('[data-field="mode"] select + svg');
+
+    await expect(menu).toHaveCount(1);
+    await expect(chevron).toHaveAttribute('aria-hidden', 'true');
+    await expect(chevron).toHaveCSS('opacity', '0');
+
+    await menu.focus();
+
+    await expect(chevron).toHaveCSS('opacity', '1');
+  });
+
+  /**
+   * Hairlines separate rows; nothing boxes a group.
+   * So a row draws its line above itself — the first
+   * under a group's label too, which is what sets the
+   * label off from what it names — and nothing that
+   * follows a group's last row draws one, or the
+   * group would read as closed.
+   */
+  test('rules a line above every row, the first in a group too', async ({
+    page,
+  }) => {
+    await openInspector(page, blockInit(queueSubject(INDEXING)));
+    await expect(page.locator('[data-property]').first()).toBeVisible();
+
+    const read = await page.evaluate(() => {
+      const width = (element: Element, side: 'Top' | 'Bottom') =>
+        getComputedStyle(element)[`border${side}Width`];
+      const sections = [
+        ...document.querySelectorAll('[data-control="section"]'),
+      ];
+
+      return {
+        rows: [...document.querySelectorAll('[data-property]')].map((row) => [
+          width(row, 'Top'),
+          width(row, 'Bottom'),
+        ]),
+        firstInGroup: sections
+          .map((section) => section.nextElementSibling)
+          .filter((next) => next?.matches('[data-property]') === true)
+          .map((row) => width(row!, 'Top')),
+        afterGroup: sections
+          .filter((section) =>
+            section.previousElementSibling?.matches('[data-property]'),
+          )
+          .map((section) => width(section, 'Top')),
+        hints: [...document.querySelectorAll('.inspector .field-hint')].map(
+          (hint) => width(hint, 'Top'),
+        ),
+      };
+    });
+
+    expect(read.rows.length).toBeGreaterThan(0);
+    expect(new Set(read.rows.map(([top]) => top))).toEqual(new Set(['1px']));
+    expect(new Set(read.rows.map(([, bottom]) => bottom))).toEqual(
+      new Set(['0px']),
+    );
+
+    expect(read.firstInGroup).toEqual(['1px', '1px']);
+    expect(read.afterGroup.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(read.afterGroup)).toEqual(new Set(['0px']));
+
+    expect(read.hints.length).toBeGreaterThan(0);
+    expect(new Set(read.hints)).toEqual(new Set(['0px']));
+  });
+
+  /**
+   * A label is set a step under the value it names,
+   * in a column of its own, so a person reads down
+   * the values and across only to find out what one
+   * is.
+   */
+  test('sets a label a step quieter than the value beside it', async ({
+    page,
+  }) => {
+    await openInspector(page, blockInit(blockSubject('find_slot')));
+
+    const row = page.locator('[data-property]').first();
+    await expect(row).toHaveCount(1);
+
+    await expect(row).toHaveCSS('padding', '7px 0px');
+    await expect(row).toHaveCSS('column-gap', '12px');
+
+    const label = await row
+      .locator(':scope > .property-label')
+      .evaluate((element) => {
+        const style = getComputedStyle(element);
+
+        return {
+          size: Number.parseFloat(style.fontSize),
+          weight: style.fontWeight,
+          colour: style.color,
+        };
+      });
+    const muted = colourOf('light', 'ink-muted');
+
+    expect(label.size).toBeCloseTo(11.05, 1);
+    expect(label.weight).toBe('500');
+    expect(sameColour(label.colour, muted), `${label.colour}`).toBe(true);
+  });
+
+  /**
+   * Enter commits and leaves the person where they
+   * were. The host answers with the next revision,
+   * which draws the form afresh — and a form drawn
+   * afresh that dropped focus would send the next
+   * Tab back to the top of the pane.
+   */
+  test('keeps the field somebody was in after a commit comes back', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('find_slot')),
+    );
+    const field = attempts(page);
+
+    await field.fill('5');
+    await field.press('Enter');
+
+    await expect(field).toBeFocused();
+    expect(await harness.postedOfType('edit')).toHaveLength(1);
+
+    await probe(page);
+    await harness.show(landed(5));
+
+    await expect(page.locator('[data-probe]')).toHaveCount(0);
+    await expect(field).toHaveValue('5');
+    expect(await focusedField(page)).toBe('retryMaxAttempts');
+    expect(await harness.postedOfType('edit')).toHaveLength(1);
+  });
+
+  /**
+   * Leaving a field after Enter sends nothing more:
+   * what was typed has already gone. Typed as a
+   * number is not written back — `5.0` reads back
+   * as `5` — so what the field shows and what the
+   * document says differ, and only what was sent
+   * tells the field it has nothing left to send.
+   */
+  test('sends one edit for a field left after Enter', async ({ page }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('find_slot')),
+    );
+    const field = attempts(page);
+
+    await field.fill('5.0');
+    await field.press('Enter');
+    await field.press('Tab');
+
+    await expect(field).not.toBeFocused();
+    expect(await harness.postedOfType('edit')).toHaveLength(1);
+  });
+
+  /** A form drawn afresh hands focus back only to a
+   *  field that had it. Somebody on a tab stays on
+   *  the tab. */
+  test('leaves focus on what somebody chose outside the form', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('find_slot')),
+    );
+    const tab = page.locator('button[data-inspector-tab="configure"]');
+
+    await probe(page);
+    await tab.focus();
+    await harness.show(landed(5));
+
+    await expect(page.locator('[data-probe]')).toHaveCount(0);
+    await expect(tab).toBeFocused();
+  });
+
+  /**
+   * Nor to a form drawn later. Focus goes back only
+   * to the form that replaced the one it was in, at
+   * the moment it did: a field somebody was in
+   * before the other face was shown is not where
+   * they are once Configure comes back.
+   */
+  test('hands focus back only to the form drawn in its place', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit({ ...blockSubject('find_slot'), run: runOf(IN_FLIGHT) }),
+    );
+
+    await attempts(page).focus();
+    await harness.show(
+      blockInit({
+        ...blockSubject('find_slot', {}, 'evidence'),
+        run: runOf(IN_FLIGHT),
+      }),
+    );
+    await expect(page.locator('[data-property] input')).toHaveCount(0);
+
+    await harness.show(
+      blockInit({ ...blockSubject('find_slot'), run: runOf(IN_FLIGHT) }),
+    );
+
+    await expect(attempts(page)).toHaveCount(1);
+    await expect(attempts(page)).not.toBeFocused();
+  });
+
+  /**
+   * Nor to a pane somebody has left. An edit made on
+   * the canvas draws this form afresh too, and a
+   * field taking focus back then would pull the
+   * person out of the frame they are typing in.
+   */
+  test('takes no focus back once somebody is in another frame', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('find_slot')),
+    );
+
+    await attempts(page).focus();
+    await probe(page);
+    await page.evaluate(() => {
+      document.hasFocus = () => false;
+    });
+    await harness.show(landed(3));
+
+    await expect(page.locator('[data-probe]')).toHaveCount(0);
+    expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
+      'BODY',
+    );
+  });
+
+  /**
+   * A field holding several lines grows with what is
+   * typed, so a short body is not a box of empty
+   * lines and a long one does not push the rest of
+   * the form out of the pane.
+   */
+  test('grows a field of several lines, as far as a limit', async ({
+    page,
+  }) => {
+    await openInspector(page, blockInit(blockSubject('send_confirmation')));
+
+    const body = page.getByRole('textbox', {
+      name: word(inspectorStrings.fields, 'bodyMarkdown'),
+      exact: true,
+    });
+    await expect(body).toHaveCount(1);
+
+    const measure = () =>
+      body.evaluate((area) => ({
+        height: area.getBoundingClientRect().height,
+        line: Number.parseFloat(getComputedStyle(area).lineHeight),
+        overflows: area.scrollHeight > area.clientHeight,
+      }));
+
+    const short = await measure();
+    expect(short.height).toBeGreaterThanOrEqual(3 * short.line);
+
+    await body.fill(Array.from({ length: 30 }, (_, at) => `${at}`).join('\n'));
+
+    const long = await measure();
+    expect(long.height).toBeGreaterThan(short.height);
+    expect(long.height).toBeLessThan(13 * long.line);
+    expect(long.overflows).toBe(true);
+  });
+
+  /** The function a block already runs is ringed,
+   *  and the ring's pixel comes out of the padding,
+   *  so the row is the size of every other. */
+  test('pads an assigned function row the way the list does', async ({
+    page,
+  }) => {
+    await openInspector(page, blockInit(blockSubject('find_slot')));
+
+    const assigned = page.locator('[data-picker-fn="findSlot"]');
+
+    await expect(assigned).toHaveAttribute('data-state', 'assigned');
+    await expect(assigned).toHaveCSS('padding', '7px 11px');
+  });
+});
+
+/**
  * Which function a block runs, chosen from what the
  * project's code-behind actually offers.
  *
@@ -1282,6 +1834,14 @@ test.describe('the function picker', () => {
     await expect(page.locator('[data-picker-new]')).toHaveText(
       inspectorStrings.newFunction,
     );
+
+    // And leaving the field is not a way to name one:
+    // a name given by accident is a stub on disk.
+    await page.locator('[data-picker-new]').click();
+    await field.fill('decideLater');
+    await page.locator('[data-inspector-header]').click();
+
+    await expect(field).toHaveCount(0);
     expect(await harness.postedOfType('assign')).toEqual([]);
   });
 
@@ -1313,9 +1873,9 @@ test.describe('the function picker', () => {
       blockInit(blockSubject('slot_open')),
     );
 
-    await expect(page.locator('[data-callout="branch"]')).toContainText(
-      inspectorStrings.callouts.branch.title,
-    );
+    await expect(
+      page.locator('[data-callout="branch"] .callout-title'),
+    ).toHaveText(inspectorStrings.callouts.branch.title);
 
     await harness.show(blockInit(blockSubject('record_booking')));
 
@@ -1401,9 +1961,9 @@ test.describe('the function picker', () => {
       blockInit(blockSubject('find_slot')),
     );
 
-    await expect(page.locator('[data-field="handler"] .field-name')).toHaveText(
-      'function',
-    );
+    await expect(
+      page.locator('[data-field="handler"] .property-label'),
+    ).toHaveText('function');
     await expect(page.locator('[data-field="logic"]')).toHaveCount(0);
 
     await harness.show(
@@ -1412,9 +1972,9 @@ test.describe('the function picker', () => {
       }),
     );
 
-    await expect(page.locator('[data-field="logic"] .field-name')).toHaveText(
-      'logic',
-    );
+    await expect(
+      page.locator('[data-field="logic"] .property-label'),
+    ).toHaveText('logic');
     await expect(page.locator('[data-field="handler"]')).toHaveCount(0);
   });
 

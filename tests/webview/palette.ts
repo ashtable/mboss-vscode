@@ -81,6 +81,7 @@ export const ROLES = {
   'selection-ring': '--selection-ring',
   'state-ink': '--state-ink',
   'control-edge': '--control-edge',
+  'rest-border': '--rest-border',
 } as const;
 
 export type Role = keyof typeof ROLES;
@@ -181,6 +182,7 @@ const BASE: Partial<Record<Role, Source>> = {
   'selection-ring': { as: 'brand-ring' },
   'state-ink': 'undeclared',
   'control-edge': 'transparent',
+  'rest-border': 'transparent',
 };
 
 /** What a dark theme re-mixes: quiet text and
@@ -222,6 +224,7 @@ const HIGH_CONTRAST: Partial<Record<Role, Source>> = {
   'ink-faint': { as: 'ink' },
   'edge-done': { as: 'ok' },
   'control-edge': { published: ['--vscode-contrastBorder'], or: 'ink' },
+  'rest-border': { published: ['--vscode-contrastBorder'], or: 'ink' },
 };
 
 /** And what the light one re-points on top: state

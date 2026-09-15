@@ -344,12 +344,13 @@ export function word(bag: Record<string, string>, id: string): string {
 }
 
 /** How wide the column of field labels resolved to,
- *  in pixels. */
+ *  in pixels: the first track of the first property
+ *  row on the page. */
 export async function labelTrack(page: Page): Promise<number> {
   const tracks = await page
-    .locator('.field[data-control="text"]')
+    .locator('[data-property]')
     .first()
-    .evaluate((field) => getComputedStyle(field).gridTemplateColumns);
+    .evaluate((row) => getComputedStyle(row).gridTemplateColumns);
 
   return Number.parseFloat(tracks);
 }

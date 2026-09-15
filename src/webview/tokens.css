@@ -890,6 +890,187 @@ body.vscode-high-contrast-light {
   color: var(--state-ink, var(--agent));
 }
 
+/* One property: its label in a column of its own,
+   then its value.
+
+   A hairline above every row and nothing around
+   any of them, the first row under a group's label
+   included, since that line is what sets the label
+   off from what it names. The 7px has no step: with
+   a field in the row it is what puts the rows at
+   the rhythm every panel's rows are drawn at.
+
+   Lined up on the first baseline rather than
+   centred, so a label that wraps starts on its
+   value's line instead of rising above it, and a
+   value that wraps keeps its first line beside its
+   label. */
+.property {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  align-items: baseline;
+  column-gap: var(--space-3);
+  padding: 7px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.property[data-labels='ledger'] {
+  grid-template-columns: 110px 1fr;
+}
+
+.property[data-labels='wide'] {
+  grid-template-columns: 120px 1fr;
+}
+
+.property-label {
+  min-width: 0;
+  font-weight: var(--w-medium);
+  font-size: var(--text-sm);
+  letter-spacing: var(--label-tracking);
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+/* The value, and whatever is drawn beside it: a
+   unit after the control, the word saying where
+   the value came from. */
+.property > .value {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.property > .value[data-mono] {
+  font-family: var(--font-mono);
+  font-size: var(--text-control);
+}
+
+/* Under the value it is about, not under the
+   label. */
+.property > .field-hint {
+  grid-column: 2;
+  margin-top: var(--space-1);
+}
+
+.property-control {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.property-provenance {
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.property input[type='checkbox'] {
+  margin: 0;
+  accent-color: var(--brand);
+}
+
+/* A field: the native control, with no box until
+   somebody is in it.
+
+   At rest the edge is the one a theme drawing
+   structure in lines puts back, and nothing
+   otherwise; in use there is one ring, drawn on the
+   field's own edge, which is how the editor draws
+   its own fields. Written out declaration by
+   declaration, for the reason the Button gives. */
+.field-input {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--rest-border);
+  border-radius: var(--r-sm);
+  /* The three has no step of its own: it is what
+     puts a 26px box around one line of this type. */
+  padding: 3px var(--space-1-5);
+  appearance: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: var(--text-control);
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.field-input[data-mono] {
+  font-family: var(--font-mono);
+}
+
+.field-input:focus {
+  outline: 1px solid var(--vscode-focusBorder, var(--brand));
+  outline-offset: -1px;
+}
+
+/* In the colour the editor sets its own
+   placeholders in, so a theme with one foreground
+   still keeps a word standing in for a value apart
+   from a value. */
+.field-input::placeholder {
+  color: var(--vscode-input-placeholderForeground, var(--ink-faint));
+  opacity: 1;
+}
+
+.field-input option {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+textarea.field-input {
+  resize: vertical;
+}
+
+/* Sized by what is in it, between two heights
+   counted in lines of its own type. The 8px is the
+   box around those lines: 3px of padding and a 1px
+   edge, above and below. */
+textarea.field-input[data-grow] {
+  field-sizing: content;
+  resize: none;
+  min-height: calc(var(--min-lines) * 1lh + 8px);
+  max-height: calc(var(--max-lines) * 1lh + 8px);
+}
+
+.field-select {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Room at the end for the drawn arrow, which takes
+   the place of the browser's. */
+.field-select > select {
+  padding-inline-end: var(--space-5);
+  cursor: pointer;
+}
+
+.field-select > svg {
+  position: absolute;
+  inset-inline-end: var(--space-1-5);
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%);
+  color: var(--ink-muted);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.field-select:hover > svg,
+.field-select:focus-within > svg {
+  opacity: 1;
+}
+
 /* What a panel says where a list would be. Centred
    in a block of air of its own, so it reads as the
    state of the whole panel rather than as its first

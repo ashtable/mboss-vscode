@@ -1,8 +1,10 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
+  type RefObject,
   type SetStateAction,
 } from 'react';
 
@@ -17,11 +19,16 @@ import type { LiveRun } from '../runs/watch.js';
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
 import type {
-  Callout as CalloutWords,
+  BlockSubject,
   InspectorMode,
   InspectorStrings,
 } from '../webview/protocol.js';
+import { Callout } from '../webview/signal/Callout.js';
+import { FieldHint } from '../webview/signal/FieldHint.js';
+import { Input, Select, TextArea } from '../webview/signal/Field.js';
 import { LibFunctionItem } from '../webview/signal/LibFunctionItem.js';
+import { PropertyRow, type Named } from '../webview/signal/PropertyRow.js';
+import { SectionLabel } from '../webview/signal/SectionLabel.js';
 import type { RunState } from '../canvas/graph.js';
 import { fitsFor, signatureOf, type LibFit } from '../canvas/libFunction.js';
 
@@ -29,7 +36,7 @@ import { Evidence } from './EvidenceCard.js';
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
 import { visible } from './lens.js';
 import { fieldNotes } from './notes.js';
-import { outcomesOf, type DecisionOutcome } from './outcomes.js';
+import { outcomesOf } from './outcomes.js';
 
 /**
  * The Inspector's two faces about one block: the
@@ -51,7 +58,10 @@ import { outcomesOf, type DecisionOutcome } from './outcomes.js';
  * a text field on blur or Enter, and Escape puts
  * back what the document says. Never per keystroke
  * — the revision that granularity produces is on
- * screen, in the graph's own caption.
+ * screen, in the graph's own caption. The host
+ * answers a commit with the next revision, which
+ * draws the form afresh, and whoever was in a field
+ * is handed back to it.
  *
  * The function a block runs is the exception, and
  * is not a field at all: it is picked out of what
@@ -65,6 +75,11 @@ export type Selection = { ir: WorkflowIR; node: WorkflowNode };
 
 export type InspectorProps = {
   strings: InspectorStrings;
+
+  /** Which surface the block was picked on. A form
+   *  about the same block from the other surface is
+   *  a different form, never the same one again. */
+  source: BlockSubject['source'];
 
   /** Nothing where the document does not have the
    *  block: one a run recorded and the document has
@@ -114,6 +129,7 @@ export type InspectorProps = {
 
 export function Inspector({
   strings,
+  source,
   selected,
   mode,
   revision,
@@ -134,6 +150,17 @@ export function Inspector({
     );
   }, [selectedId]);
 
+  // Which control had focus as a form was drawn
+  // afresh, for the form drawn in its place to hand
+  // back. Read only in the commit that replaced the
+  // form: once that has painted, nothing a person is
+  // doing points at it any more.
+  const held = useRef<Held | undefined>(undefined);
+
+  useEffect(() => {
+    held.current = undefined;
+  });
+
   // A block is shown only while it can be edited:
   // the host lets go of the selection while a
   // proposal is showing, and the column agrees.
@@ -145,7 +172,9 @@ export function Inspector({
       </>
     ) : (
       <Fields
-        key={`${selected.node.id}:${revision}`}
+        key={`${source}:${selected.node.id}:${revision}`}
+        block={`${source}:${selected.node.id}`}
+        held={held}
         strings={strings}
         ir={selected.ir}
         node={selected.node}
@@ -260,7 +289,21 @@ function Faces({
   );
 }
 
+/**
+ * Which control had focus, said so that it can be
+ * found again in a form drawn afresh: the block the
+ * form was about, the field's lens id, and which of
+ * the controls under that id it was — a repeating
+ * group draws the same ids once per item.
+ */
+type Held = { block: string; field: string; nth: number };
+
+/** Everything in a form a keyboard can be on. */
+const CONTROLS = 'input, select, textarea, button';
+
 function Fields({
+  block,
+  held,
   strings,
   ir,
   node,
@@ -271,6 +314,13 @@ function Fields({
   folded,
   setFolded,
 }: {
+  /** The surface and the block, which a form handed
+   *  focus back to has to share with the form that
+   *  had it. */
+  block: string;
+
+  held: RefObject<Held | undefined>;
+
   strings: InspectorStrings;
   ir: WorkflowIR;
   node: WorkflowNode;
@@ -286,6 +336,29 @@ function Fields({
 }) {
   const [draft, setDraft] = useState(node);
   const form = configToForm(draft);
+  const rows = useRef<HTMLDivElement>(null);
+
+  // A commit comes back as the next revision, which
+  // is a new form, and the control that had focus
+  // goes with the old one. Its place is noted as the
+  // old form is taken down — before its controls
+  // leave the page, while focus can still be read —
+  // and the new form hands focus back to the same
+  // place. Only for a person still in this pane:
+  // an edit made on the canvas draws this form
+  // afresh too, and taking focus back then would
+  // pull them out of the frame they are typing in.
+  useLayoutEffect(() => {
+    const drawn = rows.current;
+    if (drawn === null) return;
+
+    const was = held.current;
+    if (was?.block === block) controlsUnder(drawn, was.field)[was.nth]?.focus();
+
+    return () => {
+      held.current = document.hasFocus() ? holding(drawn, block) : undefined;
+    };
+  }, []);
 
   // Asked of the document rather than of the
   // draft, because the findings were asked of the
@@ -294,6 +367,11 @@ function Fields({
   // when the document does — which is the moment
   // this column is built again anyway.
   const notes = fieldNotes(ir, node, diagnostics);
+
+  // One form asks for a wider label column. A
+  // queue's limits are told apart by the scope in
+  // their names, and a scope is no use cut in half.
+  const labels = form.kind === 'queue' ? 'wide' : undefined;
 
   // Which groups are closed. The kind says which
   // ones start that way and this holds it from
@@ -339,14 +417,7 @@ function Fields({
         {strings.heading} · {strings.kinds[form.kind]}
       </p>
 
-      {/* One form asks for a wider label column.
-          A queue's limits are told apart by the
-          scope in their names, and a scope is no
-          use cut in half. */}
-      <dl
-        className="fields"
-        data-labels={form.kind === 'queue' ? 'wide' : undefined}
-      >
+      <div className="configure" ref={rows}>
         {visible(form.fields, folded).map((field) => {
           if (field.control === 'section')
             return (
@@ -369,6 +440,7 @@ function Fields({
                 field={field}
                 node={draft}
                 lib={lib}
+                labels={labels}
                 onAssign={assign}
               />
             );
@@ -378,6 +450,7 @@ function Fields({
               key={field.id}
               strings={strings}
               field={field}
+              labels={labels}
               notes={notes[field.id]}
               onCommit={commit}
             />
@@ -385,15 +458,26 @@ function Fields({
         })}
 
         {outcomesOf(ir, node).map((outcome) => (
-          <Outcome key={outcome.value} strings={strings} outcome={outcome} />
+          <PropertyRow
+            key={outcome.value}
+            label={<span data-mono="">{outcome.value} →</span>}
+            labels={labels}
+            value={outcome.target ?? strings.end}
+            mono
+            hook={{ outcome: outcome.value }}
+          />
         ))}
 
         {form.kind !== 'transaction' ? null : (
           <>
-            <Told
-              id="database"
-              name={strings.fields.database}
+            {/* Read rather than edited: which database
+                a transaction commits to is the
+                project's, not the block's. */}
+            <PropertyRow
+              label={strings.fields.database}
               value={strings.database}
+              mono
+              hook={{ field: 'database' }}
             />
 
             {/* The one kind with no retry fields.
@@ -402,11 +486,38 @@ function Fields({
                 row that is simply missing from the
                 ninth reads as an oversight instead
                 of as the answer. */}
-            <Told id="retry" name={strings.retryPolicy} value={strings.retry} />
+            <PropertyRow
+              label={strings.retryPolicy}
+              value={strings.retry}
+              mono
+              hook={{ field: 'retry' }}
+            />
           </>
         )}
-      </dl>
+      </div>
     </>
+  );
+}
+
+/** Where focus is in a form, if it is in one. */
+function holding(form: HTMLElement, block: string): Held | undefined {
+  const focused = document.activeElement;
+  if (!(focused instanceof HTMLElement) || !form.contains(focused)) return;
+
+  const field = focused.closest<HTMLElement>('[data-field]')?.dataset.field;
+  if (field === undefined) return;
+
+  const nth = controlsUnder(form, field).indexOf(focused);
+
+  return nth === -1 ? undefined : { block, field, nth };
+}
+
+/** Every control under a lens id, in the order the
+ *  form draws them. */
+function controlsUnder(form: HTMLElement, field: string): HTMLElement[] {
+  return [...form.querySelectorAll<HTMLElement>(CONTROLS)].filter(
+    (control) =>
+      control.closest<HTMLElement>('[data-field]')?.dataset.field === field,
   );
 }
 
@@ -418,14 +529,24 @@ function initiallyFolded(node: WorkflowNode): Set<string> {
   );
 }
 
+/**
+ * One field, in the row its label names.
+ *
+ * A repeating group is the exception: its items are
+ * rows of their own, so its label heads the group
+ * rather than sitting beside a stack of rows it
+ * would leave no room for.
+ */
 function Row({
   strings,
   field,
+  labels,
   notes,
   onCommit,
 }: {
   strings: InspectorStrings;
   field: InspectorField;
+  labels: 'wide' | undefined;
 
   /** What core says about the block that this box
    *  is a way out of. Drawn here rather than only
@@ -435,24 +556,67 @@ function Row({
 
   onCommit: (field: InspectorField) => void;
 }) {
-  return (
-    <div
-      className="field"
-      data-field={field.id}
-      data-control={field.control}
-      data-noted={notes === undefined ? undefined : ''}
-    >
-      <dt className="field-name text-muted">{strings.fields[field.id]}</dt>
-      <dd className="field-value">
-        <Control strings={strings} field={field} onCommit={onCommit} />
-        {notes?.map((note) => (
-          <p key={note} className="field-note">
-            {note}
-          </p>
-        ))}
-      </dd>
-    </div>
-  );
+  switch (field.control) {
+    case 'rows':
+      return (
+        <div className="form-group" data-field={field.id} data-control="rows">
+          <SectionLabel>{strings.fields[field.id]}</SectionLabel>
+
+          <div className="rows">
+            {field.rows.map((row, index) => (
+              <div key={index} className="row">
+                {row.map((inner) => (
+                  <Row
+                    key={inner.id}
+                    strings={strings}
+                    field={inner}
+                    labels={labels}
+                    onCommit={(changed) =>
+                      onCommit({
+                        ...field,
+                        rows: field.rows.map((one, at) =>
+                          at === index
+                            ? one.map((cell) =>
+                                cell.id === changed.id ? changed : cell,
+                              )
+                            : one,
+                        ),
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+
+    // Drawn by the column itself: a picker takes the
+    // project's code-behind and a header folds the
+    // rows after it, and a row is handed only its
+    // own field.
+    case 'picker':
+    case 'section':
+      return null;
+
+    default:
+      return (
+        <PropertyRow
+          label={strings.fields[field.id]}
+          labels={labels}
+          field={field.id}
+          note={notes?.join(' ')}
+          control={(named) => (
+            <Control
+              strings={strings}
+              field={field}
+              named={named}
+              onCommit={onCommit}
+            />
+          )}
+        />
+      );
+  }
 }
 
 /**
@@ -486,7 +650,7 @@ function Section({
   onFold: () => void;
 }) {
   return (
-    <div className="field" data-field={id} data-control="section">
+    <div className="form-section" data-field={id} data-control="section">
       <button
         type="button"
         className="section-head section-label"
@@ -500,49 +664,8 @@ function Section({
       </button>
 
       {hint === undefined || !open ? null : (
-        <p className="field-note">{hint}</p>
+        <FieldHint hookClass="field-note">{hint}</FieldHint>
       )}
-    </div>
-  );
-}
-
-/** A row nobody edits: the fact and what it is
- *  called. */
-function Told({
-  id,
-  name,
-  value,
-}: {
-  id: string;
-  name: string | undefined;
-  value: string;
-}) {
-  return (
-    <div className="field" data-field={id} data-control="told">
-      <dt className="field-name text-muted">{name}</dt>
-      <dd className="field-value mono">{value}</dd>
-    </div>
-  );
-}
-
-/**
- * One way out of a decision.
- *
- * Read rather than edited: the function decided
- * these, and where each one goes is a wire on the
- * canvas. Wiring stays a canvas gesture.
- */
-function Outcome({
-  strings,
-  outcome,
-}: {
-  strings: InspectorStrings;
-  outcome: DecisionOutcome;
-}) {
-  return (
-    <div className="field" data-outcome={outcome.value} data-control="told">
-      <dt className="field-name mono text-muted">{outcome.value} →</dt>
-      <dd className="field-value mono">{outcome.target ?? strings.end}</dd>
     </div>
   );
 }
@@ -567,6 +690,7 @@ function Picker({
   field,
   node,
   lib,
+  labels,
   onAssign,
 }: {
   strings: InspectorStrings;
@@ -574,6 +698,7 @@ function Picker({
   field: Extract<InspectorField, { control: 'picker' }>;
   node: WorkflowNode;
   lib: LibFunction[] | undefined;
+  labels: 'wide' | undefined;
   onAssign: (exported: string | null) => void;
 }) {
   const [showing, setShowing] = useState(false);
@@ -590,21 +715,26 @@ function Picker({
         : undefined;
 
   return (
-    <div className="field" data-field={field.id} data-control="picker">
-      <dt className="field-name text-muted">{strings.fields[field.id]}</dt>
-      <dd className="field-value">
-        {/* The value is its own mark, and the way to
-            the code sits outside it: what the caret
-            says can be changed is the name, not the
-            row it is drawn on. */}
-        <p className="picker-value mono">
-          {field.value === undefined ? (
+    <div className="picker-field" data-field={field.id} data-control="picker">
+      {/* The value is its own mark, and the way to
+          the code sits outside it: what the caret
+          says can be changed is the name, not the
+          row it is drawn on. The list goes under the
+          row rather than into its value, where the
+          label column would leave the signatures
+          nothing to be read in. */}
+      <PropertyRow
+        label={strings.fields[field.id]}
+        labels={labels}
+        mono
+        value={
+          field.value === undefined ? (
             <span className="picker-nothing" data-picker-value>
               {strings.dropHere}
             </span>
           ) : (
             <>
-              <span data-picker-value>{`${field.value} ▾`}</span>{' '}
+              <span data-picker-value>{`${field.value} ▾`}</span>
               <button
                 type="button"
                 className="picker-open"
@@ -616,58 +746,67 @@ function Picker({
                 {strings.openFunction}
               </button>
             </>
-          )}
-        </p>
+          )
+        }
+      />
 
-        <div className="picker">
-          <p className="drawer-name mono text-muted">{strings.lib}</p>
+      <div className="picker">
+        <p className="drawer-name mono text-muted">{strings.lib}</p>
 
-          {judged.length === 0 ? (
-            <p className="picker-empty text-muted">{strings.noLib}</p>
-          ) : (
-            <>
-              {fitting.map((fit) => (
-                <Offer
-                  key={fit.fn.export}
-                  fit={fit}
-                  assigned={field.value}
-                  onAssign={onAssign}
-                />
-              ))}
+        {judged.length === 0 ? (
+          <p className="picker-empty text-muted">{strings.noLib}</p>
+        ) : (
+          <>
+            {fitting.map((fit) => (
+              <Offer
+                key={fit.fn.export}
+                fit={fit}
+                assigned={field.value}
+                onAssign={onAssign}
+              />
+            ))}
 
-              {rest.length === 0 ? null : (
-                <button
-                  type="button"
-                  className="picker-hidden text-muted"
-                  data-picker-hidden
-                  onClick={() => setShowing(!showing)}
-                >
-                  {showing
-                    ? strings.hide
-                    : filled(strings.hidden, String(rest.length))}
-                </button>
-              )}
+            {rest.length === 0 ? null : (
+              <button
+                type="button"
+                className="picker-hidden text-muted"
+                data-picker-hidden
+                onClick={() => setShowing(!showing)}
+              >
+                {showing
+                  ? strings.hide
+                  : filled(strings.hidden, String(rest.length))}
+              </button>
+            )}
 
-              {!showing
-                ? null
-                : rest.map((fit) => (
-                    <Offer
-                      key={fit.fn.export}
-                      fit={fit}
-                      assigned={field.value}
-                      onAssign={onAssign}
-                    />
-                  ))}
-            </>
-          )}
-
-          <Named strings={strings} onAssign={onAssign} />
-        </div>
-
-        {callout === undefined ? null : (
-          <Callout kind={node.kind} words={callout} />
+            {!showing
+              ? null
+              : rest.map((fit) => (
+                  <Offer
+                    key={fit.fn.export}
+                    fit={fit}
+                    assigned={field.value}
+                    onAssign={onAssign}
+                  />
+                ))}
+          </>
         )}
-      </dd>
+
+        <Named strings={strings} onAssign={onAssign} />
+      </div>
+
+      {/* What a kind's relationship with its code
+          is, where a person would otherwise have to
+          guess it. */}
+      {callout === undefined ? null : (
+        <Callout
+          tone="info"
+          title={callout.title}
+          hook={{ callout: node.kind }}
+        >
+          {callout.body}
+        </Callout>
+      )}
     </div>
   );
 }
@@ -707,7 +846,8 @@ function Offer({
  * typed here is what the scaffolder writes a stub
  * for, so committing it because focus moved would
  * put a half-typed export in the document and a
- * file on disk beside it.
+ * file on disk beside it. Escape, or leaving the
+ * field, puts the row back.
  */
 function Named({
   strings,
@@ -717,42 +857,28 @@ function Named({
   onAssign: (exported: string | null) => void;
 }) {
   const [naming, setNaming] = useState(false);
-  const [typed, setTyped] = useState('');
 
   return (
     <div className="lib-fn picker-new" data-picker-new>
       {naming ? (
-        <input
-          className="mono"
-          type="text"
+        <Input
+          value=""
+          mono
           autoFocus
-          spellCheck={false}
-          value={typed}
-          onChange={(event) => setTyped(event.target.value)}
-          onBlur={() => setNaming(false)}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              setNaming(false);
-
-              return;
-            }
-
-            if (event.key !== 'Enter') return;
-
-            event.preventDefault();
+          label={strings.newFunction}
+          commitOnBlur={false}
+          onCommit={(typed) => {
             setNaming(false);
 
             if (typed.trim() !== '') onAssign(typed.trim());
           }}
+          onAbandon={() => setNaming(false)}
         />
       ) : (
         <button
           type="button"
           className="picker-name"
-          onClick={() => {
-            setTyped('');
-            setNaming(true);
-          }}
+          onClick={() => setNaming(true)}
         >
           {strings.newFunction}
         </button>
@@ -761,47 +887,40 @@ function Named({
   );
 }
 
-/** What a kind's relationship with its code is,
- *  where a person would otherwise have to guess
- *  it. */
-function Callout({ kind, words }: { kind: string; words: CalloutWords }) {
-  return (
-    <p className="callout" data-callout={kind}>
-      <strong>{words.title}</strong> {words.body}
-    </p>
-  );
-}
-
+/** The control a field is set with, in the row that
+ *  names it. */
 function Control({
   strings,
   field,
+  named,
   onCommit,
 }: {
   strings: InspectorStrings;
   field: InspectorField;
+  named: Named;
   onCommit: (field: InspectorField) => void;
 }) {
   switch (field.control) {
     case 'choice':
       return (
-        <select
+        <Select
+          {...named}
+          mono
           value={field.value}
-          onChange={(event) =>
-            onCommit({ ...field, value: event.target.value })
-          }
-        >
-          {field.options.map((option) => (
-            <option key={option} value={option}>
-              {strings.options[`${field.id}.${option}`] ?? option}
-            </option>
-          ))}
-        </select>
+          options={field.options.map((option) => ({
+            value: option,
+            label: strings.options[`${field.id}.${option}`] ?? option,
+          }))}
+          onChange={(value) => onCommit({ ...field, value })}
+        />
       );
 
     case 'flag':
       return (
         <input
           type="checkbox"
+          id={named.id}
+          aria-describedby={named.describedBy}
           checked={field.value}
           onChange={(event) =>
             onCommit({ ...field, value: event.target.checked })
@@ -811,9 +930,10 @@ function Control({
 
     case 'number':
       return (
-        <Typed
+        <Input
+          {...named}
+          mono
           value={field.value === null ? '' : String(field.value)}
-          multiline={false}
           onCommit={(value) =>
             onCommit({
               ...field,
@@ -823,127 +943,32 @@ function Control({
         />
       );
 
-    case 'rows':
-      return (
-        <div className="rows">
-          {field.rows.map((row, index) => (
-            <div key={index} className="row">
-              {row.map((inner) => (
-                <Row
-                  key={inner.id}
-                  strings={strings}
-                  field={inner}
-                  onCommit={(changed) =>
-                    onCommit({
-                      ...field,
-                      rows: field.rows.map((one, at) =>
-                        at === index
-                          ? one.map((cell) =>
-                              cell.id === changed.id ? changed : cell,
-                            )
-                          : one,
-                      ),
-                    })
-                  }
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-      );
-
-    // Drawn by the column itself, because it takes
-    // the project's code-behind and a control here
-    // is handed only the field.
-    case 'picker':
-      return null;
-
-    // Drawn by the column too: a header spans the
-    // row it is on and folds the ones after it,
-    // neither of which is a value in a field's
-    // second column.
-    case 'section':
-      return null;
-
     case 'text':
-    case 'prose':
       return (
-        <Typed
+        <Input
+          {...named}
+          mono
           value={field.value}
-          multiline={field.control === 'prose'}
           onCommit={(value) => onCommit({ ...field, value })}
         />
       );
+
+    case 'prose':
+      return (
+        <TextArea
+          {...named}
+          mono
+          value={field.value}
+          grow={{ minLines: 3, maxLines: 12 }}
+          onCommit={(value) => onCommit({ ...field, value })}
+        />
+      );
+
+    // Drawn a level up, in rows and headers of their
+    // own rather than as a control in one row.
+    case 'rows':
+    case 'picker':
+    case 'section':
+      return null;
   }
-}
-
-/**
- * A field somebody types into.
- *
- * It keeps what has been typed and hands it over
- * when they are done with it — which is what makes
- * a half-typed value a thing a person can pass
- * through rather than a document they cannot save.
- */
-function Typed({
-  value,
-  multiline,
-  onCommit,
-}: {
-  value: string;
-  multiline: boolean;
-  onCommit: (value: string) => void;
-}) {
-  const [typed, setTyped] = useState(value);
-
-  // Escape puts the document's value back and then
-  // leaves the field, and leaving a field is what
-  // commits it. The flag is what keeps the second
-  // from undoing the first — the state it set has
-  // not been applied yet by the time blur runs.
-  const abandoned = useRef(false);
-
-  const done = (): void => {
-    if (abandoned.current) {
-      abandoned.current = false;
-
-      return;
-    }
-
-    if (typed !== value) onCommit(typed);
-  };
-
-  const keys = (event: {
-    key: string;
-    preventDefault: () => void;
-    currentTarget: { blur: () => void };
-  }): void => {
-    if (event.key === 'Escape') {
-      abandoned.current = true;
-      setTyped(value);
-      event.currentTarget.blur();
-
-      return;
-    }
-
-    if (event.key === 'Enter' && !multiline) {
-      event.preventDefault();
-      event.currentTarget.blur();
-    }
-  };
-
-  const shared = {
-    value: typed,
-    onChange: (event: { target: { value: string } }) =>
-      setTyped(event.target.value),
-    onBlur: done,
-    onKeyDown: keys,
-    spellCheck: false,
-  };
-
-  return multiline ? (
-    <textarea className="mono" rows={3} {...shared} />
-  ) : (
-    <input className="mono" type="text" {...shared} />
-  );
 }
