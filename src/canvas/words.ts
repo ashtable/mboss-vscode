@@ -692,9 +692,12 @@ export const inspectorWords = once(() => ({
   // by now.
   workflowInput: l10n.t('workflow input · as recorded'),
 
-  // Before the short id in the header of a card
-  // about a whole run, where a block's kind goes.
-  runKind: l10n.t('run'),
+  // The header of a card about a whole run, where a
+  // block's kind goes. The id is drawn rather than
+  // written in, so the phrase is a template of its
+  // own and a language puts the two in its own
+  // order.
+  runKind: l10n.t('run {0}'),
 
   noInput: l10n.t('no input recorded'),
 

@@ -83,11 +83,10 @@ export function RunLevelCard({
             {run.workflow}
           </h1>
         }
-        kind={
-          <>
-            {strings.runKind} <ShortRun id={run.workflowId} short={run.short} />
-          </>
-        }
+        kind={placed(
+          strings.runKind,
+          <ShortRun id={run.workflowId} short={run.short} />,
+        )}
         status={<StatusLine state={run.state} word={run.line} />}
       />
 

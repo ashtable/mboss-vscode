@@ -289,8 +289,9 @@ test.describe('a run with nothing picked', () => {
         'airtable_etl',
       );
       await expect(header.locator('.inspector-kind')).toHaveText(
-        `${inspectorStrings.runKind} #7089`,
+        filled(inspectorStrings.runKind, '#7089'),
       );
+      expect(filled(inspectorStrings.runKind, '#7089')).toBe('run #7089');
 
       const short = header.locator('[data-short-run]');
       await expect(short).toHaveText('#7089');

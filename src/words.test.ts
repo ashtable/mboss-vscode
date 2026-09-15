@@ -45,3 +45,17 @@ describe('the words the views are sent', () => {
     );
   });
 });
+
+/**
+ * A phrase drawn around a value the view supplies.
+ *
+ * The word and the value are two pieces a view puts
+ * together, and which order they go in is the
+ * language's answer rather than JSX's — so the
+ * phrase carries the value's place in it.
+ */
+describe('a word said around something drawn', () => {
+  it('leaves the run id a place of its own in the kind', () => {
+    expect(inspectorWords().runKind).toContain('{0}');
+  });
+});

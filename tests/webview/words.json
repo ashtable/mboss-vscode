@@ -214,7 +214,7 @@
       "gaveUp": "gave up"
     },
     "workflowInput": "workflow input · as recorded",
-    "runKind": "run",
+    "runKind": "run {0}",
     "noInput": "no input recorded",
     "inline": "inline",
     "artifact": "artifact",
