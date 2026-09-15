@@ -4,6 +4,7 @@ import { agentPanel } from './acp/agent.js';
 import { chooseAgent } from './acp/choose.js';
 import { agentPickerHost, panelHost } from './acp/host.js';
 import { WorkflowCanvasEditor, type CanvasRuns } from './canvas/editor.js';
+import { canvasSessions } from './canvas/sessions.js';
 import { commandHandlers } from './commands.js';
 import { projectHost, runWorkflowHost } from './commands/host.js';
 import { newProject, offerVendorRefresh } from './commands/newProject.js';
@@ -156,6 +157,12 @@ export function activate(context: ExtensionContext): void {
     onChanged: (listener) => runs.onChanged(listener),
   };
 
+  // Every canvas that is open. Held here rather than
+  // by the editor, because what is not a canvas has
+  // to find one: the Arrange command asks it for the
+  // canvas in front of somebody.
+  const sessions = canvasSessions();
+
   // The shelf of workflows to start from. Held here
   // rather than by the command, so that running it
   // twice reveals the one panel rather than opening
@@ -172,7 +179,7 @@ export function activate(context: ExtensionContext): void {
     () => runs.stackUp(),
     () => runs.stackDown(),
     runWorkflowCommand(runWorkflowHost(), runs, trust),
-    async () => WorkflowCanvasEditor.active()?.arrange(),
+    async () => sessions.active()?.arrange(),
   );
   for (const [id, handle] of Object.entries(handlers)) {
     context.subscriptions.push(commands.registerCommand(id, handle));
@@ -207,6 +214,7 @@ export function activate(context: ExtensionContext): void {
       trust,
       watchers,
       panel,
+      sessions,
     ),
     AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview, {
       openRun,

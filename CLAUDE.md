@@ -259,9 +259,12 @@ none of that.
 ### Subsystems
 
 - **`canvas/`** — `editor.ts` is the host side (`CustomTextEditorProvider`, one
-  `CanvasSession` per panel in a static map, `active()` for the Arrange
-  command). Every gesture is a message; every edit lands through
-  `api.replaceDocument` so VS Code keeps undo/dirty/save. A **gesture** is
+  `CanvasSession` per panel). Open sessions live in the `canvasSessions()`
+  registry (`sessions.ts`), built once in `extension.ts`: `active()` for the
+  Arrange command, `forPath`/`whenOpen`, and `onChanged` naming the session that
+  moved, fired whether or not its frame is visible. Every gesture is a message;
+  every edit lands through `api.replaceDocument` so VS Code keeps
+  undo/dirty/save. A **gesture** is
   what the panel sent; an **edit** is the pure function of the document it
   becomes, worked out in `edits.ts`: `editFor(gesture, context, answered?)`
   takes the document, its boxes, the manifest and the palette labels and answers
