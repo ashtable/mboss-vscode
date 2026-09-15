@@ -49,6 +49,13 @@ export const sidebarWords = once(() => ({
   // Which agent the next prompt goes to, under the
   // field it is typed into.
   composerAgent: l10n.t('agent: {0}'),
+
+  // The control that picks files to go with the
+  // prompt, and the way to take one back out,
+  // named by the file.
+  attachFiles: l10n.t('Attach files'),
+  removeAttached: l10n.t('remove {0}'),
+
   newFile: l10n.t('new'),
   permission: l10n.t('Permission needed'),
   always: l10n.t('always'),

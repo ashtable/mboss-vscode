@@ -39,6 +39,7 @@ export function sidebarInit(over: Partial<SidebarInit> = {}): SidebarInit {
     prompt: undefined,
     failure: undefined,
     preview: undefined,
+    attached: [],
     ...over,
   };
 }

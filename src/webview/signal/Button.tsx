@@ -22,7 +22,7 @@ import { hooked } from './hook.js';
  * running in.
  */
 
-export type ButtonIcon = 'refresh' | 'send' | 'attach' | 'copy';
+export type ButtonIcon = 'refresh' | 'send' | 'attach' | 'copy' | 'remove';
 
 /**
  * The look, and the ink that goes with it.
@@ -155,15 +155,17 @@ export function Button({
  * Lucide's paths, written out.
  *
  * A webview bundle that pulled the icon package
- * would carry a thousand glyphs to draw four, and
- * the four change only when somebody decides they
- * should. The licence is in THIRD_PARTY_NOTICES.md.
+ * would carry a thousand glyphs to draw a handful,
+ * and the handful changes only when somebody
+ * decides it should. The licence is in
+ * THIRD_PARTY_NOTICES.md.
  *
  * They are drawn rather than typed because the
  * faces this extension ships have no arrows, no
- * check and no reload mark in them: a text glyph
- * here comes from whatever the platform falls back
- * to and is a different weight on every machine.
+ * check, no cross and no reload mark in them: a
+ * text glyph here comes from whatever the platform
+ * falls back to and is a different weight on every
+ * machine.
  */
 const PATHS: Record<ButtonIcon, readonly string[]> = {
   // rotate-cw
@@ -182,6 +184,9 @@ const PATHS: Record<ButtonIcon, readonly string[]> = {
     'M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2z',
     'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2',
   ],
+
+  // x
+  remove: ['M18 6 6 18', 'm6 6 12 12'],
 };
 
 function Glyph({ icon }: { icon: ButtonIcon }) {

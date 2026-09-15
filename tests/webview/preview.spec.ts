@@ -146,6 +146,7 @@ function sidebarInit(card: SidebarPreview | undefined): SidebarInit {
     prompt: undefined,
     failure: undefined,
     preview: card,
+    attached: [],
   };
 }
 

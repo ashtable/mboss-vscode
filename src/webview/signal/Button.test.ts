@@ -103,6 +103,25 @@ describe('the Button every surface presses', () => {
     expect(markup).not.toContain('<span');
   });
 
+  /**
+   * Taking something back out of a list is a cross,
+   * drawn, since the faces this extension ships have
+   * no multiplication sign to type.
+   */
+  it('draws the mark that takes something away', () => {
+    const { markup } = shown({
+      variant: 'quiet',
+      icon: 'remove',
+      label: 'ab',
+    });
+
+    expect(markup).toContain('data-icon="remove"');
+    expect(markup).toContain('aria-label="ab"');
+    expect(markup.match(/<path /g)).toHaveLength(2);
+    expect(markup).toContain('d="M18 6 6 18"');
+    expect(markup).toContain('d="m6 6 12 12"');
+  });
+
   it('marks a Button whose label is machine evidence', () => {
     expect(
       shown({ variant: 'quiet', mono: true, children: 'ab' }).markup,

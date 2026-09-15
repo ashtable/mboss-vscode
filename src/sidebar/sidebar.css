@@ -681,6 +681,31 @@ body {
   outline: none;
 }
 
+/* The files the next prompt carries, between what
+   is being typed and the controls that send it. Set
+   in from the card's edge as far as the typing is,
+   so a name starts where a line of the prompt does;
+   a long list wraps rather than widening the card. */
+.composer [data-attached] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-0-5) var(--space-3);
+  padding: var(--space-1) var(--space-2) 0 var(--space-3);
+}
+
+/* A name and the control that takes it back out
+   stay on one line together, apart enough that the
+   edge a high-contrast theme draws round the control
+   does not touch the name. */
+.attached-file {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .composer-meta {
   display: flex;
   align-items: center;

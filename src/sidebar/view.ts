@@ -104,9 +104,11 @@ export class AgentSidebarView implements WebviewViewProvider {
         (repaint) => this.preview.onChanged(repaint),
       ],
       heard: (message) => {
-        if (message.type === 'prompt') {
-          void this.panel.send({ text: message.text });
-        }
+        // What somebody typed goes with what they
+        // attached for it.
+        if (message.type === 'prompt') void this.panel.prompt(message.text);
+        if (message.type === 'attach') void this.panel.attach();
+        if (message.type === 'detach') this.panel.detach(message.uri);
         if (message.type === 'cancel') void this.panel.cancel();
         if (message.type === 'chooseAgent') void this.chooseAgent();
         if (message.type === 'permission') {
@@ -169,6 +171,7 @@ export function sidebarInit(
         : card.at === 'proposal'
           ? proposalCard(card.model)
           : appliedCard(card),
+    attached: state.attached,
   };
 }
 

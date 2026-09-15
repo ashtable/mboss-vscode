@@ -51,17 +51,30 @@ const preview = {
 } as unknown as PreviewStore;
 
 describe('the agent sidebar', () => {
-  /** The view, mounted, with every run door it is
-   *  handed writing down what reached it. */
+  /** The view, mounted, with every run door and
+   *  composer verb it is handed writing down what
+   *  reached it. */
   const mounted = () => {
     const reached: string[][] = [];
     const frame = fakeWebview();
+    const composing = {
+      ...panel,
+      prompt: async (text: string) => void reached.push(['prompt', text]),
+      attach: async () => void reached.push(['attach']),
+      detach: (uri: string) => void reached.push(['detach', uri]),
+    } as unknown as AgentPanel;
 
-    new AgentSidebarView(extensionUri, panel, async () => undefined, preview, {
-      openRun: async (workflowId) => void reached.push(['open', workflowId]),
-      replayFrom: async (workflowId, nodeId) =>
-        void reached.push(['replay', workflowId, nodeId]),
-    }).resolveWebviewView(frame.panel);
+    new AgentSidebarView(
+      extensionUri,
+      composing,
+      async () => undefined,
+      preview,
+      {
+        openRun: async (workflowId) => void reached.push(['open', workflowId]),
+        replayFrom: async (workflowId, nodeId) =>
+          void reached.push(['replay', workflowId, nodeId]),
+      },
+    ).resolveWebviewView(frame.panel);
 
     return { frame, reached };
   };
@@ -95,6 +108,36 @@ describe('the agent sidebar', () => {
 
     expect(reached).toEqual([]);
   });
+
+  /**
+   * What somebody typed goes with whatever they
+   * attached for it, so it reaches the panel's
+   * composer verb rather than the one the stores
+   * hand the agent their own questions through.
+   */
+  it('sends what was typed with the draft', () => {
+    const { frame, reached } = mounted();
+
+    frame.send({ type: 'prompt', text: 'look at these' });
+
+    expect(reached).toEqual([['prompt', 'look at these']]);
+  });
+
+  it('asks for files when somebody attaches', () => {
+    const { frame, reached } = mounted();
+
+    frame.send({ type: 'attach' });
+
+    expect(reached).toEqual([['attach']]);
+  });
+
+  it('lets a file go', () => {
+    const { frame, reached } = mounted();
+
+    frame.send({ type: 'detach', uri: 'file:///project/lib/a.ts' });
+
+    expect(reached).toEqual([['detach', 'file:///project/lib/a.ts']]);
+  });
 });
 
 /**
@@ -123,6 +166,7 @@ describe('what the agent panel is sent', () => {
           prompt: undefined,
           failure: undefined,
           project: '/project',
+          attached: [],
           ...over,
         }),
         onChanged: () => nothing,
@@ -537,6 +581,13 @@ describe('what the agent panel is sent', () => {
     expect(sent({ agent: 'gemini' }).agent).toBe('gemini');
     expect(sent({ agent: 'claude-code' }).agent).toBe('claude code');
     expect(sent({ agent: undefined }).agent).toBeUndefined();
+  });
+
+  it('shows what is attached to the next prompt', () => {
+    const attached = [{ uri: 'file:///project/lib/a.ts', name: 'lib/a.ts' }];
+
+    expect(sent({ attached }).attached).toEqual(attached);
+    expect(sent().attached).toEqual([]);
   });
 
   it("heads the panel with the product's name", () => {

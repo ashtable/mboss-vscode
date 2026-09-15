@@ -172,6 +172,8 @@ describe('what each view may say', () => {
     undo: ['sidebar'],
     keepFile: ['sidebar'],
     undoFile: ['sidebar'],
+    attach: ['sidebar'],
+    detach: ['sidebar'],
 
     runFilter: ['runs'],
     runRefresh: ['runs'],
@@ -245,6 +247,8 @@ describe('what each view may say', () => {
     undo: {},
     keepFile: { id: 'f_1' },
     undoFile: { id: 'f_1' },
+    attach: {},
+    detach: { uri: 'file:///project/lib/a.ts' },
 
     runFilter: { filter: 'failed' },
     runRefresh: {},

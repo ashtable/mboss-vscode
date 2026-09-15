@@ -1,4 +1,5 @@
 import type { PanelStatus } from '../acp/agent.js';
+import type { PromptAttachment } from '../acp/prompt.js';
 import type {
   FileEditEntry,
   FileState,
@@ -297,6 +298,10 @@ export type SidebarInit = {
   /** What the person is being asked to answer about
    *  an agent's proposal, if anything. */
   preview: SidebarPreview | undefined;
+
+  /** The files the next prompt will carry, each
+   *  named by its place in the project. */
+  attached: PromptAttachment[];
 };
 
 /**

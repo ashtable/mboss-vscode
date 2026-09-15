@@ -1149,34 +1149,45 @@ test.describe('the composer', () => {
     ).toBe(true);
   });
 
-  test('puts the agent before Send in one row', async ({ page }) => {
+  test('offers attach, then the agent, then Send, in one row', async ({
+    page,
+  }) => {
     const harness = await openPanel(page);
 
     const field = page.locator('.composer textarea');
+    const attach = page.locator('.composer [data-attach]');
     const agent = page.locator('.composer [data-composer-agent]');
     const send = page.locator('.composer button[type="submit"]');
 
+    await expect(attach).toHaveCount(1);
     await expect(agent).toHaveCount(1);
     await expect(send).toHaveCount(1);
 
-    expect(
-      await page
-        .locator('.composer')
-        .evaluate((form) =>
-          [...form.querySelectorAll('button')].map((button) =>
-            button.matches('[data-composer-agent]') ? 'agent' : button.type,
-          ),
-        ),
-    ).toEqual(['agent', 'submit']);
+    const order = async (): Promise<string[]> =>
+      await page.locator('.composer-meta').evaluate((row) =>
+        [...row.querySelectorAll('button')].map((button) => {
+          if (button.matches('[data-attach]')) return 'attach';
+          if (button.matches('[data-composer-agent]')) return 'agent';
+          if (button.matches('[data-stop]')) return 'stop';
+
+          return button.type;
+        }),
+      );
+
+    expect(await order()).toEqual(['attach', 'agent', 'submit']);
 
     const under = (await field.boundingBox())!;
+    const first = (await attach.boundingBox())!;
     const left = (await agent.boundingBox())!;
     const right = (await send.boundingBox())!;
+    const middle = (box: { y: number; height: number }): number =>
+      box.y + box.height / 2;
 
+    expect(first.y).toBeGreaterThanOrEqual(under.y + under.height);
     expect(left.y).toBeGreaterThanOrEqual(under.y + under.height);
-    expect(
-      Math.abs(left.y + left.height / 2 - (right.y + right.height / 2)),
-    ).toBeLessThanOrEqual(1);
+    expect(Math.abs(middle(first) - middle(right))).toBeLessThanOrEqual(1);
+    expect(Math.abs(middle(left) - middle(right))).toBeLessThanOrEqual(1);
+    expect(first.x + first.width).toBeLessThan(left.x);
     expect(left.x + left.width).toBeLessThan(right.x);
 
     await expect(agent).toHaveText(
@@ -1190,6 +1201,72 @@ test.describe('the composer', () => {
 
     expect(await harness.postedOfType('chooseAgent')).toEqual([
       { type: 'chooseAgent' },
+    ]);
+
+    // Stop takes Send's place and nothing moves
+    // round it.
+    await harness.show(sidebarInit({ status: 'streaming' }));
+    await expect(page.locator('.composer [data-stop]')).toHaveCount(1);
+
+    expect(await order()).toEqual(['attach', 'agent', 'stop']);
+  });
+
+  test('asks the extension for files to attach', async ({ page }) => {
+    const harness = await openPanel(page);
+    const attach = page.locator('.composer [data-attach]');
+
+    await expect(attach).toHaveCount(1);
+    await expect(attach).toHaveAccessibleName(strings.attachFiles);
+    await expect(page.locator('.composer [data-attached]')).toHaveCount(0);
+
+    await attach.click();
+
+    expect(await harness.postedOfType('attach')).toEqual([{ type: 'attach' }]);
+  });
+
+  /**
+   * What the next prompt carries is on show under
+   * what is being typed, each file with its own way
+   * back out, so nobody sends a file they meant to
+   * take away.
+   */
+  test('lets one attached file go', async ({ page }) => {
+    const harness = await openPanel(page);
+    const a = { uri: 'file:///project/lib/a.ts', name: 'lib/a.ts' };
+    const b = { uri: 'file:///project/lib/b.ts', name: 'lib/b.ts' };
+
+    await harness.show(sidebarInit({ attached: [a, b] }));
+
+    const names = page.locator('.composer [data-attached]');
+
+    await expect(names).toHaveCount(1);
+    await expect(names).toContainText(a.name);
+    await expect(names).toContainText(b.name);
+
+    // Under the field, over the row of controls.
+    const field = (await page.locator('.composer textarea').boundingBox())!;
+    const line = (await names.boundingBox())!;
+    const meta = (await page.locator('.composer-meta').boundingBox())!;
+
+    expect(line.y).toBeGreaterThanOrEqual(field.y + field.height);
+    expect(line.y + line.height).toBeLessThanOrEqual(meta.y);
+
+    const removeB = names.getByRole('button', {
+      name: filled(strings.removeAttached, b.name),
+    });
+
+    await expect(
+      names.getByRole('button', {
+        name: filled(strings.removeAttached, a.name),
+      }),
+    ).toHaveCount(1);
+    await expect(removeB).toHaveCount(1);
+
+    await removeB.focus();
+    await page.keyboard.press('Enter');
+
+    expect(await harness.postedOfType('detach')).toEqual([
+      { type: 'detach', uri: b.uri },
     ]);
   });
 
@@ -1372,6 +1449,39 @@ test.describe('the composer', () => {
           (element) => getComputedStyle(element).outlineStyle,
         ),
       ).toBe('none');
+    });
+
+    /**
+     * The names are what the prompt will carry, read
+     * before it goes, so they take the ink the row's
+     * own controls do rather than a hint's fainter
+     * one.
+     */
+    test(`draws what is attached in the controls' ink in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'sidebar', theme);
+
+      await harness.show(
+        sidebarInit({
+          attached: [{ uri: 'file:///project/lib/a.ts', name: 'lib/a.ts' }],
+        }),
+      );
+
+      const names = page.locator('.composer [data-attached]');
+      const attach = page.locator('.composer [data-attach]');
+
+      await expect(names).toHaveCount(1);
+
+      const ink = await names.evaluate(
+        (element) => getComputedStyle(element).color,
+      );
+      const muted = colourOf(theme, 'ink-muted');
+
+      expect(sameColour(ink, muted), `${ink} ≠ ${muted}`).toBe(true);
+      expect(
+        await attach.evaluate((element) => getComputedStyle(element).color),
+      ).toBe(ink);
     });
 
     test(`draws Stop in the failure voice in ${theme}`, async ({ page }) => {

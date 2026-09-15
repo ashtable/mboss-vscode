@@ -1,3 +1,7 @@
+import { pathToFileURL } from 'node:url';
+
+import { displayPath } from '../paths.js';
+
 import type { ContentBlock } from './connection.js';
 
 /**
@@ -21,6 +25,10 @@ import type { ContentBlock } from './connection.js';
  * context's `text` is already the JSON somebody
  * else assembled, and nothing here serializes,
  * summarises or reformats it.
+ *
+ * Files somebody attached are the exception to
+ * asking: they go as links, which every agent has
+ * to take, so they need no envelope of their own.
  */
 
 /** A turn, as the rest of the extension writes
@@ -35,7 +43,40 @@ export type AgentPrompt = {
   /** The run a question mBoss asked for somebody
    *  is about. Nothing a person typed has one. */
   about?: PromptAbout;
+
+  /** Files somebody attached to what they typed.
+   *  Nothing mBoss asks has any. */
+  attached?: PromptAttachment[];
 };
+
+/**
+ * One file somebody attached, as the agent is
+ * handed it: where it is, and what to call it.
+ *
+ * A link rather than the file's text. The agent
+ * reads it itself, as it is when it looks, and a
+ * file edited between attaching and sending is not
+ * sent stale.
+ */
+export type PromptAttachment = {
+  uri: string;
+
+  /** Its place in the project, the way the column
+   *  names every other file. */
+  name: string;
+};
+
+/** A file picked off disk, named the way the
+ *  column names files. */
+export function attachmentOf(
+  absolute: string,
+  project: string | undefined,
+): PromptAttachment {
+  return {
+    uri: pathToFileURL(absolute).href,
+    name: displayPath(absolute, project),
+  };
+}
 
 /**
  * What a question about a run was about, kept
@@ -104,13 +145,19 @@ export type AgentAccepts = { embeddedContext: boolean };
  * block with the records fenced under their
  * names, because a JSON object dropped into prose
  * unmarked is a paragraph the agent has to guess
- * the edges of.
+ * the edges of. Either way, each attached file
+ * follows as a link of its own.
  */
 export function promptBlocks(
   prompt: AgentPrompt,
   accepts: AgentAccepts,
 ): ContentBlock[] {
   const context = prompt.context ?? [];
+  const links = (prompt.attached ?? []).map((file): ContentBlock => ({
+    type: 'resource_link',
+    uri: file.uri,
+    name: file.name,
+  }));
 
   if (accepts.embeddedContext) {
     return [
@@ -119,11 +166,13 @@ export function promptBlocks(
         type: 'resource',
         resource: { uri: one.uri, mimeType: one.mimeType, text: one.text },
       })),
+      ...links,
     ];
   }
 
   return [
     { type: 'text', text: [prompt.text, ...context.map(fenced)].join('\n\n') },
+    ...links,
   ];
 }
 

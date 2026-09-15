@@ -229,6 +229,7 @@ function Panel(state: SidebarInit) {
             strings={strings}
             agent={state.agent}
             status={status}
+            attached={state.attached}
             field={composer}
           />
         ) : null}

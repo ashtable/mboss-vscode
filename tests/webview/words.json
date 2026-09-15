@@ -346,6 +346,8 @@
     "placeholder": "Edit the graph, scaffold a lib fn, or ask why…",
     "composerLabel": "Ask the agent",
     "composerAgent": "agent: {0}",
+    "attachFiles": "Attach files",
+    "removeAttached": "remove {0}",
     "newFile": "new",
     "permission": "Permission needed",
     "always": "always",

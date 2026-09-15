@@ -9,17 +9,19 @@ import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
 import type { SidebarInit, SidebarStrings } from '../webview/protocol.js';
 import { Button } from '../webview/signal/Button.js';
+import { FieldHint } from '../webview/signal/FieldHint.js';
 
 /**
  * The box a person types into, and the row of
  * controls under it.
  *
  * One card rather than a field with buttons around
- * it: the agent the prompt goes to and the way to
- * send it are about what is being written, so they
- * sit inside the edge that says "this is the thing
- * you are writing in", and focus rings that edge
- * rather than the textarea inside it.
+ * it: the files it carries, the agent it goes to and
+ * the way to send it are about what is being
+ * written, so they sit inside the edge that says
+ * "this is the thing you are writing in", and focus
+ * rings that edge rather than the textarea inside
+ * it.
  *
  * Its height is what was typed. The stylesheet
  * grows the field with its text between a floor
@@ -27,18 +29,22 @@ import { Button } from '../webview/signal/Button.js';
  * to make room for a long prompt, and nobody can
  * drag the field shut.
  *
- * It holds the draft, so the panel keeps it mounted
- * across every repaint.
+ * It holds the draft's text, so the panel keeps it
+ * mounted across every repaint. The files attached
+ * to it are the extension's, which opens the picker
+ * and outlives this view.
  */
 export function Composer({
   strings,
   agent,
   status,
+  attached,
   field,
 }: {
   strings: SidebarStrings;
   agent: string | undefined;
   status: SidebarInit['status'];
+  attached: SidebarInit['attached'];
 
   /** The textarea, which Refine puts the cursor
    *  back in. */
@@ -84,7 +90,37 @@ export function Composer({
         onKeyDown={onKey}
       />
 
+      {/* What the next prompt carries, each file with
+          its own way back out, so nothing goes that
+          somebody meant to take away. In the muted
+          tone rather than a hint's faint one: these
+          names are read before sending, not skimmed. */}
+      {attached.length === 0 ? null : (
+        <FieldHint tone="muted" hook={{ attached: '' }}>
+          {attached.map((file) => (
+            <span key={file.uri} className="attached-file">
+              {file.name}
+              <Button
+                variant="quiet"
+                icon="remove"
+                label={filled(strings.removeAttached, file.name)}
+                hook={{ detach: file.uri }}
+                onClick={() => postToHost({ type: 'detach', uri: file.uri })}
+              />
+            </span>
+          ))}
+        </FieldHint>
+      )}
+
       <div className="composer-meta">
+        <Button
+          variant="quiet"
+          icon="attach"
+          label={strings.attachFiles}
+          hook={{ attach: '' }}
+          onClick={() => postToHost({ type: 'attach' })}
+        />
+
         <Button
           variant="quiet"
           mono

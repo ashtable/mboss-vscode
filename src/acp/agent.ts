@@ -17,7 +17,12 @@ import {
   toolKey,
   type Memento,
 } from './permissions.js';
-import { promptBlocks, type AgentPrompt } from './prompt.js';
+import {
+  attachmentOf,
+  promptBlocks,
+  type AgentPrompt,
+  type PromptAttachment,
+} from './prompt.js';
 import type { AgentCommand, AgentId } from './registry.js';
 import {
   IDLE,
@@ -88,6 +93,10 @@ export type PanelState = {
    * and it is private to this module.
    */
   project: string | undefined;
+
+  /** The files the next thing somebody types will
+   *  carry, in the order they were picked. */
+  attached: PromptAttachment[];
 };
 
 /**
@@ -111,6 +120,11 @@ export type PanelHost = {
   chosen(): { id: AgentId; launch: AgentCommand | undefined } | undefined;
 
   files: AgentFiles;
+
+  /** Asks somebody for files, starting in the
+   *  project. Their absolute paths, or none if the
+   *  dialog was dismissed. */
+  pickFiles(project: string): Promise<string[]>;
 
   /** Where an "always" answer is kept — the
    *  workspace's own state, never the editor's. */
@@ -213,6 +227,27 @@ export type AgentPanel = Agent & {
   /** Answers whatever the agent is waiting on. */
   answer(optionId: string, kind: PermissionOptionKind): Promise<void>;
 
+  /** Asks for files to go with the next thing
+   *  somebody types, and holds them until it goes.
+   *  A file already held is held once. */
+  attach(): Promise<void>;
+
+  /** Lets one held file go. Does nothing to a uri
+   *  that names none. */
+  detach(uri: string): void;
+
+  /**
+   * Sends what somebody typed, with every file held
+   * for it, and lets those files go.
+   *
+   * Its own verb rather than `send`, which the
+   * stores hand the agent their own questions
+   * through: an approval or a failed run must never
+   * carry off a file somebody picked for something
+   * they have not typed yet.
+   */
+  prompt(text: string): Promise<void>;
+
   /** Ends the session and forgets the
    *  conversation. Changing agents is a new
    *  conversation with somebody else. */
@@ -258,6 +293,16 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
    * about the prompt that started it.
    */
   let written: string[] | undefined;
+
+  /**
+   * The files the next typed prompt carries.
+   *
+   * Held here rather than in the view, which is
+   * thrown away whenever it is hidden: a file picked
+   * before a trip to the canvas is still meant for
+   * the prompt after it.
+   */
+  let attached: PromptAttachment[] = [];
 
   const changed = changes.fire;
 
@@ -423,6 +468,7 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
           session.at === 'awaitingPermission' ? session.prompt : undefined,
         failure: session.at === 'failed' ? session.failure : undefined,
         project: host.project(),
+        attached,
       };
     },
 
@@ -472,6 +518,44 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
     },
 
     send,
+
+    attach: async () => {
+      const project = host.project();
+
+      if (project === undefined) return;
+
+      const picked = (await host.pickFiles(project)).map((path) =>
+        attachmentOf(path, project),
+      );
+      const fresh = picked.filter(
+        (file) => !attached.some((held) => held.uri === file.uri),
+      );
+
+      if (fresh.length === 0) return;
+
+      attached = [...attached, ...fresh];
+      changed();
+    },
+
+    detach: (uri) => {
+      const kept = attached.filter((file) => file.uri !== uri);
+
+      if (kept.length === attached.length) return;
+
+      attached = kept;
+      changed();
+    },
+
+    prompt: async (text) => {
+      const carried = attached;
+
+      // Let go as the prompt goes rather than when
+      // its turn ends: anything attached from here on
+      // is for the next one.
+      attached = [];
+      changed();
+      await send({ text, attached: carried });
+    },
 
     cancel: async () => {
       await live?.cancel();

@@ -338,6 +338,25 @@ const KeepFile = z.object({ type: z.literal('keepFile'), id: z.string() });
 const UndoFile = z.object({ type: z.literal('undoFile'), id: z.string() });
 
 /**
+ * Somebody wants files to go with what they are
+ * typing.
+ *
+ * It names no file. The frame cannot see the disk,
+ * and a path it named would be a file the frame
+ * chose rather than one a person picked, so the
+ * extension opens the picker itself.
+ */
+const Attach = z.object({ type: z.literal('attach') });
+
+/**
+ * Somebody took one attached file back out.
+ *
+ * By the uri the extension sent with it: a uri that
+ * names no file held lets nothing go.
+ */
+const Detach = z.object({ type: z.literal('detach'), uri: z.string() });
+
+/**
  * The run list, being driven.
  *
  * The filter is parsed against the three the
@@ -629,6 +648,8 @@ const SCHEMAS = {
     Undo,
     KeepFile,
     UndoFile,
+    Attach,
+    Detach,
     OpenRun,
     ReplayFrom,
   ]),

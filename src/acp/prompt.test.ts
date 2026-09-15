@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { promptBlocks, type PromptContext } from './prompt.js';
+import {
+  attachmentOf,
+  promptBlocks,
+  type PromptAttachment,
+  type PromptContext,
+} from './prompt.js';
 
 /**
  * A turn, in the shape the protocol carries it.
@@ -21,6 +26,11 @@ const EVIDENCE: PromptContext = {
   mimeType: 'application/json',
   text: '{"at":"run","workflowId":"wf_c9d2f3","status":"ERROR"}',
 };
+
+const ATTACHED: PromptAttachment[] = [
+  { uri: 'file:///project/lib/a.ts', name: 'lib/a.ts' },
+  { uri: 'file:///project/lib/b.ts', name: 'lib/b.ts' },
+];
 
 describe('the blocks a prompt becomes', () => {
   it('sends the sentence and the context as a resource', () => {
@@ -72,5 +82,49 @@ describe('the blocks a prompt becomes', () => {
     expect(promptBlocks(bare, { embeddedContext: true })).toEqual([
       { type: 'text', text: 'Wire the booking flow.' },
     ]);
+  });
+
+  /**
+   * A file somebody attached is a link, never its
+   * contents: every agent has to take one, and it
+   * reads the file itself, as it is when it looks.
+   */
+  it('links each attached file after the sentence, for every agent', () => {
+    const linked = [
+      {
+        type: 'resource_link',
+        uri: 'file:///project/lib/a.ts',
+        name: 'lib/a.ts',
+      },
+      {
+        type: 'resource_link',
+        uri: 'file:///project/lib/b.ts',
+        name: 'lib/b.ts',
+      },
+    ];
+
+    expect(
+      promptBlocks(
+        { text: 'Look at these.', attached: ATTACHED },
+        { embeddedContext: false },
+      ),
+    ).toEqual([{ type: 'text', text: 'Look at these.' }, ...linked]);
+    expect(
+      promptBlocks(
+        { text: 'Look at these.', context: [EVIDENCE], attached: ATTACHED },
+        { embeddedContext: true },
+      ).slice(2),
+    ).toEqual(linked);
+  });
+
+  it('names an attached file by where it sits in the project', () => {
+    expect(attachmentOf('/project/lib/a.ts', '/project')).toEqual({
+      uri: 'file:///project/lib/a.ts',
+      name: 'lib/a.ts',
+    });
+    expect(attachmentOf('/elsewhere/notes.md', '/project')).toEqual({
+      uri: 'file:///elsewhere/notes.md',
+      name: '/elsewhere/notes.md',
+    });
   });
 });
