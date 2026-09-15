@@ -173,6 +173,15 @@ export function evidenceStatus({
   );
 }
 
+/**
+ * What one run recorded about the block, and the
+ * ways on from it.
+ *
+ * Reads the run its surface is already drawing
+ * rather than asking for one of its own: a face
+ * about a different run from the graph beside it
+ * would be two answers to one question.
+ */
 export function EvidenceFace({
   strings,
   about,

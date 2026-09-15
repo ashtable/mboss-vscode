@@ -240,6 +240,16 @@ export function TitleField({
   );
 }
 
+/**
+ * What the block is set to, as a form.
+ *
+ * Drawn from the document's node and the draft
+ * beside it rather than from either alone: the
+ * document is what is saved, and the draft is what
+ * somebody is part-way through typing, so the form
+ * has to read both to show a field half set without
+ * claiming the document says so.
+ */
 export function ConfigureFace({
   strings,
   block,

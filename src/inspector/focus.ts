@@ -75,6 +75,9 @@ type Watched = {
   onDidChangeViewState(listener: () => void): Disposable;
 };
 
+/** One holder for the whole window, because the
+ *  pane follows the surface last brought forward
+ *  rather than the one with the keyboard. */
 export function inspectorFocus(): InspectorFocus {
   // The surface last brought forward first.
   let recent: Surface[] = [];

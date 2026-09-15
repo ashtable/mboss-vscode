@@ -33,6 +33,9 @@
 /** A stretch of one paragraph or list item. */
 export type ProseRun = { at: 'text' | 'strong' | 'code'; text: string };
 
+/** A paragraph or a list: the two shapes a
+ *  message is drawn in, since a fenced block is a
+ *  paragraph of one run nothing marks up. */
 export type ProseBlock =
   | { at: 'paragraph'; runs: ProseRun[] }
   | { at: 'list'; ordered: false; items: ProseRun[][] }
@@ -55,6 +58,14 @@ const NUMBERED = /^ {0,3}(\d{1,9})\. (.*)$/;
  *  agent wrote after them. */
 const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
 
+/**
+ * An agent's message, read into blocks.
+ *
+ * The little of Markdown an agent writes in a
+ * sentence, and no more: anything this does not
+ * know stays the characters it was written with,
+ * which is what a message quoting code needs.
+ */
 export function parseInline(text: string): ProseBlock[] {
   const blocks: ProseBlock[] = [];
   const lines = text.split('\n');

@@ -72,6 +72,9 @@ type Shown = { readonly active: boolean };
 
 type Registration = { session: CanvasSession; panel: Shown };
 
+/** One registry for the window, built where the
+ *  canvas and the Inspector are introduced: both
+ *  have to mean the same open canvas by a path. */
 export function canvasSessions(): CanvasSessions {
   const open = new Map<string, Registration>();
   const waiting = new Map<string, ((session: CanvasSession) => void)[]>();

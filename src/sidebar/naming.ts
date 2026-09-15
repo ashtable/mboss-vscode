@@ -34,6 +34,9 @@ const FILE_TOOL_KINDS = [
   'fetch',
 ] as const satisfies readonly ToolKind[];
 
+/** One of the kinds above, so whoever names a row
+ *  by its file can say which verb it is without
+ *  widening to every kind an agent has. */
 export type FileToolKind = (typeof FILE_TOOL_KINDS)[number];
 
 /** Whether a call the agent made is named by its

@@ -322,8 +322,9 @@ export const INDEXING = {
 
 type Finding = CanvasInit['diagnostics'][number];
 
-/** Both of what core says about `PARTITIONED`, in
- *  the words the host would send. */
+/** What core says about a partitioned queue with no
+ *  partition path, in the words the host would
+ *  send. */
 export const NO_PARTITION_KEY: Finding = {
   code: 'V17',
   severity: 'error',
@@ -333,6 +334,9 @@ export const NO_PARTITION_KEY: Finding = {
     'partition an item belongs to. Set the partition path.',
 };
 
+/** The other of core's two words about the same
+ *  queue: deduplication on a partitioned one, which
+ *  a form says on the block rather than on save. */
 export const DEDUPLICATES: Finding = {
   code: 'V17',
   severity: 'error',

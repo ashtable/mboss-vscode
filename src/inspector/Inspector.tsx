@@ -61,6 +61,15 @@ import { configToForm, formToConfig, type InspectorField } from './forms.js';
  *  it belongs to. */
 export type Selection = { ir: WorkflowIR; node: WorkflowNode };
 
+/**
+ * Everything the pane draws a block from.
+ *
+ * Spread rather than passed as the `BlockSubject`
+ * the host sent, so each piece is named where it is
+ * read and the three that say which form this is —
+ * the surface, the document, the block — cannot be
+ * read as one blob.
+ */
 export type InspectorProps = {
   strings: InspectorStrings;
 
@@ -155,6 +164,15 @@ const FACE = 'inspector-face';
 const NO_RUN = 'inspector-no-run';
 const NOT_IN_WORKFLOW = 'inspector-not-in-workflow';
 
+/**
+ * The block's name, the two faces and the draft
+ * being typed between them.
+ *
+ * The draft lives here rather than in either face
+ * because the name is set above them and the rest
+ * inside Configure, and one half-set block is one
+ * draft either way.
+ */
 export function Inspector({
   strings,
   source,

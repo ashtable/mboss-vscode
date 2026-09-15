@@ -39,6 +39,9 @@ export const STEP_NAMES = ['parse_request', 'find_slot', 'book_appointment'];
 export const NO_SAVED_WORKFLOW =
   'no saved workflow named groom_booking · trace only';
 
+/** The canonical run, with whatever a case needs
+ *  changed about it: a spec says the one fact it is
+ *  about and nothing else. */
 export function seeRun(over: Partial<SeeRun> = {}): SeeRun {
   return {
     workflowId: 'wf_c9d2f3',
@@ -151,6 +154,9 @@ export function seeNothing(): SeeInit {
   };
 }
 
+/** The run tab on a page, already showing that: the
+ *  mount and the first message are one step, since
+ *  no case is about the moment between them. */
 export async function showRun(
   page: Page,
   init: SeeInit,
@@ -468,6 +474,9 @@ export const QUEUED_GROUPS: TraceGroupView[] = [
   },
 ];
 
+/** The trace of the canonical run, block by block:
+ *  the rows the tab draws and the Inspector reads
+ *  one of, so both are about the same run. */
 export const GROUPS: TraceGroupView[] = [
   {
     nodeId: 'parse_request',
@@ -582,6 +591,9 @@ export async function graphAtRest(page: Page): Promise<void> {
     .toBe(true);
 }
 
+/** The viewport's transform as it stands, for a
+ *  case that watches it stop moving or holds it to
+ *  what it was. */
 export function transformOf(page: Page): Promise<string> {
   return page
     .locator('.react-flow__viewport')
@@ -602,12 +614,17 @@ export const REPLAYED: TraceGroupView[] = GROUPS.map((group, at) => ({
   })),
 }));
 
-/** The run the Inspector's card about a whole run is
- *  drawn from, and the runs either side of a replay
- *  of it. UUIDs, as DBOS mints them, so each has the
- *  short id a person reads it by. */
+/** The run the Inspector's card about a whole run
+ *  is drawn from. A UUID, as DBOS mints them, so it
+ *  has the short id a person reads it by. */
 export const RUN_ID = '7089cd29-881b-4319-a16d-1af70cc1e9a7';
+
+/** The run it was replayed from, so its lineage has
+ *  a line above it. */
 export const PARENT_ID = 'a5461ea0-3c1b-4b6e-9a55-0f8e2d7c4b10';
+
+/** The replay made from it, so its lineage has a
+ *  line below it too. */
 export const FORK_ID = '3f2b9c1d-7e44-4d0a-8b6f-2a9d1c5e7f30';
 
 /**
