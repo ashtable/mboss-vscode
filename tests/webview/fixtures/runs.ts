@@ -2,7 +2,10 @@ import { expect, type Page } from '@playwright/test';
 
 import type { QueueEvidence } from '../../../src/runs/queueEvidence.js';
 import { liveRun, liveStep } from '../../../src/test-support/runs.js';
+import { shortRunId } from '../../../src/webview/ids.js';
 import type {
+  RunLevel,
+  RunLineage,
   SeeGraph,
   SeeInit,
   SeeLineageRun,
@@ -650,3 +653,67 @@ export const LINEAGE: SeeLineageRun = {
     },
   ],
 };
+
+/** The run the Inspector's card about a whole run is
+ *  drawn from, and the runs either side of a replay
+ *  of it. UUIDs, as DBOS mints them, so each has the
+ *  short id a person reads it by. */
+export const RUN_ID = '7089cd29-881b-4319-a16d-1af70cc1e9a7';
+export const PARENT_ID = 'a5461ea0-3c1b-4b6e-9a55-0f8e2d7c4b10';
+export const FORK_ID = '3f2b9c1d-7e44-4d0a-8b6f-2a9d1c5e7f30';
+
+/**
+ * A whole run, as the Inspector is sent one with
+ * nothing of it picked: finished, read on the run
+ * tab, started with one small payload, and never
+ * recovered, replayed or cancelled.
+ */
+export function runLevel(over: Partial<RunLevel> = {}): RunLevel {
+  return {
+    source: 'run',
+    workflowId: RUN_ID,
+    short: shortRunId(RUN_ID),
+    workflow: 'airtable_etl',
+    state: 'done',
+    line: 'done · 1.6 s',
+    input: { kind: 'inline', text: '{ "requestId": "airtable-etl-006" }' },
+    ledger: [
+      { label: 'workflow_uuid', value: RUN_ID },
+      { label: 'status', value: 'SUCCESS' },
+      { label: 'recovery_attempts', value: '1' },
+      { label: 'executor_id', value: 'local' },
+      { label: 'application_version', value: '1' },
+    ],
+    recovery: undefined,
+    lineage: [],
+    controls: {
+      cancel: false,
+      resume: false,
+      cancelledAt: undefined,
+      gaveUp: false,
+    },
+    replayStart: true,
+    replayRefused: undefined,
+    note: undefined,
+    ...over,
+  };
+}
+
+/** Where that run came from and what came out of
+ *  it: replayed from step 3 of a run that failed,
+ *  and replayed itself from step 2. */
+export const RUN_LINEAGE: RunLineage[] = [
+  {
+    direction: 'of',
+    workflowId: PARENT_ID,
+    short: shortRunId(PARENT_ID),
+    startStep: 3,
+  },
+  {
+    direction: 'to',
+    workflowId: FORK_ID,
+    short: shortRunId(FORK_ID),
+    startStep: 2,
+    word: 'done',
+  },
+];

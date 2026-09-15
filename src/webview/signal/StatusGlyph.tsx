@@ -155,6 +155,10 @@ export function StatusLine({
       data-run-state={state}
       data-provenance={derived === undefined ? undefined : 'derived'}
       title={derived}
+      // The word and its detail are the state as much
+      // as the mark is, so the line takes the tone the
+      // mark does, from the same table.
+      style={{ color: `var(--state-ink, var(${glyphOf(state).tone}))` }}
       {...hooked(hook)}
     >
       <StatusGlyph state={state} variant="mark" />

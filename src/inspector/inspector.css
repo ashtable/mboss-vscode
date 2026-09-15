@@ -27,36 +27,217 @@ body {
 
 /* — the header — */
 
-/* The title, then the file at the row's far end on
-   the same baseline. No rule under it: nothing
-   below is a section it has to be told apart from. */
+/* The title, then what kind of thing it names, and
+   at the row's far end where that got to, all on
+   one baseline. No rule under it: nothing below is
+   a section it has to be told apart from.
+
+   Where the row runs out of room what follows the
+   title wraps under it, starting under the title
+   rather than floating at the far end of a line of
+   its own. */
 .inspector-header {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-2);
+  column-gap: var(--space-2);
+  row-gap: var(--space-1);
   padding: var(--space-3) var(--space-3-5) 0;
 }
 
+/* Never wider than the pane: a long name breaks
+   rather than pushing the row sideways. */
 .inspector-title {
   flex: none;
+  max-width: 100%;
   margin: 0;
   font-size: var(--text-md);
   font-weight: var(--w-semibold);
   line-height: var(--leading-tight);
   color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.inspector-kind {
+  flex: none;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+/* Takes the room left on the title's line, and no
+   room at all once the status has wrapped under
+   it. */
+.inspector-spacer {
+  flex: 1 0 0;
+}
+
+/* One piece: a state word that wrapped away from
+   its duration reads as two states. */
+.inspector-status {
+  flex: none;
+  white-space: nowrap;
 }
 
 /* A file name is what the machine calls it, and a
-   long one gives way before the title does. */
+   long one gives way before the title does: it takes
+   the rest of the title's line and is cut short at
+   its far end rather than wrapping under it. */
 .inspector-file {
+  flex: 1 1 0;
   min-width: 0;
-  margin-inline-start: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: end;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+/* — a whole run — */
+
+/* The card scrolls under the header, so somebody
+   scrolled down to the ways on still sees which run
+   they are about. A scroll container shrinks below
+   what it holds without being told to. Inset as the
+   header is, so the two start on one edge. */
+.run-level {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--space-3-5) var(--space-3-5);
+}
+
+.run-section {
+  padding-top: var(--space-3);
+}
+
+.run-section > .section-label {
+  margin-bottom: var(--space-2);
+}
+
+/* The ledger's rows each draw the hairline above
+   themselves; the sentence about them sits clear of
+   the last one. */
+.run-section > [data-ledger] + .field-hint {
+  margin-top: var(--space-2);
+}
+
+.run-section > .field-hint + .field-hint {
+  margin-top: var(--space-1);
+}
+
+/* A fork, one line each, in the machine face. The
+   id in it is a Button, so the line is as tall as
+   the Button is. */
+.lineage-line {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.lineage-line + .lineage-line {
+  margin-top: var(--space-1);
+}
+
+/* Worked out rather than read, and saying so in its
+   title: underlined in dots, the way a phrase with
+   more to say under the pointer is. */
+.lineage-line [data-provenance='derived'] {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.run-controls > .btn {
+  margin-top: var(--space-2);
+}
+
+.run-controls > .field-hint {
+  margin-top: var(--space-1-5);
+}
+
+.run-level > .field-hint {
+  margin-top: var(--space-3);
+}
+
+/* The ways on from the whole run, after the evidence
+   for taking one. A refusal's reason goes on a line
+   of its own under the row rather than between the
+   two Buttons. */
+.run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3-5);
+}
+
+.run-actions > .field-hint {
+  flex-basis: 100%;
+  order: 1;
+}
+
+/* — a recorded value — */
+
+/* The word saying how it is stored, then the value,
+   a step closer together than the rows around them
+   because the word belongs to the value. */
+.inline-value,
+.artifact-ref {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
+.inline-value > .state-word,
+.artifact-ref > .state-word {
+  flex: none;
+}
+
+/* A value that fits the line stays on it; a longer
+   one wraps inside the chip under its own first
+   character, keeping its spaces, and breaks an id
+   with nowhere to break. The 1px and 5px have no
+   step of their own: they are what hugs one line of
+   this type. */
+.inline-chip {
+  min-width: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--control-edge);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.artifact-size {
+  flex: none;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+/* The front of the value, on one line and cut short:
+   the whole of it is one press away. */
+.artifact-preview {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
   font-size: var(--text-sm);
-  color: var(--ink-faint);
+  color: var(--ink-muted);
+}
+
+.artifact-ref > .btn {
+  flex: none;
+  margin-inline-start: auto;
 }
 
 /* — the Inspector column — */

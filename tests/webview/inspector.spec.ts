@@ -1,8 +1,10 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { handlerFit, withDecisionCases } from '../../src/core/rules.js';
+import { INLINE_LIMIT } from '../../src/runs/rows.js';
 import { filled } from '../../src/webview/fill.js';
-import type { BlockSubject } from '../../src/webview/protocol.js';
+import { shortRunId } from '../../src/webview/ids.js';
+import type { BlockSubject, RunLevel } from '../../src/webview/protocol.js';
 
 import {
   DEDUPLICATES,
@@ -30,6 +32,13 @@ import {
   runOf,
   word,
 } from './fixtures/canvas.js';
+import {
+  FORK_ID,
+  PARENT_ID,
+  RUN_ID,
+  RUN_LINEAGE,
+  runLevel,
+} from './fixtures/runs.js';
 import { THEMES_ALL } from './harness.js';
 import { labelBeforeValue } from './labels.js';
 import { colourOf, contrast, sameColour } from './palette.js';
@@ -159,6 +168,912 @@ test.describe('an Inspector with nothing to show', () => {
       );
     });
   }
+});
+
+/**
+ * A whole run: what the pane is about when a run
+ * is in front and nothing of it is picked. The
+ * header says which run and where it got to; the
+ * card under it says what the run was started with,
+ * the row DBOS keeps about it, what a recovery
+ * cost, where it was replayed from and to, and the
+ * ways on from the whole run.
+ */
+test.describe('a run with nothing picked', () => {
+  /** The pane about a run like that one. */
+  function aboutRun(over: Partial<RunLevel> = {}) {
+    return inspectorInit({ at: 'run', run: runLevel(over) });
+  }
+
+  /** The card under the header. */
+  function card(page: Page) {
+    return page.locator('[data-evidence="run"]');
+  }
+
+  /** What the run page's banner says about a run
+   *  DBOS picked back up, as the host words it for
+   *  the card: every sentence worked out. */
+  const RECOVERED = [
+    'Recovered — completed durable operations were not re-executed · derived',
+    'DBOS picked this run back up. Both figures are derived from the ' +
+      'widest gap between recorded operations — the durable operations ' +
+      'that finished before that gap were reused from ' +
+      'dbos.operation_outputs rather than run again. · derived',
+    'nothing ran for about 2.9 s · derived',
+    '2 durable operations reused · derived',
+  ];
+
+  /** How many lines the text in an element is set
+   *  on, read off the boxes its text draws. */
+  function linesIn(element: Locator): Promise<number> {
+    return element.evaluate((held) => {
+      const text = document.createRange();
+      text.selectNodeContents(held);
+
+      return new Set(
+        [...text.getClientRects()].map((box) => Math.round(box.top)),
+      ).size;
+    });
+  }
+
+  const CANCEL = {
+    cancel: true,
+    resume: false,
+    cancelledAt: undefined,
+    gaveUp: false,
+  };
+
+  test('draws a card about the whole run when nothing is picked', async ({
+    page,
+  }) => {
+    await openInspector(page, aboutRun());
+
+    await expect(card(page)).toHaveCount(1);
+    await expect(page.locator('.empty-state')).toHaveCount(0);
+    await expect(page.locator('[data-evidence="block"]')).toHaveCount(0);
+    await expect(page.locator('[data-inspector-tab]')).toHaveCount(0);
+  });
+
+  for (const [said, state, line] of [
+    ['done', 'done', 'done · 1.6 s'],
+    ['waiting', 'waiting', 'waiting'],
+    ['gave up', 'failed', 'gave up · 2 h 5 m'],
+  ] as const) {
+    test(`names the run in its header and says it ${said}`, async ({
+      page,
+    }) => {
+      await openInspector(page, aboutRun({ state, line }));
+
+      const header = page.locator('[data-inspector-header]');
+      await expect(header.locator('.inspector-title')).toHaveText(
+        'airtable_etl',
+      );
+      await expect(header.locator('.inspector-kind')).toHaveText(
+        `${inspectorStrings.runKind} #7089`,
+      );
+
+      const short = header.locator('[data-short-run]');
+      await expect(short).toHaveText('#7089');
+      await expect(short).toHaveAttribute('data-short-run', RUN_ID);
+      await expect(short).toHaveAttribute('title', RUN_ID);
+
+      const status = header.locator('.status-line');
+      await expect(status).toHaveAttribute('data-run-state', state);
+
+      const said = status.locator(':scope > span:not(.status-glyph)');
+      await expect(said).toHaveText(line);
+
+      // In the tone the mark is in: the word is the
+      // state as much as the mark is.
+      const [mark, word] = await Promise.all([
+        status
+          .locator('.status-glyph')
+          .evaluate((glyph) => getComputedStyle(glyph).color),
+        said.evaluate((text) => getComputedStyle(text).color),
+      ]);
+      expect(word).toBe(mark);
+    });
+  }
+
+  /**
+   * Where the row has room, the run's line sits at
+   * its far end, on the title's line, at the same
+   * inset the title starts at.
+   */
+  test('sets the run’s line at the far end of the header', async ({ page }) => {
+    await openInspector(page, aboutRun());
+
+    const header = page.locator('[data-inspector-header]');
+    const row = (await header.boundingBox())!;
+    const title = (await header.locator('.inspector-title').boundingBox())!;
+    const line = (await header.locator('.status-line').boundingBox())!;
+
+    expect(line.x + line.width).toBeCloseTo(row.x + row.width - 14, 0);
+    expect(line.y).toBeLessThan(title.y + title.height);
+  });
+
+  /** A long workflow name breaks inside the pane
+   *  rather than pushing the header sideways. */
+  test('breaks a long workflow name rather than the pane', async ({ page }) => {
+    const harness = await mountInspector(page);
+    await page.setViewportSize({ width: 240, height: 700 });
+    await harness.show(
+      aboutRun({ workflow: 'nightly_customer_reconciliation_and_export' }),
+    );
+
+    const title = page.locator('[data-inspector-header] .inspector-title');
+    expect(await linesIn(title)).toBeGreaterThanOrEqual(2);
+
+    const drawn = await title.evaluate((element) => ({
+      right: element.getBoundingClientRect().right,
+      pane: window.innerWidth,
+    }));
+    expect(drawn.right).toBeLessThanOrEqual(drawn.pane - 14 + 0.5);
+  });
+
+  /**
+   * The one argument the run was started with, once,
+   * under the label that says it is what DBOS
+   * recorded rather than what the Runs panel now
+   * holds.
+   */
+  test('draws what the run was started with, once', async ({ page }) => {
+    await openInspector(page, aboutRun());
+
+    const input = card(page).locator('[data-workflow-input]');
+    await expect(input.locator('.section-label')).toHaveText(
+      inspectorStrings.workflowInput,
+    );
+
+    await expect(page.locator('[data-recorded]')).toHaveCount(1);
+    await expect(input.locator('[data-recorded] [data-verbatim]')).toHaveText(
+      '{ "requestId": "airtable-etl-006" }',
+    );
+    await expect(page.getByText('airtable-etl-006')).toHaveCount(1);
+  });
+
+  test('says when no input was recorded', async ({ page }) => {
+    await openInspector(page, aboutRun({ input: undefined }));
+
+    const input = card(page).locator('[data-workflow-input]');
+    await expect(input).toHaveCount(1);
+
+    await expect(input.locator('.field-hint')).toHaveText(
+      inspectorStrings.noInput,
+    );
+    await expect(page.locator('[data-recorded]')).toHaveCount(0);
+  });
+
+  test('shows the run’s own row in dbos.workflow_status', async ({ page }) => {
+    await openInspector(page, aboutRun());
+
+    await expect(card(page).locator('.section-label')).toHaveText([
+      inspectorStrings.workflowInput,
+      inspectorStrings.ledgerHeading,
+    ]);
+
+    const rows = card(page).locator('[data-ledger] [data-property]');
+    await expect(rows).toHaveCount(5);
+    await expect(rows.locator(':scope > .property-label')).toHaveText([
+      'workflow_uuid',
+      'status',
+      'recovery_attempts',
+      'executor_id',
+      'application_version',
+    ]);
+
+    await expect(page.locator('[data-rail="workflow_uuid"] .value')).toHaveText(
+      RUN_ID,
+    );
+    await expect(
+      page.locator('[data-rail="recovery_attempts"] .value'),
+    ).toHaveText('1');
+    await expect(page.locator('[data-rail="executor_id"] .value')).toHaveText(
+      'local',
+    );
+    await expect(card(page).locator('[data-ledger-note]')).toHaveText(
+      inspectorStrings.ledger,
+    );
+
+    // A column name is the whole of what a label
+    // says, so the ledger's labels get the room to
+    // say it on one line.
+    for (const row of await rows.all()) {
+      await expect(row).toHaveCSS('grid-template-columns', /^110px /);
+      expect(await linesIn(row.locator(':scope > .property-label'))).toBe(1);
+    }
+  });
+
+  /**
+   * The column DBOS writes is shown as it is written
+   * in one place, the row it is a column of; every
+   * other word on the pane is the one a person reads
+   * a run's state in.
+   */
+  test('keeps the raw status in the ledger and nowhere else', async ({
+    page,
+  }) => {
+    await openInspector(page, aboutRun());
+
+    await expect(page.locator('[data-rail="status"] .value')).toHaveText(
+      'SUCCESS',
+    );
+
+    // No word boundary: a row's label and value
+    // run together in the text of the page.
+    const raw = await page.evaluate(
+      () => document.body.textContent?.match(/SUCCESS/g)?.length ?? 0,
+    );
+    expect(raw).toBe(1);
+  });
+
+  for (const theme of THEMES_ALL) {
+    test(`puts every ledger label before its value in ${theme}`, async ({
+      page,
+    }) => {
+      await openInspector(page, aboutRun(), theme);
+
+      const rows = card(page).locator('[data-ledger] [data-property]');
+      await expect(rows).toHaveCount(5);
+
+      // The id is longer than its column, so this is
+      // also the row whose value has to wrap under its
+      // own first line rather than under the label.
+      const uuid = page.locator('[data-rail="workflow_uuid"] .value');
+      expect(await linesIn(uuid)).toBeGreaterThanOrEqual(2);
+
+      for (let at = 0; at < 5; at += 1) {
+        await labelBeforeValue(rows.nth(at));
+      }
+    });
+  }
+
+  test('says what a recovery cost, every sentence worked out', async ({
+    page,
+  }) => {
+    await openInspector(page, aboutRun({ recovery: RECOVERED }));
+
+    const recovery = card(page).locator('[data-recovery]');
+    await expect(recovery.locator('.section-label')).toHaveText(
+      inspectorStrings.recovery,
+    );
+    await expect(recovery.locator('.field-hint')).toHaveText(RECOVERED);
+  });
+
+  test('says less about a recovery whose gap could not be placed', async ({
+    page,
+  }) => {
+    await openInspector(page, aboutRun({ recovery: RECOVERED.slice(0, 2) }));
+
+    await expect(card(page).locator('[data-recovery] .field-hint')).toHaveCount(
+      2,
+    );
+  });
+
+  test('says nothing about recovery for a run that never crashed', async ({
+    page,
+  }) => {
+    await openInspector(page, aboutRun());
+    await expect(card(page)).toHaveCount(1);
+
+    await expect(page.locator('[data-recovery]')).toHaveCount(0);
+  });
+
+  /**
+   * A replay forks a new run and leaves this one
+   * where it was, so the card names both ends of
+   * each fork. The run the card is about is not a
+   * line of its own: its id is in the header. The
+   * step a fork started from is worked out rather
+   * than read, and says so; the ids and the word are
+   * read, and each id is the way to that run.
+   */
+  test('draws where each replay forked, and opens the run an id names', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      aboutRun({ lineage: RUN_LINEAGE }),
+    );
+
+    const lineage = card(page).locator('[data-lineage]');
+    await expect(lineage.locator('.section-label')).toHaveText(
+      inspectorStrings.lineage,
+    );
+    await expect(lineage.locator('[data-lineage-line]')).toHaveText([
+      `replay of ${shortRunId(PARENT_ID)} from step 3`,
+      `└ replay from step 2 → ${shortRunId(FORK_ID)} · done`,
+    ]);
+
+    for (const id of [PARENT_ID, FORK_ID]) {
+      const run = lineage.locator(`[data-lineage-run="${id}"]`);
+      await expect(run).toHaveCount(1);
+      await expect(run).toHaveJSProperty('tagName', 'BUTTON');
+      await expect(run).toHaveAttribute('data-variant', 'quiet');
+
+      const short = run.locator('[data-short-run]');
+      await expect(short).toHaveText(shortRunId(id));
+      await expect(short).toHaveAttribute('data-short-run', id);
+      await expect(short).toHaveAttribute('title', id);
+    }
+
+    await expect(lineage.locator(`[data-short-run="${RUN_ID}"]`)).toHaveCount(
+      0,
+    );
+
+    const worked = lineage.locator('[data-provenance="derived"]');
+    await expect(worked).toHaveText(['from step 3', 'from step 2']);
+    for (const one of await worked.all()) {
+      await expect(one).toHaveAttribute('title', inspectorStrings.derived);
+    }
+
+    await lineage.locator(`[data-lineage-run="${PARENT_ID}"]`).click();
+
+    expect(await harness.postedOfType('openRun')).toEqual([
+      { type: 'openRun', workflowId: PARENT_ID },
+    ]);
+    expect(await harness.postedOfType('runSelect')).toEqual([]);
+  });
+
+  test('draws no lineage for a run with no replay either side', async ({
+    page,
+  }) => {
+    await openInspector(page, aboutRun());
+    await expect(card(page)).toHaveCount(1);
+
+    await expect(page.locator('[data-lineage]')).toHaveCount(0);
+  });
+
+  /**
+   * Following an id changes what the pane is about,
+   * and the Button that was pressed may not be there
+   * once it has: focus goes to the header, which
+   * names whichever run the pane is about next.
+   */
+  test('moves focus to the header after an id is followed', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      aboutRun({ lineage: RUN_LINEAGE }),
+    );
+
+    await card(page).locator(`[data-lineage-run="${PARENT_ID}"]`).click();
+
+    const title = page.locator('[data-inspector-header] .inspector-title');
+    await expect(title).toBeFocused();
+    await expect(title).toHaveAttribute('tabindex', '-1');
+
+    await harness.show(
+      aboutRun({
+        workflowId: PARENT_ID,
+        short: shortRunId(PARENT_ID),
+        state: 'failed',
+        line: 'failed · 0.8 s',
+        lineage: [
+          {
+            direction: 'to',
+            workflowId: RUN_ID,
+            short: shortRunId(RUN_ID),
+            startStep: 3,
+            word: 'done',
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      page.locator('[data-inspector-header] [data-short-run]'),
+    ).toHaveText(shortRunId(PARENT_ID));
+    await expect(title).toBeFocused();
+  });
+
+  test('says what a replay did and what it is waiting for', async ({
+    page,
+  }) => {
+    await openInspector(
+      page,
+      aboutRun({
+        note:
+          'Replaying as #3f2b under version v0.5.0, not the v0.4.1 this ' +
+          'run used. It starts when your app is running that version.',
+      }),
+    );
+
+    const note = card(page).locator('[data-replay-note]');
+    await expect(note).toHaveClass(/\bfield-hint\b/);
+    await expect(note).toContainText('#3f2b');
+    await expect(note).toContainText('v0.5.0');
+  });
+
+  /** Cancel is meaningless once a run has stopped
+   *  and Resume while one is still going, so the
+   *  card never offers both. */
+  test('offers Cancel or Resume, never both', async ({ page }) => {
+    const harness = await openInspector(
+      page,
+      aboutRun({ state: 'running', line: 'running', controls: CANCEL }),
+    );
+
+    const cancel = page.locator('[data-cancel]');
+    await expect(cancel).toHaveText('Cancel run');
+    await expect(cancel).toHaveAttribute('data-variant', 'stop');
+    await expect(page.locator('[data-resume]')).toHaveCount(0);
+
+    await cancel.click();
+
+    expect(await harness.postedOfType('cancelRun')).toEqual([
+      { type: 'cancelRun', workflowId: RUN_ID },
+    ]);
+
+    await harness.show(
+      aboutRun({
+        state: 'idle',
+        line: 'cancelled · 3.2 s',
+        controls: {
+          cancel: false,
+          resume: true,
+          cancelledAt: '10:58:22.000 · by you',
+          gaveUp: false,
+        },
+      }),
+    );
+
+    await expect(page.locator('[data-cancel]')).toHaveCount(0);
+    await expect(page.locator('[data-resume]')).toHaveText('Resume');
+
+    const cancelled = page.locator('[data-cancelled]');
+    await expect(cancelled.locator('.property-label')).toHaveText(
+      inspectorStrings.cancelledAt,
+    );
+    await expect(cancelled.locator('.value')).toHaveText(
+      '10:58:22.000 · by you',
+    );
+
+    await page.locator('[data-resume]').click();
+
+    expect(await harness.postedOfType('resumeRun')).toEqual([
+      { type: 'resumeRun', workflowId: RUN_ID },
+    ]);
+  });
+
+  /**
+   * One control that changes what it says, rather
+   * than one control taken away and another put in
+   * its place: somebody who pressed Cancel run from
+   * the keyboard is still on the control once the
+   * run has stopped, and it now says Resume.
+   */
+  test('keeps focus on the control when a cancel lands', async ({ page }) => {
+    const harness = await openInspector(
+      page,
+      aboutRun({ state: 'running', line: 'running', controls: CANCEL }),
+    );
+
+    await page.locator('[data-cancel]').focus();
+    await page.evaluate(() => {
+      (window as { held?: Element | null }).held = document.activeElement;
+    });
+
+    await harness.show(
+      aboutRun({
+        state: 'idle',
+        line: 'cancelled · 3.2 s',
+        controls: {
+          cancel: false,
+          resume: true,
+          cancelledAt: '10:58:22.000',
+          gaveUp: false,
+        },
+      }),
+    );
+
+    await expect(page.locator('[data-resume]')).toHaveCount(1);
+
+    const kept = await page.evaluate(() => {
+      const held = (window as { held?: Element | null }).held;
+
+      return (
+        held !== undefined &&
+        held === document.activeElement &&
+        held?.matches('[data-resume]')
+      );
+    });
+    expect(kept).toBe(true);
+  });
+
+  /**
+   * Picking a stopped run back up is the thing to do
+   * with it, and Replay from start is not: a replay
+   * forks a second run, and this one is still there
+   * to be finished.
+   */
+  test('makes Resume the primary action', async ({ page }) => {
+    await openInspector(
+      page,
+      aboutRun({
+        state: 'idle',
+        line: 'cancelled · 3.2 s',
+        controls: {
+          cancel: false,
+          resume: true,
+          cancelledAt: '10:58:22.000',
+          gaveUp: false,
+        },
+      }),
+    );
+
+    await expect(page.locator('[data-resume]')).toHaveAttribute(
+      'data-variant',
+      'primary',
+    );
+    await expect(
+      page.locator('[data-evidence-action="replayFrom"]'),
+    ).toHaveAttribute('data-variant', 'secondary');
+    await expect(page.locator('[data-resume-hint]')).toHaveText(
+      'Resume continues from the recorded history · completed durable ' +
+        'operations are not re-executed',
+    );
+  });
+
+  test('draws no controls with nothing to say and nothing to do', async ({
+    page,
+  }) => {
+    await openInspector(page, aboutRun());
+    await expect(card(page)).toHaveCount(1);
+
+    for (const hook of ['cancel', 'resume', 'cancelled', 'resume-hint']) {
+      await expect(page.locator(`[data-${hook}]`)).toHaveCount(0);
+    }
+  });
+
+  /**
+   * Said only where it is true. DBOS puts the count
+   * back to nothing when it picks a dead-lettered
+   * run up again, and a person resuming one is
+   * entitled to know the give-up clock restarts.
+   */
+  test('says recovery_attempts restarts from 0 on a run that gave up', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      aboutRun({
+        state: 'failed',
+        line: 'gave up · 2 h 5 m',
+        controls: {
+          cancel: false,
+          resume: true,
+          cancelledAt: undefined,
+          gaveUp: true,
+        },
+      }),
+    );
+
+    await expect(page.locator('[data-attempts-reset]')).toHaveText(
+      'recovery_attempts starts again from 0',
+    );
+
+    await harness.show(
+      aboutRun({
+        state: 'idle',
+        line: 'cancelled · 3.2 s',
+        controls: {
+          cancel: false,
+          resume: true,
+          cancelledAt: '10:58:22.000',
+          gaveUp: false,
+        },
+      }),
+    );
+
+    await expect(page.locator('[data-resume]')).toHaveCount(1);
+    await expect(page.locator('[data-attempts-reset]')).toHaveCount(0);
+  });
+
+  /**
+   * A fork at step 0 copies nothing, so it is the
+   * run started again with what it was started with:
+   * the one way on the card asks for, drawn in the
+   * outline.
+   */
+  test('offers Replay from start as the main way on', async ({ page }) => {
+    const harness = await openInspector(page, aboutRun());
+
+    const replay = card(page).locator('[data-evidence-action="replayFrom"]');
+    await expect(replay).toHaveCount(1);
+    await expect(replay).toHaveText(inspectorStrings.replayStart);
+    await expect(replay).toHaveClass(/\bbtn\b/);
+    await expect(replay).toHaveAttribute('data-variant', 'secondary');
+    await expect(replay).toHaveAttribute('data-ink', 'brand');
+
+    const ink = await replay.evaluate(
+      (button) => getComputedStyle(button).color,
+    );
+    const brand = colourOf('light', 'brand');
+    expect(sameColour(ink, brand), `${ink} ≠ ${brand}`).toBe(true);
+
+    await replay.click();
+
+    expect(await harness.postedOfType('replayFrom')).toEqual([
+      { type: 'replayFrom', workflowId: RUN_ID, from: 'start' },
+    ]);
+  });
+
+  test('refuses Replay from start and says why', async ({ page }) => {
+    const refused =
+      'This project has no package-lock.json, so which DBOS it runs is ' +
+      'unknown.';
+    const harness = await openInspector(
+      page,
+      aboutRun({ replayStart: false, replayRefused: refused }),
+    );
+
+    const replay = card(page).locator('[data-evidence-action="replayFrom"]');
+    await expect(replay).toHaveAttribute('aria-disabled', 'true');
+    await expect(replay).toHaveAccessibleDescription(refused);
+    await expect(card(page).getByText(refused)).toBeVisible();
+
+    // Forced: Playwright waits for a refused control
+    // to answer, and the point is that it does not.
+    await replay.click({ force: true });
+
+    expect(await harness.postedOfType('replayFrom')).toEqual([]);
+  });
+
+  test('asks the agent about the whole run', async ({ page }) => {
+    const harness = await openInspector(page, aboutRun());
+
+    const ask = card(page).locator('[data-evidence-action="askAgent"]');
+    await expect(ask).toHaveText(inspectorStrings.askAgent);
+    await expect(ask).toHaveAttribute('data-variant', 'quiet');
+
+    await ask.click();
+
+    expect(await harness.postedOfType('askAgent')).toEqual([
+      { type: 'askAgent', workflowId: RUN_ID },
+    ]);
+  });
+
+  /**
+   * A canvas follows a run tick by tick and has read
+   * nothing else about it, so its card is the run's
+   * own row and input and the controls, and none of
+   * what only the run tab reads: no recovery, no
+   * lineage, no replay note. And no Open run: the
+   * canvas's own chip is the way to the run tab.
+   */
+  test('says what a canvas knows about a run it is following', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      aboutRun({
+        source: 'canvas',
+        line: 'done · 1.6 s · ↻ recovered',
+        input: { kind: 'inline', text: '{ "orderId": "ord_123" }' },
+        ledger: [
+          { label: 'workflow_uuid', value: RUN_ID },
+          { label: 'status', value: 'SUCCESS' },
+          { label: 'recovery_attempts', value: '2' },
+          { label: 'executor_id', value: 'local' },
+          { label: 'application_version', value: '1' },
+        ],
+      }),
+    );
+
+    await expect(page.locator('[data-recorded]')).toHaveCount(1);
+    await expect(
+      card(page).locator('[data-workflow-input] [data-verbatim]'),
+    ).toHaveText('{ "orderId": "ord_123" }');
+
+    await expect(
+      card(page).locator('[data-ledger] [data-property]'),
+    ).toHaveCount(5);
+    await expect(
+      page.locator('[data-rail="recovery_attempts"] .value'),
+    ).toHaveText('2');
+    await expect(
+      page.locator('[data-rail="application_version"] .value'),
+    ).toHaveText('1');
+
+    for (const absent of [
+      '[data-recovery]',
+      '[data-lineage]',
+      '[data-replay-note]',
+      '[data-evidence-action="openRun"]',
+    ]) {
+      await expect(page.locator(absent)).toHaveCount(0);
+    }
+
+    await harness.show(
+      aboutRun({
+        source: 'canvas',
+        state: 'running',
+        line: 'running',
+        controls: CANCEL,
+      }),
+    );
+
+    await expect(page.locator('[data-cancel]')).toBeVisible();
+  });
+
+  /**
+   * A pane is usually shorter than the card, so the
+   * card scrolls under the header: somebody scrolled
+   * to the ways on still sees which run they are
+   * about.
+   */
+  test('scrolls the card and never the header', async ({ page }) => {
+    const harness = await mountInspector(page);
+    await page.setViewportSize({ width: 300, height: 360 });
+    await harness.show(
+      aboutRun({
+        recovery: RECOVERED,
+        lineage: [
+          ...RUN_LINEAGE,
+          {
+            direction: 'to',
+            workflowId: '5c0d8e2a-91b3-4f6c-a2d4-7e1b0c9f3a58',
+            short: '#5c0d',
+            startStep: 4,
+            word: 'failed',
+          },
+        ],
+      }),
+    );
+
+    const body = card(page);
+    await expect(body.locator('[data-lineage-line]')).toHaveCount(3);
+
+    const header = page.locator('[data-inspector-header]');
+    const before = (await header.boundingBox())!.y;
+
+    const sized = await body.evaluate((element) => ({
+      page: document.documentElement.scrollHeight,
+      pane: window.innerHeight,
+      overflows: element.scrollHeight > element.clientHeight,
+    }));
+    expect(sized.page).toBe(sized.pane);
+    expect(sized.overflows).toBe(true);
+
+    await body.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+
+    expect((await header.boundingBox())!.y).toBe(before);
+    await expect(
+      body.locator('[data-evidence-action="askAgent"]'),
+    ).toBeInViewport();
+  });
+
+  /**
+   * The size of a recorded value decides how it is
+   * drawn: whole where it fits the host's inline
+   * limit, and past that a preview on one line, its
+   * size and a way to open all of it.
+   */
+  test('draws a short input inline, a long one as something to open', async ({
+    page,
+  }) => {
+    const short = `{ "note": "${'x'.repeat(INLINE_LIMIT - 14)}" }`;
+    const long = `{ "note": "${'x'.repeat(INLINE_LIMIT - 13)}" }`;
+    expect(short).toHaveLength(INLINE_LIMIT);
+    expect(long).toHaveLength(INLINE_LIMIT + 1);
+
+    const harness = await openInspector(
+      page,
+      aboutRun({ input: { kind: 'inline', text: short } }),
+    );
+
+    const recorded = card(page).locator('[data-recorded]');
+    await expect(recorded.locator('.state-word')).toHaveText(
+      inspectorStrings.inline,
+    );
+    await expect(recorded.locator('[data-verbatim]')).toHaveText(short);
+    await expect(recorded.locator('.btn')).toHaveCount(0);
+
+    await harness.show(
+      aboutRun({ input: { kind: 'artifact', preview: long, size: '121 B' } }),
+    );
+
+    await expect(recorded.locator('.state-word')).toHaveText(
+      inspectorStrings.artifact,
+    );
+    await expect(recorded).toContainText('121 B');
+
+    const preview = recorded.locator('[data-verbatim]');
+    await expect(preview).toHaveText(long);
+
+    expect(await linesIn(preview)).toBe(1);
+
+    const drawn = await preview.evaluate((element) => ({
+      cut: element.scrollWidth > element.clientWidth,
+      overflow: getComputedStyle(element).textOverflow,
+    }));
+    expect(drawn).toEqual({ cut: true, overflow: 'ellipsis' });
+
+    const open = recorded.locator('[data-evidence-action="openInput"]');
+    await expect(open).toHaveText(inspectorStrings.openInput);
+    await expect(open).toHaveAttribute('data-variant', 'quiet');
+    await expect(open).toHaveAttribute('data-ink', 'brand');
+
+    await open.click();
+
+    expect(await harness.postedOfType('openInput')).toEqual([
+      { type: 'openInput', workflowId: RUN_ID },
+    ]);
+  });
+
+  /**
+   * A value that does not fit the pane wraps inside
+   * its chip, under its own first character, and
+   * breaks an id that has nowhere to break rather
+   * than pushing the pane sideways.
+   */
+  for (const width of [300, 240]) {
+    test(`wraps a value inside its chip at ${width}px`, async ({ page }) => {
+      const value =
+        '{ "requestId": "7089cd29881b4319a16d1af70cc1e9a7", ' +
+        '"source": "airtable-etl-006" }';
+      expect(value.length).toBeLessThanOrEqual(INLINE_LIMIT);
+
+      const harness = await mountInspector(page);
+      await page.setViewportSize({ width, height: 700 });
+      await harness.show(aboutRun({ input: { kind: 'inline', text: value } }));
+
+      const chip = card(page).locator('[data-recorded] [data-verbatim]');
+      await expect(chip).toHaveText(value);
+
+      const lines = await linesIn(chip);
+      const drawn = await chip.evaluate((element) => ({
+        scroll: element.scrollWidth,
+        client: element.clientWidth,
+        right: element.getBoundingClientRect().right,
+        pane: window.innerWidth,
+        page: document.documentElement.scrollWidth,
+      }));
+
+      expect(lines).toBeGreaterThanOrEqual(2);
+      expect(drawn.scroll).toBe(drawn.client);
+      expect(drawn.right).toBeLessThanOrEqual(drawn.pane - 14);
+      expect(drawn.page).toBe(drawn.pane);
+    });
+  }
+
+  /**
+   * The run's line wraps under the title as one
+   * thing where the header has no room for it: a
+   * state word that wrapped away from its duration
+   * reads as two states.
+   */
+  test('keeps the run’s line in one piece where the header wraps', async ({
+    page,
+  }) => {
+    const harness = await mountInspector(page);
+    await page.setViewportSize({ width: 240, height: 700 });
+    await harness.show(aboutRun({ line: 'done · 9.1 s · ↻ recovered' }));
+
+    const header = page.locator('[data-inspector-header]');
+    const title = (await header.locator('.inspector-title').boundingBox())!;
+    const status = header.locator('.status-line');
+    const line = (await status.boundingBox())!;
+
+    // The header did wrap, or this proves nothing;
+    // and the line starts under the title.
+    expect(line.y).toBeGreaterThan(title.y + title.height - 1);
+    expect(line.x).toBeCloseTo(title.x, 0);
+    expect(line.x + line.width).toBeLessThanOrEqual(240 - 14 + 0.5);
+
+    const said = status.locator(':scope > span:not(.status-glyph)');
+    expect(await linesIn(said)).toBe(1);
+
+    const mark = (await status.locator('.status-glyph').boundingBox())!;
+    const word = (await said.boundingBox())!;
+    const middle = mark.y + mark.height / 2;
+    expect(middle).toBeGreaterThan(word.y);
+    expect(middle).toBeLessThan(word.y + word.height);
+  });
 });
 
 /**

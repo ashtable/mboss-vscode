@@ -150,6 +150,21 @@ describe('a state said in full', () => {
   });
 
   /**
+   * The word and what follows it are the state as
+   * much as the mark is, so the whole line is drawn
+   * in the state's tone, through the ink high
+   * contrast substitutes.
+   */
+  it('says the whole line in the state’s tone', () => {
+    const drawn = line({ state: 'failed', word: 'ab', detail: 'cd' });
+
+    const root = drawn.slice(0, drawn.indexOf('>'));
+
+    expect(root).toContain('class="status-line"');
+    expect(root).toContain('style="color:var(--state-ink, var(--fail))"');
+  });
+
+  /**
    * A line has no room for a second word beside the
    * detail it is already carrying, so the admission
    * that this state was worked out rides in the

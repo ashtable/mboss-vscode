@@ -607,8 +607,63 @@ export const inspectorWords = once(() => ({
   // What the run was started with, drawn here and
   // nowhere else: the schema has no per-step input
   // column, and a step card that showed one would
-  // be making it up.
-  workflowInput: l10n.t('workflow input'),
+  // be making it up. "As recorded", because the
+  // Runs panel's input box may hold something else
+  // by now.
+  workflowInput: l10n.t('workflow input · as recorded'),
+
+  // Before the short id in the header of a card
+  // about a whole run, where a block's kind goes.
+  runKind: l10n.t('run'),
+
+  noInput: l10n.t('no input recorded'),
+
+  // How a recorded value is drawn: whole, or as
+  // something too long to show that can be opened.
+  inline: l10n.t('inline'),
+  artifact: l10n.t('artifact'),
+  openInput: l10n.t('Open'),
+
+  // The run's own row, under the name of the table
+  // it is a row of, because the column names below
+  // it are that table's.
+  ledgerHeading: l10n.t('dbos.workflow_status'),
+  ledger: l10n.t(
+    'The recovery ledger — your workflow is just rows in Postgres.',
+  ),
+
+  // Where the run came from and what came out of
+  // it, one line each. The id in each is a Button
+  // and the step phrase is worked out rather than
+  // read, so each is a placeholder of its own and
+  // the phrase is a template of its own: the view
+  // draws the pieces apart without knowing where a
+  // language puts them.
+  lineage: l10n.t('lineage'),
+  replayOf: l10n.t('replay of {0} {1}'),
+  replayTo: l10n.t('└ replay {0} → {1} · {2}'),
+  fromStep: l10n.t('from step {0}'),
+
+  // "Cancel run" rather than "Cancel": the card
+  // also carries Replay from start and Ask agent,
+  // and a bare verb among them names nothing.
+  cancel: l10n.t('Cancel run'),
+  resume: l10n.t('Resume'),
+  cancelledAt: l10n.t('cancelled'),
+
+  // What resuming a run does: it reads its recorded
+  // history back rather than running those
+  // operations again. The second is said only over
+  // a run DBOS gave up on, the one run whose
+  // give-up count starts over.
+  resumeHint: l10n.t(
+    'Resume continues from the recorded history · completed durable operations are not re-executed',
+  ),
+  resumeResetsAttempts: l10n.t('recovery_attempts starts again from 0'),
+
+  // A fork at step 0, which copies nothing: the run
+  // again, with what it was started with.
+  replayStart: l10n.t('Replay from start'),
 
   recovery: l10n.t('recovery'),
   neverRecovered: l10n.t('never recovered'),
