@@ -281,84 +281,124 @@ body {
 
 /* — a file, and its diff — */
 
+/* One card: the header, the lines and the footer
+   are its parts rather than cards of their own. It
+   clips its parts to its corners, so the header's
+   ground and a tinted last line keep the card's
+   shape. */
 .file {
   border: 1px solid var(--hairline);
-  border-left-width: var(--rail-w);
   border-radius: var(--r-sm);
   background: var(--surface);
-  padding: var(--space-2) var(--space-3);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
 }
 
-.file[data-by='agent'] {
-  border-left-color: var(--agent);
-}
-
-.file[data-by='person'] {
-  border-left-color: var(--brand);
-}
-
+/* Laid out as a call's row is, so a call and the
+   file it wrote read as one grammar: what was done,
+   to what, and where it stands. Who did it is said
+   once, down the header's edge; down the lines as
+   well it would be a rail beside the tints. */
 .file-head {
   margin: 0;
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  font-size: var(--text-sm);
-}
-
-/* The end of a path is the part worth reading, so
-   a long one loses its head rather than its
-   filename. */
-.file-head > .path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: var(--space-1-5) var(--space-3) var(--space-1-5) var(--space-2);
+  border-left: var(--rail-w) solid var(--agent);
+  background: var(--surface-2);
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+  font-size: var(--text-control);
 }
 
-.stat {
+.file[data-by='person'] > .file-head {
+  border-left-color: var(--brand);
+}
+
+.file-verb {
   flex: none;
-  display: flex;
-  gap: var(--space-2);
-  font-family: var(--font-mono);
+  font-weight: var(--w-semibold);
 }
 
-.stat > .new {
-  font-family: var(--font-body);
+/* Where the file sits gives up its end first; the
+   file's own name is what somebody is looking for,
+   so it keeps every letter. */
+.file-path {
+  display: flex;
+  min-width: 0;
   color: var(--ink-muted);
 }
 
-.stat > .added {
-  color: var(--ok);
-}
-
-.stat > .removed {
-  color: var(--fail);
-}
-
-.diff {
-  margin: var(--space-2) 0 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
+.file-dir {
+  min-width: 0;
   overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-name {
+  flex: none;
+}
+
+.file-stat {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+}
+
+/* Counted, not written. In the voice's two colours,
+   read as text through the state ink wherever those
+   colours are too light to be text. */
+.file-counts {
+  display: flex;
+  gap: var(--space-1-5);
   font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
+  font-weight: var(--w-semibold);
+}
+
+.file-counts > .added,
+.diff-line[data-kind='add'] > .sign {
+  color: var(--state-ink, var(--ok));
+}
+
+.file-counts > .removed,
+.diff-line[data-kind='del'] > .sign {
+  color: var(--state-ink, var(--fail));
+}
+
+/* Code is read in the columns it was written in, so
+   the lines never wrap: they scroll sideways as one
+   block. A grid, so every line is as wide as the
+   longest and a wash runs the whole way under it. */
+.diff {
+  display: grid;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+
+/* A scrolled block a keyboard lands on draws its
+   ring inside the card, which clips anything
+   outside. */
+.diff:focus-visible {
+  outline-offset: -2px;
 }
 
 .diff-line {
   margin: 0;
   display: grid;
-  grid-template-columns: 2.4em 2.4em 1em 1fr;
-  gap: var(--space-1);
-  padding: 0 var(--space-2);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  grid-template-columns: 30px 14px 1fr;
+  min-width: max-content;
+  padding-inline-end: var(--space-3);
+  white-space: pre;
 }
 
 .diff-line > .gutter {
-  text-align: right;
+  padding-inline-end: var(--space-2);
+  text-align: end;
   color: var(--ink-faint);
 }
 
@@ -370,87 +410,49 @@ body {
   background: var(--diff-add-bg);
 }
 
-.diff-line[data-kind='add'] > .sign {
-  color: var(--ok);
-}
-
 .diff-line[data-kind='del'] {
   background: var(--diff-del-bg);
 }
 
-.diff-line[data-kind='del'] > .sign {
-  color: var(--fail);
-}
-
-.file-actions {
-  margin: var(--space-2) 0 0;
+/* What can still be done about the file, or why
+   nothing can. */
+.file-foot {
   display: flex;
-  gap: var(--space-2);
-}
-
-.file-actions > button {
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.file-actions > button:hover {
-  transform: translateY(var(--lift));
-  border-color: var(--brand);
-}
-
-.file-note {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-xs);
-  color: var(--warn);
-}
-
-/* Decided rows stay legible but step back, so a
-   growing conversation reads by what is still
-   waiting on somebody. */
-.file[data-decision='kept'],
-.file[data-decision='undone'] {
-  opacity: 0.7;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1-5) var(--space-3);
+  border-top: 1px solid var(--hairline);
 }
 
 /* — the row that closes out a turn's edits — */
 
+/* One more footer, in the card's own shape: how many
+   files it is about, and what to do to all of them
+   at once. */
 .files-batch {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  border: 1px dashed var(--hairline-strong);
+  gap: var(--space-3);
+  padding: var(--space-1-5) var(--space-3);
+  border: 1px solid var(--hairline);
   border-radius: var(--r-sm);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--ink-muted);
+  background: var(--surface);
+  box-shadow: var(--elev-1);
 }
 
-.files-batch-actions {
+/* — the step after a turn — */
+
+.next-sentence {
+  margin: 0;
+}
+
+.next-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
-}
-
-.files-batch-actions > button {
-  border: none;
-  background: transparent;
-  color: var(--brand);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: 0;
-  cursor: pointer;
-}
-
-.files-batch-actions > button:hover {
-  text-decoration: underline;
+  margin-top: var(--space-2);
 }
 
 /* — what went wrong — */

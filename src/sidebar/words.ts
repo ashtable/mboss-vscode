@@ -130,6 +130,12 @@ export const sidebarWords = once(() => ({
     'Applied. Replay {0} from {1} to verify — earlier durable results are reused.',
   ),
 
+  // The two ways on from that sentence: run the
+  // block again, or take back every file the turn
+  // wrote.
+  replayFromHere: l10n.t('Replay from here'),
+  undoTurnEdits: l10n.t('Undo edit'),
+
   // The row mBoss writes about a run it read, with
   // the run by its short id. The agent is sent the
   // same words around the full one.

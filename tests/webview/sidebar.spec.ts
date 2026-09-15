@@ -3,6 +3,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { evidenceRowId } from '../../src/acp/evidenceRow.js';
 import type {
   DiagnosticEntry,
+  FileEditEntry,
   SessionUpdate,
   ToolEntry,
 } from '../../src/acp/transcript.js';
@@ -13,7 +14,7 @@ import type { SidebarInit } from '../../src/webview/protocol.js';
 
 import { fileEntry, sidebarEntries, sidebarInit } from './fixtures/sidebar.js';
 import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
-import { colourOf, sameColour } from './palette.js';
+import { colourOf, contrast, sameColour, type Role } from './palette.js';
 import { sidebarWords as strings } from './words.js';
 
 /**
@@ -1014,13 +1015,14 @@ test.describe('a tool call', () => {
   });
 
   /**
-   * One row per file, path on the left and what
-   * happened to it on the right — beside the call
-   * rather than inside it, because a file is the
-   * thing a person keeps or undoes. The counts are
-   * arithmetic on the two texts the protocol
-   * sends, so a file that did not exist reads as
-   * new rather than as an enormous edit.
+   * One card per file, beside the call that wrote
+   * it rather than inside it, because a file is the
+   * thing a person keeps or undoes. Its header names
+   * what was done the way the call's row does, and
+   * counts both ways: arithmetic on the two texts
+   * the protocol sends. A file that did not exist
+   * says so in a word as well, since three lines
+   * added reads the same as three lines appended.
    */
   test('puts a row beside it for each file it touched', async ({ page }) => {
     const harness = await openPanel(page);
@@ -1052,66 +1054,115 @@ test.describe('a tool call', () => {
       '/project/lib/twilioChat.ts',
     );
 
-    // A file that did not exist says so and counts
-    // every line as added; one that did counts both
-    // ways, and says nothing about removals when
-    // there were none.
-    await expect(rows.nth(0).locator('.new')).toHaveText(strings.newFile);
-    await expect(rows.nth(0).locator('.added')).toHaveText('+3');
-    await expect(rows.nth(0).locator('.removed')).toHaveCount(0);
+    // The call's own row comes first, and each file
+    // after it.
+    expect(
+      await page
+        .locator('[data-tool-call="call-1"]')
+        .evaluate(
+          (row, file) =>
+            (row.compareDocumentPosition(file) &
+              Node.DOCUMENT_POSITION_FOLLOWING) !==
+            0,
+          await rows.nth(0).elementHandle(),
+        ),
+    ).toBe(true);
 
-    await expect(rows.nth(1).locator('.new')).toHaveCount(0);
+    for (const row of [rows.nth(0), rows.nth(1)]) {
+      await expect(row.locator('.file-head .file-verb')).toHaveText(
+        strings.toolVerbs.edit,
+      );
+    }
+
+    const created = rows.nth(0);
+    const fresh = created.locator('.file-head [data-new-file]');
+
+    await expect(fresh).toHaveCount(1);
+    await expect(fresh).toHaveText(strings.newFile);
+    await expect(created.locator('.added')).toHaveText('+3');
+    await expect(created.locator('.removed')).toHaveText('−0');
+
+    // The word comes before the counts it explains.
+    expect(
+      await fresh.evaluate(
+        (word, added) =>
+          (word.compareDocumentPosition(added) &
+            Node.DOCUMENT_POSITION_FOLLOWING) !==
+          0,
+        await created.locator('.added').elementHandle(),
+      ),
+    ).toBe(true);
+
+    await expect(rows.nth(1).locator('[data-new-file]')).toHaveCount(0);
     await expect(rows.nth(1).locator('.added')).toHaveText('+2');
     await expect(rows.nth(1).locator('.removed')).toHaveText('−1');
   });
 
   /**
-   * A long path loses its head rather than its
-   * filename, which the stylesheet does by laying
-   * the line out right to left. That puts the
-   * leading slash — a character with no direction of
-   * its own, at the edge of the run — on the wrong
-   * end, and the file reads as a directory.
-   *
-   * The words in the element are right either way,
-   * so this is asked of where the glyphs are drawn
-   * and not of what the text says.
+   * In a narrow panel a long path gives up part of
+   * its directory, never part of the filename: the
+   * file is what somebody is looking for, and where
+   * it sits is context. The whole path stays on the
+   * card for whoever needs it.
    */
-  test('draws a path from its root, not with the root at the end', async ({
+  test('keeps the filename whole and shortens the directory', async ({
     page,
   }) => {
+    await page.setViewportSize({ width: 320, height: 600 });
+
     const harness = await openPanel(page);
+    const directory = `lib/${'deeply/nested/'.repeat(8)}`;
 
-    await showing(harness, [
-      {
-        ...call,
-        content: [
-          { type: 'diff', path: '/project/lib/twilioChat.ts', newText: 'a\n' },
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          fileEntry({
+            path: `/project/${directory}twilioChat.ts`,
+            shownPath: `${directory}twilioChat.ts`,
+          }),
         ],
-      },
-    ]);
+      }),
+    );
 
-    const drawn = await page
-      .locator('.file-head > .path')
-      .evaluate((element) => {
-        const text = element.firstChild as Text;
+    const card = page.locator('.file');
+    const dir = card.locator('.file-head .file-dir');
+    const name = card.locator('.file-head .file-name');
 
-        const leftOf = (index: number): number => {
-          const range = document.createRange();
+    await expect(dir).toHaveCount(1);
+    await expect(name).toHaveCount(1);
+    await expect(dir).toHaveText(directory);
+    await expect(name).toHaveText('twilioChat.ts');
 
-          range.setStart(text, index);
-          range.setEnd(text, index + 1);
+    await expect(dir).toHaveCSS('text-overflow', 'ellipsis');
+    expect(
+      await dir.evaluate(
+        (element) => element.scrollWidth > element.clientWidth,
+      ),
+    ).toBe(true);
+    expect(
+      await name.evaluate(
+        (element) => element.scrollWidth <= element.clientWidth,
+      ),
+    ).toBe(true);
 
-          return range.getBoundingClientRect().left;
-        };
+    const absolute = `/project/${directory}twilioChat.ts`;
 
-        return {
-          root: leftOf(text.data.indexOf('/')),
-          end: leftOf(text.data.lastIndexOf('s')),
-        };
-      });
+    await expect(card).toHaveAttribute('data-file', absolute);
+    await expect(card.locator('.file-head .file-path')).toHaveAttribute(
+      'title',
+      absolute,
+    );
 
-    expect(drawn.root).toBeLessThan(drawn.end);
+    // Still one line, with the state word inside the
+    // card.
+    const head = (await card.locator('.file-head').boundingBox())!;
+    const edge = (await card.boundingBox())!;
+    const word = (await card
+      .locator('.file-head [data-file-state]')
+      .boundingBox())!;
+
+    expect(head.height).toBeLessThanOrEqual(31);
+    expect(word.x + word.width).toBeLessThanOrEqual(edge.x + edge.width);
   });
 });
 
@@ -1187,35 +1238,82 @@ test.describe('the plan', () => {
  * reach, and the panel draws it as it arrives.
  */
 test.describe('after a turn asked about a block', () => {
+  const run = '7089cd29-5b5e-4a4c-9c3e-6c8d1b2f4a10';
+  const sentence =
+    'Applied. Replay #7089 from Refund payment to verify — earlier ' +
+    'durable results are reused.';
+  const edits = ['call-1:/project/lib/refund.ts', 'call-2:/project/lib/a.ts'];
+
+  const nextStep = (): SidebarInit =>
+    sidebarInit({
+      transcript: sidebarEntries([
+        {
+          at: 'next',
+          id: 'next-0',
+          about: { workflowId: run, nodeId: 'refund_payment' },
+          block: 'Refund payment',
+          edits,
+          sentence,
+        },
+      ]),
+    });
+
   test('says what to do next, in a sentence of its own', async ({ page }) => {
     const harness = await openPanel(page);
-    const sentence =
-      'Applied. Replay #7089 from Refund payment to verify — earlier ' +
-      'durable results are reused.';
 
-    await harness.show(
-      sidebarInit({
-        transcript: sidebarEntries([
-          {
-            at: 'next',
-            id: 'next-0',
-            about: {
-              workflowId: '7089cd29-5b5e-4a4c-9c3e-6c8d1b2f4a10',
-              nodeId: 'refund_payment',
-            },
-            block: 'Refund payment',
-            edits: ['call-1:/project/lib/refund.ts'],
-            sentence,
-          },
-        ]),
-      }),
-    );
+    await harness.show(nextStep());
 
     const next = page.locator('[data-next]');
 
     await expect(next).toHaveCount(1);
-    await expect(next).toHaveText(sentence);
+    await expect(next).toHaveAttribute('data-block', 'prose');
+    await expect(next.locator('.next-sentence')).toHaveText(sentence);
     await expect(page.locator('[data-plan]')).toHaveCount(0);
+  });
+
+  /**
+   * The cheap way to check an edit is to run the
+   * block again on what the run already recorded,
+   * so that is the choice with an edge. Taking the
+   * turn back is the quiet one, and it asks for each
+   * file the way Undo all does, so a file somebody
+   * has since changed still answers for itself.
+   */
+  test('offers to replay the run from its block, or to undo the turn', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(nextStep());
+
+    const next = page.locator('[data-next]');
+    const replay = next.locator('[data-replay-from]');
+    const undo = next.locator('[data-undo-turn]');
+
+    await expect(replay).toHaveCount(1);
+    await expect(undo).toHaveCount(1);
+
+    await expect(replay).toHaveText(strings.replayFromHere);
+    await expect(replay).toHaveClass(/\bbtn\b/);
+    await expect(replay).toHaveAttribute('data-variant', 'secondary');
+    await expect(replay).toHaveAttribute('data-ink', 'brand');
+
+    await expect(undo).toHaveText(strings.undoTurnEdits);
+    await expect(undo).toHaveClass(/\bbtn\b/);
+    await expect(undo).toHaveAttribute('data-variant', 'quiet');
+    await expect(undo).not.toHaveAttribute('data-ink');
+
+    await replay.click();
+
+    expect(await harness.postedOfType('replayFrom')).toEqual([
+      { type: 'replayFrom', workflowId: run, nodeId: 'refund_payment' },
+    ]);
+
+    await undo.click();
+
+    expect(await harness.postedOfType('undoFile')).toEqual(
+      edits.map((id) => ({ type: 'undoFile', id })),
+    );
   });
 });
 
@@ -1303,8 +1401,70 @@ test.describe('a diagnostic', () => {
   });
 });
 
+/**
+ * One file, as one card: a header saying what was
+ * done to it and where that stands, the lines that
+ * changed, and a footer with what can still be done
+ * about it.
+ */
 test.describe('a file edit, decided or not', () => {
-  test('draws each line with a sign and gutter numbers', async ({ page }) => {
+  const replaced: FileEditEntry['lines'] = [
+    { kind: 'ctx', text: 'unchanged', oldNo: 1, newNo: 1 },
+    { kind: 'del', text: 'old line', oldNo: 2 },
+    { kind: 'add', text: 'new line', newNo: 2 },
+  ];
+
+  /**
+   * One number per line: the line it was in the old
+   * file when it was taken out, and the line it is
+   * in the new one otherwise. Two columns of numbers
+   * were a second way of reading the same diff.
+   */
+  test('draws each line with one gutter number and a sign', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({ transcript: [fileEntry({ lines: replaced })] }),
+    );
+
+    const lines = page.locator('.file .diff-line');
+
+    await expect(lines).toHaveCount(3);
+    await expect(page.locator('[data-kind="skip"]')).toHaveCount(0);
+
+    const drawn = [
+      ['ctx', '1', ''],
+      ['del', '2', '−'],
+      ['add', '2', '+'],
+    ] as const;
+
+    for (const [index, [kind, number, sign]] of drawn.entries()) {
+      const line = lines.nth(index);
+
+      await expect(line).toHaveAttribute('data-kind', kind);
+      await expect(line.locator('.gutter')).toHaveCount(1);
+      await expect(line.locator('.gutter')).toHaveText(number);
+      await expect(line.locator('.sign')).toHaveText(sign);
+    }
+
+    // A line taken out and a line put in say which
+    // they are to a screen reader too, not only in
+    // their tint.
+    await expect(lines.nth(1)).toMatchAriaSnapshot('- paragraph: 2 − old line');
+    await expect(lines.nth(2)).toMatchAriaSnapshot('- paragraph: 2 + new line');
+  });
+
+  /**
+   * Code is read in the columns it was written in,
+   * so a long line runs on and the lines scroll
+   * sideways together, and the wash under a changed
+   * line runs as far as the longest one does.
+   */
+  test('never wraps a line of a diff', async ({ page }) => {
+    await page.setViewportSize({ width: 420, height: 600 });
+
     const harness = await openPanel(page);
 
     await harness.show(
@@ -1312,26 +1472,65 @@ test.describe('a file edit, decided or not', () => {
         transcript: [
           fileEntry({
             lines: [
-              { kind: 'ctx', text: 'unchanged', oldNo: 1, newNo: 1 },
-              { kind: 'del', text: 'old line', oldNo: 2 },
-              { kind: 'add', text: 'new line', newNo: 2 },
+              { kind: 'ctx', text: 'short', oldNo: 1, newNo: 1 },
+              { kind: 'add', text: `long ${'x'.repeat(300)}`, newNo: 2 },
+              { kind: 'del', text: 'gone', oldNo: 2 },
             ],
           }),
         ],
       }),
     );
 
-    const lines = page.locator('.diff-line');
+    const body = page.locator('.file .diff');
+    const lines = body.locator('.diff-line');
 
     await expect(lines).toHaveCount(3);
+    await expect(body).toHaveCSS('overflow-x', 'auto');
+    await expect(lines.nth(1)).toHaveCSS('white-space', 'pre');
 
-    await expect(lines.nth(1)).toHaveAttribute('data-kind', 'del');
-    await expect(lines.nth(1).locator('.sign')).toHaveText('−');
-    await expect(lines.nth(1).locator('.gutter').first()).toHaveText('2');
+    const boxes = await lines.evaluateAll((all) =>
+      all.map((line) => {
+        const box = line.getBoundingClientRect();
 
-    await expect(lines.nth(2)).toHaveAttribute('data-kind', 'add');
-    await expect(lines.nth(2).locator('.sign')).toHaveText('+');
-    await expect(lines.nth(2).locator('.gutter').nth(1)).toHaveText('2');
+        return { width: box.width, height: box.height };
+      }),
+    );
+
+    expect(boxes[1]?.height).toBe(boxes[0]?.height);
+    expect(boxes[2]?.width).toBe(boxes[1]?.width);
+    expect(
+      await body.evaluate(
+        (element) => element.scrollWidth > element.clientWidth,
+      ),
+    ).toBe(true);
+  });
+
+  test('counts both ways on every edit', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          fileEntry({ id: 'edited', path: '/project/lib/a.ts' }),
+          fileEntry({
+            id: 'created',
+            path: '/project/lib/b.ts',
+            isNew: true,
+            added: 3,
+            removed: 0,
+            oldText: undefined,
+          }),
+        ],
+      }),
+    );
+
+    const edited = page.locator('.file[data-file="/project/lib/a.ts"]');
+    const created = page.locator('.file[data-file="/project/lib/b.ts"]');
+
+    await expect(edited.locator('.file-head .added')).toHaveText('+1');
+    await expect(edited.locator('.file-head .removed')).toHaveText('−1');
+    await expect(created.locator('.file-head .added')).toHaveText('+3');
+    await expect(created.locator('.file-head .removed')).toHaveText('−0');
   });
 
   test('offers Keep and Undo while nothing is decided', async ({ page }) => {
@@ -1365,9 +1564,36 @@ test.describe('a file edit, decided or not', () => {
     await expect(page.locator('[data-undo-file]')).toHaveCount(0);
   });
 
-  /** Something else wrote the file since: nothing
-   *  is offered, because writing the snapshot back
-   *  would be a second, silent edit. */
+  /** Kept or undone is settled: the header's word
+   *  says which, and there is nothing left to
+   *  offer. */
+  test('offers nothing once a file is kept or undone', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          fileEntry({ id: 'a', path: '/project/lib/a.ts', decision: 'kept' }),
+          fileEntry({ id: 'b', path: '/project/lib/b.ts', decision: 'undone' }),
+        ],
+      }),
+    );
+
+    await expect(page.locator('.file')).toHaveCount(2);
+    await expect(page.locator('.file-foot')).toHaveCount(0);
+    await expect(page.locator('.file [data-file-state]')).toHaveText([
+      strings.fileStates.applied,
+      strings.fileStates.undone,
+    ]);
+  });
+
+  /**
+   * Something else wrote the file since: nothing is
+   * offered, because writing the snapshot back would
+   * be a second, silent edit. The word in the header
+   * says what happened; the sentence in the footer
+   * says why nothing is offered.
+   */
   test('offers nothing once a file changed since', async ({ page }) => {
     const harness = await openPanel(page);
 
@@ -1375,22 +1601,330 @@ test.describe('a file edit, decided or not', () => {
       sidebarInit({ transcript: [fileEntry({ decision: 'changed-since' })] }),
     );
 
-    await expect(page.locator('[data-keep]')).toHaveCount(0);
-    await expect(page.locator('[data-undo-file]')).toHaveCount(0);
-    await expect(page.locator('.file-note')).toHaveText(strings.changedSince);
+    const card = page.locator('.file');
+    const note = card.locator('.file-foot [data-file-note]');
+
+    await expect(card.locator('.file-head [data-file-state]')).toHaveText(
+      strings.fileStates.changed,
+    );
+    await expect(note).toHaveCount(1);
+    await expect(note).toHaveText(strings.changedSince);
+    await expect(note).toHaveClass(/\bfield-hint\b/);
+    await expect(note).toHaveAttribute('data-tone', 'warn');
+    await expect(card.locator('[data-keep]')).toHaveCount(0);
+    await expect(card.locator('[data-undo-file]')).toHaveCount(0);
   });
 
-  test('rails a file by who touched it', async ({ page }) => {
+  /**
+   * Who touched a file is said once, down the edge of
+   * the header, as a call's row says it. Down the
+   * lines as well it would be a rail beside a rail,
+   * and the tints under them would be read against
+   * it.
+   */
+  test("rails a person's edit in the brand on its header", async ({ page }) => {
     const harness = await openPanel(page);
 
     await harness.show(
-      sidebarInit({ transcript: [fileEntry({ by: 'person' })] }),
+      sidebarInit({
+        transcript: [
+          fileEntry({ id: 'a', path: '/project/lib/a.ts', lines: replaced }),
+          fileEntry({
+            id: 'b',
+            path: '/project/lib/b.ts',
+            by: 'person',
+            lines: replaced,
+          }),
+        ],
+      }),
     );
 
-    await expect(page.locator('.file')).toHaveAttribute('data-by', 'person');
+    const rails = [
+      ['/project/lib/a.ts', 'agent', AGENT],
+      ['/project/lib/b.ts', 'person', PERSON],
+    ] as const;
+
+    for (const [path, by, colour] of rails) {
+      const card = page.locator(`.file[data-file="${path}"]`);
+
+      await expect(card).toHaveAttribute('data-by', by);
+      await expect(card.locator('.file-head')).toHaveCSS(
+        'border-left-width',
+        '3px',
+      );
+      await expect(card.locator('.file-head')).toHaveCSS(
+        'border-left-color',
+        colour,
+      );
+
+      // The card's own edge is a hairline, and the
+      // lines carry no edge of their own.
+      await expect(card).toHaveCSS('border-left-width', '1px');
+      await expect(card.locator('.diff')).toHaveCSS('border-left-width', '0px');
+    }
   });
+
+  /**
+   * An edit's lines arrive with the indentation they
+   * all share already taken off, which the host
+   * does. The panel keeps what is left exactly: two
+   * lines that sat eight and ten spaces in start at
+   * the edge and two spaces from it.
+   */
+  test("draws an edit's lines exactly as the host sent them", async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          fileEntry({
+            lines: [
+              { kind: 'ctx', text: 'a', oldNo: 1, newNo: 1 },
+              { kind: 'add', text: '  b', newNo: 2 },
+            ],
+          }),
+        ],
+      }),
+    );
+
+    const texts = page.locator('.file .diff-line [data-verbatim]');
+
+    await expect(texts).toHaveCount(2);
+    expect(await texts.allTextContents()).toEqual(['a', '  b']);
+
+    // Drawn two characters in, not collapsed to the
+    // edge.
+    const starts = await texts.evaluateAll((all) =>
+      all.map((element) => {
+        const text = element.firstChild as Text;
+        const glyph = document.createRange();
+        const at = text.data.search(/\S/);
+
+        glyph.setStart(text, at);
+        glyph.setEnd(text, at + 1);
+
+        return {
+          left: glyph.getBoundingClientRect().left,
+          width: glyph.getBoundingClientRect().width,
+        };
+      }),
+    );
+
+    const [first, second] = starts;
+
+    expect(second!.left - first!.left).toBeCloseTo(2 * first!.width, 0);
+  });
+
+  for (const theme of THEMES_ALL) {
+    /**
+     * What became of an edit is one word, in the quiet
+     * tone whatever it says, except when the edit
+     * failed. A call still being made above it keeps
+     * its own moving word.
+     */
+    test(`says what became of an edit in ${theme}`, async ({ page }) => {
+      const harness = await mount(page, 'sidebar', theme);
+      const states = [
+        ['proposed', 'ink-muted'],
+        ['applied', 'ink-muted'],
+        ['undone', 'ink-muted'],
+        ['changed', 'ink-muted'],
+        ['failed', 'fail'],
+      ] as const;
+
+      // Where a voice colour is too light to read as
+      // text, the ink says it.
+      const toned = (role: Role): string =>
+        theme === 'high-contrast-light' && role !== 'ink-muted'
+          ? colourOf(theme, 'ink')
+          : colourOf(theme, role);
+
+      await harness.show(
+        sidebarInit({
+          transcript: [
+            {
+              at: 'tool',
+              id: 'call-9',
+              by: 'agent',
+              kind: 'edit',
+              verb: 'Edit',
+              target: 'lib/a.ts',
+              status: 'in_progress',
+              body: [],
+              paths: ['/project/lib/a.ts'],
+            },
+            ...states.map(([state]) =>
+              fileEntry({
+                id: state,
+                path: `/project/lib/${state}.ts`,
+                state,
+              }),
+            ),
+          ],
+        }),
+      );
+
+      const words = page.locator('.file-head [data-file-state]');
+
+      await expect(words).toHaveCount(states.length);
+
+      for (const [state, role] of states) {
+        const word = page.locator(
+          `.file[data-file="/project/lib/${state}.ts"] [data-file-state]`,
+        );
+
+        await expect(word).toHaveText(strings.fileStates[state]);
+        await expect(word).toHaveClass(/\bstate-word\b/);
+
+        const ink = await word.evaluate(
+          (element) => getComputedStyle(element).color,
+        );
+        const expected = toned(role);
+
+        expect(
+          sameColour(ink, expected),
+          `${state}: ${ink} ≠ ${expected}`,
+        ).toBe(true);
+      }
+
+      const running = page.locator('[data-tool-call="call-9"] .state-word');
+      const moving = await running.evaluate(
+        (element) => getComputedStyle(element).color,
+      );
+
+      await expect(running).toHaveAttribute('data-pulse', '');
+      expect(sameColour(moving, toned('ok')), moving).toBe(true);
+    });
+
+    /**
+     * Keep and Undo are things that have to be there
+     * and should not be read first, set in the card's
+     * own footer. Keep is the one the product would
+     * like pressed, so it takes the product's ink.
+     */
+    test(`keeps Keep and Undo in the footer in ${theme}`, async ({ page }) => {
+      const harness = await mount(page, 'sidebar', theme);
+
+      await harness.show(sidebarInit({ transcript: [fileEntry()] }));
+
+      const foot = page.locator('.file .file-foot');
+      const keep = foot.locator('[data-keep]');
+      const undo = foot.locator('[data-undo-file]');
+
+      await expect(keep).toHaveCount(1);
+      await expect(undo).toHaveCount(1);
+
+      for (const button of [keep, undo]) {
+        await expect(button).toHaveClass(/\bbtn\b/);
+        await expect(button).toHaveAttribute('data-variant', 'quiet');
+      }
+
+      await expect(keep).toHaveText(strings.keepEdit);
+      await expect(keep).toHaveAttribute('data-ink', 'brand');
+      await expect(undo).toHaveText(strings.undoEdit);
+      await expect(undo).not.toHaveAttribute('data-ink');
+
+      const drawn = async (button: Locator) =>
+        button.evaluate((element) => {
+          const style = getComputedStyle(element);
+
+          return { edge: style.borderTopColor, ink: style.color };
+        });
+
+      // An edge only where a theme draws every
+      // control's.
+      const edge = colourOf(theme, 'control-edge');
+      const brand =
+        theme === 'high-contrast-light'
+          ? colourOf(theme, 'ink')
+          : colourOf(theme, 'brand');
+      const kept = await drawn(keep);
+      const undone = await drawn(undo);
+
+      expect(sameColour(kept.edge, edge), `${kept.edge} ≠ ${edge}`).toBe(true);
+      expect(sameColour(undone.edge, edge), `${undone.edge} ≠ ${edge}`).toBe(
+        true,
+      );
+      expect(sameColour(kept.ink, brand), `${kept.ink} ≠ ${brand}`).toBe(true);
+    });
+  }
+
+  /**
+   * An added or removed line is a wash of its colour,
+   * and the sign beside it and the counts over it
+   * have to read on their grounds wherever the theme
+   * is built to be read: in the dark, and in both
+   * high-contrast themes. The light theme draws the
+   * voice colours as they are.
+   */
+  for (const theme of [
+    'dark',
+    'high-contrast',
+    'high-contrast-light',
+  ] as const) {
+    test(`tints added and removed lines readably in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'sidebar', theme);
+
+      await harness.show(
+        sidebarInit({ transcript: [fileEntry({ lines: replaced })] }),
+      );
+
+      const card = page.locator('.file');
+
+      await expect(card.locator('.diff-line')).toHaveCount(3);
+
+      const paint = (selector: string) =>
+        card.locator(selector).evaluate((element) => {
+          const style = getComputedStyle(element);
+
+          return { ground: style.backgroundColor, ink: style.color };
+        });
+
+      for (const [kind, role] of [
+        ['add', 'diff-add-bg'],
+        ['del', 'diff-del-bg'],
+      ] as const) {
+        const row = await paint(`.diff-line[data-kind="${kind}"]`);
+        const sign = await paint(`.diff-line[data-kind="${kind}"] .sign`);
+        const wash = colourOf(theme, role);
+
+        expect(sameColour(row.ground, wash), `${row.ground} ≠ ${wash}`).toBe(
+          true,
+        );
+
+        const ratio = contrast(sign.ink, row.ground);
+
+        expect(
+          ratio,
+          `${kind} sign ${sign.ink} on ${row.ground}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+
+      const head = await paint('.file-head');
+
+      for (const count of ['.added', '.removed']) {
+        const ink = (await paint(`.file-head ${count}`)).ink;
+        const ratio = contrast(ink, head.ground);
+
+        expect(
+          ratio,
+          `${count} ${ink} on ${head.ground}`,
+        ).toBeGreaterThanOrEqual(4.5);
+      }
+    });
+  }
 });
 
+/**
+ * The row that closes out a run of files, drawn as
+ * one more footer of the same card shape: what the
+ * row is about in a hint, and the two things to do
+ * to every file in it at once.
+ */
 test.describe("a turn's edits, closed out at once", () => {
   test('shows one row to keep or undo every pending file', async ({ page }) => {
     const harness = await openPanel(page);
@@ -1404,11 +1938,36 @@ test.describe("a turn's edits, closed out at once", () => {
       }),
     );
 
-    await expect(page.locator('.files-batch-count')).toHaveText(
-      '2 files changed',
-    );
+    const row = page.locator('.files-batch');
+    const count = row.locator('.field-hint');
+    const keep = row.locator('[data-keep-all]');
+    const undo = row.locator('[data-undo-all]');
 
-    await page.locator('[data-keep-all]').click();
+    await expect(row).toHaveCount(1);
+    await expect(row).toHaveAttribute('data-block', 'diff');
+    await expect(count).toHaveText('2 files changed');
+
+    await expect(keep).toHaveClass(/\bbtn\b/);
+    await expect(keep).toHaveAttribute('data-variant', 'quiet');
+    await expect(keep).toHaveAttribute('data-ink', 'brand');
+    await expect(keep).toHaveText(strings.keepAllEdits);
+    await expect(undo).toHaveClass(/\bbtn\b/);
+    await expect(undo).toHaveAttribute('data-variant', 'quiet');
+    await expect(undo).not.toHaveAttribute('data-ink');
+    await expect(undo).toHaveText(strings.undoAllEdits);
+
+    const inks = await Promise.all(
+      [keep, undo].map((button) =>
+        button.evaluate((element) => getComputedStyle(element).color),
+      ),
+    );
+    const brand = colourOf('light', 'brand');
+    const muted = colourOf('light', 'ink-muted');
+
+    expect(sameColour(inks[0]!, brand), `${inks[0]} ≠ ${brand}`).toBe(true);
+    expect(sameColour(inks[1]!, muted), `${inks[1]} ≠ ${muted}`).toBe(true);
+
+    await keep.click();
 
     expect(await harness.postedOfType('keepFile')).toEqual([
       { type: 'keepFile', id: 'a' },
@@ -1441,7 +2000,7 @@ test.describe("a turn's edits, closed out at once", () => {
       }),
     );
 
-    await expect(page.locator('.files-batch-count')).toHaveText(
+    await expect(page.locator('.files-batch .field-hint')).toHaveText(
       '2 files changed',
     );
 

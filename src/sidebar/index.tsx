@@ -30,6 +30,7 @@ import type {
   SidebarStrings,
 } from '../webview/protocol.js';
 import { Button } from '../webview/signal/Button.js';
+import { FieldHint } from '../webview/signal/FieldHint.js';
 import { hooked } from '../webview/signal/hook.js';
 import { StateWord } from '../webview/signal/StateWord.js';
 
@@ -160,25 +161,24 @@ function Panel(state: SidebarInit) {
               data-block="diff"
               data-files-batch
             >
-              <span className="files-batch-count">
+              <FieldHint tone="muted">
                 {filled(strings.filesChanged, String(row.total))}
-              </span>
-              <span className="files-batch-actions">
-                <button
-                  type="button"
-                  data-keep-all
-                  onClick={() => keepAll(row.ids)}
-                >
-                  {strings.keepAllEdits}
-                </button>
-                <button
-                  type="button"
-                  data-undo-all
-                  onClick={() => undoAll(row.ids)}
-                >
-                  {strings.undoAllEdits}
-                </button>
-              </span>
+              </FieldHint>
+              <Button
+                variant="quiet"
+                ink="brand"
+                hook={{ 'keep-all': '' }}
+                onClick={() => keepAll(row.ids)}
+              >
+                {strings.keepAllEdits}
+              </Button>
+              <Button
+                variant="quiet"
+                hook={{ 'undo-all': '' }}
+                onClick={() => undoAll(row.ids)}
+              >
+                {strings.undoAllEdits}
+              </Button>
             </li>
           ),
         )}
@@ -387,18 +387,41 @@ function Entry({
 
   if (entry.at === 'tool') return <Tool entry={entry} strings={strings} />;
 
-  if (entry.at === 'file') return <FileEdit entry={entry} strings={strings} />;
+  if (entry.at === 'file') return <FileDiff entry={entry} strings={strings} />;
 
   if (entry.at === 'diagnostic') return <Diagnostic entry={entry} />;
 
   // What to do after a turn that asked about a
   // block: a sentence mBoss wrote, so prose, and
-  // none of it verbatim.
+  // none of it verbatim, then the two ways on.
   if (entry.at === 'next') {
     return (
-      <p className="said" data-from="agent" data-block="prose" data-next>
-        {entry.sentence}
-      </p>
+      <div className="said" data-from="agent" data-block="prose" data-next>
+        <p className="next-sentence">{entry.sentence}</p>
+        <div className="next-actions">
+          <Button
+            variant="secondary"
+            ink="brand"
+            hook={{ 'replay-from': '' }}
+            onClick={() =>
+              postToHost({
+                type: 'replayFrom',
+                workflowId: entry.about.workflowId,
+                nodeId: entry.about.nodeId,
+              })
+            }
+          >
+            {strings.replayFromHere}
+          </Button>
+          <Button
+            variant="quiet"
+            hook={{ 'undo-turn': '' }}
+            onClick={() => undoAll(entry.edits)}
+          >
+            {strings.undoTurnEdits}
+          </Button>
+        </div>
+      </div>
     );
   }
 
@@ -618,22 +641,25 @@ function targetOf(entry: ToolEntry): ReactNode {
 }
 
 /**
- * One file, as the agent left it — a header with the
- * counts, the diff itself, and Keep / Undo while
- * nothing has been decided about it yet.
+ * One file, as the agent left it: one card, with a
+ * header saying what was done to the file and where
+ * that stands, the lines that changed, and a footer
+ * holding what can still be done about it.
  *
- * Its own row rather than a line inside the call
+ * Its own card rather than a line inside the call
  * that wrote it: a file is what a person keeps or
  * undoes, so it is the thing that carries a
- * decision.
+ * decision. The call keeps its own row above it.
  */
-function FileEdit({
+function FileDiff({
   entry,
   strings,
 }: {
-  entry: FileEditEntry;
+  entry: Extract<SidebarEntry, { at: 'file' }>;
   strings: SidebarStrings;
 }) {
+  const { directory, name } = splitPath(entry.shownPath);
+
   // Nothing was kept past the byte cap, so there is
   // nothing left to compare against or write back.
   const canUndo = entry.newText !== undefined;
@@ -647,24 +673,36 @@ function FileEdit({
       data-decision={entry.decision}
     >
       <p className="file-head">
-        {/* Isolated, because the line it sits on is
-            laid out right to left so that a long
-            path loses its head rather than its
-            filename. The leading slash has no
-            direction of its own, and at the edge of
-            a right-to-left run it is reordered to
-            the far end — the file then reads as a
-            directory. The isolate gives the path its
-            own run to be ordered inside, and leaves
-            the line's own direction, and so the end
-            it truncates from, alone. */}
-        <span className="mono path">{`\u2066${entry.path}\u2069`}</span>
-        <span className="stat">
-          {entry.isNew ? <span className="new">{strings.newFile}</span> : null}
-          <span className="added">+{entry.added}</span>
-          {entry.removed > 0 ? (
-            <span className="removed">−{entry.removed}</span>
+        <span className="file-verb">{strings.toolVerbs.edit}</span>
+        {/* Where the file sits gives up its end in a
+            narrow panel before the file's own name
+            gives up anything. The whole path stays on
+            the name for whoever needs it. */}
+        <span className="file-path mono" title={entry.path}>
+          {directory === '' ? null : (
+            <span className="file-dir">{directory}</span>
+          )}
+          <span className="file-name">{name}</span>
+        </span>
+        <span className="file-stat">
+          {/* Three lines added reads the same as three
+              lines appended, so a file that was not
+              there before says so. */}
+          {entry.isNew ? (
+            <StateWord tone="muted" hook={{ 'new-file': '' }}>
+              {strings.newFile}
+            </StateWord>
           ) : null}
+          <span className="file-counts">
+            <span className="added">+{entry.added}</span>
+            <span className="removed">−{entry.removed}</span>
+          </span>
+          <StateWord
+            tone={entry.state === 'failed' ? 'fail' : 'muted'}
+            hook={{ 'file-state': entry.state }}
+          >
+            {strings.fileStates[entry.state]}
+          </StateWord>
         </span>
       </p>
 
@@ -677,44 +715,75 @@ function FileEdit({
       )}
 
       {entry.decision === 'pending' ? (
-        <div className="file-actions">
-          <button
-            type="button"
-            data-keep
+        <div className="file-foot">
+          <Button
+            variant="quiet"
+            ink="brand"
+            hook={{ keep: '' }}
             onClick={() => postToHost({ type: 'keepFile', id: entry.id })}
           >
             {strings.keepEdit}
-          </button>
+          </Button>
           {canUndo ? (
-            <button
-              type="button"
-              data-undo-file
+            <Button
+              variant="quiet"
+              hook={{ 'undo-file': '' }}
               onClick={() => postToHost({ type: 'undoFile', id: entry.id })}
             >
               {strings.undoEdit}
-            </button>
+            </Button>
           ) : null}
         </div>
       ) : null}
 
+      {/* The word in the header says what happened;
+          this says why nothing is offered. */}
       {entry.decision === 'changed-since' ? (
-        <p className="file-note">{strings.changedSince}</p>
+        <div className="file-foot">
+          <FieldHint tone="warn" hook={{ 'file-note': '' }}>
+            {strings.changedSince}
+          </FieldHint>
+        </div>
       ) : null}
     </div>
   );
 }
 
-/** One line of a diff. Where two hunks meet, the
- *  line numbers jump. */
+/**
+ * A shown path as the directory it sits in, with
+ * its separator, and the file's own name. Split on
+ * either separator, because a path is shown the way
+ * the platform the host runs on spells it.
+ */
+function splitPath(shown: string): { directory: string; name: string } {
+  const cut = Math.max(shown.lastIndexOf('/'), shown.lastIndexOf('\\')) + 1;
+
+  return { directory: shown.slice(0, cut), name: shown.slice(cut) };
+}
+
+/**
+ * One line of a diff, with one number: where the
+ * line was in the old file when it was taken out,
+ * and where it is in the new one otherwise. Where
+ * two hunks meet, the numbers jump.
+ *
+ * The sign is read out with the line: without it a
+ * line taken out and the line put in its place
+ * sound the same, and only the tint tells them
+ * apart.
+ */
 function DiffLineRow({ line }: { line: DiffLine }) {
   return (
     <p className="diff-line" data-kind={line.kind}>
-      <span className="gutter">{line.oldNo ?? ''}</span>
-      <span className="gutter">{line.newNo ?? ''}</span>
-      <span className="sign" aria-hidden="true">
+      <span className="gutter">
+        {(line.kind === 'del' ? line.oldNo : line.newNo) ?? ''}
+      </span>
+      <span className="sign">
         {line.kind === 'add' ? '+' : line.kind === 'del' ? '−' : ''}
       </span>
-      <span className="mono text">{line.text}</span>
+      <span className="text" data-verbatim>
+        {line.text}
+      </span>
     </p>
   );
 }

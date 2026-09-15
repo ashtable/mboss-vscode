@@ -384,6 +384,8 @@
     "undoAllEdits": "Undo all",
     "filesChanged": "{0} files changed",
     "applied": "Applied. Replay {0} from {1} to verify — earlier durable results are reused.",
+    "replayFromHere": "Replay from here",
+    "undoTurnEdits": "Undo edit",
     "evidenceTarget": "run {0} · mBoss run evidence",
     "changedSince": "changed since · nothing to undo",
     "showLines": "{0} lines · show",

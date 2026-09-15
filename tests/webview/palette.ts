@@ -292,6 +292,41 @@ function near(one: number, other: number): boolean {
   return Math.abs(one - other) <= 1;
 }
 
+/**
+ * How far apart text and its ground read: the WCAG
+ * ratio, from 1 for one colour on itself to 21 for
+ * black on white.
+ *
+ * Both have to be opaque. A translucent colour
+ * reads as whatever is under it, which is a
+ * question about the page rather than about the
+ * two colours, so it is refused rather than
+ * answered against a ground it may not have.
+ */
+export function contrast(one: string, other: string): number {
+  const [lighter, darker] = [luminance(one), luminance(other)].sort(
+    (a, b) => b - a,
+  );
+
+  return ((lighter ?? 0) + 0.05) / ((darker ?? 0) + 0.05);
+}
+
+function luminance(colour: string): number {
+  const { r, g, b, a } = parse(colour);
+
+  if (a < 0.999) {
+    throw new Error(`a translucent colour has no contrast: ${colour}`);
+  }
+
+  const linear = (channel: number): number => {
+    const share = channel / 255;
+
+    return share <= 0.04045 ? share / 12.92 : ((share + 0.055) / 1.055) ** 2.4;
+  };
+
+  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+}
+
 function resolve(theme: ThemeKind, role: Role): Rgba | undefined {
   const chrome = CHROME[role];
 
