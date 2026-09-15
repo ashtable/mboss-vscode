@@ -4,13 +4,19 @@ import { fakeWebview } from '../../test/doubles/webview.js';
 import type { AgentPanel, PanelState } from '../acp/agent.js';
 import type { ToolCallStatus, ToolKind } from '../acp/connection.js';
 import {
+  evidenceRowId,
   foldUpdates,
   personEdit,
+  said,
   type FileDecision,
   type SessionUpdate,
   type TranscriptEntry,
 } from '../acp/transcript.js';
+import { messages } from '../messages.js';
 import type { PreviewStore } from '../preview/store.js';
+import type { RecordedRunEvidence } from '../runs/evidence.js';
+import { evidenceEcho, evidenceSentence } from '../runs/view.js';
+import { shortRunId } from '../webview/ids.js';
 import type { SidebarEntry, SidebarInit } from '../webview/protocol.js';
 
 import { AgentSidebarView, sidebarInit } from './view.js';
@@ -45,21 +51,49 @@ const preview = {
 } as unknown as PreviewStore;
 
 describe('the agent sidebar', () => {
-  it('opens the run a transcript row names', () => {
-    const opened: string[] = [];
+  /** The view, mounted, with every run door it is
+   *  handed writing down what reached it. */
+  const mounted = () => {
+    const reached: string[][] = [];
     const frame = fakeWebview();
 
-    new AgentSidebarView(
-      extensionUri,
-      panel,
-      async () => undefined,
-      preview,
-      async (workflowId) => void opened.push(workflowId),
-    ).resolveWebviewView(frame.panel);
+    new AgentSidebarView(extensionUri, panel, async () => undefined, preview, {
+      openRun: async (workflowId) => void reached.push(['open', workflowId]),
+      replayFrom: async (workflowId, nodeId) =>
+        void reached.push(['replay', workflowId, nodeId]),
+    }).resolveWebviewView(frame.panel);
+
+    return { frame, reached };
+  };
+
+  it('opens the run a transcript row names', () => {
+    const { frame, reached } = mounted();
 
     frame.send({ type: 'openRun', workflowId: 'wf_c9d2f3' });
 
-    expect(opened).toEqual(['wf_c9d2f3']);
+    expect(reached).toEqual([['open', 'wf_c9d2f3']]);
+  });
+
+  it('replays the run a next-step row names, from its block', () => {
+    const { frame, reached } = mounted();
+
+    frame.send({
+      type: 'replayFrom',
+      workflowId: 'wf_c9d2f3',
+      nodeId: 'refund_payment',
+    });
+
+    expect(reached).toEqual([['replay', 'wf_c9d2f3', 'refund_payment']]);
+  });
+
+  /** The column offers a replay from a block, never
+   *  from a row: it holds no rows to offer one of. */
+  it('replays nothing from a row it never offered', () => {
+    const { frame, reached } = mounted();
+
+    frame.send({ type: 'replayFrom', workflowId: 'wf_c9d2f3', functionId: 3 });
+
+    expect(reached).toEqual([]);
   });
 });
 
@@ -422,6 +456,82 @@ describe('what the agent panel is sent', () => {
     ).toEqual([undefined]);
   });
 
+  describe('about a run somebody asked the agent about', () => {
+    const RUN_ID = '7089cd29-5b5e-4a4c-9c3e-6c8d1b2f4a10';
+
+    it("shows an Ask-agent echo in the column's copy", () => {
+      const asked = evidenceSentence(succeeded(RUN_ID));
+      const about = {
+        workflowId: RUN_ID,
+        nodeId: 'refund_payment',
+        block: 'Refund payment',
+        shown: evidenceEcho(succeeded(RUN_ID)),
+      };
+      const [echo, typed] = sent({
+        transcript: said(said([], asked, about), asked),
+      }).transcript;
+
+      const text = echo?.at === 'message' ? echo.text : '';
+
+      expect(text).toContain(shortRunId(RUN_ID));
+      expect(text).toContain('done');
+      expect(text).not.toContain(RUN_ID);
+      expect(text).not.toContain('SUCCESS');
+
+      // Only a question mBoss asked has a copy of
+      // its own. Whatever else is typed is shown as
+      // it was typed.
+      expect(typed?.at === 'message' && typed.text).toBe(asked);
+    });
+
+    it('says the next step in a sentence naming the run and block', () => {
+      const [next] = sent({
+        transcript: [
+          {
+            at: 'next',
+            id: 'next-0',
+            about: { workflowId: RUN_ID, nodeId: 'refund_payment' },
+            block: 'Refund payment',
+            edits: ['call-1:/project/lib/refund.ts'],
+          },
+        ],
+      }).transcript;
+
+      const sentence = next?.at === 'next' ? next.sentence : '';
+
+      expect(sentence).toBe(
+        `Applied. Replay ${shortRunId(RUN_ID)} from Refund payment to ` +
+          'verify — earlier durable results are reused.',
+      );
+      expect(sentence).not.toContain(RUN_ID);
+    });
+
+    it('gives the evidence row a short target and keeps its verb', () => {
+      const [row] = sent({
+        transcript: [
+          {
+            at: 'tool',
+            id: evidenceRowId(RUN_ID),
+            by: 'person',
+            kind: 'read',
+            verb: 'Read',
+            target: messages.runEvidenceTarget(RUN_ID),
+            status: 'applied',
+            body: [],
+            lines: [{ text: 'status · done' }],
+            paths: [],
+          },
+        ],
+      }).transcript;
+
+      expect(row?.at === 'tool' && [row.verb, row.target]).toEqual([
+        'Read',
+        `run ${shortRunId(RUN_ID)} · mBoss run evidence`,
+      ]);
+      expect(row?.at === 'tool' && row.id).toBe(`evidence:${RUN_ID}`);
+    });
+  });
+
   it('calls the chosen agent by the name it goes by', () => {
     expect(sent({ agent: 'codex' }).agent).toBe('codex');
     expect(sent({ agent: 'gemini' }).agent).toBe('gemini');
@@ -443,3 +553,31 @@ describe('what the agent panel is sent', () => {
     expect(toolStatus.applied).toBe(toolStatus.completed);
   });
 });
+
+/** A run that finished, as mBoss would hand it to
+ *  the agent: nothing failed, so the question names
+ *  the run and where it got to. */
+function succeeded(workflowId: string): RecordedRunEvidence {
+  return {
+    at: 'run',
+    assembledAt: '2026-01-01T12:00:00.000Z',
+    reader: {
+      by: 'mboss-vscode',
+      tables: ['dbos.workflow_status', 'dbos.operation_outputs'],
+      database: 'db.local:5432/runs',
+      from: 'DATABASE_URL',
+    },
+    workflow: 'refund_order',
+    workflowId,
+    status: 'SUCCESS',
+    executorId: 'local-dev',
+    createdAt: '2026-01-01T12:00:00.000Z',
+    recoveryAttempts: 1,
+    recovered: false,
+    input: { shape: 'none' },
+    focus: { nodeId: 'refund_payment', how: 'selected' },
+    operations: [],
+    operationsTotal: 0,
+    document: { found: true, revision: 3 },
+  };
+}

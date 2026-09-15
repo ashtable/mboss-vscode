@@ -462,12 +462,14 @@ const StepSelect = z.object({
  * is about.
  *
  * Both ways of naming the point are optional and at
- * least one is required, because the two surfaces
- * that send this hold different things. A canvas has
- * a block in its column and no row at all; the run
- * page has a row somebody clicked in a trace. Which
- * of the two a block's several rows a replay starts
- * from is the extension's answer, not the panel's.
+ * least one is required, because the surfaces that
+ * send this hold different things. A canvas has a
+ * block in its column and no row at all, and so
+ * does the agent panel, after a turn asked about a
+ * block; the run page has a row somebody clicked in
+ * a trace. Which of a block's several rows a replay
+ * starts from is the extension's answer, not the
+ * panel's.
  */
 const ReplayFrom = z
   .object({
@@ -628,6 +630,7 @@ const SCHEMAS = {
     KeepFile,
     UndoFile,
     OpenRun,
+    ReplayFrom,
   ]),
   runs: z.discriminatedUnion('type', [
     Ready,

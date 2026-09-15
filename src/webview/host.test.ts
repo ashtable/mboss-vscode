@@ -194,7 +194,7 @@ describe('what each view may say', () => {
     resumeRun: ['runs', 'see'],
 
     stepSelect: ['see'],
-    replayFrom: ['canvas', 'see'],
+    replayFrom: ['canvas', 'see', 'sidebar'],
 
     // Both surfaces that draw the Inspector's
     // card, because both can be showing a queue

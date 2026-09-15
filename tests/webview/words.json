@@ -379,6 +379,8 @@
     "keepAllEdits": "Keep all",
     "undoAllEdits": "Undo all",
     "filesChanged": "{0} files changed",
+    "applied": "Applied. Replay {0} from {1} to verify — earlier durable results are reused.",
+    "evidenceTarget": "run {0} · mBoss run evidence",
     "changedSince": "changed since · nothing to undo",
     "showLines": "{0} lines · show",
     "planProgress": "Plan · {0}/{1}"

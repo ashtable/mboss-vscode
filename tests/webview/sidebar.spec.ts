@@ -470,6 +470,48 @@ test.describe('the plan', () => {
 });
 
 /**
+ * The step after a turn that answered a question
+ * about one block of a run and left an edit
+ * standing.
+ *
+ * The sentence is the host's, composed where the
+ * run's short id and the block's title are in
+ * reach, and the panel draws it as it arrives.
+ */
+test.describe('after a turn asked about a block', () => {
+  test('says what to do next, in a sentence of its own', async ({ page }) => {
+    const harness = await openPanel(page);
+    const sentence =
+      'Applied. Replay #7089 from Refund payment to verify — earlier ' +
+      'durable results are reused.';
+
+    await harness.show(
+      sidebarInit({
+        transcript: sidebarEntries([
+          {
+            at: 'next',
+            id: 'next-0',
+            about: {
+              workflowId: '7089cd29-5b5e-4a4c-9c3e-6c8d1b2f4a10',
+              nodeId: 'refund_payment',
+            },
+            block: 'Refund payment',
+            edits: ['call-1:/project/lib/refund.ts'],
+            sentence,
+          },
+        ]),
+      }),
+    );
+
+    const next = page.locator('[data-next]');
+
+    await expect(next).toHaveCount(1);
+    await expect(next).toHaveText(sentence);
+    await expect(page.locator('.plan')).toHaveCount(0);
+  });
+});
+
+/**
  * Something the extension found, and the one thing
  * to do about it.
  *

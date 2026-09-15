@@ -156,7 +156,12 @@ export type RefusedRunEvidence = {
   at: 'refused';
   assembledAt: string;
   workflow: string;
-  refusedAt: string;
+
+  /** Epoch milliseconds, as the session log kept
+   *  them, so the row in the column can set the
+   *  moment on the clock every panel reads. */
+  refusedAt: number;
+
   detail: string;
   input: unknown;
 };
@@ -396,7 +401,7 @@ export function refusedRunEvidence(run: SessionRun): RefusedRunEvidence {
     at: 'refused',
     assembledAt: moment(Date.now()),
     workflow: run.workflow,
-    refusedAt: moment(run.startedAt),
+    refusedAt: run.startedAt,
     detail: run.error ?? '',
     input: run.input,
   };
@@ -678,8 +683,8 @@ function durationOf(
 }
 
 /** Epoch milliseconds as a moment an agent can
- *  read, which is the only form of time this object
- *  carries. */
+ *  read, which is the only form of time a run the
+ *  ledger has is described in. */
 function moment(at: number): string {
   return new Date(at).toISOString();
 }

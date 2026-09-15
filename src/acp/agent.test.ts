@@ -9,6 +9,7 @@ import { PEER_SCRIPT } from '../test-support/peer.js';
 
 import { agentPanel, type AgentPanel, type PanelHost } from './agent.js';
 import { REMEMBERED_KEY } from './permissions.js';
+import type { PromptAbout } from './prompt.js';
 import type { FileEditEntry } from './transcript.js';
 
 /**
@@ -666,5 +667,138 @@ describe('keeping and undoing a file edit', () => {
     await driven.panel.undo('made-up-id');
 
     expect(fileEntry(driven)?.decision).toBe('kept');
+  });
+});
+
+/**
+ * A turn that answers a question about one block
+ * of a run.
+ *
+ * Once it has changed something the panel offers
+ * to replay the run from that block. What the
+ * question was about belongs to the turn that asked
+ * it: a question can wait in the queue behind a
+ * turn already going, and that turn — which was
+ * about something else — must not come out of it
+ * offering a replay.
+ *
+ * The scripted peer writes one new file under a
+ * call it asks permission for, every turn.
+ */
+describe('a turn asked about a block', () => {
+  const PATH = '/project/lib/twilioChat.ts';
+  const NEW_TEXT = 'export async function twilioChat() {}\n';
+
+  const ABOUT: PromptAbout = {
+    workflowId: 'wf_c9d2f3',
+    nodeId: 'refund_payment',
+    block: 'Refund payment',
+    shown: 'Run `#c9d2` of `refund_order` failed at Refund payment.',
+  };
+
+  const asking = { text: 'Run `wf_c9d2f3` failed.', about: ABOUT };
+
+  /** What the column holds, one word per entry. */
+  const shape = (driven: Driven): string[] =>
+    driven.panel
+      .state()
+      .transcript.map((entry) =>
+        entry.at === 'message' ? `${entry.from}: ${entry.text}` : entry.at,
+      );
+
+  it('offers the next step after a turn that applied an edit', async () => {
+    const driven = drive();
+
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send(asking);
+
+    const transcript = driven.panel.state().transcript;
+    const file = transcript.find((entry) => entry.at === 'file');
+
+    expect(file?.path).toBe(PATH);
+    expect(transcript.at(-1)).toEqual({
+      at: 'next',
+      id: 'next-0',
+      about: { workflowId: 'wf_c9d2f3', nodeId: 'refund_payment' },
+      block: 'Refund payment',
+      edits: [file?.id],
+    });
+  });
+
+  it('offers nothing when its edit was undone before it ended', async () => {
+    const driven = drive({
+      files: {
+        read: async () => NEW_TEXT,
+        write: async () => {},
+        remove: async () => {},
+      },
+    });
+    let undid = false;
+
+    driven.panel.onChanged(() => {
+      if (undid || driven.panel.state().status !== 'awaiting-permission') {
+        return;
+      }
+
+      undid = true;
+
+      const file = driven.panel
+        .state()
+        .transcript.find((entry) => entry.at === 'file');
+
+      void (async () => {
+        await driven.panel.undo(file?.id ?? '');
+        await driven.panel.answer('yes', 'allow_once');
+      })();
+    });
+
+    await driven.panel.send(asking);
+
+    const transcript = driven.panel.state().transcript;
+
+    expect(transcript.find((entry) => entry.at === 'file')?.decision).toBe(
+      'undone',
+    );
+    expect(transcript.some((entry) => entry.at === 'next')).toBe(false);
+  });
+
+  it('binds the question to its own turn, not the one ahead', async () => {
+    const driven = drive();
+    let queued = false;
+
+    driven.panel.onChanged(() => {
+      if (queued || driven.panel.state().status !== 'streaming') return;
+
+      queued = true;
+      void driven.panel.send(asking);
+    });
+
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send({ text: 'wire it' });
+
+    // The queued question's own turn is sent from
+    // the end of the first one, which the first
+    // send waits for.
+    expect(shape(driven)).toEqual([
+      'user: wire it',
+      'agent: Wiring the booking flow.',
+      'thought: The confirm step needs a handler.',
+      'tool',
+      'file',
+      `user: ${asking.text}`,
+      'agent: Wiring the booking flow.',
+      'thought: The confirm step needs a handler.',
+      'next',
+    ]);
+  });
+
+  it('offers nothing after a prompt somebody typed', async () => {
+    const driven = drive();
+
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send({ text: 'wire the booking flow' });
+
+    expect(shape(driven)).toContain('file');
+    expect(shape(driven)).not.toContain('next');
   });
 });

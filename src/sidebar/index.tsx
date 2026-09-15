@@ -14,12 +14,12 @@ import type {
   PermissionPrompt,
   PlanEntry,
   ToolEntry,
-  TranscriptEntry,
 } from '../acp/transcript.js';
 import type { PermissionOptionKind, ToolKind } from '../acp/connection.js';
 import { postToHost } from '../webview/client.js';
 import { mountView } from '../webview/mount.js';
 import type {
+  SidebarEntry,
   SidebarInit,
   SidebarPreview,
   SidebarStrings,
@@ -85,7 +85,7 @@ function withCount(template: string, ...values: number[]): string {
 /** One row of the transcript, or the summary that
  *  closes out a run of file edits. */
 type Row =
-  | { kind: 'entry'; entry: TranscriptEntry }
+  | { kind: 'entry'; entry: SidebarEntry }
   | { kind: 'files'; key: string; ids: string[]; total: number };
 
 /**
@@ -98,7 +98,7 @@ type Row =
  * drawn, and the transcript the host sends says
  * nothing about where one turn's edits end.
  */
-function transcriptRows(entries: readonly TranscriptEntry[]): Row[] {
+function transcriptRows(entries: readonly SidebarEntry[]): Row[] {
   const rows: Row[] = [];
   let group: FileEditEntry[] = [];
 
@@ -313,7 +313,7 @@ function Entry({
   entry,
   strings,
 }: {
-  entry: TranscriptEntry;
+  entry: SidebarEntry;
   strings: SidebarStrings;
 }) {
   if (entry.at === 'message') {
@@ -329,6 +329,16 @@ function Entry({
   if (entry.at === 'file') return <FileEdit entry={entry} strings={strings} />;
 
   if (entry.at === 'diagnostic') return <Diagnostic entry={entry} />;
+
+  // What to do after a turn that asked about a
+  // block: a sentence mBoss wrote, so prose.
+  if (entry.at === 'next') {
+    return (
+      <p className="said" data-from="agent" data-next>
+        {entry.sentence}
+      </p>
+    );
+  }
 
   return <Plan entry={entry} strings={strings} />;
 }

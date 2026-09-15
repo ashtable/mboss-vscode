@@ -3,6 +3,7 @@ import type {
   FileEditEntry,
   FileState,
   MessageEntry,
+  NextEntry,
   PermissionPrompt,
   TranscriptEntry,
 } from '../acp/transcript.js';
@@ -310,19 +311,23 @@ export type SidebarInit = {
  * call is another entry. So the host works each
  * out and the view only draws it.
  *
- * A tool row's `verb` and `target`, and a file's
- * `lines`, are the fold's own fields rewritten
- * rather than new ones beside them, so the view
- * reads one name whichever wrote it. A file always
- * carries where it is shown and where it stands,
- * because every drawing of one reads both; a
- * thought carries `reasoning` only while it is
- * work under way.
+ * A tool row's `verb` and `target`, a file's
+ * `lines` and a question's `text` are the fold's
+ * own fields rewritten rather than new ones beside
+ * them, so the view reads one name whichever wrote
+ * it. A question mBoss asked for somebody is shown
+ * in the column's own copy, and its `about` is what
+ * says so. A file always carries where it is shown
+ * and where it stands, because every drawing of one
+ * reads both; a thought carries `reasoning` only
+ * while it is work under way; the step after a turn
+ * always carries the sentence that offers it.
  */
 export type SidebarEntry =
-  | Exclude<TranscriptEntry, MessageEntry | FileEditEntry>
+  | Exclude<TranscriptEntry, MessageEntry | FileEditEntry | NextEntry>
   | (MessageEntry & { reasoning?: { verb: string; target: string } })
-  | (FileEditEntry & { shownPath: string; state: FileState });
+  | (FileEditEntry & { shownPath: string; state: FileState })
+  | (NextEntry & { sentence: string });
 
 /**
  * The card over the composer, in one of the three

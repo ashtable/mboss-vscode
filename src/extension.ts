@@ -208,13 +208,10 @@ export function activate(context: ExtensionContext): void {
       watchers,
       panel,
     ),
-    AgentSidebarView.register(
-      context.extensionUri,
-      panel,
-      pickAgent,
-      preview,
+    AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview, {
       openRun,
-    ),
+      replayFrom: canvasRuns.replayFrom,
+    }),
     RunsListView.register(context.extensionUri, runs, see),
     { dispose: () => see.dispose() },
     { dispose: () => gallery.dispose() },

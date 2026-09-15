@@ -2,6 +2,7 @@ import type {
   FileDecision,
   FileEditEntry,
   FileState,
+  NextEntry,
   TranscriptEntry,
 } from '../../../src/acp/transcript.js';
 import type {
@@ -53,18 +54,22 @@ type ShownFile = Extract<SidebarEntry, { at: 'file' }>;
  * import `vscode` and `node:path`, which a page
  * cannot, so a spec is handed plain defaults
  * instead: a file is shown by the path it already
- * has, and stands where its decision alone says.
- * The working-out itself is proved beside the host.
- * A case about a shown path or a state sets that
- * field, and a field an entry already carries is
- * kept.
+ * has, and stands where its decision alone says;
+ * the step after a turn is offered in a sentence
+ * naming its block. The working-out itself is
+ * proved beside the host. A case about a shown
+ * path, a state or a sentence sets that field, and
+ * a field an entry already carries is kept.
  */
 export function sidebarEntries(
   entries: readonly (TranscriptEntry | SidebarEntry)[],
 ): SidebarEntry[] {
-  return entries.map((entry) =>
-    entry.at === 'file' ? shownFile(entry) : entry,
-  );
+  return entries.map((entry) => {
+    if (entry.at === 'file') return shownFile(entry);
+    if (entry.at === 'next') return shownNext(entry);
+
+    return entry;
+  });
 }
 
 /** A pending file edit, ready to be overridden for
@@ -98,4 +103,10 @@ const STATE_OF: Record<FileDecision, FileState> = {
 
 function shownFile(edit: FileEditEntry | ShownFile): ShownFile {
   return { shownPath: edit.path, state: STATE_OF[edit.decision], ...edit };
+}
+
+function shownNext(
+  next: NextEntry | (NextEntry & { sentence: string }),
+): NextEntry & { sentence: string } {
+  return { sentence: `Replay from ${next.block}`, ...next };
 }

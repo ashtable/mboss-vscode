@@ -1,7 +1,8 @@
 import type { Disposable } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
-import type { ToolEntry } from '../acp/transcript.js';
+import type { PromptAbout } from '../acp/prompt.js';
+import { evidenceRowId, type ToolEntry } from '../acp/transcript.js';
 import type { LibManifest, WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
@@ -15,6 +16,7 @@ import {
   assembleRunEvidence,
   refusedRunEvidence,
   type AskAgent,
+  type RecordedRunEvidence,
   type RunEvidence,
 } from './evidence.js';
 import type { FollowedRun, Following } from './following.js';
@@ -27,7 +29,12 @@ import {
   type SessionLog,
   type SessionRun,
 } from './sessionLog.js';
-import { evidenceLines, evidenceSentence, sessionRowOf } from './view.js';
+import {
+  evidenceEcho,
+  evidenceLines,
+  evidenceSentence,
+  sessionRowOf,
+} from './view.js';
 import type { LedgerRead, LiveRun } from './watch.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 
@@ -423,10 +430,10 @@ export function testRunZone(deps: TestRunDeps): TestRun {
    */
   const readRow = (
     workflowId: string,
-    over: Pick<ToolEntry, 'status' | 'body' | 'action'>,
+    over: Pick<ToolEntry, 'status' | 'body' | 'lines' | 'action'>,
   ): ToolEntry => ({
     at: 'tool',
-    id: `evidence:${workflowId}`,
+    id: evidenceRowId(workflowId),
     by: 'person',
     kind: 'read',
     verb: messages.runEvidenceVerb(),
@@ -448,17 +455,25 @@ export function testRunZone(deps: TestRunDeps): TestRun {
    * summary; the machine-readable copy travels with
    * the sentence, because a transcript is what a
    * person reads and a page of JSON in it is not.
+   *
+   * What the question is about travels with it too,
+   * for a run the ledger has: the column shows the
+   * question in its own copy, and offers a replay
+   * from the block once the turn has changed
+   * something.
    */
   const handOver = async (
     evidence: RunEvidence,
-    workflowId: string,
+    ask: AskAgent,
   ): Promise<void> => {
+    const { workflowId } = ask;
     const target = messages.runEvidenceTarget(workflowId);
 
     deps.agent.note(
       readRow(workflowId, {
         status: 'applied',
-        body: evidenceLines(evidence),
+        body: [],
+        lines: evidenceLines(evidence),
         // A way out only where there is a run to
         // open. The id a refused run is filed under
         // was minted here, and a page for it would
@@ -490,6 +505,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
           text: JSON.stringify(evidence, null, 2),
         },
       ],
+      ...(evidence.at === 'refused' ? {} : { about: aboutOf(evidence, ask) }),
     });
   };
 
@@ -602,7 +618,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
           ? { at: 'unasked' as const }
           : await assembleRunEvidence(deps, source, ask);
 
-      if (recorded.at === 'run') return await handOver(recorded, workflowId);
+      if (recorded.at === 'run') return await handOver(recorded, ask);
 
       const remembered = deps.sessionLog.find(workflowId);
       if (remembered === undefined) return;
@@ -615,7 +631,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       if (remembered.failedStep === undefined) {
         if (remembered.error === undefined) return;
 
-        return await handOver(refusedRunEvidence(remembered), workflowId);
+        return await handOver(refusedRunEvidence(remembered), ask);
       }
 
       // A read that could not be made is said out
@@ -757,4 +773,30 @@ function parsed(text: string): { ok: true; value: unknown } | { ok: false } {
   } catch {
     return { ok: false };
   }
+}
+
+/**
+ * What a question about a run the ledger has is
+ * about.
+ *
+ * The block is the one somebody asked from, never
+ * the one the record chose to focus on: a question
+ * about a whole run is not a question about where
+ * it failed. Its title is the saved document's, and
+ * a block the document no longer has is named by
+ * nothing, so nothing is offered from it.
+ */
+function aboutOf(evidence: RecordedRunEvidence, ask: AskAgent): PromptAbout {
+  const about: PromptAbout = {
+    workflowId: evidence.workflowId,
+    shown: evidenceEcho(evidence),
+  };
+
+  if (ask.nodeId === undefined) return about;
+
+  const block = evidence.node?.title;
+
+  return block === undefined
+    ? { ...about, nodeId: ask.nodeId }
+    : { ...about, nodeId: ask.nodeId, block };
 }

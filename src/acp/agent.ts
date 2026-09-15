@@ -27,7 +27,13 @@ import {
   type SessionEvent,
   type SessionState,
 } from './session.js';
-import { foldUpdate, said, type PermissionPrompt } from './transcript.js';
+import {
+  editsIn,
+  foldUpdate,
+  nextActions,
+  said,
+  type PermissionPrompt,
+} from './transcript.js';
 import type {
   DiagnosticEntry,
   FileEditEntry,
@@ -240,6 +246,19 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
    */
   let queued: AgentPrompt[] = [];
 
+  /**
+   * The file edits the turn now running has
+   * written, and nothing while no turn runs.
+   *
+   * Taken when a prompt is actually sent and let go
+   * when its turn ends — never when it is queued —
+   * so a question waiting behind a turn already
+   * going is not credited with what that turn
+   * wrote, and what comes after the turn is decided
+   * about the prompt that started it.
+   */
+  let written: string[] | undefined;
+
   const changed = changes.fire;
 
   // Trust arriving changes what the panel shows,
@@ -308,6 +327,7 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
         {
           onUpdate: (update) => {
             transcript = foldUpdate(transcript, update);
+            written?.push(...editsIn(update));
             changed();
           },
           onPermission,
@@ -361,14 +381,29 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
     // mBoss attached is a page of JSON assembled for
     // the agent to read, and a transcript is what a
     // person reads.
-    transcript = said(transcript, prompt.text);
+    transcript = said(transcript, prompt.text, prompt.about);
+
+    const wrote: string[] = [];
+
+    written = wrote;
     move({ is: 'prompted' });
     changed();
 
     try {
       await live.prompt(promptBlocks(prompt, live.accepts));
     } finally {
+      written = undefined;
       move({ is: 'turnEnded' });
+    }
+
+    // Asked only of a turn that ended rather than
+    // threw: one that failed has no edit worth
+    // replaying the run to test.
+    const offered = nextActions(transcript, prompt.about, wrote);
+
+    if (offered !== undefined) {
+      transcript = [...transcript, offered];
+      changed();
     }
 
     const next = queued.shift();

@@ -105,6 +105,20 @@ export const sidebarWords = once(() => ({
   // entries as it draws them.
   filesChanged: l10n.t('{0} files changed'),
 
+  // The step after a turn that answered a question
+  // about one block: the run by its short id, then
+  // the block. A replay reuses what the run already
+  // recorded before that block, which is why it is
+  // the cheap way to check an edit.
+  applied: l10n.t(
+    'Applied. Replay {0} from {1} to verify — earlier durable results are reused.',
+  ),
+
+  // The row mBoss writes about a run it read, with
+  // the run by its short id. The agent is sent the
+  // same words around the full one.
+  evidenceTarget: l10n.t('run {0} · mBoss run evidence'),
+
   changedSince: l10n.t('changed since · nothing to undo'),
   showLines: l10n.t('{0} lines · show'),
   planProgress: l10n.t('Plan · {0}/{1}'),

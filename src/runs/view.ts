@@ -1,3 +1,4 @@
+import type { ToolLine } from '../acp/transcript.js';
 import {
   canvasWords,
   durationWords,
@@ -7,6 +8,7 @@ import {
 import { replayBoundaries, type Unoffered } from '../core/index.js';
 import { ownerOf, type NodeBox, type WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
+import { shortRunId } from '../webview/ids.js';
 import { inFlight, runWord, type RunWord } from '../webview/states.js';
 import { clock, duration, fine } from '../webview/time.js';
 import type {
@@ -928,20 +930,27 @@ function round(fraction: number): number {
 }
 
 /**
- * The run evidence, said twice: once as a summary
- * a person reads in the transcript, and once as
- * the sentence the agent is asked.
+ * The run evidence, said three times: as a summary
+ * a person reads in the transcript, as the sentence
+ * the agent is asked, and as that sentence the way
+ * the transcript shows it.
  *
- * Both are assembled clause by clause from what the
+ * All are assembled clause by clause from what the
  * record carries. A fact the record does not have
  * is left out rather than printed as a label with
  * nothing after it — the record is built not to
  * invent, and words wrapped around it may not
  * either.
+ *
+ * The agent looks a run up by its full id and reads
+ * DBOS's own status word, so its sentence keeps
+ * both. A person knows a run by its short id and
+ * reads the word every panel says, so what the
+ * transcript shows says those instead.
  */
 
 /** The summary folded under the transcript row. */
-export function evidenceLines(evidence: RunEvidence): string[] {
+export function evidenceLines(evidence: RunEvidence): ToolLine[] {
   return evidence.at === 'refused'
     ? refusedLines(evidence)
     : recordedLines(evidence);
@@ -954,8 +963,28 @@ export function evidenceSentence(evidence: RunEvidence): string {
     return messages.runAskAgentRefused(evidence.workflow, evidence.detail);
   }
 
+  return askedAbout(evidence, evidence.workflowId, evidence.status);
+}
+
+/** The same question about a run the ledger has,
+ *  as the transcript shows it. */
+export function evidenceEcho(evidence: RecordedRunEvidence): string {
+  return askedAbout(
+    evidence,
+    shortRunId(evidence.workflowId),
+    runWords()[evidenceWord(evidence)],
+  );
+}
+
+/** The question's clauses, with the run and its
+ *  status spelled for whoever reads them. */
+function askedAbout(
+  evidence: RecordedRunEvidence,
+  run: string,
+  status: string,
+): string {
   return [
-    headlineOf(evidence),
+    headlineOf(evidence, run, status),
     codeBehind(evidence),
     messages.runAskAgentEvidence(
       evidence.reader.database,
@@ -967,6 +996,21 @@ export function evidenceSentence(evidence: RunEvidence): string {
 }
 
 /**
+ * The word the run is said in.
+ *
+ * Parked when a row it carries is waiting on
+ * somebody — the record's own evidence, and the
+ * same rows the run tab reads it off.
+ */
+function evidenceWord(evidence: RecordedRunEvidence): RunWord {
+  return runWord({
+    status: evidence.status,
+    recoveryAttempts: evidence.recoveryAttempts,
+    parked: evidence.operations.some((one) => one.state === 'waiting'),
+  });
+}
+
+/**
  * Which run failed, and where.
  *
  * A block where the record names one, the run
@@ -975,27 +1019,22 @@ export function evidenceSentence(evidence: RunEvidence): string {
  * ledger has can be asked about, and one that
  * succeeded has to be described as one.
  */
-function headlineOf(evidence: RecordedRunEvidence): string {
+function headlineOf(
+  evidence: RecordedRunEvidence,
+  run: string,
+  status: string,
+): string {
   const said = observed(evidence);
 
   if (said === undefined) {
-    return messages.runAskAgentNoFailure(
-      evidence.workflowId,
-      evidence.workflow,
-      evidence.status,
-    );
+    return messages.runAskAgentNoFailure(run, evidence.workflow, status);
   }
 
   const title = evidence.node?.title ?? evidence.failedStep?.name;
 
   return title === undefined
-    ? messages.runAskAgentWith(evidence.workflowId, evidence.workflow, said)
-    : messages.runAskAgentAtBlock(
-        evidence.workflowId,
-        evidence.workflow,
-        title,
-        said,
-      );
+    ? messages.runAskAgentWith(run, evidence.workflow, said)
+    : messages.runAskAgentAtBlock(run, evidence.workflow, title, said);
 }
 
 /**
@@ -1022,14 +1061,24 @@ function codeBehind(evidence: RecordedRunEvidence): string | undefined {
   return parts.length === 0 ? undefined : `${parts.join(' · ')}.`;
 }
 
-/** One run, as the summary lists it. */
-function recordedLines(evidence: RecordedRunEvidence): string[] {
+/**
+ * One run, as the summary lists it.
+ *
+ * The error is the run's own words, which can quote
+ * anything, so it is kept apart from the label in
+ * front of it rather than written into it.
+ */
+function recordedLines(evidence: RecordedRunEvidence): ToolLine[] {
   const said = observed(evidence);
   const handler = evidence.handler;
   const retry = evidence.node?.retry;
 
-  return [
-    said === undefined ? undefined : messages.runEvidenceError(said),
+  const error =
+    said === undefined
+      ? []
+      : [{ text: messages.runEvidenceError(''), recorded: said }];
+
+  const facts = [
     evidence.failedStep === undefined
       ? undefined
       : messages.runEvidenceFailedAt(operationText(evidence.failedStep)),
@@ -1048,7 +1097,7 @@ function recordedLines(evidence: RecordedRunEvidence): string[] {
             ? handler.file
             : `${handler.file}:${String(handler.line)}`,
         ),
-    messages.runEvidenceStatus(evidence.status),
+    messages.runEvidenceStatus(runWords()[evidenceWord(evidence)]),
     evidence.recoveryAttempts === 0
       ? undefined
       : messages.runEvidenceRecovered(String(evidence.recoveryAttempts)),
@@ -1060,17 +1109,33 @@ function recordedLines(evidence: RecordedRunEvidence): string[] {
       String(evidence.operations.length),
       String(evidence.operationsTotal),
     ),
-  ].filter((line) => line !== undefined);
+  ];
+
+  return [
+    ...error,
+    ...facts.flatMap((text) => (text === undefined ? [] : [{ text }])),
+  ];
 }
 
 /** A run that never started, as the summary lists
- *  it: what it was going to be, when, and why not. */
-function refusedLines(evidence: RefusedRunEvidence): string[] {
+ *  it: what it was going to be, when, and why not —
+ *  the last in the app's own words. */
+function refusedLines(evidence: RefusedRunEvidence): ToolLine[] {
   return [
-    messages.runEvidenceRefused(evidence.workflow, evidence.refusedAt),
+    {
+      text: messages.runEvidenceRefused(
+        evidence.workflow,
+        fine(evidence.refusedAt),
+      ),
+    },
     ...(evidence.detail === ''
       ? []
-      : [messages.runEvidenceDetail(evidence.detail)]),
+      : [
+          {
+            text: messages.runEvidenceDetail(''),
+            recorded: evidence.detail,
+          },
+        ]),
   ];
 }
 

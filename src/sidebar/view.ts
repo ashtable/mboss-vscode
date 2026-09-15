@@ -10,6 +10,7 @@ import type { AgentPanel, PanelState } from '../acp/agent.js';
 import type { ToolKind } from '../acp/connection.js';
 import { stripIndent } from '../acp/diff.js';
 import {
+  evidenceRunOf,
   fileStateOf,
   type MessageEntry,
   type ToolEntry,
@@ -21,6 +22,7 @@ import type { PreviewStore } from '../preview/store.js';
 import { appliedCard, proposalCard } from '../preview/view.js';
 import { filled } from '../webview/fill.js';
 import { mountWebview } from '../webview/host.js';
+import { shortRunId } from '../webview/ids.js';
 import type {
   SidebarEntry,
   SidebarInit,
@@ -28,6 +30,24 @@ import type {
 } from '../webview/protocol.js';
 
 import { agentFailure, sidebarHeading, sidebarWords } from './words.js';
+
+/**
+ * The ways from this column to a run.
+ *
+ * Handed over rather than reached for: this view
+ * has no run store and no run page, and the rows
+ * mBoss writes about a run are the only things in
+ * this column that lead anywhere — to the run, and,
+ * after a turn that changed something, to a replay
+ * of it from the block the question was about.
+ * Which rows that replay would reuse, and asking
+ * before it starts, are the run store's.
+ */
+export type SidebarRuns = {
+  openRun(workflowId: string): Promise<void>;
+
+  replayFrom(workflowId: string, nodeId: string): Promise<void>;
+};
 
 /**
  * The agent panel in the mBoss container.
@@ -49,17 +69,7 @@ export class AgentSidebarView implements WebviewViewProvider {
     private readonly panel: AgentPanel,
     private readonly chooseAgent: () => Promise<void>,
     private readonly preview: PreviewStore,
-
-    /**
-     * The way from a row in the transcript to the
-     * run it names.
-     *
-     * Handed over rather than reached for: this
-     * view has no run store and no run page, and a
-     * row mBoss wrote about a run is the one thing
-     * in this column that leads anywhere.
-     */
-    private readonly openRun: (workflowId: string) => Promise<void>,
+    private readonly runs: SidebarRuns,
   ) {}
 
   static register(
@@ -67,11 +77,11 @@ export class AgentSidebarView implements WebviewViewProvider {
     panel: AgentPanel,
     chooseAgent: () => Promise<void>,
     preview: PreviewStore,
-    openRun: (workflowId: string) => Promise<void>,
+    runs: SidebarRuns,
   ): Disposable {
     return window.registerWebviewViewProvider(
       AgentSidebarView.viewType,
-      new AgentSidebarView(extensionUri, panel, chooseAgent, preview, openRun),
+      new AgentSidebarView(extensionUri, panel, chooseAgent, preview, runs),
     );
   }
 
@@ -108,7 +118,14 @@ export class AgentSidebarView implements WebviewViewProvider {
         if (message.type === 'undo') void this.preview.undo();
         if (message.type === 'keepFile') this.panel.keep(message.id);
         if (message.type === 'undoFile') void this.panel.undo(message.id);
-        if (message.type === 'openRun') void this.openRun(message.workflowId);
+        if (message.type === 'openRun') {
+          void this.runs.openRun(message.workflowId);
+        }
+        // The column offers a replay from a block and
+        // never from a row: it holds no rows to offer.
+        if (message.type === 'replayFrom' && message.nodeId !== undefined) {
+          void this.runs.replayFrom(message.workflowId, message.nodeId);
+        }
       },
     });
   }
@@ -186,8 +203,26 @@ function shown(
   strings: SidebarStrings,
 ): SidebarEntry {
   switch (entry.at) {
-    case 'tool':
-      return { ...entry, ...toolNamed(entry, state.project, strings) };
+    case 'tool': {
+      const run = evidenceRunOf(entry);
+
+      // The row mBoss wrote about a run names it by
+      // its short id; the words the agent was sent
+      // name it by the whole one.
+      return run === undefined
+        ? { ...entry, ...toolNamed(entry, state.project, strings) }
+        : { ...entry, target: filled(strings.evidenceTarget, shortRunId(run)) };
+    }
+
+    case 'next':
+      return {
+        ...entry,
+        sentence: filled(
+          strings.applied,
+          shortRunId(entry.about.workflowId),
+          entry.block,
+        ),
+      };
 
     case 'file':
       return {
@@ -198,6 +233,13 @@ function shown(
       };
 
     case 'message': {
+      // A question mBoss asked for somebody is shown
+      // in the copy written for the column when it
+      // was asked.
+      if (entry.about !== undefined) {
+        return { ...entry, text: entry.about.shown };
+      }
+
       const reasoning =
         newest && state.status === 'streaming' ? underWay(entry) : undefined;
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { fakeAgent, type FakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
+import type { AgentPrompt } from '../acp/prompt.js';
 import type { WorkflowIR } from '../core/rules.js';
 import {
   LEDGER_URL,
@@ -16,6 +17,7 @@ import {
   runner,
   watcher,
 } from '../test-support/runs.js';
+import { shortRunId } from '../webview/ids.js';
 
 import { OUTPUT_KEPT } from './rows.js';
 import type { LiveRun } from './watch.js';
@@ -614,10 +616,12 @@ describe('asking the agent why', () => {
     expect(row?.at === 'tool' && row.target).toContain(RUN_ROW.workflow_uuid);
 
     // Folded rather than spelled into the sentence:
-    // the body is a summary a person opens, and the
-    // machine-readable copy travels beside the
-    // prompt.
-    expect(row?.at === 'tool' && row.body.length).toBeGreaterThan(0);
+    // the lines are a summary a person opens, and
+    // the machine-readable copy travels beside the
+    // prompt. They are lines rather than a body so
+    // a value the run recorded is kept apart.
+    expect(row?.at === 'tool' && row.lines?.length).toBeGreaterThan(0);
+    expect(row?.at === 'tool' && row.body).toEqual([]);
     expect(row?.at === 'tool' && row.action).toEqual({
       label: expect.any(String) as string,
       posts: 'openRun',
@@ -797,6 +801,78 @@ describe('asking the agent why', () => {
     expect(handed.focus).toEqual({ how: 'selected', nodeId: 'parse_request' });
   });
 
+  /**
+   * The column shows the question in its own copy,
+   * and offers a replay once the turn has changed
+   * something — both need to know what the question
+   * was about, and the sentence the agent is asked
+   * spells the run in a form the column does not.
+   */
+  it('says what a question is about, and how the column says it', async () => {
+    const agent = fakeAgent();
+    const shown = zone({
+      agent,
+      document: () =>
+        ({
+          name: 'groom_booking',
+          revision: 1,
+          nodes: [
+            {
+              id: 'parse_request',
+              kind: 'step',
+              title: 'Parse request',
+              config: {},
+            },
+          ],
+          edges: [],
+        }) as unknown as WorkflowIR,
+    });
+
+    await shown.askAgent({
+      workflowId: RUN_ROW.workflow_uuid,
+      nodeId: 'parse_request',
+    });
+    await shown.askAgent({ workflowId: RUN_ROW.workflow_uuid });
+
+    const [block, run] = asked(agent);
+
+    expect(block).toMatchObject({
+      workflowId: RUN_ROW.workflow_uuid,
+      nodeId: 'parse_request',
+      block: 'Parse request',
+    });
+    expect(block?.shown).toContain(shortRunId(RUN_ROW.workflow_uuid));
+    expect(block?.shown).not.toContain(RUN_ROW.workflow_uuid);
+
+    // A question about the whole run is about no
+    // block, whichever block the record focused on.
+    expect(run).toMatchObject({ workflowId: RUN_ROW.workflow_uuid });
+    expect(run?.nodeId).toBeUndefined();
+    expect(run?.block).toBeUndefined();
+  });
+
+  /** A run that never started has no id anybody's
+   *  ledger knows, so there is nothing to say it
+   *  was about. */
+  it('says a refused run was about nothing to replay', async () => {
+    const agent = fakeAgent();
+    const shown = zone({
+      agent,
+      runner: runner(() => ({
+        ok: false,
+        because: 'refused',
+        detail: 'ingress said no',
+      })).start,
+    });
+
+    await shown.runWorkflow('groom_booking', '{}');
+    const workflowId = shown.render().session[0]?.workflowId ?? '';
+
+    await shown.askAgent({ workflowId, nodeId: 'started' });
+
+    expect(asked(agent)).toEqual([undefined]);
+  });
+
   /** No connection string is no read at all, rather
    *  than a read of nothing. */
   it('opens nothing in a window with no ledger', async () => {
@@ -818,6 +894,14 @@ describe('asking the agent why', () => {
     expect(agent.told).toEqual([]);
   });
 });
+
+/** What each turn handed to the agent said it was
+ *  about, in the order they were sent. */
+function asked(agent: FakeAgent): (AgentPrompt['about'] | undefined)[] {
+  return agent.told.flatMap((one) =>
+    one.at === 'send' ? [one.prompt.about] : [],
+  );
+}
 
 /** Every record that travelled beside a sentence,
  *  as the JSON it was handed over as. */

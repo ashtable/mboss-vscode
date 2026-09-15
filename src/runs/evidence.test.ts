@@ -526,7 +526,9 @@ describe('a run the ingress refused', () => {
   /**
    * There is no row anywhere for a run that never
    * started, so the window's own memory of trying is
-   * the whole of the evidence.
+   * the whole of the evidence. The moment is kept as
+   * the log wrote it, for the column to set on its
+   * own clock.
    */
   it('answers refused evidence from the session row', () => {
     const refused: SessionRun = {
@@ -545,7 +547,7 @@ describe('a run the ingress refused', () => {
       at: 'refused',
       assembledAt: expect.any(String),
       workflow: 'groom_booking',
-      refusedAt: '2026-01-01T12:00:00.000Z',
+      refusedAt: Date.parse('2026-01-01T12:00:00Z'),
       detail: 'the app refused the request: 401',
       input: { email: 'ada@example.com' },
     });

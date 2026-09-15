@@ -10,6 +10,7 @@
   "An empty canvas with a webhook trigger. Every pattern below is the same kind of document, already drawn.": "An empty canvas with a webhook trigger. Every pattern below is the same kind of document, already drawn.",
   "Any program that speaks the Agent Client Protocol": "Any program that speaks the Agent Client Protocol",
   "Applied · {0} · v{1}": "Applied · {0} · v{1}",
+  "Applied. Replay {0} from {1} to verify — earlier durable results are reused.": "Applied. Replay {0} from {1} to verify — earlier durable results are reused.",
   "Apply proposal": "Apply proposal",
   "Applying the proposal for {0} left these errors: {1} Fix the blocks and handlers they name.": "Applying the proposal for {0} left these errors: {1} Fix the blocks and handlers they name.",
   "Approval": "Approval",

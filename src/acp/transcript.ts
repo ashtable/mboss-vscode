@@ -11,6 +11,7 @@ import type {
 } from './connection.js';
 
 import { lineDiff, lineDiffStat, type DiffLine } from './diff.js';
+import type { PromptAbout } from './prompt.js';
 
 /**
  * The conversation, as the panel shows it.
@@ -37,7 +38,12 @@ export type { SessionUpdate };
 
 /** One thing in the conversation. */
 export type TranscriptEntry =
-  MessageEntry | ToolEntry | FileEditEntry | DiagnosticEntry | PlanEntry;
+  | MessageEntry
+  | ToolEntry
+  | FileEditEntry
+  | DiagnosticEntry
+  | PlanEntry
+  | NextEntry;
 
 /**
  * Who did it.
@@ -64,6 +70,11 @@ export type MessageEntry = {
   from: 'user' | 'agent' | 'thought';
 
   text: string;
+
+  /** What a question mBoss asked for somebody was
+   *  about. Its `text` is what the agent was sent;
+   *  the column shows the copy `about` carries. */
+  about?: PromptAbout;
 };
 
 export type ToolEntry = {
@@ -94,6 +105,18 @@ export type ToolEntry = {
   body: string[];
 
   /**
+   * The summary under a row mBoss wrote about a run
+   * it read, one fact per line, in place of `body`.
+   *
+   * Lines rather than strings because some of what
+   * they print is the run's own: an error message
+   * can quote anything, a full run id included, and
+   * the panel sets a recorded value apart from the
+   * words mBoss put around it.
+   */
+  lines?: ToolLine[];
+
+  /**
    * Every file the call said it touched, absolute,
    * in the order it named them.
    *
@@ -120,6 +143,33 @@ export type ToolEntry = {
    */
   action?: { label: string; posts: 'openRun'; workflowId: string };
 };
+
+/** One line of a summary: mBoss's words, then the
+ *  value the run recorded, where the line has one. */
+export type ToolLine = { text: string; recorded?: string };
+
+const EVIDENCE = 'evidence:';
+
+/**
+ * The id of the row mBoss writes about a run it
+ * read for the agent.
+ *
+ * Spelled once, here, because two sides read it:
+ * whoever writes the row, and whoever draws it and
+ * needs to know which run it is about without
+ * parsing the words.
+ */
+export function evidenceRowId(workflowId: string): string {
+  return `${EVIDENCE}${workflowId}`;
+}
+
+/** The run a row is about, where it is the row
+ *  mBoss wrote about one. */
+export function evidenceRunOf(entry: ToolEntry): string | undefined {
+  return entry.by === 'person' && entry.id.startsWith(EVIDENCE)
+    ? entry.id.slice(EVIDENCE.length)
+    : undefined;
+}
 
 /**
  * One file, as the agent left it.
@@ -236,6 +286,33 @@ export type PlanEntry = {
 };
 
 /**
+ * What to do after a turn that answered a question
+ * about one block and changed something.
+ *
+ * The way to know whether an edit fixed a run is to
+ * run it again from the block it failed at, and a
+ * replay reuses what the run already recorded
+ * before that block. So the column offers one — and
+ * the edits, so a change that did not help can be
+ * taken back from the same place.
+ */
+export type NextEntry = {
+  at: 'next';
+
+  id: string;
+
+  about: { workflowId: string; nodeId: string };
+
+  /** The block's title, as it was when the question
+   *  was asked. */
+  block: string;
+
+  /** The file edits the turn wrote that stood when
+   *  it ended. */
+  edits: string[];
+};
+
+/**
  * A permission question, ready to draw.
  *
  * The agent's own wording for each option, kept —
@@ -346,6 +423,7 @@ export function personEdit(edit: {
 export function said(
   entries: readonly TranscriptEntry[],
   text: string,
+  about?: PromptAbout,
 ): TranscriptEntry[] {
   return [
     ...entries,
@@ -354,8 +432,71 @@ export function said(
       id: `message-${entries.filter((e) => e.at === 'message').length}`,
       from: 'user',
       text,
+      ...(about === undefined ? {} : { about }),
     },
   ];
+}
+
+/**
+ * The file edits an update writes, by the id each
+ * one's entry is filed under.
+ *
+ * Asked of each update while a turn runs, so the
+ * panel knows which edits are that turn's. Where an
+ * entry sits in the column cannot say: a second
+ * diff for an edit already there replaces it where
+ * it stands, turns earlier.
+ */
+export function editsIn(update: SessionUpdate): string[] {
+  if (
+    update.sessionUpdate !== 'tool_call' &&
+    update.sessionUpdate !== 'tool_call_update'
+  ) {
+    return [];
+  }
+
+  return (update.content ?? []).flatMap((item) =>
+    item.type === 'diff' ? [fileEditId(update.toolCallId, item.path)] : [],
+  );
+}
+
+/**
+ * What to offer after a turn, if anything.
+ *
+ * Only after a turn asked about one block, and only
+ * where an edit that turn wrote still stands — a
+ * turn that changed nothing, or whose change was
+ * undone before it ended, has nothing a replay
+ * would test. `written` is every edit the turn
+ * wrote; which of them stand is the column's to
+ * say.
+ */
+export function nextActions(
+  entries: readonly TranscriptEntry[],
+  about: PromptAbout | undefined,
+  written: readonly string[],
+): NextEntry | undefined {
+  if (about?.nodeId === undefined || about.block === undefined) {
+    return undefined;
+  }
+
+  const edits = entries.flatMap((entry) =>
+    entry.at === 'file' &&
+    written.includes(entry.id) &&
+    fileStateOf(entry, entries) === 'applied'
+      ? [entry.id]
+      : [],
+  );
+
+  if (edits.length === 0) return undefined;
+
+  return {
+    at: 'next',
+    id: `next-${entries.filter((entry) => entry.at === 'next').length}`,
+    about: { workflowId: about.workflowId, nodeId: about.nodeId },
+    block: about.block,
+    edits,
+  };
 }
 
 /**
@@ -539,7 +680,7 @@ function fileEdit(
 ): FileEditEntry {
   const edit: FileEditEntry = {
     at: 'file',
-    id: `${toolCallId}:${content.path}`,
+    id: fileEditId(toolCallId, content.path),
     toolCallId,
     by: 'agent',
     path: content.path,
@@ -560,6 +701,12 @@ function fileEdit(
   }
 
   return edit;
+}
+
+/** A call and a path: what a second attempt at the
+ *  same edit replaces. */
+function fileEditId(toolCallId: string, path: string): string {
+  return `${toolCallId}:${path}`;
 }
 
 function worthHolding(text: string | null | undefined): boolean {

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import type { PromptAbout } from './prompt.js';
 import {
+  editsIn,
   foldUpdates,
   KEPT_TEXT_BYTES,
+  nextActions,
   type FileEditEntry,
   type SessionUpdate,
   type ToolEntry,
@@ -550,6 +553,28 @@ describe('what the extension writes itself', () => {
     });
   });
 
+  /**
+   * A question mBoss asked for somebody is sent in
+   * the agent's copy, and the column shows its own;
+   * what it was about is what tells the two apart.
+   */
+  it('remembers what an Ask-agent question was about on the echo', () => {
+    const about: PromptAbout = {
+      workflowId: 'wf_c9d2f3',
+      nodeId: 'refund_payment',
+      block: 'Refund payment',
+      shown: 'Run `#7089` of `refund_order` failed.',
+    };
+
+    expect(said([], 'Run `wf_c9d2f3` failed.', about).at(-1)).toMatchObject({
+      at: 'message',
+      from: 'user',
+      text: 'Run `wf_c9d2f3` failed.',
+      about,
+    });
+    expect(said([], 'wire it').at(-1)).not.toHaveProperty('about');
+  });
+
   it('writes what a person did as an applied edit of theirs', () => {
     expect(
       personEdit({ id: 'apply:p1', verb: 'Applied', target: 'groom' }),
@@ -564,5 +589,134 @@ describe('what the extension writes itself', () => {
       body: [],
       paths: [],
     });
+  });
+});
+
+/**
+ * The step after a turn that answered a question
+ * about one block of a run.
+ *
+ * Once the agent has changed something, the way to
+ * know whether it worked is to replay the run from
+ * that block. So the column offers it — but only
+ * after a turn that asked about a block and left an
+ * edit standing, because a replay proves nothing
+ * about a turn that changed nothing.
+ */
+describe('what comes after a turn asked about a block', () => {
+  const ABOUT: PromptAbout = {
+    workflowId: 'wf_c9d2f3',
+    nodeId: 'refund_payment',
+    block: 'Refund payment',
+    shown: 'Run `#c9d2` of `refund_order` failed.',
+  };
+
+  const write: SessionUpdate = {
+    sessionUpdate: 'tool_call',
+    toolCallId: 'call-1',
+    title: 'Write lib/refund.ts',
+    kind: 'edit',
+    status: 'completed',
+    content: [
+      {
+        type: 'diff',
+        path: '/project/lib/refund.ts',
+        oldText: 'timeout: 30_000\n',
+        newText: 'timeout: 90_000\n',
+      },
+    ],
+  };
+
+  const FILE = 'call-1:/project/lib/refund.ts';
+
+  /** The echo, then whatever the turn folded in. */
+  const turn = (...updates: SessionUpdate[]): TranscriptEntry[] =>
+    foldUpdates(said([], 'why?', ABOUT), updates);
+
+  const decided = (
+    entries: TranscriptEntry[],
+    decision: FileEditEntry['decision'],
+  ): TranscriptEntry[] =>
+    entries.map((entry) =>
+      entry.at === 'file' ? { ...entry, decision } : entry,
+    );
+
+  it('names the file edits an update writes, as the column files them', () => {
+    const ids = fold(write)
+      .filter((entry) => entry.at === 'file')
+      .map((entry) => entry.id);
+
+    expect(ids).toHaveLength(1);
+    expect(editsIn(write)).toEqual(ids);
+    expect(
+      editsIn({
+        sessionUpdate: 'agent_message_chunk',
+        content: text('done'),
+      }),
+    ).toEqual([]);
+  });
+
+  it('offers the next step once an edit of the turn was applied', () => {
+    const entries = turn(write);
+
+    expect(nextActions(entries, ABOUT, [FILE])).toEqual({
+      at: 'next',
+      id: 'next-0',
+      about: { workflowId: 'wf_c9d2f3', nodeId: 'refund_payment' },
+      block: 'Refund payment',
+      edits: [FILE],
+    });
+
+    // Kept is applied too.
+    expect(nextActions(decided(entries, 'kept'), ABOUT, [FILE])?.edits).toEqual(
+      [FILE],
+    );
+  });
+
+  it('offers nothing when no edit of the turn was applied', () => {
+    const undone = decided(turn(write), 'undone');
+    const failed = turn({ ...write, status: 'failed' });
+    const going = turn({ ...write, status: 'in_progress' });
+
+    // The same turns with the edit left standing
+    // would each offer one, so what is refused
+    // below is the state and not the shape.
+    expect(nextActions(turn(write), ABOUT, [FILE])).toBeDefined();
+
+    expect(nextActions(undone, ABOUT, [FILE])).toBeUndefined();
+    expect(nextActions(failed, ABOUT, [FILE])).toBeUndefined();
+    expect(nextActions(going, ABOUT, [FILE])).toBeUndefined();
+    expect(nextActions(turn(), ABOUT, [])).toBeUndefined();
+  });
+
+  it('offers nothing for a question about a whole run', () => {
+    const { nodeId, block, ...wholeRun } = ABOUT;
+
+    expect([nodeId, block]).toEqual(['refund_payment', 'Refund payment']);
+    expect(nextActions(turn(write), wholeRun, [FILE])).toBeUndefined();
+    expect(nextActions(turn(write), undefined, [FILE])).toBeUndefined();
+  });
+
+  /**
+   * An edit an earlier turn left standing is still
+   * applied, and still in the column — but this turn
+   * did not write it, so it is not this turn's to
+   * offer a replay for.
+   */
+  it('counts only the edits of the turn it ends', () => {
+    const earlier = foldUpdates([], [write]);
+    const entries = said(earlier, 'why?', ABOUT);
+
+    expect(nextActions(entries, ABOUT, [FILE])).toBeDefined();
+    expect(nextActions(entries, ABOUT, [])).toBeUndefined();
+  });
+
+  it('numbers each offer among the offers so far', () => {
+    const first = turn(write);
+    const offered = nextActions(first, ABOUT, [FILE]);
+
+    if (offered === undefined) throw new Error('nothing was offered');
+
+    expect(nextActions([...first, offered], ABOUT, [FILE])?.id).toBe('next-1');
   });
 });

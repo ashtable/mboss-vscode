@@ -31,6 +31,42 @@ export type AgentPrompt = {
   text: string;
 
   context?: PromptContext[];
+
+  /** The run a question mBoss asked for somebody
+   *  is about. Nothing a person typed has one. */
+  about?: PromptAbout;
+};
+
+/**
+ * What a question about a run was about, kept
+ * beside the sentence rather than read back out of
+ * it.
+ *
+ * The sentence is written for the agent, which
+ * looks the run up by its full id and DBOS's own
+ * status word. The column is read by a person, who
+ * knows a run by its short id and the word every
+ * panel says, and whether a run still pending is
+ * running or waiting is not in the sentence at all.
+ * So the column's copy is written when the question
+ * is, by whoever read the run.
+ *
+ * `nodeId` and `block` are there when the question
+ * came from one block: a turn that answers one, and
+ * changes something, is followed by an offer to
+ * replay the run from that block. The title is the
+ * one the block had when the question was asked —
+ * nothing in this directory reads a document.
+ */
+export type PromptAbout = {
+  workflowId: string;
+
+  nodeId?: string;
+
+  block?: string;
+
+  /** The question as the column shows it. */
+  shown: string;
 };
 
 /**

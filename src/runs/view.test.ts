@@ -3,11 +3,21 @@ import { describe, expect, it } from 'vitest';
 import type { WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
 import { TIMER_THEN_ANSWER } from '../test-support/runs.js';
+import { shortRunId } from '../webview/ids.js';
 import type { SeeRun } from '../webview/protocol.js';
 
+import type { RecordedRunEvidence } from './evidence.js';
 import type { Run, Step } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
-import { rowOf, seeInit, sessionRowOf, type SeeView } from './view.js';
+import {
+  evidenceEcho,
+  evidenceLines,
+  evidenceSentence,
+  rowOf,
+  seeInit,
+  sessionRowOf,
+  type SeeView,
+} from './view.js';
 import type { ProjectWorkflow } from './workflows.js';
 
 /**
@@ -1449,5 +1459,165 @@ describe('a run that decided and then went to sleep', () => {
 
     expect(shown.graph?.decided).toEqual({ how_big: 'large' });
     expect(shown.live?.outcome).toBe('running');
+  });
+});
+
+/**
+ * What mBoss says it read out of a run, twice over:
+ * the lines folded under the row it writes into the
+ * transcript, and the question as the column shows
+ * it.
+ *
+ * The agent is handed the run's full id and DBOS's
+ * own status word, because it reads the ledger
+ * with them. A person reads the column, where a
+ * run is known by its short id and the word every
+ * panel says, and where a value the run itself
+ * recorded is kept apart from the words around it.
+ */
+describe('what mBoss says it read out of a run', () => {
+  const RUN_ID = '7089cd29-5b5e-4a4c-9c3e-6c8d1b2f4a10';
+
+  function recordedEvidence(
+    over: Partial<RecordedRunEvidence> = {},
+  ): RecordedRunEvidence {
+    return {
+      at: 'run',
+      assembledAt: '2026-01-01T12:00:00.000Z',
+      reader: {
+        by: 'mboss-vscode',
+        tables: ['dbos.workflow_status', 'dbos.operation_outputs'],
+        database: 'db.local:5432/runs',
+        from: 'DATABASE_URL',
+      },
+      workflow: 'refund_order',
+      workflowId: RUN_ID,
+      status: 'ERROR',
+      executorId: 'local-dev',
+      createdAt: '2026-01-01T12:00:00.000Z',
+      recoveryAttempts: 1,
+      recovered: false,
+      input: { shape: 'none' },
+      error: {
+        name: 'StripeTimeoutError',
+        message: 'the refund timed out',
+        retriesExhausted: false,
+      },
+      focus: { nodeId: 'refund_payment', how: 'selected' },
+      operations: [
+        {
+          functionId: 2,
+          name: 'refund_payment',
+          nodeId: 'refund_payment',
+          owner: 'node',
+          state: 'failed',
+        },
+      ],
+      operationsTotal: 1,
+      node: {
+        id: 'refund_payment',
+        title: 'Refund payment',
+        kind: 'step',
+      },
+      document: { found: true, revision: 3 },
+      ...over,
+    };
+  }
+
+  it('sets a recorded error apart from the words around it', () => {
+    const said = 'StripeTimeoutError: Awaited 0190c8f2-5b5e was cancelled';
+    const lines = evidenceLines(
+      recordedEvidence({
+        error: {
+          name: 'StripeTimeoutError',
+          message: 'Awaited 0190c8f2-5b5e was cancelled',
+          retriesExhausted: false,
+        },
+      }),
+    );
+
+    expect(lines).toContainEqual({ text: 'error · ', recorded: said });
+    expect(lines.length).toBeGreaterThan(1);
+    expect(lines.filter((line) => line.recorded !== undefined)).toHaveLength(1);
+  });
+
+  it('says where a run got to in the word every panel uses', () => {
+    const lines = evidenceLines(
+      recordedEvidence({
+        status: 'SUCCESS',
+        error: undefined,
+        operations: [],
+      }),
+    );
+
+    expect(lines).toContainEqual({ text: 'status · done' });
+    expect(lines.some((line) => line.text.includes('SUCCESS'))).toBe(false);
+  });
+
+  it('says a run parked on somebody is waiting', () => {
+    const lines = evidenceLines(
+      recordedEvidence({
+        status: 'PENDING',
+        error: undefined,
+        operations: [
+          {
+            functionId: 1,
+            name: 'approve',
+            nodeId: 'approve',
+            owner: 'node',
+            state: 'waiting',
+          },
+        ],
+      }),
+    );
+
+    expect(lines).toContainEqual({ text: 'status · waiting' });
+  });
+
+  it('says when a refused run was refused on a 24-hour clock', () => {
+    expect(
+      evidenceLines({
+        at: 'refused',
+        assembledAt: '2026-01-01T13:05:00.000Z',
+        workflow: 'groom_booking',
+        refusedAt: new Date(2026, 0, 1, 13, 4, 5, 6).getTime(),
+        detail: 'the app refused the request: 401',
+        input: {},
+      }),
+    ).toEqual([
+      { text: 'refused · groom_booking at 13:04:05.006' },
+      { text: 'detail · ', recorded: 'the app refused the request: 401' },
+    ]);
+  });
+
+  it("writes the column's copy of the question beside the agent's", () => {
+    const succeeded = recordedEvidence({
+      status: 'SUCCESS',
+      error: undefined,
+      operations: [],
+    });
+    const echo = evidenceEcho(succeeded);
+
+    expect(echo).toContain(shortRunId(RUN_ID));
+    expect(echo).toContain('done');
+    expect(echo).not.toContain(RUN_ID);
+    expect(echo).not.toContain('SUCCESS');
+
+    // The agent keeps the id and the status it can
+    // look the run up by.
+    const asked = evidenceSentence(succeeded);
+
+    expect(asked).toContain(RUN_ID);
+    expect(asked).toContain('SUCCESS');
+  });
+
+  it('names a failed run by its short id where the column says it', () => {
+    const echo = evidenceEcho(recordedEvidence());
+
+    expect(echo).toContain(
+      `Run \`${shortRunId(RUN_ID)}\` of \`refund_order\` failed at ` +
+        'Refund payment — StripeTimeoutError: the refund timed out.',
+    );
+    expect(echo).not.toContain(RUN_ID);
   });
 });
