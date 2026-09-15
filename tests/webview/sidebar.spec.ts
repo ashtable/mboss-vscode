@@ -318,6 +318,88 @@ test.describe('the transcript', () => {
   });
 
   /**
+   * Six kinds of block and no seventh. The shapes an
+   * agent sends that are not one of them — a plan, a
+   * heading it is thinking under, the row closing
+   * out a turn's files, the step after a turn — are
+   * each drawn as the block they read as, so a
+   * column of them is still read by six rules.
+   *
+   * The row closing out the files cannot be drawn
+   * without the files it counts, and each of those
+   * is a block of the same kind, so the kinds are
+   * read both whole and as they change down the
+   * column.
+   */
+  test('draws only the six kinds of block', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        status: 'streaming',
+        transcript: sidebarEntries([
+          {
+            at: 'plan',
+            id: 'plan',
+            steps: [{ text: 'Trim the id', status: 'in_progress' }],
+          },
+          fileEntry({ id: 'a', path: '/project/lib/a.ts' }),
+          fileEntry({ id: 'b', path: '/project/lib/b.ts' }),
+          {
+            at: 'message',
+            id: 'thought-0',
+            from: 'thought',
+            text: '**Validating uniqueness**',
+            reasoning: { verb: 'Validating', target: 'uniqueness' },
+          },
+          {
+            at: 'next',
+            id: 'next-0',
+            about: { workflowId: 'wf_1', nodeId: 'refund' },
+            block: 'Refund',
+            edits: ['a', 'b'],
+          },
+        ]),
+        prompt: {
+          toolCallId: 'call-2',
+          title: 'Write lib/a.ts',
+          toolKey: 'write_file',
+          options: [
+            { optionId: 'yes', label: 'Allow once', kind: 'allow_once' },
+          ],
+        },
+      }),
+    );
+
+    const six = ['user', 'prose', 'tool', 'diff', 'permission', 'diagnostic'];
+    const inLog = page.locator('.transcript [data-block]');
+    const pinned = page.locator('.agent-foot [data-block]');
+
+    await expect(inLog).toHaveCount(6);
+    await expect(pinned).toHaveCount(1);
+    await expect(page.locator('.files-batch')).toHaveCount(1);
+
+    const kinds = await inLog.evaluateAll((all) =>
+      all.map((one) => one.getAttribute('data-block') ?? ''),
+    );
+
+    expect(kinds).toEqual(['tool', 'diff', 'diff', 'diff', 'tool', 'prose']);
+    expect(kinds.filter((kind, index) => kind !== kinds[index - 1])).toEqual([
+      'tool',
+      'diff',
+      'tool',
+      'prose',
+    ]);
+    await expect(pinned).toHaveAttribute('data-block', 'permission');
+
+    const every = await page
+      .locator('[data-block]')
+      .evaluateAll((all) => all.map((one) => one.getAttribute('data-block')));
+
+    expect(every.filter((kind) => !six.includes(kind ?? ''))).toEqual([]);
+  });
+
+  /**
    * While the agent streams, a thought that is only a
    * bold title is the work it names, drawn as a row
    * of work under way rather than as a line of prose
@@ -1399,6 +1481,83 @@ test.describe('a diagnostic', () => {
 
     await expect(page.locator('[data-fix]')).toHaveCount(0);
   });
+
+  /**
+   * Where it came from, how many things failed, then
+   * each one with its code in the failure's ink, and
+   * one way to hand the lot back. The count is a
+   * state, so it is said as one; the fix is a way on,
+   * so it is a Button in the product's ink.
+   */
+  test('says how many things failed and offers the fix', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          {
+            ...entry,
+            rows: [
+              ...entry.rows,
+              {
+                code: 'V08',
+                at: 'confirm_email',
+                message: 'Confirm by email names no handler.',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const found = page.locator('.diagnostic');
+
+    await expect(found).toHaveCount(1);
+    await expect(found).toHaveAttribute('data-block', 'diagnostic');
+    await expect(found.locator('.diagnostic-source')).toHaveText('codegen');
+    expect(
+      await found
+        .locator('.diagnostic-source')
+        .evaluate((element) => getComputedStyle(element).fontFamily),
+    ).toContain('Spline Sans Mono');
+
+    const word = found.locator('.state-word');
+
+    await expect(word).toHaveText(filled(strings.failedCount, '2'));
+    await expect(word).toHaveAttribute('data-tone', 'fail');
+
+    const code = found.locator('.diagnostic-code').first();
+
+    await expect(code).toHaveText('V07');
+    await expect(code).toHaveCSS('font-weight', '600');
+    expect(
+      sameColour(
+        await code.evaluate((element) => getComputedStyle(element).color),
+        colourOf('light', 'fail'),
+      ),
+    ).toBe(true);
+
+    const rail = await found.locator('.diagnostic-head').evaluate((element) => {
+      const style = getComputedStyle(element);
+
+      return { width: style.borderLeftWidth, colour: style.borderLeftColor };
+    });
+
+    expect(rail.width).toBe('3px');
+    expect(sameColour(rail.colour, colourOf('light', 'fail'))).toBe(true);
+
+    const fix = found.locator('[data-fix]');
+
+    await expect(fix).toHaveCount(1);
+    await expect(fix).toHaveClass(/\bbtn\b/);
+    await expect(fix).toHaveAttribute('data-variant', 'quiet');
+    await expect(fix).toHaveAttribute('data-ink', 'brand');
+    await expect(fix).toHaveText('Fix →');
+
+    // The arrow is drawn, not read out: the control
+    // is called what it does.
+    await expect(fix).toHaveAccessibleName('Fix');
+  });
 });
 
 /**
@@ -2065,7 +2224,122 @@ test.describe('a permission request', () => {
       'data-always',
       'false',
     );
+
+    // Every kind the protocol has, each once. Both
+    // lasting answers take the outline, whether
+    // they allow or refuse: that they last is what
+    // sets them apart, and the agent's own labels
+    // tell the two apart.
+    await harness.show(
+      sidebarInit({
+        status: 'awaiting-permission',
+        prompt: {
+          ...prompt,
+          options: [
+            ...prompt.options,
+            {
+              optionId: 'no-always',
+              label: 'Reject always',
+              kind: 'reject_always',
+            },
+          ],
+        },
+      }),
+    );
+
+    await expect(page.locator('[data-option]')).toHaveCount(4);
+    await expect(page.locator('[data-option="no-always"]')).toHaveAttribute(
+      'data-always',
+      'true',
+    );
+    await expect(page.locator('[data-option="no"]')).toHaveAttribute(
+      'data-always',
+      'false',
+    );
+
+    const looks = {
+      yes: 'primary',
+      'yes-always': 'secondary',
+      no: 'quiet',
+      'no-always': 'secondary',
+    };
+
+    for (const [option, variant] of Object.entries(looks)) {
+      const button = page.locator(`[data-option="${option}"]`);
+
+      await expect(button).toHaveClass(/\bbtn\b/);
+      await expect(button).toHaveAttribute('data-variant', variant);
+    }
+
+    for (const option of ['yes-always', 'no-always']) {
+      await expect(page.locator(`[data-option="${option}"]`)).toHaveAttribute(
+        'data-ink',
+        'brand',
+      );
+    }
   });
+
+  /**
+   * Pinned under the log rather than written into
+   * it: the agent is waiting on the answer, so the
+   * question stays where the answer is typed however
+   * far the log has scrolled. It says what it is in
+   * a label, names the call it is about in the
+   * machine face, and marks lasting options by their
+   * look alone.
+   */
+  test('asks in a block of its own under the transcript', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(sidebarInit({ status: 'awaiting-permission', prompt }));
+
+    const block = page.locator('.agent-foot > .permission');
+
+    await expect(block).toHaveCount(1);
+    await expect(block).toHaveAttribute('data-block', 'permission');
+    await expect(page.locator('.transcript .permission')).toHaveCount(0);
+    await expect(block.locator('.section-label')).toHaveText(
+      strings.permission,
+    );
+
+    const tool = block.locator('.permission-tool');
+
+    await expect(tool).toHaveText(prompt!.title);
+    expect(
+      await tool.evaluate((element) => getComputedStyle(element).fontFamily),
+    ).toContain('Spline Sans Mono');
+
+    await expect(page.locator('.always')).toHaveCount(0);
+  });
+
+  for (const theme of THEMES_ALL) {
+    test(`grounds a question on the warning tint in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'sidebar', theme);
+
+      await harness.show(
+        sidebarInit({ status: 'awaiting-permission', prompt }),
+      );
+
+      const block = page.locator('.permission');
+
+      await expect(block).toHaveCount(1);
+
+      const read = await block.evaluate((element) => {
+        const style = getComputedStyle(element);
+
+        return { ground: style.backgroundColor, edge: style.borderTopColor };
+      });
+      const tint = colourOf(theme, 'warn-tint');
+      const edge = colourOf(theme, 'control-edge');
+
+      expect(sameColour(read.ground, tint), `${read.ground} ≠ ${tint}`).toBe(
+        true,
+      );
+      expect(sameColour(read.edge, edge), `${read.edge} ≠ ${edge}`).toBe(true);
+    });
+  }
 
   test('tells the extension which one was chosen', async ({ page }) => {
     const harness = await openPanel(page);
@@ -2777,31 +3051,62 @@ test.describe('the composer', () => {
   }
 });
 
+/**
+ * Why there is nothing to talk to, said as the state
+ * of the whole panel: what is in the way, then what
+ * to do about it. The panel offers no button of its
+ * own for either — the editor trusts a folder and
+ * opens one, and the picker in the head is where an
+ * agent is chosen.
+ */
 test.describe('before there is an agent', () => {
-  test('says a folder has to be trusted first', async ({ page }) => {
+  /** The panel in a status with no session, read
+   *  as the one empty state it draws. */
+  async function blocked(
+    page: Page,
+    status: 'untrusted' | 'no-project' | 'no-agent',
+  ): Promise<{ harness: Harness; empty: Locator }> {
     const harness = await openPanel(page);
 
-    await harness.show(sidebarInit({ status: 'untrusted', agent: undefined }));
+    await harness.show(sidebarInit({ status, agent: undefined }));
 
-    await expect(page.locator('.state')).toHaveText(strings.notTrusted);
+    const empty = page.locator('[data-agent-state]');
+
+    await expect(empty).toHaveCount(1);
+    await expect(empty).toHaveAttribute('data-agent-state', status);
+    await expect(empty).toHaveClass(/\bempty-state\b/);
+    await expect(empty.locator('.btn')).toHaveCount(0);
     await expect(page.locator('.composer')).toHaveCount(0);
+
+    return { harness, empty };
+  }
+
+  test('says a folder has to be trusted first', async ({ page }) => {
+    const { empty } = await blocked(page, 'untrusted');
+
+    await expect(empty.locator('.empty-title')).toHaveText(
+      strings.notTrustedTitle,
+    );
+    await expect(empty.locator('.empty-detail')).toHaveText(strings.notTrusted);
   });
 
   test('says a folder has to be open first', async ({ page }) => {
-    const harness = await openPanel(page);
+    const { empty } = await blocked(page, 'no-project');
 
-    await harness.show(sidebarInit({ status: 'no-project', agent: undefined }));
-
-    await expect(page.locator('.state')).toHaveText(strings.noProject);
-    await expect(page.locator('.composer')).toHaveCount(0);
+    await expect(empty.locator('.empty-title')).toHaveText(
+      strings.noFolderTitle,
+    );
+    await expect(empty.locator('.empty-detail')).toHaveText(strings.noProject);
   });
 
   test('offers to pick one when none is chosen', async ({ page }) => {
-    const harness = await openPanel(page);
+    const { harness, empty } = await blocked(page, 'no-agent');
 
-    await harness.show(sidebarInit({ status: 'no-agent', agent: undefined }));
+    await expect(empty.locator('.empty-title')).toHaveText(strings.noAgent);
+    await expect(empty.locator('.empty-detail')).toHaveCount(0);
 
-    await expect(page.locator('.state')).toHaveText(strings.noAgent);
+    // A title is a state, not a sentence.
+    expect(strings.noAgent.endsWith('.')).toBe(false);
 
     await page.locator('[data-choose-agent]').click();
 
@@ -2831,7 +3136,18 @@ test.describe('before there is an agent', () => {
       }),
     );
 
-    await expect(page.locator('.failure')).toContainText('It answered 2');
+    const failure = page.locator('[data-failure]');
+
+    await expect(failure).toHaveCount(1);
+    await expect(failure).toHaveClass(/\bcallout\b/);
+    await expect(failure).toHaveAttribute('data-tone', 'fail');
+    await expect(failure.locator('.callout-title')).toHaveText(
+      'claude code speaks a different version of the protocol.',
+    );
+    await expect(failure.locator('.callout-body')).toHaveText(
+      'It answered 2; this extension speaks 1.',
+    );
+    await expect(page.locator('[data-agent-state]')).toHaveCount(0);
     await expect(page.locator('[data-choose-agent]')).toBeVisible();
   });
 });

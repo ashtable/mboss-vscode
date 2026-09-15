@@ -29,9 +29,12 @@ import type {
   SidebarPreview,
   SidebarStrings,
 } from '../webview/protocol.js';
-import { Button } from '../webview/signal/Button.js';
+import { Button, type ButtonProps } from '../webview/signal/Button.js';
+import { Callout } from '../webview/signal/Callout.js';
+import { EmptyState } from '../webview/signal/EmptyState.js';
 import { FieldHint } from '../webview/signal/FieldHint.js';
 import { hooked } from '../webview/signal/hook.js';
+import { SectionLabel } from '../webview/signal/SectionLabel.js';
 import { StateWord } from '../webview/signal/StateWord.js';
 
 import { Composer } from './Composer.js';
@@ -146,7 +149,18 @@ function Panel(state: SidebarInit) {
         </Button>
       </header>
 
-      {blocked === undefined ? null : <p className="state">{blocked}</p>}
+      {/* The state of the whole panel, not its first
+          row: what is in the way, and what to do
+          about it. The way out of it is the editor's
+          or the picker's, so it offers none. */}
+      {blocked === undefined ? null : (
+        <EmptyState
+          kind="empty"
+          title={blocked.title}
+          detail={blocked.detail}
+          hook={{ 'agent-state': status }}
+        />
+      )}
 
       <ol className="transcript" ref={log} onScroll={scrolled}>
         {rows.map((row) =>
@@ -190,7 +204,7 @@ function Panel(state: SidebarInit) {
           log always keeps the rest of the panel. */}
       <div className="agent-foot">
         {state.prompt === undefined ? null : (
-          <Permission prompt={state.prompt} strings={strings} />
+          <PermissionRow prompt={state.prompt} strings={strings} />
         )}
 
         {state.preview === undefined ? null : (
@@ -202,10 +216,13 @@ function Panel(state: SidebarInit) {
         )}
 
         {state.failure === undefined ? null : (
-          <div className="failure">
-            <p className="eyebrow">{state.failure.headline}</p>
-            <p className="failure-detail">{state.failure.detail}</p>
-          </div>
+          <Callout
+            tone="fail"
+            title={state.failure.headline}
+            hook={{ failure: '' }}
+          >
+            {state.failure.detail}
+          </Callout>
         )}
 
         {blocked === undefined ? (
@@ -296,11 +313,21 @@ function useFollow(
  * in the composer, and the proposal stays
  * outstanding until the agent replaces it.
  *
- * A proposal the graph has moved past is a
- * different card rather than the same one with a
- * disabled button, because what a person can do
- * about it is different: not "that again", but ask
- * for it again.
+ * A section of the region over the composer rather
+ * than a card of its own: the canvas is where the
+ * proposal is drawn in pencil, and this is only
+ * where it is answered, so it needs a label and the
+ * two ways on, not a second drawing of the same
+ * pencil.
+ *
+ * A proposal the graph has moved past offers a
+ * different way on rather than the same one
+ * switched off, because what a person can do about
+ * it is different: not "that again", but ask for it
+ * again. Undo is switched off outright once there is
+ * nothing to go back to: there is no sentence to
+ * give about why, so nothing is left for a keyboard
+ * to land on.
  */
 function Proposal({
   preview,
@@ -312,45 +339,47 @@ function Proposal({
   onRefine: () => void;
 }) {
   return (
-    <div className="preview-card" data-preview-card data-at={preview.at}>
-      <p className="eyebrow">{preview.workflow}</p>
+    <section className="proposal" data-preview-card data-at={preview.at}>
+      <div className="proposal-head">
+        <SectionLabel>{strings.proposal}</SectionLabel>
+        <span className="proposal-workflow mono">{preview.workflow}</span>
+      </div>
 
       {preview.at === 'stale' ? (
-        <p className="preview-warning">{preview.warning}</p>
+        <p className="proposal-warning">{preview.warning}</p>
       ) : (
-        <p className="preview-summary mono">{preview.summary}</p>
+        <p className="proposal-summary mono">{preview.summary}</p>
       )}
 
-      <div className="preview-actions">
+      <div className="proposal-actions">
         {preview.at === 'proposed' ? (
-          <button
-            type="button"
-            className="primary"
-            data-approve
+          <Button
+            variant="primary"
+            hook={{ approve: '' }}
             onClick={() =>
               postToHost({ type: 'approve', proposalId: preview.id })
             }
           >
             {strings.approve}
-          </button>
+          </Button>
         ) : null}
 
         {preview.at === 'applied' ? (
-          <button
-            type="button"
-            data-undo
+          <Button
+            variant="quiet"
             disabled={!preview.undoable}
+            hook={{ undo: '' }}
             onClick={() => postToHost({ type: 'undo' })}
           >
             {strings.undo}
-          </button>
+          </Button>
         ) : (
-          <button type="button" data-refine onClick={onRefine}>
+          <Button variant="quiet" hook={{ refine: '' }} onClick={onRefine}>
             {strings.refine}
-          </button>
+          </Button>
         )}
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -389,7 +418,9 @@ function Entry({
 
   if (entry.at === 'file') return <FileDiff entry={entry} strings={strings} />;
 
-  if (entry.at === 'diagnostic') return <Diagnostic entry={entry} />;
+  if (entry.at === 'diagnostic') {
+    return <Diagnostic entry={entry} strings={strings} />;
+  }
 
   // What to do after a turn that asked about a
   // block: a sentence mBoss wrote, so prose, and
@@ -792,11 +823,26 @@ function DiffLineRow({ line }: { line: DiffLine }) {
  * Something that went wrong, in the words of
  * whatever found it.
  *
+ * Laid out the way a call's row is — where it came
+ * from, and a word saying where that leaves the
+ * work — with a rail in the failure's colour where
+ * a call has one in its author's: what matters
+ * about this block is that it failed, not who
+ * wrote it. Each thing found is a line of machine
+ * evidence, its code set in the failure's ink so a
+ * column of them is read down its codes.
+ *
  * Every line here was written by the extension in
  * the host, where the strings are resolved — the
- * panel adds no wording of its own.
+ * panel adds only the count and the arrow.
  */
-function Diagnostic({ entry }: { entry: DiagnosticEntry }) {
+function Diagnostic({
+  entry,
+  strings,
+}: {
+  entry: DiagnosticEntry;
+  strings: SidebarStrings;
+}) {
   const fix = entry.fix;
 
   return (
@@ -805,30 +851,45 @@ function Diagnostic({ entry }: { entry: DiagnosticEntry }) {
       data-block="diagnostic"
       data-source={entry.source}
     >
-      <p className="eyebrow">{entry.source}</p>
+      <p className="diagnostic-head">
+        <span className="diagnostic-source mono">{entry.source}</span>
+        <StateWord tone="fail">
+          {filled(strings.failedCount, String(entry.rows.length))}
+        </StateWord>
+      </p>
 
-      {entry.rows.map((row, index) => (
-        <p className="diagnostic-row" key={index}>
-          {row.code === undefined ? null : (
-            <span className="mono">{row.code}</span>
-          )}
-          {row.at === undefined ? null : <span className="mono">{row.at}</span>}
-          <span>{row.message}</span>
-        </p>
-      ))}
+      {entry.rows.length === 0 ? null : (
+        <div className="diagnostic-rows">
+          {entry.rows.map((row, index) => (
+            <p className="diagnostic-row mono" key={index}>
+              {row.code === undefined ? null : (
+                <span className="diagnostic-code">{row.code}</span>
+              )}
+              {row.at === undefined ? null : (
+                <span className="diagnostic-at">{row.at}</span>
+              )}
+              <span className="diagnostic-message">{row.message}</span>
+            </p>
+          ))}
+        </div>
+      )}
 
       {/* The one thing to do about it, which is to
           hand it back: the prompt was written
-          beside the rows by whoever noted them. */}
+          beside the rows by whoever noted them. The
+          arrow is drawn, not read out. */}
       {fix === undefined ? null : (
-        <button
-          type="button"
-          className="diagnostic-fix"
-          data-fix
-          onClick={() => postToHost({ type: 'prompt', text: fix.prompt })}
-        >
-          {fix.label}
-        </button>
+        <div className="diagnostic-foot">
+          <Button
+            variant="quiet"
+            ink="brand"
+            hook={{ fix: '' }}
+            onClick={() => postToHost({ type: 'prompt', text: fix.prompt })}
+          >
+            {fix.label}
+            <span aria-hidden="true"> →</span>
+          </Button>
+        </div>
       )}
     </div>
   );
@@ -879,14 +940,41 @@ function Plan({
 }
 
 /**
+ * The look each answer takes, read off the
+ * protocol's own `kind` — never off the option id,
+ * which is a string the agent invented.
+ *
+ * Allowing once is the answer the question expects,
+ * so it takes the ink. Both answers that outlive
+ * the turn take the outline, whether they allow or
+ * refuse: a promise that lasts has to look
+ * different from one that does not, and the agent's
+ * own labels tell the two lasting ones apart.
+ * Refusing once asks for nothing, so it is quiet.
+ */
+const LOOK_OF = {
+  allow_once: { variant: 'primary' },
+  allow_always: { variant: 'secondary', ink: 'brand' },
+  reject_once: { variant: 'quiet' },
+  reject_always: { variant: 'secondary', ink: 'brand' },
+} as const satisfies Record<
+  PermissionOptionKind,
+  Pick<ButtonProps, 'variant' | 'ink'>
+>;
+
+/**
  * The one moment the panel asks for something.
  *
- * Options that outlive the turn are marked, and
- * the mark is read off the protocol's own `kind` —
- * never off the option id, which is a string the
- * agent invented.
+ * Pinned under the log rather than written into
+ * it, because the agent is waiting on the answer:
+ * the question stays by the composer however far
+ * the log has scrolled. It says what it is in a
+ * label and names the call in the machine face, and
+ * the agent's own wording is kept on every option —
+ * it wrote the label from what it is about to do,
+ * and a rewrite here would describe something else.
  */
-function Permission({
+function PermissionRow({
   prompt,
   strings,
 }: {
@@ -895,16 +983,21 @@ function Permission({
 }) {
   return (
     <div className="permission" data-block="permission">
-      <p className="eyebrow">{strings.permission}</p>
-      <p className="permission-title">{prompt.title}</p>
+      <div className="permission-head">
+        <SectionLabel>{strings.permission}</SectionLabel>
+        <span className="permission-tool mono">{prompt.title}</span>
+      </div>
+
       <div className="permission-options">
         {prompt.options.map((option) => (
-          <button
-            type="button"
+          <Button
             key={option.optionId}
-            data-option={option.optionId}
-            data-kind={option.kind}
-            data-always={String(isAlways(option.kind))}
+            {...LOOK_OF[option.kind]}
+            hook={{
+              option: option.optionId,
+              kind: option.kind,
+              always: String(isAlways(option.kind)),
+            }}
             onClick={() =>
               postToHost({
                 type: 'permission',
@@ -913,11 +1006,8 @@ function Permission({
               })
             }
           >
-            <span>{option.label}</span>
-            {isAlways(option.kind) ? (
-              <span className="always">{strings.always}</span>
-            ) : null}
-          </button>
+            {option.label}
+          </Button>
         ))}
       </div>
     </div>
@@ -925,11 +1015,22 @@ function Permission({
 }
 
 /** Why there is nothing to talk to, when there is
- *  nothing to talk to. */
-function blockedBy(state: SidebarInit): string | undefined {
-  if (state.status === 'untrusted') return state.strings.notTrusted;
-  if (state.status === 'no-project') return state.strings.noProject;
-  if (state.status === 'no-agent') return state.strings.noAgent;
+ *  nothing to talk to: the state, and what to do
+ *  about it where the panel has something to say. */
+function blockedBy(
+  state: SidebarInit,
+): { title: string; detail?: string } | undefined {
+  const { strings } = state;
+
+  if (state.status === 'untrusted') {
+    return { title: strings.notTrustedTitle, detail: strings.notTrusted };
+  }
+
+  if (state.status === 'no-project') {
+    return { title: strings.noFolderTitle, detail: strings.noProject };
+  }
+
+  if (state.status === 'no-agent') return { title: strings.noAgent };
 
   return undefined;
 }

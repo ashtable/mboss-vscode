@@ -891,3 +891,78 @@ test.describe('what a panel says instead of a list', () => {
     await expect(empty.locator('.empty-detail')).toHaveCount(0);
   });
 });
+
+/**
+ * The block that says something went wrong, on the
+ * tint of the tone it is said in.
+ *
+ * Flat rather than a card: it is a thing to read,
+ * not a thing to pick up. The title comes first, at
+ * the weight of a title and in the state's own ink,
+ * and the edge is drawn only where a theme draws
+ * every control's. The agent panel's failure is the
+ * surface that draws one today.
+ */
+test.describe('the block that says something went wrong', () => {
+  const failure = {
+    headline: 'That agent would not start.',
+    detail: 'spawn claude-code-acp ENOENT',
+  };
+
+  for (const theme of THEMES_ALL) {
+    test(`draws a failure on its tint in ${theme}`, async ({ page }) => {
+      const harness = await mount(page, 'sidebar', theme);
+
+      await harness.show(sidebarInit({ status: 'failed', failure }));
+
+      const callout = page.locator('[data-failure]');
+
+      await expect(callout).toHaveCount(1);
+
+      const read = await callout.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const first = element.firstElementChild;
+        const body = element.lastElementChild;
+
+        return {
+          ground: style.backgroundColor,
+          radius: style.borderTopLeftRadius,
+          edge: style.borderTopColor,
+          edgeWidth: style.borderTopWidth,
+          title: first?.textContent ?? '',
+          weight: first === null ? '' : getComputedStyle(first).fontWeight,
+          titleInk: first === null ? '' : getComputedStyle(first).color,
+          body: body?.textContent ?? '',
+          bodyInk: body === null ? '' : getComputedStyle(body).color,
+        };
+      });
+      const tint = colourOf(theme, 'fail-tint');
+      const edge = theme.startsWith('high-contrast')
+        ? colourOf(theme, 'control-edge')
+        : 'rgba(0, 0, 0, 0)';
+      const ink =
+        theme === 'high-contrast-light'
+          ? colourOf(theme, 'ink')
+          : colourOf(theme, 'fail');
+      const soft = colourOf(theme, 'ink-soft');
+
+      expect(sameColour(read.ground, tint), `${read.ground} ≠ ${tint}`).toBe(
+        true,
+      );
+      expect(read.radius).toBe('6px');
+      expect(read.edgeWidth).toBe('1px');
+      expect(sameColour(read.edge, edge), `${read.edge} ≠ ${edge}`).toBe(true);
+
+      expect(read.title).toBe(failure.headline);
+      expect(read.weight).toBe('600');
+      expect(sameColour(read.titleInk, ink), `${read.titleInk} ≠ ${ink}`).toBe(
+        true,
+      );
+
+      expect(read.body).toBe(failure.detail);
+      expect(sameColour(read.bodyInk, soft), `${read.bodyInk} ≠ ${soft}`).toBe(
+        true,
+      );
+    });
+  }
+});

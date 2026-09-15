@@ -64,31 +64,11 @@ body {
   color: var(--ink);
 }
 
-.state {
+/* Why there is nothing to talk to holds its own
+   air under the head, and the log under it takes
+   what is left. */
+.agent > .empty-state {
   flex: none;
-  margin: 0;
-  padding: var(--space-2-5) var(--space-3-5) 0;
-  font-size: var(--text-sm);
-  color: var(--ink-muted);
-}
-
-/* — something went wrong — */
-
-.failure {
-  border: 1px solid var(--warn);
-  border-radius: var(--r-md);
-  background: var(--warn-tint);
-  padding: var(--space-3);
-}
-
-.failure > .eyebrow {
-  color: var(--warn);
-  font-size: var(--font-size);
-}
-
-.failure-detail {
-  margin: var(--space-1) 0 0;
-  font-size: var(--text-sm);
 }
 
 /* — the conversation — */
@@ -415,8 +395,10 @@ body {
 }
 
 /* What can still be done about the file, or why
-   nothing can. */
-.file-foot {
+   nothing can; and, on a diagnostic, the one way to
+   hand it back. */
+.file-foot,
+.diagnostic-foot {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -457,107 +439,109 @@ body {
 
 /* — what went wrong — */
 
+/* A card laid out the way a call's row is, with a
+   rail in the failure's colour on its head where a
+   call has one in its author's: what matters about
+   this block is that it failed. */
 .diagnostic {
   border: 1px solid var(--hairline);
-  border-left-width: var(--rail-w);
-  border-left-color: var(--fail);
   border-radius: var(--r-sm);
   background: var(--surface);
-  padding: var(--space-2) var(--space-3);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
+}
+
+.diagnostic-head {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-3) var(--space-1-5) var(--space-2);
+  border-left: var(--rail-w) solid var(--fail);
+  font-size: var(--text-control);
+}
+
+.diagnostic-source {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: var(--w-semibold);
+}
+
+.diagnostic-head > .state-word {
+  flex: none;
+}
+
+/* Each thing found, as a line of evidence read down
+   its codes. */
+.diagnostic-rows {
+  display: flex;
+  flex-direction: column;
+  /* The three has no step: it is the lead the lines
+     of one finding list are set at. */
+  gap: 3px;
+  padding: var(--space-1-5) var(--space-3);
 }
 
 .diagnostic-row {
+  margin: 0;
   display: flex;
+  align-items: baseline;
   gap: var(--space-2);
-  margin: var(--space-2) 0 0;
   font-size: var(--text-sm);
 }
 
-.diagnostic-fix {
-  margin: var(--space-2) 0 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
+.diagnostic-code {
+  flex: none;
+  font-weight: var(--w-semibold);
+  color: var(--state-ink, var(--fail));
 }
 
-.diagnostic-fix:hover {
-  transform: translateY(var(--lift));
-  border-color: var(--brand);
+.diagnostic-at {
+  flex: none;
+  color: var(--ink-faint);
+}
+
+.diagnostic-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* — the one question the panel asks — */
 
+/* On the waiting tint, flat rather than a card: it
+   is pinned by the composer, not stacked in the log.
+   Its edge is drawn only where a theme draws every
+   control's. */
 .permission {
-  border: 1px solid var(--warn);
+  border: 1px solid var(--control-edge);
   border-radius: var(--r-md);
   background: var(--warn-tint);
   padding: var(--space-3);
 }
 
-.permission > .eyebrow {
-  color: var(--warn);
+/* What is asked, then the call it is about. */
+.permission-head,
+.proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
 }
 
-.permission-title {
-  margin: var(--space-1) 0 var(--space-3);
+.permission-tool,
+.proposal-workflow {
+  min-width: 0;
   overflow-wrap: anywhere;
+  font-size: var(--text-control);
 }
 
-.permission-options {
+.permission-options,
+.proposal-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-
-.permission-options > button {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.permission-options > button:hover {
-  transform: translateY(var(--lift));
-}
-
-/* Weight follows what the answer costs: allowing
-   once is the solid, expected answer; allowing
-   always is the same colour with less ink, because
-   it is the bigger promise; rejecting asks for
-   nothing at all. */
-.permission-options > button[data-kind='allow_once'] {
-  border-color: var(--brand);
-  background: var(--brand);
-  color: var(--on-brand);
-}
-
-.permission-options > button[data-kind='allow_always'] {
-  border-color: var(--brand);
-  color: var(--brand);
-}
-
-.permission-options > button[data-kind^='reject'] {
-  border-color: transparent;
-  color: var(--ink-muted);
-}
-
-.always {
-  font-weight: 600;
-  font-size: var(--text-xs);
+  margin-top: var(--space-2);
 }
 
 /* — the composer — */
@@ -663,59 +647,24 @@ body {
 
 /* — a proposal, waiting for an answer — */
 
-/* Dashed and tinted, the same treatment the blocks
-   on the canvas get: everything about a proposal is
-   drawn in pencil until somebody approves it. */
-.preview-card {
-  border: 1px dashed var(--brand);
-  border-radius: var(--r-md);
-  background: var(--brand-tint);
-  padding: var(--space-3);
-}
-
-.preview-card > .eyebrow {
-  color: var(--brand);
-  margin-bottom: var(--space-1);
-}
-
-.preview-summary,
-.preview-warning {
-  margin: 0 0 var(--space-3);
+/* A section of the region, not a card: the canvas
+   draws the proposal in pencil, and this is only
+   where it is answered. */
+.proposal-summary,
+.proposal-warning {
+  margin: var(--space-1) 0 0;
   font-size: var(--text-sm);
+  overflow-wrap: anywhere;
 }
 
-.preview-actions {
-  display: flex;
-  gap: var(--space-2);
+.proposal-summary {
+  color: var(--ink-soft);
 }
 
-.preview-actions button {
-  border: 1px solid var(--brand);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-3);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.preview-actions button:hover:not(:disabled) {
-  transform: translateY(var(--lift));
-}
-
-/* Approving is the decision the card exists for, so
-   it takes the room and the ink; refining is the
-   way back to the conversation. */
-.preview-actions button.primary {
-  flex: 1;
-  background: var(--brand);
-  color: var(--on-brand);
-}
-
-.preview-actions button:disabled {
-  border-color: var(--hairline);
-  color: var(--ink-faint);
-  cursor: default;
+/* Set apart from whatever above it shares the
+   region; at the top, the region's own edge already
+   does that. */
+.agent-foot > * + .proposal {
+  padding-top: var(--space-2-5);
+  border-top: 1px solid var(--hairline);
 }

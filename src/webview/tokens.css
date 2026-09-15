@@ -932,6 +932,54 @@ body.vscode-high-contrast-light {
   margin-top: var(--space-3);
 }
 
+/* Something a person must know before going on.
+   Flat on the tint of its tone rather than raised
+   as a card, because it is read rather than picked
+   up; its edge is drawn only where a theme draws
+   every control's. The title comes first, at the
+   weight of a title and in the tone read as text,
+   and what it means follows a step quieter. */
+.callout {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--control-edge);
+  border-radius: var(--r-sm);
+  font-size: var(--text-control);
+  line-height: var(--leading-body);
+}
+
+.callout[data-tone='fail'] {
+  background: var(--fail-tint);
+}
+.callout[data-tone='warn'] {
+  background: var(--warn-tint);
+}
+.callout[data-tone='info'] {
+  background: var(--info-tint);
+}
+
+.callout-title {
+  margin: 0;
+  font-weight: var(--w-semibold);
+  overflow-wrap: anywhere;
+}
+
+.callout[data-tone='fail'] > .callout-title {
+  color: var(--state-ink, var(--fail));
+}
+.callout[data-tone='warn'] > .callout-title {
+  color: var(--state-ink, var(--warn));
+}
+.callout[data-tone='info'] > .callout-title {
+  color: var(--state-ink, var(--info));
+}
+
+.callout-body {
+  margin-top: var(--space-0-5);
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
 /* A function out of the project's code-behind, in
    the two places one is offered: dragged off the
    palette onto a block, pressed in the Inspector's

@@ -321,10 +321,16 @@ test.describe('the panel, with a proposal outstanding', () => {
     await expect(page.locator('[data-approve]')).toHaveText('Approve & apply');
     await expect(page.locator('[data-refine]')).toHaveText('Refine');
 
-    // Approving is the primary action; refining is
-    // the way back to the conversation.
-    await expect(page.locator('[data-approve]')).toHaveClass(/primary/);
-    await expect(page.locator('[data-refine]')).not.toHaveClass(/primary/);
+    // Approving is the one thing the section asks
+    // for; refining is the way back to the
+    // conversation, there to be found rather than
+    // read first.
+    await expect(
+      page.locator('[data-approve].btn[data-variant="primary"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[data-refine].btn[data-variant="quiet"]'),
+    ).toHaveCount(1);
   });
 
   test('says what it would change, and to which workflow', async ({ page }) => {
@@ -334,6 +340,16 @@ test.describe('the panel, with a proposal outstanding', () => {
     await expect(page.locator('[data-preview-card]')).toContainText(
       'groom_booking',
     );
+
+    // A section of the region under the log, said
+    // in a label, not a card of its own.
+    const section = page.locator('section[data-preview-card]');
+
+    await expect(section).toHaveCount(1);
+    await expect(section.locator('.section-label')).toHaveText(
+      sidebarStrings.proposal,
+    );
+    await expect(page.locator('.preview-card')).toHaveCount(0);
   });
 
   test('tells the extension which proposal was approved', async ({ page }) => {
@@ -408,7 +424,15 @@ test.describe('the panel, after an approval', () => {
       undoable: false,
     });
 
-    await expect(page.locator('[data-undo]')).toBeDisabled();
+    const undo = page.locator('[data-undo]');
+
+    await expect(undo).toBeDisabled();
+
+    // Switched off rather than refusing: there is no
+    // sentence to give about why, so nothing is left
+    // for a keyboard to land on and read.
+    await expect(undo).toHaveJSProperty('disabled', true);
+    await expect(undo).not.toHaveAttribute('aria-disabled', /.*/);
   });
 });
 

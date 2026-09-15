@@ -31,9 +31,17 @@ export function sidebarHeading(): string {
 export const sidebarWords = once(() => ({
   heading: sidebarHeading(),
   chooseAgent: l10n.t('choose'),
+
+  // Why there is no session, as a state and then
+  // what to do about it. A title is not a sentence,
+  // so none of the three ends in a full stop, and
+  // choosing an agent needs no second line: the
+  // picker is in the head.
+  notTrustedTitle: l10n.t('This folder is not trusted'),
   notTrusted: l10n.t('Trust this folder to run a coding agent in it.'),
+  noFolderTitle: l10n.t('No folder open'),
   noProject: l10n.t('Open a folder to run a coding agent in it.'),
-  noAgent: l10n.t('No coding agent chosen yet.'),
+  noAgent: l10n.t('No coding agent chosen yet'),
   connecting: l10n.t('Starting the agent…'),
   ready: l10n.t('Ready.'),
   thinking: l10n.t('Working…'),
@@ -57,8 +65,15 @@ export const sidebarWords = once(() => ({
   removeAttached: l10n.t('remove {0}'),
 
   newFile: l10n.t('new'),
-  permission: l10n.t('Permission needed'),
-  always: l10n.t('always'),
+
+  // The labels over the two things the panel asks a
+  // person about, in the case they are written in.
+  permission: l10n.t('permission'),
+  proposal: l10n.t('proposal'),
+
+  // How many things a diagnostic found wrong, said
+  // as the state it leaves the work in.
+  failedCount: l10n.t('failed · {0}'),
 
   // The two words the design fixed for the one
   // decision this product is about. They are not
