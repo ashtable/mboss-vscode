@@ -8,6 +8,7 @@ import {
   type WebviewViewProvider,
 } from 'vscode';
 
+import type { InspectorFocus } from '../inspector/focus.js';
 import { mountWebview, type Mount } from '../webview/host.js';
 
 import type { ReplayPick, RunsStore } from './store.js';
@@ -161,6 +162,7 @@ export class SeePanel {
   constructor(
     private readonly extensionUri: Uri,
     private readonly store: RunsStore,
+    private readonly focus: InspectorFocus,
   ) {}
 
   show(): void {
@@ -178,6 +180,10 @@ export class SeePanel {
       ViewColumn.Active,
     );
     this.panel = panel;
+
+    // Followed from the moment it exists: a tab this
+    // creates is born in front, and no event says so.
+    const focused = this.focus.follow({ at: 'run' }, panel);
 
     this.mounted = mountWebview(panel, {
       extensionUri: this.extensionUri,
@@ -288,6 +294,7 @@ export class SeePanel {
     panel.onDidDispose(() => {
       this.mounted = undefined;
       this.panel = undefined;
+      focused.dispose();
     });
   }
 

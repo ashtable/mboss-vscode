@@ -12,6 +12,7 @@ import { runWorkflowCommand } from './commands/runWorkflow.js';
 import { isProject, workflowDocument } from './core/index.js';
 import { galleryHost } from './gallery/host.js';
 import { GalleryPanel } from './gallery/panel.js';
+import { inspectorFocus } from './inspector/focus.js';
 import { previewStore } from './preview/store.js';
 import { openDatabase, openManagement } from './runs/db.js';
 import { projectSdk } from './runs/sdk.js';
@@ -131,7 +132,11 @@ export function activate(context: ExtensionContext): void {
     watch: watchRun,
     sessionLog: sessionLog(),
   });
-  const see = new SeePanel(context.extensionUri, runs);
+  // Which canvas or run tab somebody last brought
+  // forward. Held here because both report into it
+  // and the Inspector, which is neither, reads it.
+  const focus = inspectorFocus();
+  const see = new SeePanel(context.extensionUri, runs, focus);
 
   // Opening a run takes both the store that reads
   // it and the page that shows one, so the pair is
@@ -215,6 +220,7 @@ export function activate(context: ExtensionContext): void {
       watchers,
       panel,
       sessions,
+      focus,
     ),
     AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview, {
       openRun,

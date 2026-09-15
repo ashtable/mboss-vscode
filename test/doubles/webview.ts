@@ -26,6 +26,10 @@ export type FakeWebview = {
    *  about. */
   focus(): void;
 
+  /** Puts something else in front of the panel, as
+   *  clicking another tab would. */
+  blur(): void;
+
   /** Hides and shows the panel, as a tab going to
    *  the background and coming back would. A hidden
    *  frame is not painted. */
@@ -39,10 +43,21 @@ export type FakeWebview = {
   panel: never;
 };
 
-export function fakeWebview(): FakeWebview {
+/**
+ * A panel's view state changes the way VS Code
+ * changes it: `focus`, `blur`, `hide` and `show`
+ * say so to `onDidChangeViewState` only when they
+ * move `active` or `visible`. A panel is born
+ * however `active` says, and hears nothing about
+ * that — so code that waits for the event to learn
+ * a panel is in front fails here as it would in
+ * the editor.
+ */
+export function fakeWebview(options: { active?: boolean } = {}): FakeWebview {
   const posted: unknown[] = [];
   const listeners: ((message: unknown) => void)[] = [];
   const closers: (() => void)[] = [];
+  const watchers = new Set<(event: { webviewPanel: unknown }) => void>();
 
   const webview = {
     options: {},
@@ -65,16 +80,30 @@ export function fakeWebview(): FakeWebview {
 
   const panel = {
     webview,
-    // Off until a test says otherwise: several
+    // Off unless a test says otherwise: several
     // panels can be open at once, and only one of
     // them is the tab in front of somebody.
-    active: false,
+    active: options.active ?? false,
     visible: true,
     onDidDispose: (listener: () => void) => {
       closers.push(listener);
 
       return { dispose: () => {} };
     },
+    onDidChangeViewState: (
+      listener: (event: { webviewPanel: unknown }) => void,
+    ) => {
+      watchers.add(listener);
+
+      return { dispose: () => void watchers.delete(listener) };
+    },
+  };
+
+  const change = (state: 'active' | 'visible', to: boolean): void => {
+    if (panel[state] === to) return;
+
+    panel[state] = to;
+    for (const watcher of [...watchers]) watcher({ webviewPanel: panel });
   };
 
   return {
@@ -85,15 +114,10 @@ export function fakeWebview(): FakeWebview {
     close: () => {
       for (const closer of closers) closer();
     },
-    focus: () => {
-      panel.active = true;
-    },
-    hide: () => {
-      panel.visible = false;
-    },
-    show: () => {
-      panel.visible = true;
-    },
+    focus: () => change('active', true),
+    blur: () => change('active', false),
+    hide: () => change('visible', false),
+    show: () => change('visible', true),
     panel: panel as never,
   };
 }

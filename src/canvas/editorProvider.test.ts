@@ -12,6 +12,7 @@ import {
   starterNode,
   type WorkflowIR,
 } from '../core/rules.js';
+import { inspectorFocus, type InspectorFocus } from '../inspector/focus.js';
 import { messages } from '../messages.js';
 import { previewStore, type PreviewStore } from '../preview/store.js';
 import { makeProject, writeWorkflow } from '../test-support/project.js';
@@ -332,17 +333,20 @@ let recorded: Recorded;
 let panel: FakeWebview;
 let coded: FakeCode;
 let sessions: CanvasSessions;
+let focus: InspectorFocus;
 
 async function open(
   document = fakeDocument(),
   preview = previewsIn([]),
   trusted: Trust = fakeTrust(true),
   runs: CanvasRuns = runsSaying(),
+  frame = fakeWebview(),
 ): Promise<void> {
   recorded = recorder();
-  panel = fakeWebview();
+  panel = frame;
   coded = codeSaying();
   sessions = canvasSessions();
+  focus = inspectorFocus();
 
   const editor = new WorkflowCanvasEditor(
     extensionUri,
@@ -353,6 +357,7 @@ async function open(
     coded,
     recorded.agent,
     sessions,
+    focus,
   );
 
   await editor.resolveCustomTextEditor(document, panel.panel);
@@ -829,6 +834,48 @@ describe('what an open canvas tells the registry', () => {
  * the Inspector column can be drawn from the same
  * message as the graph.
  */
+/**
+ * Which canvas the Inspector is about: the one
+ * somebody last brought to the front.
+ *
+ * VS Code says a panel's view state changed only
+ * when it did, and a canvas that opens in front
+ * was never anywhere else — so a canvas that
+ * waited for the event would leave the Inspector
+ * blank over the first file anybody opens.
+ */
+describe('which canvas has focus', () => {
+  it('holds a canvas resolved on a panel already in front', async () => {
+    await open(
+      fakeDocument(),
+      previewsIn([]),
+      fakeTrust(true),
+      runsSaying(),
+      fakeWebview({ active: true }),
+    );
+
+    expect(focus.holder()).toEqual({ at: 'canvas', session: canvasOn() });
+  });
+
+  it('takes focus when a background canvas is brought forward', () => {
+    expect(focus.holder()).toBeUndefined();
+
+    panel.focus();
+
+    expect(focus.holder()).toEqual({ at: 'canvas', session: canvasOn() });
+  });
+
+  it('lets go when the tab closes', () => {
+    panel.focus();
+
+    expect(focus.holder()).toBeDefined();
+
+    panel.close();
+
+    expect(focus.holder()).toBeUndefined();
+  });
+});
+
 describe('selecting a node', () => {
   it('hands the Inspector column the block, and the revision to edit against', async () => {
     panel.send({ type: 'select', view: 'canvas', nodeId: 'reply_decision' });
@@ -912,6 +959,7 @@ describe('selecting a node', () => {
       codeSaying(),
       fakeAgent(),
       sessions,
+      focus,
     ).resolveCustomTextEditor(
       fakeDocument(text, '/project/.mboss/workflows/other.workflow.json'),
       other.panel,

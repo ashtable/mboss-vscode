@@ -262,7 +262,12 @@ none of that.
   `CanvasSession` per panel). Open sessions live in the `canvasSessions()`
   registry (`sessions.ts`), built once in `extension.ts`: `active()` for the
   Arrange command, `forPath`/`whenOpen`, and `onChanged` naming the session that
-  moved, fired whether or not its frame is visible. Every gesture is a message;
+  moved, fired whether or not its frame is visible. Beside it,
+  `inspector/focus.ts` (`inspectorFocus()`, also built once) holds the canvas or
+  run tab somebody last brought forward; both panels go through its `follow`,
+  which reads `panel.active` once because VS Code fires no view-state event for
+  a panel born in front (`fakeWebview()` fires that event only on a change, for
+  the same reason). Every gesture is a message;
   every edit lands through `api.replaceDocument` so VS Code keeps
   undo/dirty/save. A **gesture** is
   what the panel sent; an **edit** is the pure function of the document it

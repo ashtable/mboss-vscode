@@ -25,6 +25,7 @@ import type {
   WorkflowIR,
   WorkflowNode,
 } from '../core/rules.js';
+import type { InspectorFocus } from '../inspector/focus.js';
 import { messages } from '../messages.js';
 import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { PreviewModel } from '../preview/model.js';
@@ -242,6 +243,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     private readonly code: CanvasCode,
     private readonly agent: Agent,
     private readonly sessions: CanvasSessions,
+    private readonly focus: InspectorFocus,
   ) {}
 
   static register(
@@ -253,6 +255,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     code: CanvasCode,
     agent: Agent,
     sessions: CanvasSessions,
+    focus: InspectorFocus,
   ): Disposable {
     return window.registerCustomEditorProvider(
       WorkflowCanvasEditor.viewType,
@@ -265,6 +268,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         code,
         agent,
         sessions,
+        focus,
       ),
       { supportsMultipleEditorsPerDocument: false },
     );
@@ -289,6 +293,10 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       session,
       panel,
     );
+
+    // Followed once registered, so whoever hears
+    // focus move to this canvas finds it open.
+    const focused = this.focus.follow({ at: 'canvas', session }, panel);
 
     // Whatever moved this canvas is drawn, and said
     // to the registry — the second whether or not the
@@ -374,7 +382,13 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
 
     void session.scan().then(changed);
 
-    panel.onDidDispose(() => registered.dispose());
+    // Out of the registry before focus moves on, so
+    // whoever hears the move never finds this canvas
+    // still open.
+    panel.onDidDispose(() => {
+      registered.dispose();
+      focused.dispose();
+    });
   }
 }
 
