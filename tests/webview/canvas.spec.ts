@@ -39,6 +39,7 @@ import {
   slugOf,
 } from './fixtures/canvas.js';
 import { LIBRARY_COLOURS } from './fixtures/library.js';
+import { graphAtRest } from './fixtures/runs.js';
 import { mount, THEMES_ALL } from './harness.js';
 import { colourOf, sameColour } from './palette.js';
 import { canvasWords as canvasStrings } from './words.js';
@@ -3762,35 +3763,6 @@ async function overGap(page: Page, edge: string): Promise<void> {
   await page.mouse.move(gap.x + gap.width / 2, gap.y + gap.height / 2, {
     steps: 8,
   });
-}
-
-/**
- * Waits for the graph to stop moving itself.
- *
- * The canvas fits the graph to its pane once the
- * blocks have been measured, which is a frame or
- * two after the view opens. A coordinate read before
- * that is a coordinate the graph is about to change,
- * and a pointer aimed at it lands on nothing.
- */
-async function graphAtRest(page: Page): Promise<void> {
-  const transform = async (): Promise<string> =>
-    await page
-      .locator('.react-flow__viewport')
-      .evaluate((viewport) => (viewport as HTMLElement).style.transform);
-
-  let last = await transform();
-
-  await expect
-    .poll(async () => {
-      const now = await transform();
-      const still = now !== '' && now === last;
-
-      last = now;
-
-      return still;
-    })
-    .toBe(true);
 }
 
 /** How far the graph is zoomed in, read off the
