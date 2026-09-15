@@ -37,7 +37,7 @@ import { hooked } from '../webview/signal/hook.js';
 import { SectionLabel } from '../webview/signal/SectionLabel.js';
 import { StateWord } from '../webview/signal/StateWord.js';
 
-import { Composer } from './Composer.js';
+import { Composer, working } from './Composer.js';
 import { namedByFile } from './naming.js';
 import { Prose } from './Prose.js';
 
@@ -166,7 +166,11 @@ function Panel(state: SidebarInit) {
         {rows.map((row) =>
           row.kind === 'entry' ? (
             <li key={row.entry.id} data-entry={row.entry.id}>
-              <Entry entry={row.entry} strings={strings} />
+              <Entry
+                entry={row.entry}
+                strings={strings}
+                busy={working(status)}
+              />
             </li>
           ) : (
             <li
@@ -386,9 +390,13 @@ function Proposal({
 function Entry({
   entry,
   strings,
+  busy,
 }: {
   entry: SidebarEntry;
   strings: SidebarStrings;
+
+  /** The session has a turn in flight. */
+  busy: boolean;
 }) {
   if (entry.at === 'message') {
     if (entry.reasoning !== undefined) {
@@ -456,7 +464,7 @@ function Entry({
     );
   }
 
-  return <Plan entry={entry} strings={strings} />;
+  return <Plan entry={entry} strings={strings} busy={busy} />;
 }
 
 /**
@@ -899,17 +907,30 @@ function Diagnostic({
  * The agent's checklist, drawn as a row of work: the
  * step it is on, and whether it is still going. The
  * steps fold under it, each with its own word.
+ *
+ * Still going is the session's answer, not the
+ * checklist's. A turn that stopped, or that ended
+ * with steps nobody took, leaves them open for good;
+ * a row pulsing "running" over a session doing
+ * nothing says work is in flight when none is. So
+ * an unfinished plan the session has left behind is
+ * queued, the same word its untaken steps carry.
  */
 function Plan({
   entry,
   strings,
+  busy,
 }: {
   entry: PlanEntry;
   strings: SidebarStrings;
+
+  /** The session has a turn in flight. */
+  busy: boolean;
 }) {
-  const now =
-    entry.steps.find((step) => step.status === 'in_progress') ??
-    entry.steps.find((step) => step.status === 'pending');
+  // Only a step somebody started says what the
+  // agent is on; a queued one says what it is not.
+  const now = entry.steps.find((step) => step.status === 'in_progress');
+  const done = entry.steps.every((step) => step.status === 'completed');
 
   return (
     <ToolEventRow
@@ -917,7 +938,7 @@ function Plan({
       verb={strings.plan}
       target={now?.text ?? ''}
       theirs
-      status={now === undefined ? 'completed' : 'in_progress'}
+      status={done ? 'completed' : busy ? 'in_progress' : 'pending'}
       fold={
         entry.steps.length === 0
           ? undefined

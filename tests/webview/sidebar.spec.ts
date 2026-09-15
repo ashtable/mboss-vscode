@@ -1298,7 +1298,9 @@ test.describe('the plan', () => {
   }) => {
     const harness = await openPanel(page);
 
-    await showing(harness, [plan('completed', 'in_progress', 'pending')]);
+    await showing(harness, [plan('completed', 'in_progress', 'pending')], {
+      status: 'streaming',
+    });
 
     const row = page.locator('[data-plan]');
     const toggle = row.locator('[data-tool-body-toggle]');
@@ -1333,6 +1335,61 @@ test.describe('the plan', () => {
 
     await expect(word).toHaveText(strings.toolStatus.completed);
     await expect(word).not.toHaveAttribute('data-pulse');
+  });
+
+  /**
+   * A turn can end with steps still open — stopped,
+   * or simply finished without them. The row is
+   * read down a column of work in flight, so a
+   * pulsing word on a session that is doing nothing
+   * says work is happening when none is.
+   */
+  test('stops saying a plan is running once the turn is over', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [plan('completed', 'in_progress', 'pending')], {
+      status: 'ready',
+    });
+
+    const row = page.locator('[data-plan]');
+    const word = row.locator('.tool-line .state-word');
+
+    await expect(word).toHaveText(strings.toolStatus.pending);
+    await expect(word).not.toHaveAttribute('data-pulse');
+    await expect(word).toHaveAttribute('data-tone', 'faint');
+    await expect(row.locator('.tool-target')).toHaveText('Scaffold handlers');
+  });
+
+  test('keeps a plan running while a question waits', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [plan('completed', 'in_progress', 'pending')], {
+      status: 'awaiting-permission',
+    });
+
+    const word = page.locator('[data-plan] .tool-line .state-word');
+
+    await expect(word).toHaveText(strings.toolStatus.in_progress);
+    await expect(word).toHaveAttribute('data-pulse', '');
+  });
+
+  /** A step nobody has started is not what the
+   *  agent is doing. */
+  test('names no step until one is under way', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [plan('completed', 'pending', 'pending')], {
+      status: 'streaming',
+    });
+
+    const row = page.locator('[data-plan]');
+
+    await expect(row.locator('.tool-target')).toHaveCount(0);
+    await expect(row.locator('.tool-line .state-word')).toHaveText(
+      strings.toolStatus.in_progress,
+    );
   });
 });
 

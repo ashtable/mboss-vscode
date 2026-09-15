@@ -52,15 +52,13 @@ export function Composer({
 }) {
   const [text, setText] = useState('');
 
-  // A turn waiting on a permission answer is still
-  // a turn, and the one most in need of a way out.
-  const working = status === 'streaming' || status === 'awaiting-permission';
+  const busy = working(status);
   const blank = text.trim() === '';
 
   const send = (event: FormEvent): void => {
     event.preventDefault();
 
-    if (working || blank) return;
+    if (busy || blank) return;
 
     postToHost({ type: 'prompt', text });
     setText('');
@@ -135,7 +133,7 @@ export function Composer({
             key, so somebody on a keyboard who pressed
             Send is left on Stop rather than on a
             button that has just been taken away. */}
-        {working ? (
+        {busy ? (
           <Button
             key="send-or-stop"
             variant="stop"
@@ -159,4 +157,16 @@ export function Composer({
       </div>
     </form>
   );
+}
+
+/**
+ * The session has a turn in flight.
+ *
+ * A turn waiting on a permission answer is still a
+ * turn, and the one most in need of a way out. Read
+ * by every row that says work is happening, so that
+ * one answer decides them all.
+ */
+export function working(status: SidebarInit['status']): boolean {
+  return status === 'streaming' || status === 'awaiting-permission';
 }
