@@ -255,6 +255,11 @@ describe('what a queue block is doing', () => {
 
     await store.inspectQueue('wf_c9d2f3', 'index_items');
 
+    // And on the copy a block of it is drawn from in
+    // the Inspector, which is the same read.
+    expect(store.inspected()?.run.queueEvidence).toEqual(
+      store.see().run?.live?.queueEvidence,
+    );
     expect(store.see().run?.live?.queueEvidence).toEqual({
       index_items: {
         window: {
@@ -291,6 +296,93 @@ describe('what a queue block is doing', () => {
     await store.inspectQueue('wf_somebody_else', 'index_items');
 
     expect(store.see().run?.live?.queueEvidence).toBeUndefined();
+  });
+});
+
+/**
+ * The run tab's run, as the Inspector draws a block
+ * of it.
+ *
+ * The page and a canvas draw what the workflow did
+ * and leave the SDK's own rows out. A row picked in
+ * the trace can be one of those, so the Inspector's
+ * copy keeps them, each under the block it is drawn
+ * under and marked as the SDK's.
+ */
+describe('the run a block picked on the run tab is drawn from', () => {
+  /** A store with a run of that workflow open, over
+   *  a project holding it. */
+  async function opened(
+    workflow: string,
+    rows: { name: string; output?: string }[],
+  ): Promise<RunsStore> {
+    const dir = project({ workflows: [] });
+    writeWorkflow(dir, workflow);
+
+    const db = database();
+    db.rows = [{ ...RUN_ROW, name: workflow }];
+    db.steps = rows.map((row, index) => ({
+      ...STEP_ROW,
+      function_id: index,
+      function_name: row.name,
+      output: row.output ?? '{}',
+    }));
+
+    const store = runsStore(
+      deps({ host: host({ projects: () => [dir] }), open: async () => db }),
+    );
+    await store.select('wf_c9d2f3');
+
+    return store;
+  }
+
+  const INTAKE = [
+    { name: 'ask_details' },
+    { name: 'await_details.register' },
+    { name: 'DBOS.recv' },
+    { name: 'DBOS.sleep' },
+    { name: 'await_details.clear' },
+    { name: 'record_intake' },
+  ];
+
+  it('keeps the SDK’s rows, each under the block it ran in', async () => {
+    const store = await opened('form_intake', INTAKE);
+
+    expect(
+      store
+        .inspected()
+        ?.run.steps.map((one) => [one.name, one.nodeId, one.sdk ?? false]),
+    ).toEqual([
+      ['ask_details', 'ask_details', false],
+      ['await_details.register', 'await_details', false],
+      ['DBOS.recv', 'await_details', true],
+      ['DBOS.sleep', 'await_details', true],
+      ['await_details.clear', 'await_details', false],
+      ['record_intake', 'record_intake', false],
+    ]);
+  });
+
+  it('leaves the run the page draws without them', async () => {
+    const store = await opened('form_intake', INTAKE);
+    const steps = store.see().run?.live?.steps ?? [];
+
+    expect(steps).toHaveLength(4);
+    expect(steps.some((one) => one.sdk === true)).toBe(false);
+  });
+
+  it('says which way a decided block went, as the page does', async () => {
+    const store = await opened('groom_booking', [
+      { name: 'parse_request' },
+      { name: 'find_slot' },
+      { name: 'slot_open', output: '{"requestedSlotFree":true}' },
+    ]);
+
+    expect(store.inspected()?.decided).toEqual({ slot_open: 'yes' });
+    expect(store.inspected()?.decided).toEqual(store.see().run?.graph?.decided);
+  });
+
+  it('has nothing to draw before a run is open', () => {
+    expect(runsStore(deps()).inspected()).toBeUndefined();
   });
 });
 

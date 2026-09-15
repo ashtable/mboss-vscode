@@ -333,6 +333,17 @@ describe('what each view may say', () => {
     ).toBe(true);
   });
 
+  /**
+   * A click on the graph's background picks nothing,
+   * and the run tab has to be able to say so.
+   */
+  it('lets the run graph say nothing is picked', () => {
+    const see = messageSchemaFor('see');
+
+    expect(see.safeParse({ type: 'seeNode', nodeId: null }).success).toBe(true);
+    expect(see.safeParse({ type: 'seeNode' }).success).toBe(false);
+  });
+
   it("refuses a drop that is both a splice and a wire's end", () => {
     const canvas = messageSchemaFor('canvas');
     const drop = { type: 'addNode', ...SAMPLE['addNode'] };

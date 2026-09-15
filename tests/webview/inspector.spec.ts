@@ -605,6 +605,36 @@ test.describe('a block in the Inspector', () => {
     await expect(page.locator('.inspector .hint')).toHaveCount(0);
   });
 
+  /**
+   * On the run tab the block is one a run recorded,
+   * and the document may have lost it since. What
+   * the run recorded is still there to read, and
+   * there is nothing left to configure.
+   */
+  test('offers Configure on the run tab while the block is there', async ({
+    page,
+  }) => {
+    const onRunTab = (nodeId: string): BlockSubject => ({
+      ...blockSubject('find_slot', {}, 'evidence'),
+      source: 'run',
+      nodeId,
+      run: runOf(IN_FLIGHT),
+    });
+    const configure = page.locator('button[data-inspector-tab="configure"]');
+
+    const harness = await openInspector(page, blockInit(onRunTab('find_slot')));
+
+    await expect(configure).toBeEnabled();
+    await expect(page.locator('.inspector > .hint')).toHaveCount(0);
+
+    await harness.show(blockInit(onRunTab('deleted_block')));
+
+    await expect(configure).toBeDisabled();
+    await expect(page.locator('.inspector > .hint')).toHaveText(
+      inspectorStrings.notInWorkflow,
+    );
+  });
+
   /** Two faces, not one long form: a field somebody
    *  may change never sits beside a fact they may
    *  not. */

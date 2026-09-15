@@ -9,7 +9,12 @@ import { emitter } from '../emitter.js';
 import { messages } from '../messages.js';
 import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { Trust } from '../trust.js';
-import type { RunsInit, SeeInit, ShownRun } from '../webview/protocol.js';
+import type {
+  InspectorMode,
+  RunsInit,
+  SeeInit,
+  ShownRun,
+} from '../webview/protocol.js';
 
 import type { OpenDatabase, OpenManagement } from './db.js';
 import { systemDatabaseUrl } from './env.js';
@@ -42,7 +47,7 @@ import type { SessionLog } from './sessionLog.js';
 import type { StackController } from './stack.js';
 import { stackZone } from './stackZone.js';
 import { testRunZone } from './testRun.js';
-import type { SeeView } from './view.js';
+import { inspectedOf, type SeeView } from './view.js';
 
 import type { LiveRun, RunWatch } from './watch.js';
 import { projectWorkflows, workflowDocument } from './workflows.js';
@@ -50,6 +55,17 @@ import { runsWords } from './words.js';
 
 export type { StackAction } from './stack.js';
 export type { ReplayPick } from './replayZone.js';
+
+/**
+ * The run tab's run, as the Inspector draws a
+ * block of it: every row, the SDK's own included,
+ * with whatever was read about its queue blocks,
+ * and which way each decided block went.
+ */
+export type InspectedRun = {
+  run: ShownRun;
+  decided: Record<string, string>;
+};
 
 /**
  * What the window knows about a project's runs,
@@ -184,6 +200,10 @@ export type RunsStore = Disposable & {
   /** The open run as it was read, decoded but not
    *  drawn. */
   detail(): SeeView | undefined;
+
+  /** The open run, as the Inspector draws a block
+   *  picked on it. */
+  inspected(): InspectedRun | undefined;
 
   /** The run a canvas draws itself against, when
    *  one has been followed. */
@@ -358,7 +378,11 @@ export type RunsStore = Disposable & {
   /** The run page: which block, which view, whether
    *  the SDK's own rows are shown, and reading it
    *  again. */
-  selectNode(nodeId: string): void;
+  selectNode(nodeId: string | null): void;
+
+  /** Which of the Inspector's faces a person picked
+   *  for the block picked on the run page. */
+  chooseFace(mode: InspectorMode): void;
 
   showTab(tab: 'graph' | 'trace'): void;
 
@@ -490,13 +514,14 @@ export function runsStore(deps: RunsDeps): RunsStore {
 
   /** The run a view draws, with whatever was read
    *  about the queue blocks of it. */
-  const shownRun = (run: LiveRun | undefined): ShownRun | undefined => {
-    if (run === undefined) return undefined;
-
+  const withQueues = (run: LiveRun): ShownRun => {
     const found = queueEvidence.get(run.workflowId);
 
     return found === undefined ? run : { ...run, queueEvidence: found };
   };
+
+  const shownRun = (run: LiveRun | undefined): ShownRun | undefined =>
+    run === undefined ? undefined : withQueues(run);
 
   /**
    * The run one of those ids is about, whichever
@@ -680,6 +705,20 @@ export function runsStore(deps: RunsDeps): RunsStore {
     },
 
     detail: openRun.reading,
+
+    // Read again from the rows the page holds rather
+    // than kept beside them: a tick replaces those
+    // rows, and a copy made at the last click would
+    // be a run from a moment ago.
+    inspected: () => {
+      const view = openRun.reading();
+      if (view === undefined) return undefined;
+
+      const { run, decided } = inspectedOf(view, Date.now());
+
+      return { run: withQueues(run), decided };
+    },
+
     live: () => shownRun(testRun.live()),
 
     /**
@@ -909,6 +948,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     },
 
     selectNode: openRun.node,
+    chooseFace: openRun.face,
     showTab: openRun.tab,
     showRaw: openRun.raw,
     refreshRun: openRun.again,

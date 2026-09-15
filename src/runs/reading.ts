@@ -200,6 +200,20 @@ export type Reading = {
   /** Sticky: once the ledger has said a run was
    *  picked back up, it stays said. */
   recovered: boolean;
+
+  /**
+   * The block the compiler's walk over the document
+   * placed each row inside, by the row's handle.
+   *
+   * Kept rather than thrown away once the timer rows
+   * are found, because it is the first half of which
+   * block a row is drawn under, and a second walk
+   * made somewhere else could answer differently.
+   * Empty where no document came with the rows, and
+   * where the compiler cannot describe the one that
+   * did.
+   */
+  owners: ReadonlyMap<number, string>;
 };
 
 /** DBOS's own three and the one that worked, so a
@@ -249,7 +263,8 @@ export function readRun(
         : new Set(drawing.nodes.map((node) => node.id));
 
   const parked = parkedNodes(steps.map((step) => step.name));
-  const timers = timerRows(document, steps, now);
+  const owners = ownersOf(document, steps);
+  const timers = timerRows(document, owners, steps, now);
   const timeline = runTimeline(run, steps, now);
   const restored = new Map(
     timeline.steps.map((step) => [step.functionId, step.restored]),
@@ -287,8 +302,72 @@ export function readRun(
       parked: parkedRun,
     }),
     recovered,
+    owners,
   };
 }
+
+/**
+ * Which block each row is drawn under.
+ *
+ * A row a block wrote is that block's. A row the
+ * SDK wrote for itself belongs to whichever block
+ * it ran inside, which the walk over the document
+ * says wherever it can. Where it cannot, the rows
+ * are still laid out in the order they ran: a
+ * wait's park sits under the registration nobody
+ * has cleared yet, and any other row under the
+ * last block row before it. Rows the order cannot
+ * place — one before any block row, one naming a
+ * block the document lost — sit under nothing,
+ * rather than under a block they did not run in.
+ *
+ * One rule, for everybody who has to ask: which
+ * block a row picked on the run tab selects, and
+ * which block's evidence counts that row as its
+ * own.
+ */
+export function drawnUnder(
+  steps: readonly Operation[],
+  owners: ReadonlyMap<number, string>,
+): Map<number, string> {
+  const placed = new Map<number, string>();
+
+  // The last block row so far, and the wait still
+  // registered, if one is.
+  let before: string | undefined;
+  let registered: string | undefined;
+
+  for (const step of steps) {
+    if (step.owner === 'node' && step.nodeId !== undefined) {
+      placed.set(step.functionId, step.nodeId);
+      before = step.nodeId;
+
+      const last = step.segments.at(-1)?.kind;
+      if (last === 'register') registered = step.nodeId;
+      if (last === 'clear' && registered === step.nodeId) {
+        registered = undefined;
+      }
+
+      continue;
+    }
+
+    if (step.owner !== 'sdk') continue;
+
+    const nodeId =
+      owners.get(step.functionId) ??
+      (PARKS.includes(step.name) ? registered : undefined) ??
+      before;
+
+    if (nodeId !== undefined) placed.set(step.functionId, nodeId);
+  }
+
+  return placed;
+}
+
+/** The two rows the SDK writes while a wait is
+ *  parked: the message it waits for, and the sleep
+ *  that times the wait out. */
+const PARKS: readonly string[] = ['DBOS.recv', 'DBOS.sleep'];
 
 /**
  * One row, attributed.
@@ -382,29 +461,53 @@ type TimerRow = { nodeId: string; waiting: boolean };
 const SLEEP = 'DBOS.sleep';
 
 /**
+ * Where the walk over the document placed each row.
+ *
+ * Asked of where a row fell rather than of its
+ * name, because the SDK's own rows carry no block
+ * in their names at all — two waits in one
+ * document write the identical string.
+ *
+ * No cache. The walk is an in-memory plan of one
+ * document, and every caller that reaches here has
+ * just read somebody's database.
+ */
+function ownersOf(
+  document: WorkflowIR | undefined,
+  steps: readonly Step[],
+): ReadonlyMap<number, string> {
+  if (document === undefined) return new Map();
+
+  try {
+    return traceOwners(traceGrammar(document), steps.map(recordedRow));
+  } catch {
+    // The compiler refuses a document it cannot
+    // describe, and a run of one is still a run. A
+    // panel that threw over it would go blank
+    // exactly where somebody needs to read what
+    // happened.
+    return new Map();
+  }
+}
+
+/**
  * Which rows are a wait-on-the-clock's own.
  *
  * Such a wait compiles to a bare `await
  * DBOS.sleep(ms)` and writes nothing under its own
  * name, so the SDK's row is the only evidence the
- * block ran at all. Which wait wrote it cannot be
- * read off the name — two waits in one document
- * write the identical string — so it is asked of
- * where the row fell, which only the walk over the
- * saved document knows.
+ * block ran at all, and which wait wrote it is the
+ * walk's answer.
  *
  * Only a wait on the clock. A wait on a form and an
  * approval park on `DBOS.recv` with a sleep beside
  * it timing the park out, and both already write
  * rows of their own; giving them the SDK's pair as
  * well would draw one block twice.
- *
- * No cache. The walk is an in-memory plan of one
- * document, and every caller that reaches here has
- * just read somebody's database.
  */
 function timerRows(
   document: WorkflowIR | undefined,
+  owners: ReadonlyMap<number, string>,
   steps: readonly Step[],
   now: number,
 ): ReadonlyMap<number, TimerRow> {
@@ -419,21 +522,6 @@ function timerRows(
       )
       .map((node) => node.id),
   );
-
-  if (timers.size === 0) return rows;
-
-  let owners: ReadonlyMap<number, string>;
-
-  try {
-    owners = traceOwners(traceGrammar(document), steps.map(recordedRow));
-  } catch {
-    // The compiler refuses a document it cannot
-    // describe, and a run of one is still a run. A
-    // panel that threw over it would go blank
-    // exactly where somebody needs to read what
-    // happened.
-    return rows;
-  }
 
   for (const step of steps) {
     if (step.name !== SLEEP) continue;

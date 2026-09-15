@@ -3,7 +3,7 @@ import type { Disposable } from 'vscode';
 import { boxesFor } from '../core/index.js';
 import { ownerOf, type WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
-import type { SeeInit } from '../webview/protocol.js';
+import type { InspectorMode, SeeInit } from '../webview/protocol.js';
 import { inFlight } from '../webview/states.js';
 
 import type { Database } from './db.js';
@@ -17,9 +17,9 @@ import {
   type Step,
   type WorkflowStatusRow,
 } from './rows.js';
-import { finished, reusedRow } from './reading.js';
+import { drawnUnder, finished, reusedRow } from './reading.js';
 import type { ProjectSdk } from './sdk.js';
-import { seeInit, type SeeView } from './view.js';
+import { readView, seeInit, type SeeView } from './view.js';
 import { workflowDocument } from './workflows.js';
 
 /**
@@ -139,13 +139,42 @@ export type OpenRun = Disposable & {
    *  open. */
   open(workflowId: string): Promise<void>;
 
-  /** Which step the rail describes and a replay
-   *  would fork from. */
+  /**
+   * A row picked in the trace, and the block it is
+   * drawn under with it.
+   *
+   * The two views of a run share one selection, so
+   * a row picks its block as well — the SDK's own
+   * rows too, which are drawn under the block they
+   * ran inside. A row drawn under no block picks
+   * none, rather than a block it did not run in.
+   */
   step(functionId: number): void;
 
-  /** Which block on the run's graph a person
-   *  picked. */
-  node(nodeId: string): void;
+  /**
+   * A block picked on the run's graph, and none of
+   * its rows; `null` for the graph's background,
+   * which picks nothing.
+   *
+   * No row, because the block's own card says which
+   * of its rows matters. Picking the first one used
+   * to open a block whose later row failed on the
+   * row that did not, and a replay from there would
+   * fork before the failure.
+   */
+  node(nodeId: string | null): void;
+
+  /**
+   * Which of the Inspector's faces a person picked
+   * for the block they are on.
+   *
+   * Let go of when they move to another block — by
+   * picking it, or by picking a row under it — and
+   * when another run is opened. A row under the same
+   * block keeps it: somebody reading Configure while
+   * walking a block's rows is still on that block.
+   */
+  face(mode: InspectorMode): void;
 
   /** Which of the two views is on screen. It belongs
    *  to the panel rather than to the run, so opening
@@ -269,13 +298,14 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
     return {
       run: found.run,
       steps: found.steps,
-      selectedStep: reading?.selectedStep ?? firstStep(found.steps),
+      selectedStep: reading?.selectedStep,
       note,
       ...(lineage === undefined ? {} : { lineage }),
       ...(ir === undefined ? {} : { ir, boxes: await boxesFor(ir) }),
       ...(reading?.selectedNode === undefined
         ? {}
         : { selectedNode: reading.selectedNode }),
+      ...(reading?.face === undefined ? {} : { face: reading.face }),
       raw: reading?.raw ?? false,
       following: finished(found.run) ? 'quiet' : 'following',
       timing: dir !== undefined && recordsTimings(deps.projectSdk(dir)),
@@ -342,27 +372,34 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
     step: (functionId) => {
       if (shown === undefined) return;
 
-      shown = { ...shown, selectedStep: functionId };
+      const reading = readView(shown, Date.now());
+      const nodeId = drawnUnder(reading.steps, reading.owners).get(functionId);
+
+      shown = {
+        ...shown,
+        selectedStep: functionId,
+        selectedNode: nodeId,
+        face: nodeId === shown.selectedNode ? shown.face : undefined,
+      };
       changed();
     },
 
     node: (nodeId) => {
       if (shown === undefined) return;
 
-      // The two views of a run share one selection,
-      // so picking a block also picks the first
-      // operation that block recorded.
-      const first = shown.steps.find((step) => {
-        const owner = ownerOf(step.name);
-
-        return owner.kind === 'node' && owner.nodeId === nodeId;
-      });
-
       shown = {
         ...shown,
-        selectedNode: nodeId,
-        ...(first === undefined ? {} : { selectedStep: first.functionId }),
+        selectedNode: nodeId ?? undefined,
+        selectedStep: undefined,
+        face: undefined,
       };
+      changed();
+    },
+
+    face: (mode) => {
+      if (shown === undefined) return;
+
+      shown = { ...shown, face: mode };
       changed();
     },
 
@@ -579,11 +616,4 @@ function recordsTimings(sdk: ProjectSdk): boolean {
   if (minor !== RECORDS_TIMINGS[1]) return minor > RECORDS_TIMINGS[1];
 
   return patch >= RECORDS_TIMINGS[2];
-}
-
-/** The step a replay starts from unless somebody
- *  picks another: the first one, which replays the
- *  whole run from its ledger. */
-function firstStep(steps: Step[]): number | undefined {
-  return steps[0]?.functionId;
 }

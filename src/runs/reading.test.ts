@@ -10,7 +10,7 @@ import {
   timerThenAnswerRows,
 } from '../test-support/runs.js';
 
-import { readRun } from './reading.js';
+import { drawnUnder, readRun, type Operation } from './reading.js';
 import { errorIn, OUTPUT_KEPT, type Run, type Step } from './rows.js';
 
 /**
@@ -498,18 +498,168 @@ describe('a wait the run is sitting out on the clock', () => {
    * where somebody needs to read what happened.
    */
   it('reads the run anyway where the document cannot be described', () => {
-    const found = readRun(
+    const reading = readRun(
       RUN,
       timerThenAnswerRows(),
       FORKED,
       false,
       SLEEPING,
       FORKED,
-    ).steps;
+    );
+    const found = reading.steps;
 
     expect(found).toHaveLength(1);
     expect(found[0]?.owner).toBe('sdk');
     expect(found[0]?.nodeId).toBeUndefined();
+    expect(reading.owners).toEqual(new Map());
+  });
+
+  /**
+   * Where the walk put each row is kept, so that
+   * whoever nests the SDK's rows under a block asks
+   * the same walk rather than working it out again.
+   */
+  it('keeps the owner map it read the document with', () => {
+    const reading = readRun(
+      RUN,
+      ledger(
+        'ask_details',
+        'await_details.register',
+        'DBOS.recv',
+        'DBOS.sleep',
+      ),
+      FORM_INTAKE,
+      false,
+      NOW,
+      FORM_INTAKE,
+    );
+
+    expect(reading.owners.get(2)).toBe('await_details');
+    expect(reading.owners.get(3)).toBe('await_details');
+  });
+
+  it('keeps no owner map where no document came with it', () => {
+    const reading = readRun(
+      RUN,
+      timerThenAnswerRows(),
+      'unasked',
+      false,
+      SLEEPING,
+      undefined,
+    );
+
+    expect(reading.owners).toEqual(new Map());
+  });
+});
+
+/**
+ * Which block each row is drawn under.
+ *
+ * A row a block wrote is that block's. The SDK's
+ * own rows belong to whichever block they ran
+ * inside, and the compiler's walk over the saved
+ * document says which wherever it can. Where it
+ * cannot, a wait's park still sits under the
+ * registration it followed, and any other row of
+ * the SDK's under the block row before it. A row
+ * with no block row before it, and a row naming a
+ * block the document lost, sit under nothing.
+ */
+describe('which block a row is drawn under', () => {
+  /** A row as a reading hands it over: who wrote
+   *  it, and the block it names where it names
+   *  one. */
+  function row(
+    functionId: number,
+    name: string,
+    owner: Operation['owner'],
+    nodeId?: string,
+  ): Operation {
+    const last = name.split('.').at(-1);
+
+    return {
+      name,
+      nodeId,
+      owner,
+      segments: last === 'register' || last === 'clear' ? [{ kind: last }] : [],
+      state: 'done',
+      functionId,
+      startedAt: 1000,
+      completedAt: 1100,
+      output: '{}',
+      shown: '{}',
+      outputCut: false,
+      bytes: 2,
+      absent: false,
+      error: undefined,
+      childWorkflowId: undefined,
+      restored: false,
+      reused: false,
+    };
+  }
+
+  it('puts a row where the walk placed it', () => {
+    const rows = [
+      row(0, 'ask_details', 'node', 'ask_details'),
+      row(1, 'DBOS.sleep', 'sdk'),
+    ];
+
+    expect(drawnUnder(rows, new Map([[1, 'let_it_wait']]))).toEqual(
+      new Map([
+        [0, 'ask_details'],
+        [1, 'let_it_wait'],
+      ]),
+    );
+  });
+
+  it('puts a wait’s park under the row that registered it', () => {
+    const rows = [
+      row(0, 'await_details.register', 'node', 'await_details'),
+      row(1, 'ask_details', 'node', 'ask_details'),
+      row(2, 'DBOS.recv', 'sdk'),
+      row(3, 'DBOS.sleep', 'sdk'),
+    ];
+
+    expect(drawnUnder(rows, new Map())).toEqual(
+      new Map([
+        [0, 'await_details'],
+        [1, 'ask_details'],
+        [2, 'await_details'],
+        [3, 'await_details'],
+      ]),
+    );
+  });
+
+  it('puts any other SDK row under the block row before it', () => {
+    const rows = [
+      row(0, 'await_details.register', 'node', 'await_details'),
+      row(1, 'await_details.clear', 'node', 'await_details'),
+      row(2, 'record_intake', 'node', 'record_intake'),
+      row(3, 'DBOS.sleep', 'sdk'),
+      row(4, 'DBOS.setEvent', 'sdk'),
+    ];
+
+    expect(drawnUnder(rows, new Map())).toEqual(
+      new Map([
+        [0, 'await_details'],
+        [1, 'await_details'],
+        [2, 'record_intake'],
+        [3, 'record_intake'],
+        [4, 'record_intake'],
+      ]),
+    );
+  });
+
+  it('places nothing before any block row, or for a lost block', () => {
+    const rows = [
+      row(0, 'DBOS.recv', 'sdk'),
+      row(1, 'deleted_block', 'unmapped'),
+      row(2, 'record_intake', 'node', 'record_intake'),
+    ];
+
+    expect(drawnUnder(rows, new Map())).toEqual(
+      new Map([[2, 'record_intake']]),
+    );
   });
 });
 

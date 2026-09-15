@@ -1109,6 +1109,19 @@ export type BlockSubject = {
 
   /** Only on a trigger block. */
   runInput: RunInputView | undefined;
+
+  /**
+   * The sentence the canvas shows over an agent's
+   * proposal, when one is waiting on this document
+   * and is why `revision` is held back.
+   *
+   * Only on the run tab. A canvas lets go of its
+   * selection when a proposal arrives, so a canvas
+   * block never has one to explain; a block picked
+   * on a run stays, and has to say why it cannot be
+   * edited.
+   */
+  proposal: string | undefined;
 };
 
 /**

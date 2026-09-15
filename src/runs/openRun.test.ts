@@ -110,6 +110,43 @@ function page(
   return { open, list };
 }
 
+/** A project with one saved document written whole
+ *  rather than through the trigger-only fixture the
+ *  other cases use. */
+function projectHolding(ir: WorkflowIR): string {
+  const dir = project({ workflows: [] });
+
+  writeFileSync(
+    join(dir, '.mboss', 'workflows', `${ir.name}.workflow.json`),
+    JSON.stringify(ir),
+    'utf8',
+  );
+
+  return dir;
+}
+
+/** A run of that workflow, still going, with the
+ *  rows it has written so far. */
+function reading(
+  ir: WorkflowIR,
+  steps: { name: string; startedAt?: number; completedAt?: number }[],
+): Fake {
+  const db = database();
+
+  db.rows = [
+    { ...RUN_ROW, name: ir.name, status: 'PENDING', completed_at: null },
+  ];
+  db.steps = steps.map((one, index) => ({
+    ...STEP_ROW,
+    function_id: index,
+    function_name: one.name,
+    started_at_epoch_ms: String(one.startedAt ?? 1000),
+    completed_at_epoch_ms: String(one.completedAt ?? 1200),
+  }));
+
+  return db;
+}
+
 /** The rows the page would draw, by the name each
  *  one recorded. */
 function drawnRows(open: OpenRun): string[] {
@@ -210,43 +247,6 @@ describe('reading a run', () => {
  * SDK's.
  */
 describe('the rows a wait leaves behind', () => {
-  /** That project, with one saved document written
-   *  whole rather than through the trigger-only
-   *  fixture the other cases use. */
-  function projectHolding(ir: WorkflowIR): string {
-    const dir = project({ workflows: [] });
-
-    writeFileSync(
-      join(dir, '.mboss', 'workflows', `${ir.name}.workflow.json`),
-      JSON.stringify(ir),
-      'utf8',
-    );
-
-    return dir;
-  }
-
-  /** A run of that workflow, still going, with the
-   *  rows it has written so far. */
-  function reading(
-    ir: WorkflowIR,
-    steps: { name: string; startedAt?: number; completedAt?: number }[],
-  ): Fake {
-    const db = database();
-
-    db.rows = [
-      { ...RUN_ROW, name: ir.name, status: 'PENDING', completed_at: null },
-    ];
-    db.steps = steps.map((one, index) => ({
-      ...STEP_ROW,
-      function_id: index,
-      function_name: one.name,
-      started_at_epoch_ms: String(one.startedAt ?? 1000),
-      completed_at_epoch_ms: String(one.completedAt ?? 1200),
-    }));
-
-    return db;
-  }
-
   it('draws a wait on the clock from the sleep the SDK wrote', async () => {
     const wakesAt = Date.now() + 120_000;
     const db = reading(TIMER_THEN_ANSWER, [
@@ -428,8 +428,28 @@ describe('what a reader keeps', () => {
 
     const shown = open.see().run;
     expect(shown?.selected.nodeId).toBe('find_slot');
-    expect(shown?.selected.functionId).toBe(1);
+    expect(shown?.selected.functionId).toBeUndefined();
     expect(shown?.showRaw).toBe(true);
+  });
+
+  it('keeps a picked row when the same run is read again', async () => {
+    const { open } = page(
+      reading(FORM_INTAKE, [
+        { name: 'ask_details' },
+        { name: 'record_intake' },
+      ]),
+      { host: host({ projects: () => [projectHolding(FORM_INTAKE)] }) },
+    );
+
+    await open.open('wf_c9d2f3');
+    open.step(1);
+
+    await open.again();
+
+    expect(open.see().run?.selected).toEqual({
+      nodeId: 'record_intake',
+      functionId: 1,
+    });
   });
 
   it('starts a different run at the top, with the DBOS rows hidden', async () => {
@@ -445,7 +465,7 @@ describe('what a reader keeps', () => {
 
     const shown = open.see().run;
     expect(shown?.selected.nodeId).toBeUndefined();
-    expect(shown?.selected.functionId).toBe(0);
+    expect(shown?.selected.functionId).toBeUndefined();
     expect(shown?.showRaw).toBe(false);
   });
 
@@ -465,6 +485,159 @@ describe('what a reader keeps', () => {
     await open.open('wf_other');
 
     expect(open.see().showing).toBe('trace');
+  });
+});
+
+/**
+ * What a person has picked on the run tab.
+ *
+ * The graph and the trace share one selection, and
+ * the Inspector is drawn from it. A block picked on
+ * the graph is that block with none of its rows; a
+ * row picked in the trace is that row and the block
+ * it is drawn under, the SDK's own rows included.
+ * The face somebody picked in the Inspector holds
+ * while they stay on that block of that run.
+ */
+describe('what a person has picked on the run tab', () => {
+  /** The intake form's run, open: the form sent,
+   *  the wait parked on it and let go, the answer
+   *  recorded. */
+  async function intake(first: { name: string }[] = []) {
+    const db = reading(FORM_INTAKE, [
+      ...first,
+      { name: 'ask_details' },
+      { name: 'await_details.register' },
+      { name: 'DBOS.recv' },
+      { name: 'DBOS.sleep' },
+      { name: 'await_details.clear' },
+      { name: 'record_intake' },
+    ]);
+    const { open } = page(db, {
+      host: host({ projects: () => [projectHolding(FORM_INTAKE)] }),
+    });
+
+    await open.open('wf_c9d2f3');
+
+    return { open, db };
+  }
+
+  /** What the Inspector reads of the selection. */
+  function picked(open: OpenRun) {
+    const shown = open.reading();
+
+    return {
+      node: shown?.selectedNode,
+      step: shown?.selectedStep,
+      face: shown?.face,
+    };
+  }
+
+  it('opens a run with neither a block nor a row picked', async () => {
+    const { open } = await intake();
+
+    expect(picked(open)).toEqual({ node: undefined, step: undefined });
+  });
+
+  it('lets go of the block and the row when nothing is picked', async () => {
+    const { open } = await intake();
+
+    open.step(5);
+    open.node(null);
+
+    expect(picked(open)).toEqual({ node: undefined, step: undefined });
+  });
+
+  it('picks the block a row is drawn under', async () => {
+    const { open } = await intake();
+
+    open.step(5);
+
+    expect(picked(open)).toEqual({ node: 'record_intake', step: 5 });
+  });
+
+  it('picks the block an SDK row is under, and keeps the row', async () => {
+    const { open } = await intake();
+
+    open.step(2);
+
+    expect(picked(open)).toEqual({ node: 'await_details', step: 2 });
+  });
+
+  /**
+   * Picking the first row a block wrote used to
+   * open a block whose later row failed on the row
+   * that did not, and a replay from there forked
+   * before the failure.
+   */
+  it('picks no row for a block picked on the graph', async () => {
+    const { open } = await intake();
+
+    open.node('await_details');
+
+    expect(picked(open)).toEqual({ node: 'await_details', step: undefined });
+  });
+
+  it('lets go of a row under another block for a block with none', async () => {
+    const { open } = await intake();
+
+    open.step(5);
+    open.node('intake_requested');
+
+    expect(picked(open)).toEqual({ node: 'intake_requested', step: undefined });
+  });
+
+  it('picks no block for a row nothing is drawn under', async () => {
+    const { open } = await intake([{ name: 'deleted_block' }]);
+
+    open.node('record_intake');
+    open.step(0);
+
+    expect(picked(open)).toEqual({ node: undefined, step: 0 });
+  });
+
+  it('holds the face somebody picked across rows of one block', async () => {
+    const { open } = await intake();
+
+    open.step(1);
+    open.face('configure');
+    open.step(2);
+    open.step(4);
+
+    expect(picked(open)).toEqual({
+      node: 'await_details',
+      step: 4,
+      face: 'configure',
+    });
+  });
+
+  it('forgets the face once another block, row or run is picked', async () => {
+    const { open, db } = await intake();
+
+    open.step(1);
+    open.face('configure');
+    open.node('record_intake');
+    expect(picked(open).face).toBeUndefined();
+
+    open.step(1);
+    open.face('configure');
+    open.step(5);
+    expect(picked(open).face).toBeUndefined();
+
+    open.face('configure');
+    db.rows = [{ ...RUN_ROW, name: 'form_intake', workflow_uuid: 'wf_other' }];
+    await open.open('wf_other');
+    expect(picked(open).face).toBeUndefined();
+  });
+
+  it('keeps the face when the same run is read again', async () => {
+    const { open } = await intake();
+
+    open.step(1);
+    open.face('configure');
+    await open.again();
+
+    expect(picked(open).face).toBe('configure');
   });
 });
 

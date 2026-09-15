@@ -368,6 +368,11 @@ export const inspectorWords = once(() => ({
   // show.
   noRun: l10n.t('start or pick a run to see what it recorded'),
 
+  // Why the first one has nothing to show for a
+  // block a run recorded and the document has since
+  // lost.
+  notInWorkflow: l10n.t('not in the workflow'),
+
   kinds: paletteLabels(),
 
   /* — what a run recorded about the block — */

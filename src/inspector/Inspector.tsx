@@ -66,6 +66,9 @@ export type Selection = { ir: WorkflowIR; node: WorkflowNode };
 export type InspectorProps = {
   strings: InspectorStrings;
 
+  /** Nothing where the document does not have the
+   *  block: one a run recorded and the document has
+   *  lost since, which has nothing to configure. */
   selected: Selection | undefined;
 
   /** Which of the two faces is on screen. The
@@ -164,7 +167,12 @@ export function Inspector({
 
   return (
     <div className="inspector" data-inspector-mode={mode}>
-      <Faces strings={strings} mode={mode} run={run} />
+      <Faces
+        strings={strings}
+        mode={mode}
+        run={run}
+        inWorkflow={selected !== undefined}
+      />
 
       {/* One face at a time. The other reads what a
           run recorded and takes nothing off the
@@ -204,20 +212,27 @@ export function Inspector({
  * The choice goes to the host rather than into
  * state here: this panel is torn down every time it
  * is hidden, and a face nobody remembered would
- * come back as whichever one the run implies. With
- * nothing being followed the second face has
- * nothing to read, so it refuses and says what
- * would give it something.
+ * come back as whichever one the run implies. A face
+ * with nothing to read refuses and says why: the
+ * second with no run being followed, the first for a
+ * block the document no longer has.
  */
 function Faces({
   strings,
   mode,
   run,
+  inWorkflow,
 }: {
   strings: InspectorStrings;
   mode: InspectorMode;
   run: LiveRun | undefined;
+  inWorkflow: boolean;
 }) {
+  const refused = {
+    configure: !inWorkflow,
+    evidence: run === undefined,
+  };
+
   return (
     <>
       <div className="tabs" role="tablist">
@@ -229,7 +244,7 @@ function Faces({
             role="tab"
             data-inspector-tab={face}
             aria-selected={mode === face}
-            disabled={face === 'evidence' && run === undefined}
+            disabled={refused[face]}
             onClick={() => postToHost({ type: 'inspectorMode', mode: face })}
           >
             {strings.tabs[face]}
@@ -237,7 +252,10 @@ function Faces({
         ))}
       </div>
 
-      {run === undefined ? <p className="hint">{strings.noRun}</p> : null}
+      {refused.configure ? (
+        <p className="hint">{strings.notInWorkflow}</p>
+      ) : null}
+      {refused.evidence ? <p className="hint">{strings.noRun}</p> : null}
     </>
   );
 }

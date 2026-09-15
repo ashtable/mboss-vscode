@@ -12,6 +12,7 @@ import { shortRunId } from '../webview/ids.js';
 import { inFlight, runWord, type RunWord } from '../webview/states.js';
 import { clock, duration, fine } from '../webview/time.js';
 import type {
+  InspectorMode,
   RunRow,
   SeeBar,
   SeeChip,
@@ -40,7 +41,7 @@ import { replayRowReason } from './replayZone.js';
 import { readRun, type Operation, type Reading } from './reading.js';
 import { hasRecovered, recoveriesOf, type Run, type Step } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
-import { liveRunOf } from './watch.js';
+import { inspectedRunOf, liveRunOf, type LiveRun } from './watch.js';
 import type { ProjectWorkflow } from './workflows.js';
 
 /**
@@ -110,6 +111,17 @@ export type SeeView = {
   /** The block a person picked, shared by both
    *  views of the run. */
   selectedNode?: string;
+
+  /**
+   * Which of the Inspector's faces a person picked
+   * for that block.
+   *
+   * Absent until somebody picks one, which is not
+   * the same as either: a block picked on a run is
+   * picked to see what the run recorded, until the
+   * person says otherwise.
+   */
+  face?: InspectorMode;
 
   /** Whether the rows DBOS wrote for itself are
    *  shown. */
@@ -189,23 +201,57 @@ export function seeInit(
   };
 }
 
+/**
+ * The open run's rows, read against the document
+ * the page was laid out from.
+ *
+ * `lost` rather than nothing where the project no
+ * longer has a document of this name: that is an
+ * answer, and it is why the trace draws one
+ * nameless group. One call for every reader of the
+ * run page's rows, so the page, the selection and
+ * the Inspector cannot attribute a row three ways.
+ */
+export function readView(view: SeeView, now: number): Reading {
+  return readRun(
+    view.run,
+    view.steps,
+    view.ir ?? 'lost',
+    hasRecovered(view.run),
+    now,
+    view.ir,
+  );
+}
+
+/**
+ * The run a block picked on the run tab is drawn
+ * from in the Inspector, and which way each
+ * decided block of it went.
+ *
+ * The ways are read against the document the run
+ * page drew, the same as its graph's, so the card
+ * about a block and the block on the graph beside
+ * it say the same thing.
+ */
+export function inspectedOf(
+  view: SeeView,
+  now: number,
+): { run: LiveRun; decided: Record<string, string> } {
+  const reading = readView(view, now);
+
+  return {
+    run: inspectedRunOf(view.run, reading),
+    decided: Object.fromEntries(decidedArms(reading.steps, view.ir)),
+  };
+}
+
 function seeRun(view: SeeView): SeeRun {
   const { run, steps } = view;
 
   // One clock for the whole page, so that a bar's
   // end and whether a timer has run out are answered
-  // about the same moment. And `lost` rather than
-  // nothing where the project no longer has a
-  // document of this name: that is an answer, and it
-  // is why the trace draws one nameless group.
-  const reading = readRun(
-    run,
-    steps,
-    view.ir ?? 'lost',
-    hasRecovered(run),
-    Date.now(),
-    view.ir,
-  );
+  // about the same moment.
+  const reading = readView(view, Date.now());
   const graph = graphOf(view, reading.steps);
 
   // Which rows a replay could start from, asked once

@@ -190,6 +190,7 @@ export function blockSubject(
     functionId: undefined,
     decided: {},
     runInput: undefined,
+    proposal: undefined,
   };
 }
 

@@ -1,3 +1,5 @@
+import { basename } from 'node:path';
+
 import {
   window,
   type Disposable,
@@ -6,17 +8,23 @@ import {
   type WebviewViewProvider,
 } from 'vscode';
 
-import type { CanvasSession } from '../canvas/editor.js';
+import type { CanvasCode, CanvasSession } from '../canvas/editor.js';
 import type { CanvasSessions } from '../canvas/sessions.js';
 import { inspectorWords } from '../canvas/words.js';
+import { manifestFor, workflowDocument } from '../core/index.js';
+import type { LibManifest } from '../core/rules.js';
+import type { PreviewStore } from '../preview/store.js';
 import type { AskAgent } from '../runs/evidence.js';
 import { pointIn } from '../runs/panels.js';
-import type { ReplayPick } from '../runs/store.js';
+import type { InspectedRun, ReplayPick } from '../runs/store.js';
 import type { SeeView } from '../runs/view.js';
-import { mountWebview, type Heard } from '../webview/host.js';
+import type { Trust } from '../trust.js';
+import type { VsCodeApi } from '../vscodeApi.js';
+import { mountWebview, type Heard, type Mount } from '../webview/host.js';
+import type { InspectorMode } from '../webview/protocol.js';
 
 import type { InspectorFocus } from './focus.js';
-import { inspectorInit, type Focused } from './subject.js';
+import { inspectorInit, type Focused, type RunDocument } from './subject.js';
 
 /**
  * What the Inspector reads of the runs, and asks of
@@ -26,11 +34,24 @@ import { inspectorInit, type Focused } from './subject.js';
  * and the run page are all about a run, and a run's
  * rows are in the store rather than on any canvas,
  * so these go to the store whichever surface the
- * block came from.
+ * block came from. A block picked on the run tab
+ * is the store's too: which one, which face, and
+ * the ways into its code and its recorded values.
  */
 export type InspectorRuns = {
   /** The run the run tab is showing. */
   detail(): SeeView | undefined;
+
+  /** That run, as a block picked on it is drawn. */
+  inspected(): InspectedRun | undefined;
+
+  /** The project the runs are read from, which is
+   *  where the run's document is. */
+  project(): string | undefined;
+
+  /** The face somebody picked for the block picked
+   *  on the run tab. */
+  chooseFace(mode: InspectorMode): void;
 
   /** Reads the run and puts the run tab in front. */
   openRun(workflowId: string): Promise<void>;
@@ -40,18 +61,53 @@ export type InspectorRuns = {
   askAgent(ask: AskAgent): Promise<void>;
 
   inspectQueue(workflowId: string, nodeId: string): Promise<void>;
+
+  openFunction(workflowId: string, nodeId: string): Promise<void>;
+
+  openErrorLocation(workflowId: string, functionId: number): Promise<void>;
+
+  openOutput(workflowId: string, functionId: number): Promise<void>;
+
+  onChanged(listener: () => void): Disposable;
 };
 
 /**
  * The editor, as the Inspector reaches for it:
  * `inspector/host.ts` answers it, and a spec counts
- * the meetings.
+ * the meetings, opens the canvases and holds the
+ * documents.
  */
 export type InspectorHost = {
   /** Resolves a pane that never has, and hands
    *  focus back to the editor. */
   meetInspector(): Promise<void> | void;
+
+  /** Opens a workflow document in its canvas. */
+  openCanvas(
+    path: string,
+    how: { beside: boolean; preserveFocus: boolean },
+  ): Promise<void>;
+
+  /** A document's text as the editor holds it: an
+   *  open one's buffer, unsaved changes and all,
+   *  else the file. */
+  documentText(path: string): string | undefined;
 };
+
+/** What a block picked on a surface can ask about
+ *  that block. */
+type AboutBlock = Extract<
+  Heard<'inspector'>,
+  {
+    type:
+      | 'inspectorMode'
+      | 'edit'
+      | 'assign'
+      | 'openFunction'
+      | 'openErrorLocation'
+      | 'openOutput';
+  }
+>;
 
 /**
  * The Inspector, a pane in the mBoss container.
@@ -62,16 +118,23 @@ export type InspectorHost = {
  * so the pane is resolved again every time it is
  * hidden and shown without losing anything.
  *
- * It repaints when focus moves and when the canvas
- * it is about moves. A tick on a canvas somebody is
- * not looking at is left alone: repainting for it
- * would reset whatever the person is doing in the
- * pane for a change the pane does not show.
+ * It repaints when focus moves and when what it is
+ * about moves: the canvas in front, or — for a
+ * block picked on the run tab — the run, the
+ * document the block is drawn from, a proposal
+ * waiting on that document and the project's code.
+ * A tick on a surface somebody is not looking at is
+ * left alone: repainting for it would reset
+ * whatever the person is doing in the pane for a
+ * change the pane does not show.
  *
  * What the pane says goes where the thing it is
  * about lives: a face, an edit and the ways into a
- * block's code go to the canvas in front, and
- * everything about a run to the runs store.
+ * block's code go to the canvas in front, or for
+ * the run tab to the runs store and, for an edit,
+ * to the canvas open on the run's document — one
+ * opened beside the run tab when there is none, so
+ * the edit lands the way every other edit does.
  *
  * And it puts itself in front of somebody when a
  * selection lands on a block — but only while the
@@ -85,9 +148,10 @@ export type InspectorHost = {
 export class InspectorView implements WebviewViewProvider {
   static readonly viewType = 'mboss.inspector';
 
-  /** The pane VS Code last resolved, until it is
-   *  closed. */
+  /** The pane VS Code last resolved, and its mount,
+   *  until it is closed. */
   private view: WebviewView | undefined;
+  private mounted: Mount | undefined;
 
   /** Whether the pane has ever been on screen in
    *  this window, or been asked to be. */
@@ -100,21 +164,53 @@ export class InspectorView implements WebviewViewProvider {
     string | undefined
   >();
 
-  private readonly following: Disposable;
+  /** The block and row last picked on the run tab,
+   *  for the same question. */
+  private picked: { nodeId?: string; functionId?: number } = {};
+
+  /**
+   * The code-behind of each project a run-tab block
+   * has been drawn from, read once and read again
+   * when it can have changed.
+   *
+   * Read here only where no canvas has the document
+   * open: a canvas scans its own. A scan type-checks
+   * every file in `lib/`, far too slow to repeat on
+   * every tick of a run.
+   */
+  private readonly manifests = new Map<string, LibManifest | undefined>();
+
+  private readonly following: Disposable[];
 
   constructor(
     private readonly extensionUri: Uri,
-    private readonly focus: InspectorFocus,
-    private readonly sessions: CanvasSessions,
+    private readonly api: Pick<VsCodeApi, 'onDocumentChanged'>,
+    private readonly preview: Pick<PreviewStore, 'forWorkflow' | 'onChanged'>,
     private readonly runs: InspectorRuns,
+    private readonly trust: Trust,
+    private readonly code: CanvasCode,
+    private readonly sessions: CanvasSessions,
+    private readonly focus: InspectorFocus,
     private readonly host: InspectorHost,
     private readonly mbossShowing: () => boolean,
   ) {
     // Followed from the start rather than while the
     // pane is mounted: a pane that is not on screen
     // is exactly the one a selection has to bring
-    // forward.
-    this.following = sessions.onChanged((moved) => this.canvasMoved(moved));
+    // forward, and code read before it was hidden is
+    // code it must not draw once it is shown again.
+    this.following = [
+      sessions.onChanged((moved) => this.canvasMoved(moved)),
+      runs.onChanged(() => this.runTabMoved()),
+      trust.onGranted(() => {
+        this.manifests.clear();
+        this.repaintRunTab();
+      }),
+      code.onGenerated((project) => {
+        this.manifests.delete(project);
+        this.repaintRunTab();
+      }),
+    ];
   }
 
   /** Registers a provider that `extension.ts` built,
@@ -130,7 +226,7 @@ export class InspectorView implements WebviewViewProvider {
     return {
       dispose: () => {
         registered.dispose();
-        provider.following.dispose();
+        for (const one of provider.following) one.dispose();
       },
     };
   }
@@ -138,9 +234,6 @@ export class InspectorView implements WebviewViewProvider {
   resolveWebviewView(view: WebviewView): void {
     this.view = view;
     this.met = true;
-    view.onDidDispose(() => {
-      if (this.view === view) this.view = undefined;
-    });
 
     const mounted = mountWebview(view, {
       extensionUri: this.extensionUri,
@@ -153,12 +246,34 @@ export class InspectorView implements WebviewViewProvider {
         (repaint) =>
           this.sessions.onChanged((moved) => {
             const holder = this.focus.holder();
+            const about =
+              holder?.at === 'canvas'
+                ? holder.session
+                : this.runDocument()?.canvas;
 
-            if (holder?.at === 'canvas' && holder.session === moved) {
-              repaint();
-            }
+            if (moved === about) repaint();
+          }),
+        (repaint) =>
+          this.runs.onChanged(() => {
+            if (this.focus.holder()?.at === 'run') repaint();
+          }),
+        (repaint) =>
+          this.api.onDocumentChanged((document) => {
+            if (document.uri.fsPath === this.runDocument()?.path) repaint();
+          }),
+        (repaint) =>
+          this.preview.onChanged(() => {
+            if (this.focus.holder()?.at === 'run') repaint();
           }),
       ],
+    });
+    this.mounted = mounted;
+
+    view.onDidDispose(() => {
+      if (this.view !== view) return;
+
+      this.view = undefined;
+      this.mounted = undefined;
     });
   }
 
@@ -169,7 +284,88 @@ export class InspectorView implements WebviewViewProvider {
 
     return holder.at === 'canvas'
       ? { at: 'canvas', canvas: holder.session.subjectInputs() }
-      : { at: 'run', reading: this.runs.detail() };
+      : this.onRunTab();
+  }
+
+  /**
+   * What the run tab holds, and — once a block is
+   * picked on it — the run as that block is drawn
+   * and the document the block is drawn from.
+   */
+  private onRunTab(): Focused {
+    const reading = this.runs.detail();
+    const found = this.runDocument();
+
+    if (reading === undefined || found === undefined) {
+      return { at: 'run', reading, inspected: undefined, document: undefined };
+    }
+
+    const { project, path, canvas } = found;
+    const proposedBy = this.preview.forWorkflow(
+      project,
+      reading.run.name,
+    )?.proposedBy;
+
+    const document: RunDocument =
+      canvas !== undefined
+        ? { at: 'canvas', canvas: canvas.subjectInputs(), proposedBy }
+        : {
+            at: 'buffer',
+            file: basename(path),
+            text: this.host.documentText(path),
+            manifest: this.manifestOf(project),
+            proposedBy,
+          };
+
+    return {
+      at: 'run',
+      reading,
+      inspected: this.runs.inspected(),
+      document,
+    };
+  }
+
+  /**
+   * Where the document behind a block picked on the
+   * run tab is, and the canvas open on it if one
+   * is. Nothing while the run tab is not in front or
+   * has no block picked.
+   */
+  private runDocument():
+    | { project: string; path: string; canvas: CanvasSession | undefined }
+    | undefined {
+    const reading = this.runs.detail();
+    const project = this.runs.project();
+
+    if (
+      this.focus.holder()?.at !== 'run' ||
+      reading?.selectedNode === undefined ||
+      project === undefined
+    ) {
+      return undefined;
+    }
+
+    const path = workflowDocument(project, reading.run.name);
+
+    return { project, path, canvas: this.sessions.forPath(path) };
+  }
+
+  /** What the project's code-behind offers, where it
+   *  may be read. */
+  private manifestOf(project: string): LibManifest | undefined {
+    if (!this.trust.isTrusted()) return undefined;
+
+    if (!this.manifests.has(project)) {
+      this.manifests.set(project, manifestFor(project));
+    }
+
+    return this.manifests.get(project);
+  }
+
+  /** Draws a run-tab subject again, for a change
+   *  only the run tab's block reads. */
+  private repaintRunTab(): void {
+    if (this.focus.holder()?.at === 'run') this.mounted?.repaint();
   }
 
   private heard(message: Heard<'inspector'>, repaint: () => void): void {
@@ -202,15 +398,24 @@ export class InspectorView implements WebviewViewProvider {
         return;
     }
 
-    // The rest is about the block, and a block is
-    // on the canvas it was selected on. With no
-    // canvas in front there is no revision an edit
-    // could have been made against, and no block.
+    // The rest is about the block, and a block is on
+    // the surface it was picked on. With nothing in
+    // front there is no block, and no revision an
+    // edit could have been made against.
     const holder = this.focus.holder();
-    if (holder?.at !== 'canvas') return;
 
-    const canvas = holder.session;
+    if (holder?.at === 'canvas') {
+      this.heardOnCanvas(holder.session, message, repaint);
+    }
 
+    if (holder?.at === 'run') this.heardOnRunTab(message);
+  }
+
+  private heardOnCanvas(
+    canvas: CanvasSession,
+    message: AboutBlock,
+    repaint: () => void,
+  ): void {
     switch (message.type) {
       // Not in the document, so nothing else will
       // draw the pane again for it.
@@ -244,6 +449,82 @@ export class InspectorView implements WebviewViewProvider {
   }
 
   /**
+   * A block picked on the run tab. The run is the
+   * store's, so everything but an edit goes there,
+   * addressed by the run the tab is showing — and a
+   * face picked there is a change to the store,
+   * which draws the pane again by itself.
+   */
+  private heardOnRunTab(message: AboutBlock): void {
+    const reading = this.runs.detail();
+    if (reading === undefined) return;
+
+    const workflowId = reading.run.workflowId;
+
+    switch (message.type) {
+      case 'inspectorMode':
+        this.runs.chooseFace(message.mode);
+
+        return;
+
+      case 'edit':
+      case 'assign':
+        void this.editFromRunTab(reading.selectedNode, message);
+
+        return;
+
+      case 'openFunction':
+        void this.runs.openFunction(workflowId, message.nodeId);
+
+        return;
+
+      case 'openErrorLocation':
+        void this.runs.openErrorLocation(workflowId, message.functionId);
+
+        return;
+
+      case 'openOutput':
+        void this.runs.openOutput(message.workflowId, message.functionId);
+
+        return;
+    }
+  }
+
+  /**
+   * An edit to a block picked on the run tab, made
+   * through the canvas on its document.
+   *
+   * Through a canvas rather than written here,
+   * because the canvas is where the revision gate,
+   * the questions an edit can ask and the write all
+   * live. With none open, one is opened beside the
+   * run tab without taking focus from it, and the
+   * edit waits for it to register. The block is
+   * selected on it first, so the canvas shows the
+   * block the edit lands on.
+   */
+  private async editFromRunTab(
+    nodeId: string | undefined,
+    message: Extract<AboutBlock, { type: 'edit' | 'assign' }>,
+  ): Promise<void> {
+    const found = this.runDocument();
+    if (found === undefined || nodeId === undefined) return;
+
+    let canvas = found.canvas;
+
+    if (canvas === undefined) {
+      await this.host.openCanvas(found.path, {
+        beside: true,
+        preserveFocus: true,
+      });
+      canvas = await this.sessions.whenOpen(found.path);
+    }
+
+    canvas.select(nodeId);
+    await canvas.edit(message);
+  }
+
+  /**
    * A canvas said it moved. The first word from
    * any canvas meets a pane that has never
    * resolved; after that, a selection that landed
@@ -263,6 +544,26 @@ export class InspectorView implements WebviewViewProvider {
     }
 
     if (selected !== undefined && selected !== before) this.reveal();
+  }
+
+  /**
+   * The runs moved. A block or a row picked on the
+   * run tab that landed on a block brings the pane
+   * forward; a tick, a run read again and the
+   * graph's background picking nothing do not.
+   */
+  private runTabMoved(): void {
+    const reading = this.runs.detail();
+    const nodeId = reading?.selectedNode;
+    const functionId = reading?.selectedStep;
+    const before = this.picked;
+
+    this.picked = { nodeId, functionId };
+
+    if (nodeId === undefined) return;
+    if (nodeId === before.nodeId && functionId === before.functionId) return;
+
+    this.reveal();
   }
 
   /** Shows a resolved pane that is not on screen,

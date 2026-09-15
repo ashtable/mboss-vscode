@@ -114,8 +114,9 @@ export function activate(context: ExtensionContext): void {
   // list in the activity bar, a page in the editor
   // and the canvas all draw it, and any of them can
   // be disposed while the others are on screen.
+  const runsEditor = runsHost();
   const runs = runsStore({
-    host: runsHost(),
+    host: runsEditor,
     agent: panel,
     trust,
     open: openDatabase,
@@ -229,16 +230,31 @@ export function activate(context: ExtensionContext): void {
   const runsView = new RunsListView(context.extensionUri, runs, see);
   const inspectorView = new InspectorView(
     context.extensionUri,
-    focus,
-    sessions,
+    api,
+    preview,
     {
       detail: () => runs.detail(),
+      inspected: () => runs.inspected(),
+      // The project the store reads its runs from.
+      project: () => runsEditor.projects()[0],
+      chooseFace: (mode) => runs.chooseFace(mode),
       openRun,
       replay: (workflowId, picked) => runs.replay(workflowId, picked),
       askAgent: (ask) => runs.askAgent(ask),
       inspectQueue: (workflowId, nodeId) =>
         runs.inspectQueue(workflowId, nodeId),
+      openFunction: (workflowId, nodeId) =>
+        runs.openFunction(workflowId, nodeId),
+      openErrorLocation: (workflowId, functionId) =>
+        runs.openErrorLocation(workflowId, functionId),
+      openOutput: (workflowId, functionId) =>
+        runs.openOutput(workflowId, functionId),
+      onChanged: (listener) => runs.onChanged(listener),
     },
+    trust,
+    watchers,
+    sessions,
+    focus,
     inspectorHost(),
     // Whether the container the Inspector sits in is
     // on screen, told by the two panes beside it.

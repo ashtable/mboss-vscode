@@ -291,6 +291,10 @@ none of that.
   `BlockSubject` from `session.subjectInputs()`, and `InspectorView`
   routes what the pane says — a face, an edit, the ways into a block's code
   — to the canvas in focus, and everything about a run to the runs store.
+  A block picked on the run tab is drawn from the document as it is being
+  worked on (the canvas open on it, else the editor's buffer), never the
+  copy the run page read off disk; an edit to it goes through the canvas on
+  that document, opened beside the run tab when none is.
   The webview never repaints itself: it redraws when `onDocumentChanged`
   fires `reread` + post (tests simulate this with `livingDocument().saved()`).
   **`canvas/placement.ts` is where a block goes**, browser-safe and read from
@@ -363,6 +367,8 @@ none of that.
   the document, `'lost'`, `'unasked'`) because the page and the watch meant
   opposite things by "no drawing". `operations.ts` groups a reading and reads
   its decided arms; `timeline.ts` owns the outage inference and has one caller.
+  `drawnUnder` is the one rule for which block a row — the SDK's own included
+  — is drawn under, and what a row picked on the run tab selects.
   See `CONTEXT.md` for the vocabulary.
 - **`watchers/`** — per folder: globs for workflow documents, `lib/**` and
   proposals, plus `onDidSaveTextDocument` (a watcher can be silenced by

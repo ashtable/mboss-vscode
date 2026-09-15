@@ -550,10 +550,11 @@ const SeeShow = z.object({
   tab: z.enum(['graph', 'trace']),
 });
 
-/** Somebody picked a block on the run's graph. */
+/** Somebody picked a block on the run's graph, or
+ *  `null`: its background, which picks nothing. */
 const SeeNode = z.object({
   type: z.literal('seeNode'),
-  nodeId: z.string(),
+  nodeId: z.string().nullable(),
 });
 
 /** Whether the rows DBOS wrote for itself are

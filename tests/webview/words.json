@@ -93,6 +93,7 @@
       "evidence": "Run evidence"
     },
     "noRun": "start or pick a run to see what it recorded",
+    "notInWorkflow": "not in the workflow",
     "kinds": {
       "trigger": "Trigger",
       "step": "Step",

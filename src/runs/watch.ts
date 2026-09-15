@@ -3,7 +3,12 @@ import { inFlight, type RunWord } from '../webview/states.js';
 
 import type { Database, OpenDatabase } from './db.js';
 import { queueCountsQuery, runQuery, stepsQuery } from './queries.js';
-import { readRun, type Operation, type Reading } from './reading.js';
+import {
+  drawnUnder,
+  readRun,
+  type Operation,
+  type Reading,
+} from './reading.js';
 import {
   hasRecovered,
   toRun,
@@ -46,7 +51,16 @@ export type { SourceFrame, StepError } from './rows.js';
  * wrote the row, and where inside its block it ran.
  * A canvas paints blocks and needs neither.
  */
-export type LiveStep = Omit<Operation, 'owner' | 'segments'>;
+export type LiveStep = Omit<Operation, 'owner' | 'segments'> & {
+  /**
+   * Set on a row the SDK wrote for itself, which
+   * only the Inspector's copy of a run-tab run
+   * carries. Such a row is real evidence once a
+   * person picks it in the trace, and never what a
+   * block's own card leads with.
+   */
+  sdk?: true;
+};
 
 /**
  * One queue block of the workflow being watched:
@@ -442,6 +456,34 @@ export function liveRunOf(run: Run, reading: Reading): LiveRun {
     input: printed(run.input),
     recordedInput: run.input,
     forkedFrom: run.forkedFrom,
+  };
+}
+
+/**
+ * A reading, as the Inspector draws a block of it
+ * from the run tab.
+ *
+ * The run a canvas draws, with the SDK's own rows
+ * put back: a row picked in the trace can be one of
+ * them, and the pane has to be able to draw what it
+ * recorded. Each is put under the block it is drawn
+ * under and marked as the SDK's, so nothing that
+ * reads a block's own rows mistakes it for one.
+ */
+export function inspectedRunOf(run: Run, reading: Reading): LiveRun {
+  const under = drawnUnder(reading.steps, reading.owners);
+
+  return {
+    ...liveRunOf(run, reading),
+    steps: reading.steps.map((one) =>
+      one.owner === 'sdk'
+        ? {
+            ...liveStepOf(one),
+            nodeId: under.get(one.functionId),
+            sdk: true,
+          }
+        : liveStepOf(one),
+    ),
   };
 }
 
