@@ -436,6 +436,28 @@ export function editsIn(update: SessionUpdate): string[] {
 }
 
 /**
+ * Which of these edits are still applied.
+ *
+ * Asked when a turn ends, and again every time the
+ * column is drawn: an edit can be undone long after
+ * the offer about it was written, and an offer
+ * about edits nobody kept would replay against code
+ * that is no longer there.
+ */
+export function standing(
+  entries: readonly TranscriptEntry[],
+  edits: readonly string[],
+): string[] {
+  return entries.flatMap((entry) =>
+    entry.at === 'file' &&
+    edits.includes(entry.id) &&
+    fileStateOf(entry, entries) === 'applied'
+      ? [entry.id]
+      : [],
+  );
+}
+
+/**
  * What to offer after a turn, if anything.
  *
  * Only after a turn asked about one block, and only
@@ -455,13 +477,7 @@ export function nextActions(
     return undefined;
   }
 
-  const edits = entries.flatMap((entry) =>
-    entry.at === 'file' &&
-    written.includes(entry.id) &&
-    fileStateOf(entry, entries) === 'applied'
-      ? [entry.id]
-      : [],
-  );
+  const edits = standing(entries, written);
 
   if (edits.length === 0) return undefined;
 

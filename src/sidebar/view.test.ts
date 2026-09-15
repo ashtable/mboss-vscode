@@ -560,18 +560,36 @@ describe('what the agent panel is sent', () => {
       expect(typed?.at === 'message' && typed.text).toBe(asked);
     });
 
+    /** An edit the turn wrote, and the offer that
+     *  names it. */
+    const edited = (path: string, decision: FileDecision): TranscriptEntry => ({
+      at: 'file',
+      id: `call-1:${path}`,
+      toolCallId: 'call-1',
+      by: 'agent',
+      path,
+      isNew: false,
+      added: 1,
+      removed: 1,
+      lines: [],
+      decision,
+    });
+
+    const nextStep = (...edits: string[]): TranscriptEntry => ({
+      at: 'next',
+      id: 'next-0',
+      about: { workflowId: RUN_ID, nodeId: 'refund_payment' },
+      block: 'Refund payment',
+      edits,
+    });
+
     it('says the next step in a sentence naming the run and block', () => {
-      const [next] = sent({
+      const next = sent({
         transcript: [
-          {
-            at: 'next',
-            id: 'next-0',
-            about: { workflowId: RUN_ID, nodeId: 'refund_payment' },
-            block: 'Refund payment',
-            edits: ['call-1:/project/lib/refund.ts'],
-          },
+          edited('/project/lib/refund.ts', 'kept'),
+          nextStep('call-1:/project/lib/refund.ts'),
         ],
-      }).transcript;
+      }).transcript.at(-1);
 
       const sentence = next?.at === 'next' ? next.sentence : '';
 
@@ -580,6 +598,42 @@ describe('what the agent panel is sent', () => {
           'verify — earlier durable results are reused.',
       );
       expect(sentence).not.toContain(RUN_ID);
+    });
+
+    /**
+     * The offer is about edits that are still
+     * applied. Once somebody has undone them there
+     * is nothing for a replay to test and nothing
+     * left to undo, so the row goes with them
+     * rather than saying "Applied" over reverted
+     * code.
+     */
+    it('withdraws the next step once none of its edits stand', () => {
+      const shown = sent({
+        transcript: [
+          edited('/project/lib/refund.ts', 'undone'),
+          nextStep('call-1:/project/lib/refund.ts'),
+        ],
+      }).transcript;
+
+      expect(shown.map((entry) => entry.at)).toEqual(['file']);
+    });
+
+    it('offers only the edits of the turn that still stand', () => {
+      const next = sent({
+        transcript: [
+          edited('/project/lib/refund.ts', 'undone'),
+          edited('/project/lib/notify.ts', 'kept'),
+          nextStep(
+            'call-1:/project/lib/refund.ts',
+            'call-1:/project/lib/notify.ts',
+          ),
+        ],
+      }).transcript.at(-1);
+
+      expect(next?.at === 'next' && next.edits).toEqual([
+        'call-1:/project/lib/notify.ts',
+      ]);
     });
 
     it('gives the evidence row a short target and keeps its verb', () => {

@@ -11,6 +11,7 @@ import { stripIndent } from '../acp/diff.js';
 import { evidenceRunOf } from '../acp/evidenceRow.js';
 import {
   fileStateOf,
+  standing,
   type MessageEntry,
   type ToolEntry,
   type TranscriptEntry,
@@ -180,9 +181,11 @@ export function sidebarInit(
     agent:
       state.agent === undefined ? undefined : messages.agents()[state.agent],
     status: state.status,
-    transcript: state.transcript.map((entry, at) =>
-      shown(entry, at === newest, state, strings),
-    ),
+    transcript: state.transcript.flatMap((entry, at) => {
+      const row = shown(entry, at === newest, state, strings);
+
+      return row === undefined ? [] : [row];
+    }),
     prompt: state.prompt,
     failure:
       state.failure === undefined ? undefined : agentFailure(state.failure),
@@ -196,14 +199,16 @@ export function sidebarInit(
   };
 }
 
-/** One entry, with what drawing it needs. Nothing
- *  here writes back into the panel's own entries. */
+/** One entry, with what drawing it needs, or
+ *  nothing where it has outlived what it was about.
+ *  Nothing here writes back into the panel's own
+ *  entries. */
 function shown(
   entry: TranscriptEntry,
   newest: boolean,
   state: PanelState,
   strings: SidebarStrings,
-): SidebarEntry {
+): SidebarEntry | undefined {
   switch (entry.at) {
     case 'tool': {
       const run = evidenceRunOf(entry);
@@ -216,15 +221,25 @@ function shown(
         : { ...entry, target: filled(strings.evidenceTarget, shortRunId(run)) };
     }
 
-    case 'next':
+    case 'next': {
+      // The offer is about edits that still stand.
+      // Somebody who has undone them has nothing to
+      // replay against and nothing left to undo, so
+      // the row goes with the last of them.
+      const edits = standing(state.transcript, entry.edits);
+
+      if (edits.length === 0) return undefined;
+
       return {
         ...entry,
+        edits,
         sentence: filled(
           strings.applied,
           shortRunId(entry.about.workflowId),
           entry.block,
         ),
       };
+    }
 
     case 'file':
       return {
