@@ -2353,15 +2353,25 @@ test.describe('a block in the Inspector', () => {
     });
     const configure = page.locator('button[data-inspector-tab="configure"]');
     const reason = page.locator('[data-not-in-workflow]');
+    const heading = page.locator('[data-inspector-header] .inspector-title');
 
     const harness = await openInspector(page, blockInit(onRunTab('find_slot')));
 
     await expect(configure).toHaveCount(1);
     await expect(configure).not.toHaveAttribute('aria-disabled', 'true');
     await expect(reason).toHaveCount(0);
+    await expect(heading).toHaveCount(0);
+    await expect(
+      page.locator('[data-inspector-header] [data-inspector-heading]'),
+    ).toHaveCount(1);
 
     await harness.show(blockInit(onRunTab('deleted_block')));
 
+    // A block the document has lost has no name left
+    // to set, so the head says the id its rows know
+    // it by rather than the pane's own name.
+    await expect(heading).toHaveText('deleted_block');
+    await expect(heading).toHaveAttribute('data-mono', '');
     await expect(configure).toHaveAttribute('aria-disabled', 'true');
     await expect(reason).toHaveText(inspectorStrings.notInWorkflow);
     await expect(configure).toHaveAttribute(

@@ -273,8 +273,13 @@ export function Inspector({
         title={
           title === undefined || form === undefined ? (
             // A block the document has lost has no name
-            // left to set, and no kind to say.
-            <h1 className="inspector-title">{strings.heading}</h1>
+            // left to set, and no kind to say. The face
+            // under it still draws what the run
+            // recorded, so the head says the id those
+            // rows know it by.
+            <h1 className="inspector-title" data-mono="">
+              {nodeId}
+            </h1>
           ) : (
             <TitleField
               key={form}
