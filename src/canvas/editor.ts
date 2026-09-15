@@ -243,7 +243,30 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       this.trust,
       this.agent,
     );
+    // Heard before the first read rather than after
+    // the mount, because that read lays the graph
+    // out and a tab can be closed while it runs: a
+    // panel already closed by then has said so, and
+    // everything below would be left with nobody to
+    // take it back out again.
+    //
+    // Out of the registry before focus moves on, so
+    // whoever hears the move never finds this canvas
+    // still open.
+    let closed = false;
+    const letGo: Disposable[] = [];
+
+    panel.onDidDispose(() => {
+      closed = true;
+      for (const one of letGo.splice(0)) one.dispose();
+    });
+
     await session.reread();
+
+    // Nothing to open for a tab that has gone: a
+    // closed panel throws at whoever asks it
+    // anything, this canvas among them.
+    if (closed) return;
 
     const registered = this.sessions.register(
       document.uri.fsPath,
@@ -254,6 +277,8 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     // Followed once registered, so whoever hears
     // focus move to this canvas finds it open.
     const focused = this.focus.follow({ at: 'canvas', session }, panel);
+
+    letGo.push(registered, focused);
 
     // Whatever moved this canvas is said to the
     // registry, whether or not the frame is showing:
@@ -342,14 +367,6 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     });
 
     void session.scan().then(changed);
-
-    // Out of the registry before focus moves on, so
-    // whoever hears the move never finds this canvas
-    // still open.
-    panel.onDidDispose(() => {
-      registered.dispose();
-      focused.dispose();
-    });
   }
 }
 

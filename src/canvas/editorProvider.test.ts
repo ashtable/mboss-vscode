@@ -308,7 +308,16 @@ let coded: FakeCode;
 let sessions: CanvasSessions;
 let focus: InspectorFocus;
 
-async function open(
+/**
+ * Puts a workflow in front of the editor without
+ * waiting for it to open.
+ *
+ * The first read lays the graph out, which is real
+ * work, so a tab can be closed while it is running
+ * — and what happens then is only visible from
+ * before the resolve has come back.
+ */
+function opening(
   document = fakeDocument(),
   preview = previewsIn([]),
   trusted: Trust = fakeTrust(true),
@@ -333,7 +342,17 @@ async function open(
     focus,
   );
 
-  await editor.resolveCustomTextEditor(document, panel.panel);
+  return editor.resolveCustomTextEditor(document, panel.panel);
+}
+
+async function open(
+  document = fakeDocument(),
+  preview = previewsIn([]),
+  trusted: Trust = fakeTrust(true),
+  runs: CanvasRuns = runsSaying(),
+  frame = fakeWebview(),
+): Promise<void> {
+  await opening(document, preview, trusted, runs, frame);
   panel.send({ type: 'ready', view: 'canvas' });
   await settled();
 }
@@ -726,6 +745,31 @@ describe('what an open canvas tells the registry', () => {
     panel.close();
 
     expect(sessions.forPath(GROOM_BOOKING)).toBeUndefined();
+  });
+
+  /**
+   * A tab closed before it ever drew anything — a
+   * preview tab replaced by the next click in the
+   * explorer, while the first layout of the window
+   * is still running.
+   *
+   * Nothing is registered for it, because nothing
+   * would ever take it out again: the tab has
+   * already said it closed, and a canvas left in
+   * the registry is one the Inspector edits through
+   * and a command reads as the one in front.
+   */
+  it('leaves nothing registered for a tab closed before it had read its file', async () => {
+    const resolved = opening();
+
+    panel.close();
+
+    await expect(resolved).resolves.toBeUndefined();
+
+    expect(sessions.forPath(GROOM_BOOKING)).toBeUndefined();
+    expect(focus.holder()).toBeUndefined();
+    expect(sessions.active()).toBeUndefined();
+    expect(panel.posted).toEqual([]);
   });
 
   it('signals a block its panel selected, and draws it once', async () => {

@@ -23,7 +23,8 @@ export type FakeWebview = {
   send(message: unknown): void;
 
   /** Fires the panel's dispose, as closing the tab
-   *  would. */
+   *  would. Asking the panel anything after this
+   *  throws, as asking a closed one does. */
   close(): void;
 
   /** Makes this the panel a person is looking at,
@@ -64,6 +65,8 @@ export function fakeWebview(options: { active?: boolean } = {}): FakeWebview {
   const listeners: ((message: unknown) => void)[] = [];
   const closers: (() => void)[] = [];
   const watchers = new Set<(event: { webviewPanel: unknown }) => void>();
+  const state = { active: options.active ?? false, visible: true };
+  let gone = false;
 
   const webview = {
     options: {},
@@ -89,8 +92,21 @@ export function fakeWebview(options: { active?: boolean } = {}): FakeWebview {
     // Off unless a test says otherwise: several
     // panels can be open at once, and only one of
     // them is the tab in front of somebody.
-    active: options.active ?? false,
-    visible: true,
+    //
+    // Read through a getter because VS Code's own
+    // asserts the panel is still there: whoever
+    // asks a closed tab whether somebody is looking
+    // at it is thrown at rather than told no.
+    get active(): boolean {
+      if (gone) throw new Error('Webview is disposed');
+
+      return state.active;
+    },
+    get visible(): boolean {
+      if (gone) throw new Error('Webview is disposed');
+
+      return state.visible;
+    },
     onDidDispose: (listener: () => void) => {
       closers.push(listener);
 
@@ -112,10 +128,10 @@ export function fakeWebview(options: { active?: boolean } = {}): FakeWebview {
     },
   };
 
-  const change = (state: 'active' | 'visible', to: boolean): void => {
-    if (panel[state] === to) return;
+  const change = (what: 'active' | 'visible', to: boolean): void => {
+    if (state[what] === to) return;
 
-    panel[state] = to;
+    state[what] = to;
     for (const watcher of [...watchers]) watcher({ webviewPanel: panel });
   };
 
@@ -126,6 +142,7 @@ export function fakeWebview(options: { active?: boolean } = {}): FakeWebview {
       for (const listener of listeners) listener(message);
     },
     close: () => {
+      gone = true;
       for (const closer of closers) closer();
     },
     focus: () => change('active', true),
