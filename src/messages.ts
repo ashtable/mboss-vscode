@@ -643,6 +643,26 @@ export const messages = {
       'DBOS picked this run back up. Its steps are timed too closely together to say where the process went down; the recovery count is in the ledger.',
     ),
 
+  /**
+   * One sentence about a recovery, as the
+   * Inspector's card about a whole run lists it.
+   *
+   * Every such sentence is worked out from the rows
+   * rather than read off one, and on a card of
+   * plain lines the only place to say so is at the
+   * end of each.
+   */
+  runLevelDerived: (sentence: string) => l10n.t('{0} · derived', sentence),
+
+  /**
+   * A run DBOS stopped restarting. Dead-lettering
+   * writes no error row, so the count is what there
+   * is to say, and it is worked out: the column
+   * counts dispatches, one more than restarts.
+   */
+  runLevelGaveUp: (restarts: number) =>
+    l10n.t('DBOS stopped restarting it after {0} restarts', restarts),
+
   runProcessDown: (duration: string) => l10n.t('process down · {0}', duration),
   runResumed: () => l10n.t('resumed by DBOS'),
 

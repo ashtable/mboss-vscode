@@ -12,7 +12,7 @@ import type { CanvasCode, CanvasSession } from '../canvas/editor.js';
 import type { CanvasSessions } from '../canvas/sessions.js';
 import { inspectorWords } from '../canvas/words.js';
 import { manifestFor, workflowDocument } from '../core/index.js';
-import type { LibManifest } from '../core/rules.js';
+import type { LibManifest, WorkflowIR } from '../core/rules.js';
 import type { PreviewStore } from '../preview/store.js';
 import type { AskAgent } from '../runs/evidence.js';
 import { pointIn } from '../runs/panels.js';
@@ -24,7 +24,12 @@ import { mountWebview, type Heard, type Mount } from '../webview/host.js';
 import type { InspectorMode } from '../webview/protocol.js';
 
 import type { InspectorFocus } from './focus.js';
-import { inspectorInit, type Focused, type RunDocument } from './subject.js';
+import {
+  inspectorInit,
+  type Focused,
+  type RunDocument,
+  type StartRefusal,
+} from './subject.js';
 
 /**
  * What the Inspector reads of the runs, and asks of
@@ -34,13 +39,26 @@ import { inspectorInit, type Focused, type RunDocument } from './subject.js';
  * and the run page are all about a run, and a run's
  * rows are in the store rather than on any canvas,
  * so these go to the store whichever surface the
- * block came from. A block picked on the run tab
- * is the store's too: which one, which face, and
- * the ways into its code and its recorded values.
+ * block came from — and so does everything the card
+ * about a whole run offers. A block picked on the
+ * run tab is the store's too: which one, which
+ * face, and the ways into its code and its recorded
+ * values.
  */
 export type InspectorRuns = {
   /** The run the run tab is showing. */
   detail(): SeeView | undefined;
+
+  /** Whether this window cancelled that run. */
+  cancelledHere(workflowId: string): boolean;
+
+  /** Why a run of that workflow could not be
+   *  replayed from its start; nothing where it
+   *  could be. */
+  replayStartRefusal(
+    workflow: string,
+    document: WorkflowIR | undefined,
+  ): string | undefined;
 
   /** That run, as a block picked on it is drawn. */
   inspected(): InspectedRun | undefined;
@@ -67,6 +85,13 @@ export type InspectorRuns = {
   openErrorLocation(workflowId: string, functionId: number): Promise<void>;
 
   openOutput(workflowId: string, functionId: number): Promise<void>;
+
+  cancel(workflowId: string): Promise<void>;
+
+  resume(workflowId: string): Promise<void>;
+
+  /** Opens what a run was started with, whole. */
+  openInput(workflowId: string): Promise<void>;
 
   onChanged(listener: () => void): Disposable;
 };
@@ -137,12 +162,13 @@ type AboutBlock = Extract<
  * the edit lands the way every other edit does.
  *
  * And it puts itself in front of somebody when a
- * selection lands on a block — but only while the
- * mBoss views are showing, since showing a view
- * opens the container it sits in, and only when a
- * selection changed, since a focus change alone is
- * somebody looking at what they already chose. The
- * cost: clicking the block already selected brings
+ * selection lands on a block, or the run tab shows
+ * a run it had not — but only while the mBoss views
+ * are showing, since showing a view opens the
+ * container it sits in, and only when something
+ * changed, since a focus change alone is somebody
+ * looking at what they already chose. The cost:
+ * clicking the block already selected brings
  * nothing forward, because nothing new landed.
  */
 export class InspectorView implements WebviewViewProvider {
@@ -164,9 +190,14 @@ export class InspectorView implements WebviewViewProvider {
     string | undefined
   >();
 
-  /** The block and row last picked on the run tab,
-   *  for the same question. */
-  private picked: { nodeId?: string; functionId?: number } = {};
+  /** The run the run tab last showed, and the block
+   *  and row last picked on it, for the same
+   *  question. */
+  private picked: {
+    workflowId?: string;
+    nodeId?: string;
+    functionId?: number;
+  } = {};
 
   /**
    * The code-behind of each project a run-tab block
@@ -282,22 +313,49 @@ export class InspectorView implements WebviewViewProvider {
 
     if (holder === undefined) return { at: 'none' };
 
+    const startRefusal: StartRefusal = (workflow, document) =>
+      this.runs.replayStartRefusal(workflow, document);
+
     return holder.at === 'canvas'
-      ? { at: 'canvas', canvas: holder.session.subjectInputs() }
-      : this.onRunTab();
+      ? {
+          at: 'canvas',
+          canvas: holder.session.subjectInputs(),
+          startRefusal,
+        }
+      : this.onRunTab(startRefusal);
   }
 
   /**
    * What the run tab holds, and — once a block is
    * picked on it — the run as that block is drawn
    * and the document the block is drawn from.
+   *
+   * Whether this window cancelled the run is asked
+   * as the pane is drawn, as the run page asks it,
+   * so a run cancelled from here says so without a
+   * read of it.
    */
-  private onRunTab(): Focused {
-    const reading = this.runs.detail();
+  private onRunTab(startRefusal: StartRefusal): Focused {
+    const shown = this.runs.detail();
+    const reading =
+      shown === undefined
+        ? undefined
+        : {
+            ...shown,
+            cancelledHere: this.runs.cancelledHere(shown.run.workflowId),
+          };
     const found = this.runDocument();
+    const now = Date.now();
 
     if (reading === undefined || found === undefined) {
-      return { at: 'run', reading, inspected: undefined, document: undefined };
+      return {
+        at: 'run',
+        reading,
+        inspected: undefined,
+        document: undefined,
+        now,
+        startRefusal,
+      };
     }
 
     const { project, path, canvas } = found;
@@ -322,6 +380,8 @@ export class InspectorView implements WebviewViewProvider {
       reading,
       inspected: this.runs.inspected(),
       document,
+      now,
+      startRefusal,
     };
   }
 
@@ -381,7 +441,7 @@ export class InspectorView implements WebviewViewProvider {
         return;
 
       // The schema has already refused a replay that
-      // names neither a block nor a row.
+      // names no block, row or start.
       case 'replayFrom': {
         const point = pointIn(message);
 
@@ -394,6 +454,24 @@ export class InspectorView implements WebviewViewProvider {
 
       case 'askAgent':
         void this.runs.askAgent(message);
+
+        return;
+
+      // By the run the card names rather than the one
+      // in front: the card may be drawing a run the
+      // surface has since moved past.
+      case 'cancelRun':
+        void this.runs.cancel(message.workflowId);
+
+        return;
+
+      case 'resumeRun':
+        void this.runs.resume(message.workflowId);
+
+        return;
+
+      case 'openInput':
+        void this.runs.openInput(message.workflowId);
 
         return;
     }
@@ -547,18 +625,36 @@ export class InspectorView implements WebviewViewProvider {
   }
 
   /**
-   * The runs moved. A block or a row picked on the
-   * run tab that landed on a block brings the pane
-   * forward; a tick, a run read again and the
-   * graph's background picking nothing do not.
+   * The runs moved.
+   *
+   * A run the tab had not shown is a whole run the
+   * pane has something to say about before anybody
+   * picks a block of it, so it brings the pane
+   * forward — or, in a window where the pane never
+   * resolved, is where a person first meets it. So
+   * does a block or a row picked on the run tab that
+   * landed on a block. A tick, a run read again and
+   * the graph's background picking nothing do not.
    */
   private runTabMoved(): void {
     const reading = this.runs.detail();
+    const workflowId = reading?.run.workflowId;
     const nodeId = reading?.selectedNode;
     const functionId = reading?.selectedStep;
     const before = this.picked;
 
-    this.picked = { nodeId, functionId };
+    this.picked = { workflowId, nodeId, functionId };
+
+    if (workflowId !== undefined && workflowId !== before.workflowId) {
+      if (!this.met) {
+        this.met = true;
+        void this.host.meetInspector();
+
+        return;
+      }
+
+      return this.reveal();
+    }
 
     if (nodeId === undefined) return;
     if (nodeId === before.nodeId && functionId === before.functionId) return;

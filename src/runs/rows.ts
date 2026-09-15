@@ -542,6 +542,36 @@ export const OUTPUT_KEPT = 2000;
  */
 export const INLINE_LIMIT = 120;
 
+/** The words a size is said in, each a template
+ *  with the number in `{0}`. A webview localizes
+ *  nothing of its own, so they are resolved on the
+ *  host and passed in. */
+export type SizeWords = {
+  bytes: string;
+  kilobytes: string;
+  megabytes: string;
+};
+
+const KILOBYTE = 1024;
+const MEGABYTE = KILOBYTE * KILOBYTE;
+
+/**
+ * How big a recorded value is, for a panel that
+ * names it rather than drawing it.
+ *
+ * Binary units, as the editor itself counts a
+ * file's size. Whole bytes below a kilobyte, one
+ * decimal above: the size says what kind of thing
+ * is behind the button, not how to allocate it.
+ */
+export function sizeOf(bytes: number, words: SizeWords): string {
+  if (bytes < KILOBYTE) return words.bytes.replace('{0}', String(bytes));
+
+  return bytes < MEGABYTE
+    ? words.kilobytes.replace('{0}', (bytes / KILOBYTE).toFixed(1))
+    : words.megabytes.replace('{0}', (bytes / MEGABYTE).toFixed(1));
+}
+
 /**
  * A recorded value, as every panel needs it.
  *

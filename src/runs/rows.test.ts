@@ -7,6 +7,7 @@ import {
   hasRecovered,
   inputIn,
   recoveriesOf,
+  sizeOf,
   stepError,
   storedValue,
   toCounts,
@@ -555,5 +556,22 @@ describe('what a step returned', () => {
     expect(nothing.absent).toBe(true);
     expect(empty.absent).toBe(false);
     expect(empty.shown).toBe('null');
+  });
+});
+
+/**
+ * How big a recorded value is, where a panel names
+ * it rather than drawing it. One scale for every
+ * panel, in the words the host resolved.
+ */
+describe('the size of a recorded value', () => {
+  const WORDS = { bytes: '{0} B', kilobytes: '{0} KB', megabytes: '{0} MB' };
+
+  it('says bytes, then kilobytes, then megabytes', () => {
+    expect(sizeOf(0, WORDS)).toBe('0 B');
+    expect(sizeOf(1023, WORDS)).toBe('1023 B');
+    expect(sizeOf(1024, WORDS)).toBe('1.0 KB');
+    expect(sizeOf(2560, WORDS)).toBe('2.5 KB');
+    expect(sizeOf(3 * 1024 * 1024, WORDS)).toBe('3.0 MB');
   });
 });

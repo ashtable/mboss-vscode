@@ -453,7 +453,7 @@ export function liveRunOf(run: Run, reading: Reading): LiveRun {
     createdAt: run.createdAt,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
-    input: printed(run.input),
+    input: printedInput(run.input),
     recordedInput: run.input,
     forkedFrom: run.forkedFrom,
   };
@@ -511,8 +511,8 @@ function liveStepOf(operation: Operation): LiveStep {
 }
 
 /** What a run was started with, as text a panel can
- *  put in a cell. */
-function printed(input: RunInput | undefined): string | undefined {
+ *  put in a cell or a tab can open. */
+export function printedInput(input: RunInput | undefined): string | undefined {
   if (input === undefined || input.shape === 'none') return undefined;
 
   return input.shape === 'payload'

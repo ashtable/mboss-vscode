@@ -28,6 +28,7 @@ import { queueEvidenceOf, type QueueEvidence } from './queueEvidence.js';
 import { runQuery, stepsQuery, type RunFilter } from './queries.js';
 import {
   offerReplay,
+  replayStartRefusal,
   type ReplayAnswer,
   type ReplayDeps,
   type ReplayPick,
@@ -39,6 +40,7 @@ import {
   toStep,
   type OperationOutputRow,
   type Run,
+  type RunInput,
   type Step,
   type WorkflowStatusRow,
 } from './rows.js';
@@ -49,7 +51,7 @@ import { stackZone } from './stackZone.js';
 import { testRunZone } from './testRun.js';
 import { inspectedOf, type SeeView } from './view.js';
 
-import type { LiveRun, RunWatch } from './watch.js';
+import { printedInput, type LiveRun, type RunWatch } from './watch.js';
 import { projectWorkflows, workflowDocument } from './workflows.js';
 import { runsWords } from './words.js';
 
@@ -210,6 +212,27 @@ export type RunsStore = Disposable & {
   live(): ShownRun | undefined;
 
   /**
+   * Why a run of that workflow could not be
+   * replayed from its start, asked of the document
+   * whoever is drawing holds; nothing where it
+   * could be.
+   *
+   * Only what needs no row — the document, the
+   * project's lockfile and its SDK — so it can be
+   * said before anybody asks. The click still decides
+   * the replay in full.
+   */
+  replayStartRefusal(
+    workflow: string,
+    document: WorkflowIR | undefined,
+  ): string | undefined;
+
+  /** Whether this window is what cancelled that run:
+   *  remembered for as long as the window is open,
+   *  because no column records who cancelled one. */
+  cancelledHere(workflowId: string): boolean;
+
+  /**
    * Reads what one queue block of that run is doing
    * beyond the run's own share of it.
    *
@@ -364,6 +387,18 @@ export type RunsStore = Disposable & {
    * and this is the way to it.
    */
   openOutput(workflowId: string, functionId: number): Promise<void>;
+
+  /**
+   * Opens the whole of what a run was started with.
+   *
+   * The run the canvas follows or the one the run
+   * tab has open, whichever that id is: a card draws
+   * only the front of a long input, and the only
+   * place the rest is in hand is the run it was
+   * read from. A run that recorded no input has
+   * nothing to open.
+   */
+  openInput(workflowId: string): Promise<void>;
 
   /**
    * Opens the Conductor console for what this
@@ -550,6 +585,21 @@ export function runsStore(deps: RunsDeps): RunsStore {
       : undefined;
   };
 
+  /**
+   * What the run behind one of those ids was started
+   * with, as the ledger recorded it — the same two
+   * zones asked, for the same reason.
+   */
+  const inputOf = (workflowId: string): RunInput | undefined => {
+    const started = testRun.live();
+
+    if (started?.workflowId === workflowId) return started.recordedInput;
+
+    const opened = openRun.reading()?.run;
+
+    return opened?.workflowId === workflowId ? opened.input : undefined;
+  };
+
   /** A stack command, with the problem under the
    *  input box let go of first: Rebuild is what one
    *  of those problems asks for. */
@@ -720,6 +770,12 @@ export function runsStore(deps: RunsDeps): RunsStore {
     },
 
     live: () => shownRun(testRun.live()),
+
+    replayStartRefusal: (workflow, document) =>
+      replayStartRefusal(workflow, project(), document, deps.projectSdk)
+        ?.detail,
+
+    cancelledHere: (workflowId) => history.cancelledHere().has(workflowId),
 
     /**
      * One read, kept under the run it was about.
@@ -933,6 +989,17 @@ export function runsStore(deps: RunsDeps): RunsStore {
       if (row?.output === undefined) return;
 
       await deps.host.showText(row.output, 'json');
+    },
+
+    // Untitled, and JSON however it was stored: the
+    // tab is a copy of what the ledger holds, and a
+    // copy with nowhere to be saved cannot be
+    // written back over it.
+    openInput: async (workflowId) => {
+      const printed = printedInput(inputOf(workflowId));
+      if (printed === undefined) return;
+
+      await deps.host.showText(printed, 'json');
     },
 
     // Whatever the setting holds, unchanged: it is

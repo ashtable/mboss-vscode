@@ -472,7 +472,7 @@ const StepSelect = z.object({
 
 /**
  * Somebody asked for a run to be forked from a
- * point it recorded.
+ * point it recorded, or from its start.
  *
  * The run travels with the click for the same
  * reason a proposal id does: the panel may be
@@ -480,15 +480,16 @@ const StepSelect = z.object({
  * and the extension is what decides which run this
  * is about.
  *
- * Both ways of naming the point are optional and at
- * least one is required, because the surfaces that
- * send this hold different things. The Inspector
- * has a block and no row at all, and so does the
- * agent panel, after a turn asked about a
- * block; the run page has a row somebody clicked in
- * a trace. Which of a block's several rows a replay
- * starts from is the extension's answer, not the
- * panel's.
+ * All three ways of naming the point are optional
+ * and at least one is required, because the
+ * surfaces that send this hold different things. A
+ * block's card has a block, and a row where one was
+ * picked on the run tab; the agent panel, after a
+ * turn asked about a block, has the block alone;
+ * the card about a whole run has neither, and
+ * starts it again from the start. Which of a
+ * block's several rows a replay starts from is the
+ * extension's answer, not the panel's.
  */
 const ReplayFrom = z
   .object({
@@ -496,10 +497,14 @@ const ReplayFrom = z
     workflowId: z.string(),
     nodeId: z.string().optional(),
     functionId: z.number().int().optional(),
+    from: z.literal('start').optional(),
   })
   .refine(
-    (sent) => sent.nodeId !== undefined || sent.functionId !== undefined,
-    'a replay starts from a block or from a row it recorded',
+    (sent) =>
+      sent.nodeId !== undefined ||
+      sent.functionId !== undefined ||
+      sent.from !== undefined,
+    'a replay starts from a block, a row it recorded or its start',
   );
 
 /** The same, from wherever the run's own default
@@ -514,11 +519,13 @@ const ReplayRun = z.object({
  * Somebody asked for a run to be stopped, or for a
  * stopped one to be picked back up.
  *
- * By id, because three surfaces send these and none
- * of them is necessarily showing the run: Running
- * Now names the run this window is watching, a
- * session row names one this window started, and
- * the run page names the one it has open.
+ * By id, because several surfaces send these and
+ * none of them is necessarily showing the run:
+ * Running Now names the run this window is
+ * watching, a session row names one this window
+ * started, the run page names the one it has open,
+ * and the Inspector's card names the run a canvas
+ * follows or the run tab shows.
  *
  * `cancelRun` rather than `cancel`, which is the
  * side bar's own kind for stopping an agent's turn.
@@ -533,6 +540,19 @@ const CancelRun = z.object({
 
 const ResumeRun = z.object({
   type: z.literal('resumeRun'),
+  workflowId: z.string(),
+});
+
+/**
+ * Somebody wants the whole of what a run was
+ * started with, in a tab of its own.
+ *
+ * By run rather than by value: the card shows only
+ * the front of a long input, and the extension is
+ * what holds the run it was read from.
+ */
+const OpenInput = z.object({
+  type: z.literal('openInput'),
   workflowId: z.string(),
 });
 
@@ -689,7 +709,9 @@ const SCHEMAS = {
   ]),
   // Everything a block's two faces offer: its
   // edits, the ways into its code and its recorded
-  // values, and the ways on from a run.
+  // values, and the ways on from a run — and what
+  // the card about a whole run offers: stopping it,
+  // picking it back up and its recorded input.
   inspector: z.discriminatedUnion('type', [
     Ready,
     InspectorModePicked,
@@ -702,6 +724,9 @@ const SCHEMAS = {
     ReplayFrom,
     AskAgent,
     OpenRun,
+    CancelRun,
+    ResumeRun,
+    OpenInput,
   ]),
   gallery: z.discriminatedUnion('type', [Ready, UsePattern, StartBlank]),
 };

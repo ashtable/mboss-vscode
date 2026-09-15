@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { fakeWebview } from '../../test/doubles/webview.js';
 
-import { RunsListView, type SeePanel } from './panels.js';
+import { pointIn, RunsListView, type SeePanel } from './panels.js';
 import type { RunsStore } from './store.js';
 
 /**
@@ -42,5 +42,24 @@ describe('the run list', () => {
     frame.close();
 
     expect(view.visible()).toBe(false);
+  });
+});
+
+/**
+ * Where a replay starts, as a message names it.
+ * The run tab and the Inspector both read it this
+ * way, so a replay from the start means the same
+ * thing wherever it was asked for.
+ */
+describe('the point a replay message names', () => {
+  it('reads a replay from the start before a row or a block', () => {
+    expect(pointIn({ from: 'start', functionId: 3, nodeId: 'a' })).toEqual({
+      from: 'start',
+    });
+    expect(pointIn({ functionId: 3, nodeId: 'a' })).toEqual({
+      functionId: 3,
+    });
+    expect(pointIn({ nodeId: 'a' })).toEqual({ nodeId: 'a' });
+    expect(pointIn({})).toBeUndefined();
   });
 });

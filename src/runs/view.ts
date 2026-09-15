@@ -4,15 +4,19 @@ import {
   durationWords,
   inspectorWords,
   kindWords,
+  sizeWords,
 } from '../canvas/words.js';
 import { replayBoundaries, type Unoffered } from '../core/index.js';
 import { ownerOf, type NodeBox, type WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
 import { shortRunId } from '../webview/ids.js';
-import { inFlight, runWord, type RunWord } from '../webview/states.js';
+import { inFlight, runWord, settled, type RunWord } from '../webview/states.js';
 import { clock, duration, fine } from '../webview/time.js';
 import type {
   InspectorMode,
+  RecordedValue,
+  RunLevel,
+  RunLineage,
   RunRow,
   SeeBar,
   SeeChip,
@@ -39,7 +43,17 @@ import { runWords, seeWords } from './words.js';
 import { decidedArms, groupsOf, type TraceGroup } from './operations.js';
 import { replayRowReason } from './replayZone.js';
 import { readRun, type Operation, type Reading } from './reading.js';
-import { hasRecovered, recoveriesOf, type Run, type Step } from './rows.js';
+import {
+  INLINE_LIMIT,
+  OUTPUT_KEPT,
+  hasRecovered,
+  inlineJson,
+  recoveriesOf,
+  sizeOf,
+  type Run,
+  type RunInput,
+  type Step,
+} from './rows.js';
 import type { SessionRun } from './sessionLog.js';
 import { inspectedRunOf, liveRunOf, type LiveRun } from './watch.js';
 import type { ProjectWorkflow } from './workflows.js';
@@ -75,6 +89,10 @@ const IN_FLIGHT = new Set(['PENDING', 'ENQUEUED', 'DELAYED']);
  * for.
  */
 const RESUMABLE = new Set(['CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED']);
+
+/** What DBOS writes when it stops restarting a run:
+ *  it dead-letters it, and writes no error row. */
+const GAVE_UP = 'MAX_RECOVERY_ATTEMPTS_EXCEEDED';
 
 /**
  * How much of an output one cell carries.
@@ -288,7 +306,7 @@ function seeRun(view: SeeView): SeeRun {
     chips: drawn.map((step) => chipOf(step, points)),
     timeline: chartOf(reading, drawn),
     raw: steps.map(rawRowOf),
-    rail: railOf(run),
+    rail: ledgerOf(run),
     controls: controlsOf(run, drawn, view.cancelledHere ?? false),
     selectedStep: view.selectedStep,
     note: view.note,
@@ -717,6 +735,44 @@ function parked(lastOperation: string | undefined): boolean {
   return last === 'register' || last === 'resend';
 }
 
+/** What a run's one line is composed from: the
+ *  word its reader worked out, with whatever
+ *  evidence that reader had, and the run's own
+ *  times. */
+export type RunLineOf = {
+  word: RunWord;
+  createdAt: number;
+  completedAt: number | undefined;
+  recovered: boolean;
+};
+
+/**
+ * A run summed up in one line: "done · 1.6 s",
+ * "waiting", "done · 9.1 s · ↻ recovered".
+ *
+ * How long it took only once DBOS has written
+ * `completed_at`, which it does for every way a run
+ * ends and clears on a resume; a length of time for
+ * a run still going would be stale as soon as it
+ * was drawn. The recovered tag only on a run that is
+ * over, because one still being picked back up
+ * already says "recovering" — and never after "gave
+ * up", which is a word for being restarted until
+ * DBOS stopped.
+ */
+export function runLine(run: RunLineOf): string {
+  const { word, createdAt, completedAt, recovered } = run;
+  const parts = [runWords()[word]];
+
+  if (completedAt !== undefined) parts.push(lasted(completedAt - createdAt));
+
+  if (recovered && settled(word) && word !== 'gaveUp') {
+    parts.push(messages.runsRecoveredTag());
+  }
+
+  return parts.join(' · ');
+}
+
 function whenOf(run: Run): string {
   const at = clock(run.createdAt);
 
@@ -768,6 +824,111 @@ function recoveredBanner(run: Run, reading: Reading): SeeRun['recovered'] {
       down: messages.runRecoveredDown(lasted(outage.to - outage.from)),
       reused: messages.runRecoveredReused(restored),
     },
+  };
+}
+
+/**
+ * What a recovery cost, as the Inspector's card
+ * about a whole run lists it: the run page's
+ * banner, sentence by sentence, each marked derived.
+ *
+ * The banner's own sentences rather than a second
+ * wording, so the two surfaces cannot tell one run
+ * two ways. A run DBOS gave up on says that instead:
+ * it never finished, so there is no "reused rather
+ * than run again" to report, and how many restarts
+ * it took is the part worth reading.
+ */
+export function recoverySentences(
+  run: Run,
+  reading: Reading,
+): string[] | undefined {
+  if (run.status === GAVE_UP) {
+    return [
+      messages.runLevelDerived(messages.runLevelGaveUp(recoveriesOf(run))),
+    ];
+  }
+
+  const banner = recoveredBanner(run, reading);
+  if (banner === undefined) return undefined;
+
+  const figures =
+    banner.figures === undefined
+      ? []
+      : [banner.figures.down, banner.figures.reused];
+
+  return [banner.heading, banner.body, ...figures].map(
+    messages.runLevelDerived,
+  );
+}
+
+/**
+ * Where a run came from and what came out of it, one
+ * line each: the run it was replayed from first,
+ * then each replay of it.
+ *
+ * The replay's word is asked with the evidence this
+ * read has, which is no recorded name for the other
+ * run — so none of them can be said to be parked.
+ */
+export function runLineageOf(lineage: Lineage | undefined): RunLineage[] {
+  if (lineage === undefined) return [];
+
+  const parent: RunLineage[] =
+    lineage.parent === undefined
+      ? []
+      : [
+          {
+            direction: 'of',
+            workflowId: lineage.parent.run.workflowId,
+            short: shortRunId(lineage.parent.run.workflowId),
+            startStep: lineage.parent.startStep,
+          },
+        ];
+
+  return [
+    ...parent,
+    ...lineage.forks.map((fork): RunLineage => ({
+      direction: 'to',
+      workflowId: fork.run.workflowId,
+      short: shortRunId(fork.run.workflowId),
+      startStep: fork.startStep,
+      word: runWords()[wordOf(fork.run, false)],
+    })),
+  ];
+}
+
+/**
+ * What a run was started with, as a card draws a
+ * recorded value: whole on one line where it is
+ * short, and named with its size where it is not.
+ *
+ * The payload itself rather than the argument array
+ * DBOS stores it in; text that was not that array is
+ * shown as it was stored. The preview keeps as much
+ * as a panel holds, which is more than one line
+ * shows. The size is the value's own, written as
+ * compactly as JSON writes it.
+ */
+export function recordedValueOf(
+  input: RunInput | undefined,
+): RecordedValue | undefined {
+  if (input === undefined || input.shape === 'none') return undefined;
+
+  const shown =
+    input.shape === 'payload' ? inlineJson(input.value) : input.text;
+
+  if (shown.length <= INLINE_LIMIT) return { kind: 'inline', text: shown };
+
+  const stored =
+    input.shape === 'payload'
+      ? (JSON.stringify(input.value) ?? '')
+      : input.text;
+
+  return {
+    kind: 'artifact',
+    preview: shown.slice(0, OUTPUT_KEPT),
+    size: sizeOf(new TextEncoder().encode(stored).length, sizeWords()),
   };
 }
 
@@ -873,14 +1034,29 @@ function rawRowOf(step: Step): SeeRawRow {
 }
 
 /**
- * The run as `dbos.workflow_status` holds it.
+ * The run as `dbos.workflow_status` holds it, each
+ * row under its column's own name and holding the
+ * column's own value — `SUCCESS` rather than
+ * "done", because this is the one place a person
+ * reads the ledger itself.
  *
- * The four the design names, plus the version when
- * DBOS recorded one — it is what decides whether a
- * replay of this run can reach a worker at all, so
- * it belongs beside the button that makes one.
+ * Four columns, plus the version when DBOS recorded
+ * one: it is what decides whether a replay of this
+ * run can reach a worker at all, so it belongs
+ * beside the button that makes one. Read off either
+ * a run the ledger was asked for or a run a watch
+ * follows, which carry these columns alike.
  */
-function railOf(run: Run): { label: string; value: string }[] {
+export function ledgerOf(
+  run: Pick<
+    Run,
+    | 'workflowId'
+    | 'status'
+    | 'recoveryAttempts'
+    | 'executorId'
+    | 'applicationVersion'
+  >,
+): { label: string; value: string }[] {
   const rows = [
     { label: 'workflow_uuid', value: run.workflowId },
     { label: 'status', value: run.status },
@@ -894,6 +1070,34 @@ function railOf(run: Run): { label: string; value: string }[] {
         ...rows,
         { label: 'application_version', value: run.applicationVersion },
       ];
+}
+
+/**
+ * Which of the two controls a run is open to, when
+ * it was cancelled and whether it gave up — the
+ * Inspector's card about a whole run.
+ *
+ * The same status rule as the run page's rail
+ * below. The moment is the fine one every recorded
+ * time on the card is written in.
+ */
+export function runControlsOf(
+  run: Pick<Run, 'status' | 'createdAt' | 'completedAt'>,
+  cancelledHere: boolean,
+): RunLevel['controls'] {
+  const at = fine(run.completedAt ?? run.createdAt);
+
+  return {
+    cancel: IN_FLIGHT.has(run.status),
+    resume: RESUMABLE.has(run.status),
+    cancelledAt:
+      run.status !== 'CANCELLED'
+        ? undefined
+        : cancelledHere
+          ? messages.runCancelledByYou(at)
+          : at,
+    gaveUp: run.status === GAVE_UP,
+  };
 }
 
 /**

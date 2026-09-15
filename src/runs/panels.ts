@@ -18,18 +18,24 @@ import { runsWords, seeWords } from './words.js';
  * Where a replay would start, as the message names
  * it.
  *
- * A row wins over a block: the page has both once
- * somebody has clicked a trace row, and the row is
- * the more exact of the two. The schema has already
- * refused a message naming neither, and this says
- * so rather than inventing a block id nothing has.
- * Shared with the Inspector, which sends the same
- * message and means the same point by it.
+ * The start wins over everything, because a card
+ * that asks for it asks for no point the run
+ * recorded. A row wins over a block: the page has
+ * both once somebody has clicked a trace row, and
+ * the row is the more exact of the two. The schema
+ * has already refused a message naming none of the
+ * three, and this says so rather than inventing a
+ * block id nothing has. Shared with the Inspector,
+ * which sends the same message and means the same
+ * point by it.
  */
 export function pointIn(said: {
   nodeId?: string;
   functionId?: number;
+  from?: 'start';
 }): ReplayPick | undefined {
+  if (said.from === 'start') return { from: 'start' };
+
   if (said.functionId !== undefined) {
     return { functionId: said.functionId };
   }

@@ -2,6 +2,7 @@ import { l10n } from 'vscode';
 
 import type { HandlerMisfit, NodeKind } from '../core/rules.js';
 import { once } from '../once.js';
+import type { SizeWords } from '../runs/rows.js';
 import { runWords } from '../runs/words.js';
 import type { DurationWords } from '../webview/time.js';
 
@@ -134,6 +135,21 @@ export const durationWords = once((): DurationWords => ({
   minutes: l10n.t('{0} m'),
   hours: l10n.t('{0} h'),
   days: l10n.t('{0} d'),
+}));
+
+/**
+ * The units a recorded value's size is said in.
+ *
+ * Beside the units of time for the same reason:
+ * the scale that picks between them is shared
+ * (`runs/rows.ts`) and resolves no words of its
+ * own, so every surface that says how big a value
+ * is says it the same way.
+ */
+export const sizeWords = once((): SizeWords => ({
+  bytes: l10n.t('{0} B'),
+  kilobytes: l10n.t('{0} KB'),
+  megabytes: l10n.t('{0} MB'),
 }));
 
 export const canvasWords = once(() => ({

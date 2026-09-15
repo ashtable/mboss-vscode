@@ -178,6 +178,11 @@ function mounted(
       void asked.push(['openErrorLocation', workflowId, functionId]),
     openOutput: async (workflowId, functionId) =>
       void asked.push(['openOutput', workflowId, functionId]),
+    cancel: async (workflowId) => void asked.push(['cancel', workflowId]),
+    resume: async (workflowId) => void asked.push(['resume', workflowId]),
+    openInput: async (workflowId) => void asked.push(['openInput', workflowId]),
+    cancelledHere: () => false,
+    replayStartRefusal: () => undefined,
     onChanged: moves.on,
   };
 
@@ -240,6 +245,7 @@ function mounted(
     frame,
     focus,
     sessions: registry,
+    runs,
     asked,
     host,
     view,
@@ -864,10 +870,10 @@ describe('when the Inspector comes forward for the run tab', () => {
   it('comes forward when a graph node or a trace row lands on a block', () => {
     const { frame, tab, moved } = mounted();
 
-    frame.hide();
+    // The run itself is shown while the pane is.
     tab.reading = seeView();
     moved();
-    expect(frame.revealed).toEqual([]);
+    frame.hide();
 
     tab.reading = seeView({ selectedNode: 'find_slot' });
     moved();
@@ -919,5 +925,216 @@ describe('when the Inspector comes forward for the run tab', () => {
     focus.report({ at: 'run' });
 
     expect(frame.revealed).toEqual([]);
+  });
+
+  /**
+   * A run the tab had not shown is a whole run the
+   * pane now has something to say about, before
+   * anybody picks a block of it. The same run read
+   * again, or a tick on it, is not.
+   */
+  it('brings itself into view when the run tab shows a different run', () => {
+    const { frame, tab, moved } = mounted();
+    const other = { ...seeView().run, workflowId: 'wf_2' };
+
+    frame.hide();
+    tab.reading = seeView();
+    moved();
+    expect(frame.revealed).toEqual([true]);
+
+    frame.hide();
+    tab.reading = seeView();
+    moved();
+    moved();
+    expect(frame.revealed).toEqual([true]);
+
+    tab.reading = seeView({ run: other });
+    moved();
+    expect(frame.revealed).toEqual([true, true]);
+  });
+
+  it('stays put for another run while the mBoss views are not showing', () => {
+    const { frame, tab, moved } = mounted({ showing: () => false });
+
+    frame.hide();
+    tab.reading = seeView();
+    moved();
+
+    expect(frame.revealed).toEqual([]);
+  });
+
+  /**
+   * A pane nobody has ever expanded has no view to
+   * show, so the first run shown in the window meets
+   * it through its focus command instead — once,
+   * whatever is shown after.
+   */
+  it('meets a person once when the run tab is the first thing shown', () => {
+    const { tab, moved, host } = mounted({ resolved: false });
+
+    tab.reading = seeView();
+    moved();
+    tab.reading = seeView({ run: { ...seeView().run, workflowId: 'wf_2' } });
+    moved();
+
+    expect(host.met).toBe(1);
+  });
+
+  it('meets nobody for a run shown in a window where it has resolved', () => {
+    const { tab, moved, host } = mounted();
+
+    tab.reading = seeView();
+    moved();
+
+    expect(host.met).toBe(0);
+  });
+});
+
+/**
+ * A whole run, with nothing of it picked.
+ *
+ * Everything the card about a run offers is about
+ * that run, and the run is the store's whichever
+ * surface it is in front on: the canvas following
+ * it or the run tab showing it. So every way on from
+ * the card goes to the runs store, addressed by the
+ * run the card names, and nothing reaches a canvas.
+ */
+describe('what a run-level subject says, and where it goes', () => {
+  /** The pane about the run a canvas is following,
+   *  with nothing selected on it. */
+  function onCanvas() {
+    const pane = mounted();
+    const canvas = session('groom_booking.workflow.json', {
+      mode: 'evidence',
+      run: liveRun({ workflowId: 'wf_1', workflow: 'groom_booking' }),
+    });
+
+    pane.focus.report({ at: 'canvas', session: canvas.canvas });
+
+    return { ...pane, did: canvas.did };
+  }
+
+  /** The pane about the run the run tab is showing,
+   *  with nothing picked on it. */
+  function onRunTab() {
+    const pane = mounted();
+
+    pane.tab.reading = seeView();
+    pane.focus.report({ at: 'run' });
+
+    return { ...pane, did: [] as unknown[][] };
+  }
+
+  const SURFACES = [
+    ['a canvas following it', onCanvas],
+    ['the run tab', onRunTab],
+  ] as const;
+
+  for (const [surface, about] of SURFACES) {
+    describe(`in front on ${surface}`, () => {
+      it('is about the whole run', () => {
+        expect(about().subjects().at(-1)).toMatchObject({
+          at: 'run',
+          run: { workflowId: 'wf_1' },
+        });
+      });
+
+      it('replays it from the start', () => {
+        const { frame, asked, did } = about();
+
+        frame.send({ type: 'replayFrom', workflowId: 'wf_1', from: 'start' });
+
+        expect(asked).toEqual([['replay', 'wf_1', { from: 'start' }]]);
+        expect(did).toEqual([]);
+      });
+
+      it('asks the agent about the whole run', () => {
+        const { frame, asked } = about();
+
+        frame.send({ type: 'askAgent', workflowId: 'wf_1' });
+
+        expect(asked).toEqual([
+          ['askAgent', { type: 'askAgent', workflowId: 'wf_1' }],
+        ]);
+      });
+
+      it('cancels it', () => {
+        const { frame, asked, did } = about();
+
+        frame.send({ type: 'cancelRun', workflowId: 'wf_1' });
+
+        expect(asked).toEqual([['cancel', 'wf_1']]);
+        expect(did).toEqual([]);
+      });
+
+      it('picks it back up', () => {
+        const { frame, asked, did } = about();
+
+        frame.send({ type: 'resumeRun', workflowId: 'wf_1' });
+
+        expect(asked).toEqual([['resume', 'wf_1']]);
+        expect(did).toEqual([]);
+      });
+
+      /** Reading the run and putting the run tab in
+       *  front are one door, the one every surface
+       *  opens a run through. */
+      it('opens a run on the run tab', () => {
+        const { frame, asked } = about();
+
+        frame.send({ type: 'openRun', workflowId: 'wf_parent' });
+
+        expect(asked).toEqual([['openRun', 'wf_parent']]);
+      });
+
+      it('opens the input it was started with', () => {
+        const { frame, asked, did } = about();
+
+        frame.send({ type: 'openInput', workflowId: 'wf_1' });
+
+        expect(asked).toEqual([['openInput', 'wf_1']]);
+        expect(did).toEqual([]);
+      });
+    });
+  }
+
+  it('says whether this window cancelled the run the tab is showing', () => {
+    const pane = mounted();
+    const stopped = { ...seeView().run, status: 'CANCELLED' };
+    const asked: string[] = [];
+
+    pane.runs.cancelledHere = (workflowId) => {
+      asked.push(workflowId);
+
+      return true;
+    };
+    pane.tab.reading = seeView({ run: stopped });
+    pane.focus.report({ at: 'run' });
+
+    expect(asked).toEqual(['wf_1']);
+    expect(pane.subjects().at(-1)).toMatchObject({
+      at: 'run',
+      run: { controls: { cancelledAt: expect.stringContaining('by you') } },
+    });
+  });
+
+  it('asks the store whether a replay from the start is on offer', () => {
+    const pane = mounted();
+    const asked: unknown[][] = [];
+
+    pane.runs.replayStartRefusal = (...question) => {
+      asked.push(question);
+
+      return 'refused for a reason';
+    };
+    pane.tab.reading = seeView();
+    pane.focus.report({ at: 'run' });
+
+    expect(asked).toEqual([['groom_booking', ir]]);
+    expect(pane.subjects().at(-1)).toMatchObject({
+      at: 'run',
+      run: { replayStart: false, replayRefused: 'refused for a reason' },
+    });
   });
 });

@@ -5,6 +5,7 @@ import { messages } from '../messages.js';
 import { TIMER_THEN_ANSWER } from '../test-support/runs.js';
 import { shortRunId } from '../webview/ids.js';
 import type { SeeRun } from '../webview/protocol.js';
+import type { RunWord } from '../webview/states.js';
 
 import type { RecordedRunEvidence } from './evidence.js';
 import type { Run, Step } from './rows.js';
@@ -14,6 +15,7 @@ import {
   evidenceLines,
   evidenceSentence,
   rowOf,
+  runLine,
   seeInit,
   sessionRowOf,
   type SeeView,
@@ -1004,6 +1006,53 @@ describe('one word for one run', () => {
 
     expect(rowOf(odd).word).toBe('running');
     expect(seeInit(page(odd)).run?.word).toBe('running');
+  });
+});
+
+/**
+ * A run summed up in one line: its word, how long it
+ * took once it is over, and whether DBOS picked it
+ * back up. The run tab's header and the Inspector's
+ * card both say this line, so it is composed once.
+ */
+describe('the line a run is summed up in', () => {
+  const at = (
+    word: RunWord,
+    took: number | undefined,
+    recovered = false,
+  ): string =>
+    runLine({
+      word,
+      createdAt: 5000,
+      completedAt: took === undefined ? undefined : 5000 + took,
+      recovered,
+    });
+
+  it('says how long a run that is over took', () => {
+    expect(at('done', 1600)).toBe('done · 1.6 s');
+    expect(at('failed', 8200)).toBe('failed · 8.2 s');
+    expect(at('gaveUp', 7_500_000)).toBe('gave up · 2 h 5 m');
+    expect(at('cancelled', 3200)).toBe('cancelled · 3.2 s');
+  });
+
+  /** A length of time for a run still going would be
+   *  stale the moment it was drawn. */
+  it('says a run that is not over in its word alone', () => {
+    expect(at('running', undefined)).toBe('running');
+    expect(at('recovering', undefined, true)).toBe('recovering');
+    expect(at('waiting', undefined)).toBe('waiting');
+    expect(at('queued', undefined)).toBe('queued');
+  });
+
+  /**
+   * Only on a run that is over: a run still being
+   * picked back up already says "recovering". A run
+   * DBOS gave up on says it was restarted in its own
+   * word, so the tag would say it twice.
+   */
+  it('tags a run that finished after DBOS picked it back up', () => {
+    expect(at('done', 9100, true)).toBe('done · 9.1 s · ↻ recovered');
+    expect(at('gaveUp', 7_500_000, true)).toBe('gave up · 2 h 5 m');
   });
 });
 

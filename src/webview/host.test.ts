@@ -193,8 +193,9 @@ describe('what each view may say', () => {
 
     // Distinct from `cancel`, which is the side
     // bar's own kind for stopping an agent's turn.
-    cancelRun: ['runs', 'see'],
-    resumeRun: ['runs', 'see'],
+    cancelRun: ['runs', 'see', 'inspector'],
+    resumeRun: ['runs', 'see', 'inspector'],
+    openInput: ['inspector'],
 
     stepSelect: ['see'],
     replayFrom: ['inspector', 'see', 'sidebar'],
@@ -268,6 +269,7 @@ describe('what each view may say', () => {
     replayRun: { workflowId: 'wf_c9d2f3' },
     cancelRun: { workflowId: 'wf_c9d2f3' },
     resumeRun: { workflowId: 'wf_c9d2f3' },
+    openInput: { workflowId: 'wf_c9d2f3' },
 
     stepSelect: { functionId: 2 },
     replayFrom: { workflowId: 'wf_c9d2f3', functionId: 2 },
@@ -306,31 +308,26 @@ describe('what each view may say', () => {
   });
 
   /**
-   * A drop is one gesture or the other. Splicing
-   * decides where the block sits without anybody
-   * being asked which way out of a block to leave
-   * by, so a message claiming to be both used to
-   * make the host ask a question and then throw the
-   * answer away. It does not parse now.
-   */
-  /**
-   * A canvas has a block and no row; the run page
-   * has a row. A message naming neither addresses
+   * A replay names where it starts: a block, a row
+   * picked on the run tab, or the run's start. A
+   * message naming none of the three addresses
    * nothing at all.
    */
-  it('refuses a replay that names neither a block nor a row', () => {
-    const see = messageSchemaFor('see');
+  it('refuses a replay that names no block, row or start', () => {
+    const inspector = messageSchemaFor('inspector');
+    const replay = { type: 'replayFrom', workflowId: 'wf_c9d2f3' };
 
+    expect(inspector.safeParse(replay).success).toBe(false);
     expect(
-      see.safeParse({ type: 'replayFrom', workflowId: 'wf_c9d2f3' }).success,
-    ).toBe(false);
-    expect(
-      see.safeParse({
-        type: 'replayFrom',
-        workflowId: 'wf_c9d2f3',
-        nodeId: 'refund_payment',
-      }).success,
+      inspector.safeParse({ ...replay, nodeId: 'refund_payment' }).success,
     ).toBe(true);
+    expect(inspector.safeParse({ ...replay, functionId: 3 }).success).toBe(
+      true,
+    );
+    expect(inspector.safeParse({ ...replay, from: 'start' }).success).toBe(
+      true,
+    );
+    expect(inspector.safeParse({ ...replay, from: 'end' }).success).toBe(false);
   });
 
   /**
@@ -344,6 +341,14 @@ describe('what each view may say', () => {
     expect(see.safeParse({ type: 'seeNode' }).success).toBe(false);
   });
 
+  /**
+   * A drop is one gesture or the other. Splicing
+   * decides where the block sits without anybody
+   * being asked which way out of a block to leave
+   * by, so a message claiming to be both used to
+   * make the host ask a question and then throw the
+   * answer away. It does not parse now.
+   */
   it("refuses a drop that is both a splice and a wire's end", () => {
     const canvas = messageSchemaFor('canvas');
     const drop = { type: 'addNode', ...SAMPLE['addNode'] };

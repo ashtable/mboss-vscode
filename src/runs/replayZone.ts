@@ -58,10 +58,19 @@ import type { RunOrigin } from './testRun.js';
  * names alone changes nothing here either.
  */
 
-/** Where a replay would start, as whoever clicked
- *  named it. Nothing named at all is the run's own
- *  default. */
-export type ReplayPick = { nodeId: string } | { functionId: number };
+/**
+ * Where a replay would start, as whoever clicked
+ * named it: a block, a row, or the run's start.
+ * Nothing named at all is the run's own default.
+ *
+ * The start is its own pick rather than the first
+ * row on offer, because a fork copies every row
+ * below the step it starts at: at step 0 it copies
+ * nothing, where the first point a block offers
+ * would copy every row before it.
+ */
+export type ReplayPick =
+  { nodeId: string } | { functionId: number } | { from: 'start' };
 
 /** What the running app is, against the folder
  *  somebody is editing. */
@@ -210,41 +219,20 @@ export async function decideReplay(
   picked?: ReplayPick,
 ): Promise<ReplayDecision> {
   const project = deps.project();
+  const ir = project === undefined ? undefined : await deps.document(run.name);
 
-  // No project is no document, because the document
-  // is the only thing a project is consulted for
-  // here.
-  if (project === undefined) return noDocument(run.name);
+  const refused = replayStartRefusal(run.name, project, ir, deps.projectSdk);
+  if (refused !== undefined) return refused;
 
-  const ir = await deps.document(run.name);
-  if (ir === undefined) return noDocument(run.name);
-
-  const sdk = deps.projectSdk(project);
-
-  if (!sdk.ok) {
-    return {
-      at: 'unavailable',
-      because: 'no-lockfile',
-      detail: messages.replayNoLockfile(),
-    };
-  }
-
-  const skew = sdkSkew(EXTENSION_SDK, sdk.version);
-
-  if (skew !== 'ok') {
-    return {
-      at: 'unavailable',
-      because: skew === 'extension-newer' ? 'sdk-newer' : 'sdk-major',
-      detail:
-        skew === 'extension-newer'
-          ? messages.replaySdkNewer(EXTENSION_SDK, sdk.version)
-          : messages.replaySdkMajor(EXTENSION_SDK, sdk.version),
-    };
-  }
+  // Both are there once nothing was refused. Said
+  // again for the compiler, which cannot see that
+  // through the call.
+  if (project === undefined || ir === undefined) return noDocument(run.name);
 
   const recorded = rows.map(recordedRow);
   const { offered, unoffered } = replayBoundaries(ir, recorded);
-  const boundary = boundaryFor(offered, picked, rows);
+  const fromStart = picked !== undefined && 'from' in picked;
+  const boundary = boundaryFor(ir, offered, picked, rows);
 
   if (boundary === undefined) return notOffered(ir, offered, unoffered, picked);
 
@@ -261,6 +249,9 @@ export async function decideReplay(
     };
   }
 
+  // Only the rows below the point are matched, so a
+  // fork from the start — which copies none — is
+  // never refused for a structure that moved.
   const match = matched(ir, recorded, boundary.functionId);
 
   if (!match.ok) {
@@ -277,7 +268,11 @@ export async function decideReplay(
     at: 'available',
     run,
     boundary,
-    boundaries: offered.filter((one) => one.nodeId === boundary.nodeId),
+    // A trigger records no row, so the start is the
+    // one point it offers.
+    boundaries: fromStart
+      ? [boundary]
+      : offered.filter((one) => one.nodeId === boundary.nodeId),
     reused: reusedBefore(ir, rows, boundary.functionId),
     willExecute: ahead.titles,
     decides: ahead.decides,
@@ -582,7 +577,60 @@ function primaryFor(stack: ReplayStack): ReplayActionOffer[] {
   return [{ at: 'replay', label: messages.replayDo() }];
 }
 
-function noDocument(name: string): ReplayDecision {
+/** A replay that is not on offer, and why. */
+export type ReplayRefusal = Extract<ReplayDecision, { at: 'unavailable' }>;
+
+/**
+ * Why no replay of a run of this workflow can be
+ * made, whichever point it starts from, before any
+ * of the run's rows is read.
+ *
+ * Nothing when nothing refuses it. The document,
+ * the lockfile and the SDK are all this asks. A
+ * fork at step 0 needs no row, so this is what the
+ * Inspector reads to say whether Replay from start
+ * is on offer, in the words the decision itself
+ * would refuse it in; the click still asks the
+ * rest, which is whether the code is current.
+ *
+ * No project is no document, because the document
+ * is the only thing a project is consulted for
+ * here.
+ */
+export function replayStartRefusal(
+  name: string,
+  project: string | undefined,
+  document: WorkflowIR | undefined,
+  projectSdk: (project: string) => ProjectSdk,
+): ReplayRefusal | undefined {
+  if (project === undefined || document === undefined) {
+    return noDocument(name);
+  }
+
+  const sdk = projectSdk(project);
+
+  if (!sdk.ok) {
+    return {
+      at: 'unavailable',
+      because: 'no-lockfile',
+      detail: messages.replayNoLockfile(),
+    };
+  }
+
+  const skew = sdkSkew(EXTENSION_SDK, sdk.version);
+  if (skew === 'ok') return undefined;
+
+  return {
+    at: 'unavailable',
+    because: skew === 'extension-newer' ? 'sdk-newer' : 'sdk-major',
+    detail:
+      skew === 'extension-newer'
+        ? messages.replaySdkNewer(EXTENSION_SDK, sdk.version)
+        : messages.replaySdkMajor(EXTENSION_SDK, sdk.version),
+  };
+}
+
+function noDocument(name: string): ReplayRefusal {
   return {
     at: 'unavailable',
     because: 'no-document',
@@ -598,9 +646,12 @@ function noDocument(name: string): ReplayDecision {
  * failed on, else its first — which core chose from
  * the rows on offer rather than from all of them. A
  * pick of nothing at all is the run's default: where
- * it failed, else where it began.
+ * it failed, else where it began. The start is step
+ * 0 at the trigger, whatever the rows say; a draft
+ * with no trigger has no start to name.
  */
 function boundaryFor(
+  ir: WorkflowIR,
   offered: readonly ReplayBoundary[],
   picked: ReplayPick | undefined,
   rows: readonly Step[],
@@ -611,6 +662,19 @@ function boundaryFor(
     return (
       offered.find((one) => one.functionId === failed?.functionId) ?? offered[0]
     );
+  }
+
+  if ('from' in picked) {
+    const trigger = ir.nodes.find((node) => node.kind === 'trigger');
+
+    return trigger === undefined
+      ? undefined
+      : {
+          functionId: 0,
+          nodeId: trigger.id,
+          label: trigger.title,
+          preferred: true,
+        };
   }
 
   return 'functionId' in picked

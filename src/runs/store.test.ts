@@ -1,10 +1,11 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
 import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
+import { WorkflowIRSchema } from '../core/rules.js';
 import { messages } from '../messages.js';
 import { makeProject, writeWorkflow } from '../test-support/project.js';
 import {
@@ -13,6 +14,7 @@ import {
   management,
   host,
   LEDGER_URL,
+  liveRun,
   project,
   runner,
   stack,
@@ -22,6 +24,7 @@ import {
 } from '../test-support/runs.js';
 
 import type { ReplayQuestion } from './replayZone.js';
+import type { ProjectSdk } from './sdk.js';
 import { sessionLog } from './sessionLog.js';
 import {
   runsStore,
@@ -965,5 +968,171 @@ describe('the way to the code a block runs', () => {
 
       expect(watched.shown).toEqual([]);
     });
+  });
+});
+
+/**
+ * The whole of what a run was started with.
+ *
+ * The Inspector's card shows only the front of a
+ * long input, and the run tab or the canvas behind
+ * it holds the run it was read from, so the store
+ * is the way to the rest. Untitled and unsaved: it
+ * is a copy of what the ledger recorded, with
+ * nowhere to be written back to.
+ */
+describe('the input a run was started with', () => {
+  function showing(ledger = database()) {
+    const shown: { content: string; language: string }[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          projects: () => [project()],
+          showText: async (content, language) =>
+            void shown.push({ content, language }),
+        }),
+        open: async () => ledger,
+      }),
+    );
+
+    return { store, shown };
+  }
+
+  it('opens the input the run tab’s run was started with', async () => {
+    const { store, shown } = showing();
+
+    await store.select('wf_c9d2f3');
+    await store.openInput('wf_c9d2f3');
+
+    expect(shown).toEqual([
+      { content: '{\n  "email": "ada@example.com"\n}', language: 'json' },
+    ]);
+  });
+
+  it('opens the input of the run a canvas is following', async () => {
+    const watch = watcher();
+    const shown: { content: string; language: string }[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          projects: () => [project()],
+          showText: async (content, language) =>
+            void shown.push({ content, language }),
+        }),
+        runner: echoing().start,
+        watch: watch.watch,
+      }),
+    );
+
+    await store.runWorkflow('groom_booking', '{}');
+    const workflowId = store.list().session[0]?.workflowId ?? '';
+    watch.say(
+      workflowId,
+      liveRun({
+        workflowId,
+        recordedInput: { shape: 'payload', value: { orderId: 'ord_123' } },
+      }),
+    );
+    await store.openInput(workflowId);
+
+    expect(store.live()?.workflowId).toBe(workflowId);
+    expect(shown).toEqual([
+      { content: '{\n  "orderId": "ord_123"\n}', language: 'json' },
+    ]);
+  });
+
+  it('opens nothing for a run that recorded no input', async () => {
+    const ledger = database();
+    ledger.rows = [{ ...RUN_ROW, inputs: null }];
+    const { store, shown } = showing(ledger);
+
+    await store.select('wf_c9d2f3');
+    await store.openInput('wf_c9d2f3');
+
+    expect(store.detail()?.run.workflowId).toBe('wf_c9d2f3');
+    expect(shown).toEqual([]);
+  });
+
+  it('opens nothing for a run it is not showing', async () => {
+    const { store, shown } = showing();
+
+    await store.select('wf_c9d2f3');
+    await store.openInput('wf_somebody_else');
+
+    expect(shown).toEqual([]);
+  });
+});
+
+/**
+ * Whether a replay from the start is on offer, said
+ * before anybody asks for one: the refusals that
+ * need no row, in the project the store reads runs
+ * from.
+ */
+describe('a replay from the start, before anybody asks', () => {
+  const saved = (dir: string, name: string) =>
+    WorkflowIRSchema.parse(
+      JSON.parse(
+        readFileSync(
+          join(dir, '.mboss', 'workflows', `${name}.workflow.json`),
+          'utf8',
+        ),
+      ),
+    );
+
+  it('says why the project refuses it, and nothing where it does not', () => {
+    const dir = project();
+    const document = saved(dir, 'groom_booking');
+    const refusing = (sdk: ProjectSdk) =>
+      runsStore(
+        deps({ host: host({ projects: () => [dir] }), projectSdk: () => sdk }),
+      ).replayStartRefusal('groom_booking', document);
+
+    expect(refusing({ ok: true, version: '5.1.0' })).toBe(
+      messages.replaySdkMajor('4.27.6', '5.1.0'),
+    );
+    expect(refusing({ ok: false, because: 'no-lockfile' })).toBe(
+      messages.replayNoLockfile(),
+    );
+    expect(refusing({ ok: true, version: '4.27.6' })).toBeUndefined();
+  });
+
+  it('says there is nothing to replay against without a document', () => {
+    const store = runsStore(deps());
+
+    expect(store.replayStartRefusal('groom_booking', undefined)).toBe(
+      messages.replayNoDocument('groom_booking'),
+    );
+  });
+});
+
+/** This window's own memory of having cancelled a
+ *  run, asked by run. */
+describe('a run this window cancelled', () => {
+  it('is remembered by id for as long as the window is open', async () => {
+    const PENDING = { ...RUN_ROW, status: 'PENDING', completed_at: null };
+    const ledger = database();
+    ledger.rows = [PENDING];
+
+    // A client whose cancel is what moves the row,
+    // the way the real one's statement is.
+    const store = runsStore(
+      deps({
+        open: async () => ledger,
+        openManagement: async () => ({
+          ...management(),
+          cancelWorkflow: async () => {
+            ledger.rows = [{ ...PENDING, status: 'CANCELLED' }];
+          },
+        }),
+      }),
+    );
+
+    expect(store.cancelledHere('wf_c9d2f3')).toBe(false);
+
+    await store.cancel('wf_c9d2f3');
+
+    expect(store.cancelledHere('wf_c9d2f3')).toBe(true);
+    expect(store.cancelledHere('wf_somebody_else')).toBe(false);
   });
 });

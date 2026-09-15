@@ -234,6 +234,9 @@ export function activate(context: ExtensionContext): void {
     preview,
     {
       detail: () => runs.detail(),
+      cancelledHere: (workflowId) => runs.cancelledHere(workflowId),
+      replayStartRefusal: (workflow, document) =>
+        runs.replayStartRefusal(workflow, document),
       inspected: () => runs.inspected(),
       // The project the store reads its runs from.
       project: () => runsEditor.projects()[0],
@@ -249,6 +252,9 @@ export function activate(context: ExtensionContext): void {
         runs.openErrorLocation(workflowId, functionId),
       openOutput: (workflowId, functionId) =>
         runs.openOutput(workflowId, functionId),
+      cancel: (workflowId) => runs.cancel(workflowId),
+      resume: (workflowId) => runs.resume(workflowId),
+      openInput: (workflowId) => runs.openInput(workflowId),
       onChanged: (listener) => runs.onChanged(listener),
     },
     trust,

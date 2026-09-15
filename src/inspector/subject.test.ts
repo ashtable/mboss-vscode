@@ -12,11 +12,17 @@ import {
   type WorkflowIR,
 } from '../core/rules.js';
 import { messages } from '../messages.js';
-import type { Run } from '../runs/rows.js';
+import type { Run, Step } from '../runs/rows.js';
 import type { SeeView } from '../runs/view.js';
 import { liveRun } from '../test-support/runs.js';
+import { shortRunId } from '../webview/ids.js';
+import { fine } from '../webview/time.js';
 
-import { inspectorInit, type RunDocument } from './subject.js';
+import {
+  inspectorInit,
+  type RunDocument,
+  type StartRefusal,
+} from './subject.js';
 
 /**
  * What the Inspector draws, worked out from what
@@ -41,6 +47,13 @@ const ir = WorkflowIRSchema.parse(
     ),
   ),
 );
+
+/** A clock the specs hold still. */
+const NOW = 50_000;
+
+/** Whether a replay from the start is on offer:
+ *  it is, unless a case says otherwise. */
+const OFFERED: StartRefusal = () => undefined;
 
 /** A canvas on groom_booking, as its session
  *  answers. */
@@ -71,7 +84,10 @@ describe('what the Inspector is about', () => {
   });
 
   it('names the file of a canvas with nothing selected', () => {
-    expect(inspectorInit({ at: 'canvas', canvas: canvas() }).subject).toEqual({
+    expect(
+      inspectorInit({ at: 'canvas', startRefusal: OFFERED, canvas: canvas() })
+        .subject,
+    ).toEqual({
       at: 'none',
       file: 'groom_booking.workflow.json',
     });
@@ -84,6 +100,8 @@ describe('what the Inspector is about', () => {
         reading: undefined,
         inspected: undefined,
         document: undefined,
+        now: NOW,
+        startRefusal: OFFERED,
       }).subject,
     ).toEqual({ at: 'none', file: undefined });
   });
@@ -104,6 +122,7 @@ describe('a block selected on a canvas', () => {
     expect(
       inspectorInit({
         at: 'canvas',
+        startRefusal: OFFERED,
         canvas: canvas({
           selected: 'find_slot',
           manifest,
@@ -140,6 +159,7 @@ describe('a block selected on a canvas', () => {
     expect(
       inspectorInit({
         at: 'canvas',
+        startRefusal: OFFERED,
         canvas: canvas({ selected: 'find_slot', mode: 'evidence', run }),
       }).subject,
     ).toMatchObject({ at: 'block', block: { face: 'evidence', run } });
@@ -154,33 +174,17 @@ describe('a block selected on a canvas', () => {
     expect(
       inspectorInit({
         at: 'canvas',
+        startRefusal: OFFERED,
         canvas: canvas({ selected: 'find_slot', revision: undefined }),
       }).subject,
     ).toMatchObject({ at: 'block', block: { revision: undefined } });
-  });
-
-  /**
-   * What a run did as a whole is not a block, and
-   * the pane has nothing of its own to say about it
-   * yet, so it waits on the file like any canvas
-   * with nothing picked.
-   */
-  it('waits on the file while a followed run has nothing selected', () => {
-    expect(
-      inspectorInit({
-        at: 'canvas',
-        canvas: canvas({
-          mode: 'evidence',
-          run: liveRun({ workflow: 'groom_booking' }),
-        }),
-      }).subject,
-    ).toEqual({ at: 'none', file: 'groom_booking.workflow.json' });
   });
 
   it('is about nothing but the file where the document does not read', () => {
     expect(
       inspectorInit({
         at: 'canvas',
+        startRefusal: OFFERED,
         canvas: canvas({
           read: { ok: false, detail: 'Unexpected token' },
           revision: undefined,
@@ -257,8 +261,14 @@ describe('a block picked on the run tab', () => {
 
   /** What the pane is about, with that in front. */
   function subject(tab: SeeView, document: RunDocument = buffer()) {
-    return inspectorInit({ at: 'run', reading: tab, inspected, document })
-      .subject;
+    return inspectorInit({
+      at: 'run',
+      reading: tab,
+      inspected,
+      document,
+      now: NOW,
+      startRefusal: OFFERED,
+    }).subject;
   }
 
   it('is that block, drawn from the document and the run', () => {
@@ -407,10 +417,452 @@ describe('a block picked on the run tab', () => {
     });
   });
 
-  it('is about nothing while no block is picked', () => {
-    expect(subject(reading({ selectedNode: undefined }))).toEqual({
-      at: 'none',
-      file: undefined,
+  it('is about the whole run while no block is picked', () => {
+    expect(subject(reading({ selectedNode: undefined }))).toMatchObject({
+      at: 'run',
+      run: { source: 'run', workflowId: 'wf_1' },
+    });
+  });
+});
+
+/**
+ * A whole run, when one is in front and nothing of
+ * it is picked.
+ *
+ * The run tab has read the ledger for the run, so
+ * it can say what a recovery cost, where the run
+ * was replayed from and to, and what the last
+ * replay did. A canvas follows a run tick by tick
+ * and has read none of that, so its card says
+ * nothing about any of it rather than something
+ * made up.
+ */
+describe('a run with nothing picked', () => {
+  const ID = '7089cd29-881b-4319-a16d-1af70cc1e9a7';
+
+  const RUN: Run = {
+    workflowId: ID,
+    name: 'groom_booking',
+    status: 'SUCCESS',
+    recoveryAttempts: 1,
+    executorId: 'local-dev',
+    applicationVersion: '1',
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: 2600,
+    error: undefined,
+    forkedFrom: undefined,
+    wasForkedFrom: false,
+  };
+
+  function step(functionId: number, from: number, to: number): Step {
+    return {
+      functionId,
+      name: `step_${String(functionId)}`,
+      startedAt: from,
+      completedAt: to,
+      output: '{}',
+      error: undefined,
+      childWorkflowId: undefined,
+    };
+  }
+
+  /** The run tab over that run, nothing picked. */
+  function onRunTab(
+    over: Partial<SeeView> = {},
+    startRefusal: StartRefusal = OFFERED,
+  ) {
+    return inspectorInit({
+      at: 'run',
+      reading: {
+        run: RUN,
+        steps: [],
+        selectedStep: undefined,
+        note: undefined,
+        ir,
+        ...over,
+      },
+      inspected: undefined,
+      document: undefined,
+      now: NOW,
+      startRefusal,
+    }).subject;
+  }
+
+  /** The card's run, from a subject known to be
+   *  about one. */
+  function runOf(subject: ReturnType<typeof onRunTab>) {
+    if (subject.at !== 'run') throw new Error(`about ${subject.at}`);
+
+    return subject.run;
+  }
+
+  describe('on the run tab', () => {
+    it('is the run the tab is showing, as the card says it', () => {
+      expect(onRunTab()).toEqual({
+        at: 'run',
+        run: {
+          source: 'run',
+          workflowId: ID,
+          short: '#7089',
+          workflow: 'groom_booking',
+          state: 'done',
+          line: 'done · 1.6 s',
+          input: undefined,
+          ledger: [
+            { label: 'workflow_uuid', value: ID },
+            { label: 'status', value: 'SUCCESS' },
+            { label: 'recovery_attempts', value: '1' },
+            { label: 'executor_id', value: 'local-dev' },
+            { label: 'application_version', value: '1' },
+          ],
+          recovery: undefined,
+          lineage: [],
+          controls: {
+            cancel: false,
+            resume: false,
+            cancelledAt: undefined,
+            gaveUp: false,
+          },
+          replayStart: true,
+          replayRefused: undefined,
+          note: undefined,
+        },
+      });
+      expect(shortRunId(ID)).toBe('#7089');
+    });
+
+    it('leaves the version out of the ledger where DBOS kept none', () => {
+      const run = runOf(
+        onRunTab({ run: { ...RUN, applicationVersion: undefined } }),
+      );
+
+      expect(run.ledger.map((row) => row.label)).toEqual([
+        'workflow_uuid',
+        'status',
+        'recovery_attempts',
+        'executor_id',
+      ]);
+    });
+
+    /**
+     * The one argument a generated workflow takes,
+     * not the argument array DBOS stores it in; whole
+     * where it is short, and something to open where
+     * it is not.
+     */
+    it('draws a short input inline and a long one as something to open', () => {
+      const input = (value: Run['input']) =>
+        runOf(onRunTab({ run: { ...RUN, input: value } })).input;
+      const long = { note: 'x'.repeat(107) };
+
+      expect(input({ shape: 'payload', value: { a: '012345678' } })).toEqual({
+        kind: 'inline',
+        text: '{ "a": "012345678" }',
+      });
+      expect(input({ shape: 'payload', value: long })).toEqual({
+        kind: 'artifact',
+        preview: `{ "note": "${'x'.repeat(107)}" }`,
+        size: '118 B',
+      });
+      expect(`{ "note": "${'x'.repeat(107)}" }`).toHaveLength(121);
+      expect(
+        input({ shape: 'payload', value: { note: 'x'.repeat(106) } }),
+      ).toEqual({ kind: 'inline', text: `{ "note": "${'x'.repeat(106)}" }` });
+      expect(input({ shape: 'raw', text: 'not json' })).toEqual({
+        kind: 'inline',
+        text: 'not json',
+      });
+      expect(input({ shape: 'none' })).toBeUndefined();
+    });
+
+    /**
+     * Every sentence about a recovery is worked out
+     * from the rows rather than read off one, and
+     * each says so.
+     */
+    it('says what a recovery cost, each sentence marked derived', () => {
+      const recovered = { ...RUN, recoveryAttempts: 2, createdAt: 0 };
+      const placed = runOf(
+        onRunTab({
+          run: { ...recovered, completedAt: 10_000 },
+          steps: [step(0, 0, 1000), step(1, 1000, 2000), step(2, 8000, 9000)],
+        }),
+      );
+      const unplaced = runOf(
+        onRunTab({
+          run: { ...recovered, completedAt: 2000 },
+          steps: [step(0, 0, 1000), step(1, 1000, 2000)],
+        }),
+      );
+
+      expect(placed.recovery).toEqual(
+        [
+          messages.runRecoveredHeading(),
+          messages.runRecoveredBody(),
+          messages.runRecoveredDown('6.0 s'),
+          messages.runRecoveredReused(2),
+        ].map((said) => `${said} · derived`),
+      );
+      expect(unplaced.recovery).toEqual(
+        [messages.runRecoveredHeading(), messages.runRecoveredUnplaced()].map(
+          (said) => `${said} · derived`,
+        ),
+      );
+      expect(runOf(onRunTab()).recovery).toBeUndefined();
+    });
+
+    /** Dead-lettering writes no error row, so how many
+     *  times DBOS restarted it is what there is to say. */
+    it('says how many restarts DBOS gave up after', () => {
+      const run = runOf(
+        onRunTab({
+          run: {
+            ...RUN,
+            status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED',
+            recoveryAttempts: 4,
+          },
+        }),
+      );
+
+      expect(run.recovery).toEqual([
+        'DBOS stopped restarting it after 3 restarts · derived',
+      ]);
+      expect(run.controls.gaveUp).toBe(true);
+      expect(run.line).toBe('gave up · 1.6 s');
+    });
+
+    it('names the run it was replayed from, then each replay of it', () => {
+      const run = runOf(
+        onRunTab({
+          lineage: {
+            parent: {
+              run: { ...RUN, workflowId: 'wf_parent' },
+              startStep: 3,
+              boundary: 'Find a slot',
+            },
+            forks: [
+              {
+                run: { ...RUN, workflowId: 'wf_fork1' },
+                startStep: 2,
+                boundary: undefined,
+              },
+              {
+                run: { ...RUN, workflowId: 'wf_fork2', status: 'ERROR' },
+                startStep: 4,
+                boundary: 'Book it',
+              },
+            ],
+          },
+        }),
+      );
+
+      expect(run.lineage).toEqual([
+        {
+          direction: 'of',
+          workflowId: 'wf_parent',
+          short: shortRunId('wf_parent'),
+          startStep: 3,
+        },
+        {
+          direction: 'to',
+          workflowId: 'wf_fork1',
+          short: shortRunId('wf_fork1'),
+          startStep: 2,
+          word: 'done',
+        },
+        {
+          direction: 'to',
+          workflowId: 'wf_fork2',
+          short: shortRunId('wf_fork2'),
+          startStep: 4,
+          word: 'failed',
+        },
+      ]);
+      expect(
+        runOf(onRunTab({ lineage: { parent: undefined, forks: [] } })).lineage,
+      ).toEqual([]);
+    });
+
+    it('offers Cancel while it is going, and Resume once it stopped', () => {
+      const going = runOf(
+        onRunTab({
+          run: { ...RUN, status: 'PENDING', completedAt: undefined },
+        }),
+      );
+      const stopped = runOf(
+        onRunTab({
+          run: { ...RUN, status: 'CANCELLED' },
+          cancelledHere: true,
+        }),
+      );
+
+      expect(going.controls).toEqual({
+        cancel: true,
+        resume: false,
+        cancelledAt: undefined,
+        gaveUp: false,
+      });
+      expect(stopped.controls).toEqual({
+        cancel: false,
+        resume: true,
+        cancelledAt: messages.runCancelledByYou(fine(2600)),
+        gaveUp: false,
+      });
+    });
+
+    it('offers a replay from the start, or says why not', () => {
+      const asked: unknown[][] = [];
+      const skewed = messages.replaySdkMajor('4.27.6', '5.1.0');
+      const refused = runOf(
+        onRunTab({}, (...question) => {
+          asked.push(question);
+
+          return skewed;
+        }),
+      );
+
+      expect(refused).toMatchObject({
+        replayStart: false,
+        replayRefused: skewed,
+      });
+      expect(asked).toEqual([['groom_booking', ir]]);
+      expect(runOf(onRunTab())).toMatchObject({
+        replayStart: true,
+        replayRefused: undefined,
+      });
+    });
+
+    it('says what the last replay did', () => {
+      const said = messages.replayRefused('no such run');
+
+      expect(runOf(onRunTab({ note: said })).note).toBe(said);
+    });
+  });
+
+  describe('followed on a canvas', () => {
+    /** The canvas in front, following a run, with
+     *  nothing selected. */
+    function onCanvas(
+      over: Parameters<typeof liveRun>[0] = {},
+      startRefusal: StartRefusal = OFFERED,
+    ) {
+      return inspectorInit({
+        at: 'canvas',
+        startRefusal,
+        canvas: canvas({
+          mode: 'evidence',
+          run: liveRun({ workflowId: ID, workflow: 'groom_booking', ...over }),
+        }),
+      }).subject;
+    }
+
+    it('says nothing of what only the run tab reads, recovered or not', () => {
+      expect(
+        onCanvas({
+          status: 'SUCCESS',
+          outcome: 'done',
+          recovered: true,
+          recoveryAttempts: 2,
+          applicationVersion: '1',
+          completedAt: 2600,
+          recordedInput: { shape: 'payload', value: { orderId: 'ord_123' } },
+        }),
+      ).toEqual({
+        at: 'run',
+        run: {
+          source: 'canvas',
+          workflowId: ID,
+          short: '#7089',
+          workflow: 'groom_booking',
+          state: 'done',
+          line: 'done · 1.6 s · ↻ recovered',
+          input: { kind: 'inline', text: '{ "orderId": "ord_123" }' },
+          ledger: [
+            { label: 'workflow_uuid', value: ID },
+            { label: 'status', value: 'SUCCESS' },
+            { label: 'recovery_attempts', value: '2' },
+            { label: 'executor_id', value: 'local-dev' },
+            { label: 'application_version', value: '1' },
+          ],
+          recovery: undefined,
+          lineage: [],
+          controls: {
+            cancel: false,
+            resume: false,
+            cancelledAt: undefined,
+            gaveUp: false,
+          },
+          replayStart: true,
+          replayRefused: undefined,
+          note: undefined,
+        },
+      });
+    });
+
+    it('offers Cancel while it is going, and Resume once it stopped', () => {
+      const going = runOf(onCanvas({ status: 'PENDING' }));
+      const stopped = runOf(
+        onCanvas({
+          status: 'CANCELLED',
+          outcome: 'cancelled',
+          completedAt: 2600,
+        }),
+      );
+
+      expect(going.controls.cancel).toBe(true);
+      expect(stopped.controls).toEqual({
+        cancel: false,
+        resume: true,
+        cancelledAt: fine(2600),
+        gaveUp: false,
+      });
+    });
+
+    it('refuses a replay from the start where the SDK is skewed', () => {
+      const asked: unknown[][] = [];
+      const skewed = messages.replaySdkMajor('4.27.6', '5.1.0');
+
+      expect(
+        onCanvas({}, (...question) => {
+          asked.push(question);
+
+          return skewed;
+        }),
+      ).toMatchObject({
+        at: 'run',
+        run: { replayStart: false, replayRefused: skewed },
+      });
+      expect(asked).toEqual([['groom_booking', ir]]);
+    });
+
+    /**
+     * A watch that let go says `quiet`, which is the
+     * watch's word rather than the run's. It lets go
+     * only of a run still moving — a parked one stops
+     * it at `waiting` — so the status it last read
+     * still says which word that was.
+     */
+    it('says the run’s own word once its watch has let go', () => {
+      expect(
+        onCanvas({ status: 'PENDING', recoveryAttempts: 2, outcome: 'quiet' }),
+      ).toMatchObject({
+        at: 'run',
+        run: { state: 'recovering', line: 'recovering' },
+      });
+    });
+
+    it('is about the block, not the run, once one is selected', () => {
+      expect(
+        inspectorInit({
+          at: 'canvas',
+          startRefusal: OFFERED,
+          canvas: canvas({
+            selected: 'find_slot',
+            run: liveRun({ workflow: 'groom_booking' }),
+          }),
+        }).subject,
+      ).toMatchObject({ at: 'block' });
     });
   });
 });
