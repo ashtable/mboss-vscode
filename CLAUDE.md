@@ -292,7 +292,9 @@ none of that.
   drawn in the Inspector pane (`src/inspector/`): `subject.ts` builds a
   `BlockSubject` from `session.subjectInputs()`, and `InspectorView`
   routes what the pane says — a face, an edit, the ways into a block's code
-  — to the canvas in focus, and everything about a run to the runs store.
+  — by the `about` every one of those carries (the surface a block was
+  picked on, its document and its id) rather than by whatever is in front
+  when it arrives, and everything about a run to the runs store.
   A block picked on the run tab is drawn from the document as it is being
   worked on (the canvas open on it, else the editor's buffer), never the
   copy the run page read off disk; an edit to it goes through the canvas on

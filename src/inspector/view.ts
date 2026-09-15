@@ -155,6 +155,16 @@ export type InspectorHost = {
   unsaved(path: string): boolean;
 };
 
+/** The document a run the tab is showing was a run
+ *  of, the run's id, and the canvas open on it if
+ *  one is. */
+type RunTabDocument = {
+  project: string;
+  path: string;
+  workflowId: string;
+  canvas: CanvasSession | undefined;
+};
+
 /** What a block picked on a surface can ask about
  *  that block. */
 type AboutBlock = Extract<
@@ -190,12 +200,17 @@ type AboutBlock = Extract<
  * change the pane does not show.
  *
  * What the pane says goes where the thing it is
- * about lives: a face, an edit and the ways into a
- * block's code go to the canvas in front, or for
- * the run tab to the runs store and, for an edit,
- * to the canvas open on the run's document — one
- * opened beside the run tab when there is none, so
- * the edit lands the way every other edit does.
+ * about lives, and each message about a block says
+ * which block that is: a face, an edit and the ways
+ * into a block's code go to the canvas the block
+ * was picked on, or for the run tab to the runs
+ * store and, for an edit, to the canvas open on the
+ * run's document — one opened beside the run tab
+ * when there is none, so the edit lands the way
+ * every other edit does. Not to whatever is in
+ * front when the message arrives: a field commits
+ * as focus leaves the pane, and the same click can
+ * bring another surface forward first.
  *
  * And it puts itself in front of somebody when a
  * selection lands on a block, or the run tab shows
@@ -482,23 +497,39 @@ export class InspectorView implements WebviewViewProvider {
    * is. Nothing while the run tab is not in front or
    * has no block picked.
    */
-  private runDocument():
-    | { project: string; path: string; canvas: CanvasSession | undefined }
-    | undefined {
+  private runDocument(): RunTabDocument | undefined {
+    const reading = this.runs.detail();
+
+    return this.focus.holder()?.at === 'run' &&
+      reading?.selectedNode !== undefined
+      ? this.runTabDocument()
+      : undefined;
+  }
+
+  /**
+   * The same, whatever is in front and whatever is
+   * picked: the document the run the tab is showing
+   * was a run of.
+   *
+   * What a message from the pane is about is the
+   * host's answer rather than the frame's, so a path
+   * a message names is compared with this and never
+   * followed.
+   */
+  private runTabDocument(): RunTabDocument | undefined {
     const reading = this.runs.detail();
     const project = this.runs.project();
 
-    if (
-      this.focus.holder()?.at !== 'run' ||
-      reading?.selectedNode === undefined ||
-      project === undefined
-    ) {
-      return undefined;
-    }
+    if (reading === undefined || project === undefined) return undefined;
 
     const path = workflowDocument(project, reading.run.name);
 
-    return { project, path, canvas: this.sessions.forPath(path) };
+    return {
+      project,
+      path,
+      workflowId: reading.run.workflowId,
+      canvas: this.sessions.forPath(path),
+    };
   }
 
   /** What the project's code-behind offers, where it
@@ -592,17 +623,25 @@ export class InspectorView implements WebviewViewProvider {
         return;
     }
 
-    // The rest is about the block, and a block is on
-    // the surface it was picked on. With nothing in
-    // front there is no block, and no revision an
-    // edit could have been made against.
-    const holder = this.focus.holder();
+    // The rest is about a block, and each of those
+    // says which: the surface it was picked on and
+    // the document it is in. Sent there rather than
+    // to whatever is in front now — a field commits
+    // as focus leaves the pane, and the click that
+    // took focus can bring another surface forward
+    // first.
+    if (message.about.source === 'canvas') {
+      const canvas = this.sessions.forPath(message.about.path);
 
-    if (holder?.at === 'canvas') {
-      this.heardOnCanvas(holder.session, message, repaint);
+      // A document nobody has open any more: its
+      // session went with its tab, and there is
+      // nothing left to edit through.
+      if (canvas !== undefined) this.heardOnCanvas(canvas, message, repaint);
+
+      return;
     }
 
-    if (holder?.at === 'run') this.heardOnRunTab(message);
+    this.heardOnRunTab(message);
   }
 
   private heardOnCanvas(
@@ -648,12 +687,16 @@ export class InspectorView implements WebviewViewProvider {
    * addressed by the run the tab is showing — and a
    * face picked there is a change to the store,
    * which draws the pane again by itself.
+   *
+   * Nothing where the tab has moved on to a run of
+   * another workflow: the rows the message was made
+   * against are not the rows the store holds now.
    */
   private heardOnRunTab(message: AboutBlock): void {
-    const reading = this.runs.detail();
-    if (reading === undefined) return;
+    const found = this.runTabDocument();
+    if (found === undefined || found.path !== message.about.path) return;
 
-    const workflowId = reading.run.workflowId;
+    const { workflowId } = found;
 
     switch (message.type) {
       case 'inspectorMode':
@@ -663,7 +706,7 @@ export class InspectorView implements WebviewViewProvider {
 
       case 'edit':
       case 'assign':
-        void this.editFromRunTab(reading.selectedNode, message);
+        void this.editFromRunTab(found, message);
 
         return;
 
@@ -693,17 +736,16 @@ export class InspectorView implements WebviewViewProvider {
    * the questions an edit can ask and the write all
    * live. With none open, one is opened beside the
    * run tab without taking focus from it, and the
-   * edit waits for it to register. The block is
-   * selected on it first, so the canvas shows the
-   * block the edit lands on.
+   * edit waits for it to register. The block the
+   * edit was made about is selected on it first, so
+   * the canvas shows the block the edit lands on,
+   * and the registry is told: an edit that writes
+   * nothing draws no board by itself.
    */
   private async editFromRunTab(
-    nodeId: string | undefined,
+    found: RunTabDocument,
     message: Extract<AboutBlock, { type: 'edit' | 'assign' }>,
   ): Promise<void> {
-    const found = this.runDocument();
-    if (found === undefined || nodeId === undefined) return;
-
     let canvas = found.canvas;
 
     if (canvas === undefined) {
@@ -714,7 +756,8 @@ export class InspectorView implements WebviewViewProvider {
       canvas = await this.sessions.whenOpen(found.path);
     }
 
-    canvas.select(nodeId);
+    canvas.select(message.about.nodeId);
+    this.sessions.fire(canvas);
     await canvas.edit(message);
   }
 

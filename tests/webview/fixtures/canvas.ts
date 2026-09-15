@@ -179,6 +179,7 @@ export function blockSubject(
   return {
     source: 'canvas',
     file: `${document.name}.workflow.json`,
+    path: `/work/project/.mboss/workflows/${document.name}.workflow.json`,
     workflow: document.name,
     ir: { ...document, nodes },
     revision: document.revision,

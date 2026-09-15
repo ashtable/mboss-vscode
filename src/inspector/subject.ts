@@ -333,6 +333,7 @@ function blockOnCanvas(
   return {
     source: 'canvas',
     file: canvas.file,
+    path: canvas.path,
     workflow: canvas.workflow,
     ir: canvas.read.ir,
     revision: canvas.revision,
@@ -414,6 +415,7 @@ function blockOnRunTab(
     block: {
       source: 'run',
       file: drawn.file,
+      path,
       workflow: reading.run.name,
       ir: drawn.ir,
       revision: proposedBy === undefined ? drawn.revision : undefined,

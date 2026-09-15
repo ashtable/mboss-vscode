@@ -53,8 +53,8 @@ export type CanvasSessions = {
   whenOpen(path: string): Promise<CanvasSession>;
 
   /**
-   * Hears which canvas moved: a selection, a face
-   * picked, a re-read, a run it follows, a scan.
+   * Hears which canvas moved: a selection, a re-read,
+   * a run it follows, a scan.
    *
    * The canvas travels with the signal, so a
    * follower drawing one canvas can tell its own

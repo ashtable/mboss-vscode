@@ -10,7 +10,11 @@ import type {
 import type { StepError } from '../runs/rows.js';
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
-import type { InspectorStrings, ShownRun } from '../webview/protocol.js';
+import type {
+  BlockAbout,
+  InspectorStrings,
+  ShownRun,
+} from '../webview/protocol.js';
 import { Button } from '../webview/signal/Button.js';
 import { Callout } from '../webview/signal/Callout.js';
 import { FieldHint } from '../webview/signal/FieldHint.js';
@@ -171,6 +175,7 @@ export function evidenceStatus({
 
 export function EvidenceFace({
   strings,
+  about,
   run,
   block,
   found,
@@ -179,6 +184,10 @@ export function EvidenceFace({
   onShowRun,
 }: {
   strings: InspectorStrings;
+
+  /** The block every way on from this face names,
+   *  so each lands where the block is. */
+  about: BlockAbout;
 
   /** The run the block's surface is drawing itself
    *  against, which is the only run this face
@@ -326,6 +335,7 @@ export function EvidenceFace({
                 type: 'openOutput',
                 workflowId: run.workflowId,
                 functionId: row.functionId,
+                about,
               })
             }
             openHook={{ 'evidence-action': 'openOutput' }}
@@ -340,6 +350,7 @@ export function EvidenceFace({
       {row === undefined ? null : (
         <Actions
           strings={strings}
+          about={about}
           run={run}
           block={block}
           row={row}
@@ -623,12 +634,14 @@ function Policy({
  */
 function Actions({
   strings,
+  about,
   run,
   block,
   row,
   picked,
 }: {
   strings: InspectorStrings;
+  about: BlockAbout;
   run: ShownRun;
   block: EvidenceBlock;
   row: EvidenceRow;
@@ -651,7 +664,7 @@ function Actions({
           <Button
             {...open}
             onClick={() =>
-              postToHost({ type: 'openFunction', nodeId: block.id })
+              postToHost({ type: 'openFunction', nodeId: block.id, about })
             }
             hook={{ 'evidence-action': 'openFunction' }}
           >
@@ -686,6 +699,7 @@ function Actions({
                 type: 'openErrorLocation',
                 nodeId: block.id,
                 functionId: row.functionId,
+                about,
               })
             }
             hook={{ 'evidence-action': 'openErrorLocation' }}

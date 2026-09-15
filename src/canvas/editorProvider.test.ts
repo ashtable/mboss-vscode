@@ -1003,12 +1003,22 @@ describe('selecting a node', () => {
   });
 });
 
-describe('an edit from the Inspector column', () => {
+describe('an edit from the Inspector', () => {
+  /** The block the pane says its edits are about:
+   *  this canvas's document, and the block picked on
+   *  it. */
+  const INSPECTING = {
+    source: 'canvas' as const,
+    path: GROOM_BOOKING,
+    nodeId: 'find_slot',
+  };
+
   it('refuses a node the schema would not accept', async () => {
     await canvasOn().edit({
       type: 'edit',
       baseRevision: ir.revision,
       node: { id: 'find_slot', kind: 'step', title: 'x', config: null },
+      about: INSPECTING,
     });
 
     expect(recorded.written).toHaveLength(0);
@@ -1034,6 +1044,7 @@ describe('an edit from the Inspector column', () => {
         config: {},
         retry: { maxAttempts: 0 },
       },
+      about: INSPECTING,
     });
 
     expect(recorded.written).toHaveLength(0);

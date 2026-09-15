@@ -100,6 +100,7 @@ function Block({
     <Inspector
       strings={strings}
       source={block.source}
+      path={block.path}
       workflow={block.workflow}
       nodeId={block.nodeId}
       selected={node === undefined ? undefined : { ir: block.ir, node }}

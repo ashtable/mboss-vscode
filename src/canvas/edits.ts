@@ -54,6 +54,7 @@ export type EditMessage = Extract<WebviewMessage, { type: Gesture['type'] }>;
 
 /**
  * A gesture, with the revision it was made against
+ * and the block the Inspector says it is about both
  * left to the session.
  *
  * Derived from the message schema rather than
@@ -61,6 +62,8 @@ export type EditMessage = Extract<WebviewMessage, { type: Gesture['type'] }>;
  * sends is a field this module sees — and a message
  * is one of these already, since the only
  * difference is a field the rule does not read.
+ * Those two it does not: one is the gate, the other
+ * says which surface the gesture is on its way to.
  */
 export type Gesture =
   | Sent<'connect'>
@@ -73,7 +76,7 @@ export type Gesture =
 
 type Sent<T extends string> = Omit<
   Extract<WebviewMessage, { type: T }>,
-  'baseRevision'
+  'baseRevision' | 'about'
 >;
 
 /** The block a wire leaves, and the way out it

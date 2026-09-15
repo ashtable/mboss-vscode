@@ -110,6 +110,15 @@ function session(
   return { canvas, inputs, did };
 }
 
+/**
+ * How the pane names the block a message is about:
+ * the surface it was picked on, the document it is
+ * in and its id.
+ */
+function blockOn(source: 'canvas' | 'run', path: string, nodeId = 'find_slot') {
+  return { source, path, nodeId };
+}
+
 /** The run tab showing a run of groom_booking, read
  *  off disk, with whatever is picked on it. */
 function seeView(over: Partial<SeeView> = {}): SeeView {
@@ -390,7 +399,8 @@ describe('the Inspector view', () => {
 });
 
 describe('what a canvas subject says, and where it goes', () => {
-  /** The pane mounted about one canvas in front. */
+  /** The pane mounted about one canvas in front, as
+   *  a canvas registers and then takes focus. */
   function about() {
     const pane = mounted();
     const canvas = session('groom_booking.workflow.json', {
@@ -399,15 +409,18 @@ describe('what a canvas subject says, and where it goes', () => {
       run: liveRun({ workflow: 'groom_booking' }),
     });
 
+    pane.sessions.register(canvas.inputs.path, canvas.canvas, {
+      active: true,
+    });
     pane.focus.report({ at: 'canvas', session: canvas.canvas });
 
-    return { ...pane, canvas };
+    return { ...pane, canvas, block: blockOn('canvas', canvas.inputs.path) };
   }
 
   it('picks the face on the canvas it came from, and draws it', () => {
-    const { frame, canvas, subjects } = about();
+    const { frame, canvas, subjects, block } = about();
 
-    frame.send({ type: 'inspectorMode', mode: 'configure' });
+    frame.send({ type: 'inspectorMode', mode: 'configure', about: block });
 
     expect(canvas.did).toEqual([['chooseMode', 'configure']]);
     expect(subjects().at(-1)).toMatchObject({
@@ -417,56 +430,111 @@ describe('what a canvas subject says, and where it goes', () => {
   });
 
   it('edits through that canvas', () => {
-    const { frame, canvas } = about();
+    const { frame, canvas, block } = about();
     const node = { id: 'find_slot', title: 'Find a slot' };
-
-    frame.send({ type: 'edit', view: 'inspector', baseRevision: 3, node });
-    frame.send({
+    const edit = { type: 'edit', baseRevision: 3, node, about: block };
+    const assign = {
       type: 'assign',
-      view: 'inspector',
       baseRevision: 3,
       nodeId: 'find_slot',
       export: 'findSlot',
-    });
+      about: block,
+    };
+
+    frame.send({ ...edit, view: 'inspector' });
+    frame.send({ ...assign, view: 'inspector' });
 
     expect(canvas.did).toEqual([
-      ['edit', { type: 'edit', baseRevision: 3, node }],
-      [
-        'edit',
-        {
-          type: 'assign',
-          baseRevision: 3,
-          nodeId: 'find_slot',
-          export: 'findSlot',
-        },
-      ],
+      ['edit', edit],
+      ['edit', assign],
     ]);
   });
 
-  it('opens the block’s function through that canvas', () => {
+  /**
+   * A field commits as focus leaves the pane, and
+   * the click that took focus can bring another
+   * canvas forward by a shorter path than the commit
+   * takes. What was typed belongs to the document it
+   * was typed against, and to no other: the canvas
+   * that came forward is left alone, whatever its
+   * blocks are called and whatever revision it is
+   * at.
+   */
+  it('edits the canvas a message was made on, whichever came forward since', () => {
+    const pane = about();
+    const other = session('refund_approval.workflow.json', {
+      selected: 'find_slot',
+    });
+
+    pane.sessions.register(other.inputs.path, other.canvas, { active: true });
+    pane.focus.report({ at: 'canvas', session: other.canvas });
+
+    const node = { id: 'find_slot', title: 'typed on the first canvas' };
+    const edit = { type: 'edit', baseRevision: 3, node, about: pane.block };
+
+    pane.frame.send({ ...edit, view: 'inspector' });
+    pane.frame.send({
+      type: 'inspectorMode',
+      mode: 'configure',
+      about: pane.block,
+    });
+
+    expect(other.did).toEqual([]);
+    expect(pane.canvas.did).toEqual([
+      ['edit', edit],
+      ['chooseMode', 'configure'],
+    ]);
+  });
+
+  /** A canvas nobody has open can be edited by
+   *  nobody: its session went with its tab. */
+  it('drops a message about a document no canvas has open', () => {
     const { frame, canvas } = about();
 
-    frame.send({ type: 'openFunction', nodeId: 'find_slot' });
+    frame.send({
+      type: 'edit',
+      view: 'inspector',
+      baseRevision: 3,
+      node: { id: 'find_slot' },
+      about: blockOn(
+        'canvas',
+        '/work/grooming/.mboss/workflows/closed.workflow.json',
+      ),
+    });
+
+    expect(canvas.did).toEqual([]);
+  });
+
+  it('opens the block’s function through that canvas', () => {
+    const { frame, canvas, block } = about();
+
+    frame.send({ type: 'openFunction', nodeId: 'find_slot', about: block });
 
     expect(canvas.did).toEqual([['openFunction', 'find_slot']]);
   });
 
   it('opens the line a failure came from through that canvas', () => {
-    const { frame, canvas } = about();
+    const { frame, canvas, block } = about();
 
     frame.send({
       type: 'openErrorLocation',
       nodeId: 'find_slot',
       functionId: 3,
+      about: block,
     });
 
     expect(canvas.did).toEqual([['openErrorLocation', 'find_slot', 3]]);
   });
 
   it('opens a recorded output through that canvas', () => {
-    const { frame, canvas } = about();
+    const { frame, canvas, block } = about();
 
-    frame.send({ type: 'openOutput', workflowId: 'wf_1', functionId: 3 });
+    frame.send({
+      type: 'openOutput',
+      workflowId: 'wf_1',
+      functionId: 3,
+      about: block,
+    });
 
     expect(canvas.did).toEqual([['openOutput', 'wf_1', 3]]);
   });
@@ -561,19 +629,24 @@ describe('what a canvas subject says, and where it goes', () => {
     expect(asked).toEqual([['openRun', 'wf_1']]);
   });
 
-  /** An edit is made against one canvas's revision,
-   *  and once the run tab is in front, this canvas is
-   *  not what the pane is about. */
-  it('leaves the canvas alone once the run tab is in front', () => {
-    const { frame, focus, canvas } = about();
+  /** An edit made about a block picked on the run
+   *  tab is the run's document's, even where this
+   *  canvas has a block of the same id. */
+  it('leaves the canvas alone for a block picked on the run tab', () => {
+    const { frame, focus, canvas, tab } = about();
 
+    tab.reading = seeView({ selectedNode: 'find_slot' });
     focus.report({ at: 'run' });
     frame.send({
       type: 'edit',
       baseRevision: 3,
       node: { id: 'find_slot' },
+      about: {
+        source: 'run',
+        path: workflowDocument(PROJECT, 'refund_approval'),
+        nodeId: 'find_slot',
+      },
     });
-    frame.send({ type: 'inspectorMode', mode: 'configure' });
 
     expect(canvas.did).toEqual([]);
   });
@@ -690,12 +763,14 @@ describe('what a run-tab subject says, and where it goes', () => {
   }
 
   const node = { id: 'find_slot', title: 'Find a slot' };
-  const edit = { type: 'edit', baseRevision: 12, node };
+  const picked = blockOn('run', PATH);
+  const edit = { type: 'edit', baseRevision: 12, node, about: picked };
   const assign = {
     type: 'assign',
     baseRevision: 12,
     nodeId: 'find_slot',
     export: 'findSlot',
+    about: picked,
   };
 
   it('draws the block from the document, on Run evidence', () => {
@@ -746,6 +821,63 @@ describe('what a run-tab subject says, and where it goes', () => {
     ]);
   });
 
+  /**
+   * An edit made on the run tab is the run
+   * document's, whatever came forward while it was
+   * on its way — and it lands on the block it was
+   * made about, not on whatever the tab has picked
+   * by the time it arrives.
+   */
+  it('keeps a run-tab edit on the block it was made about', async () => {
+    const pane = onRunTab();
+    const open = session('groom_booking.workflow.json', {}, pane.asked);
+    const elsewhere = session('refund_approval.workflow.json');
+
+    pane.sessions.register(PATH, open.canvas, { active: false });
+    pane.sessions.register(elsewhere.inputs.path, elsewhere.canvas, {
+      active: true,
+    });
+    pane.focus.report({ at: 'canvas', session: elsewhere.canvas });
+    pane.tab.reading = seeView({ selectedNode: 'book_appointment' });
+
+    pane.frame.send({ ...edit, view: 'inspector' });
+    await until(() => pane.asked.length === 2);
+
+    expect(pane.asked).toEqual([
+      ['select', 'find_slot'],
+      ['edit', edit],
+    ]);
+    expect(elsewhere.did).toEqual([]);
+  });
+
+  /**
+   * The canvas draws its board from the registry, so
+   * a selection made from here is only on screen
+   * once the registry has said so. An edit that
+   * lands says so by itself, through the document
+   * change it makes; one that writes nothing — a
+   * refused assign, a stale revision, a block that
+   * has gone — leaves the board ringing the block it
+   * rang before.
+   */
+  it('says the canvas moved for a run-tab edit that writes nothing', async () => {
+    const pane = onRunTab();
+    const open = session('groom_booking.workflow.json', {}, pane.asked);
+    const signals: unknown[] = [];
+
+    pane.sessions.register(PATH, open.canvas, { active: false });
+    pane.sessions.onChanged((moved) => signals.push(moved));
+
+    pane.frame.send({ ...edit, view: 'inspector' });
+    await until(() => pane.asked.length === 2);
+
+    expect(pane.asked).toEqual([
+      ['select', 'find_slot'],
+      ['edit', edit],
+    ]);
+    expect(signals).toEqual([open.canvas]);
+  });
+
   it('draws the next revision once that edit lands', async () => {
     const pane = onRunTab();
     const opened = session('groom_booking.workflow.json');
@@ -769,7 +901,7 @@ describe('what a run-tab subject says, and where it goes', () => {
   it('keeps the face somebody picked on the run tab', () => {
     const { frame, asked } = onRunTab();
 
-    frame.send({ type: 'inspectorMode', mode: 'configure' });
+    frame.send({ type: 'inspectorMode', mode: 'configure', about: picked });
 
     expect(asked).toEqual([['chooseFace', 'configure']]);
   });
@@ -777,7 +909,7 @@ describe('what a run-tab subject says, and where it goes', () => {
   it('opens the block’s function from the run it recorded', () => {
     const { frame, asked } = onRunTab();
 
-    frame.send({ type: 'openFunction', nodeId: 'find_slot' });
+    frame.send({ type: 'openFunction', nodeId: 'find_slot', about: picked });
 
     expect(asked).toEqual([['openFunction', 'wf_1', 'find_slot']]);
   });
@@ -789,6 +921,7 @@ describe('what a run-tab subject says, and where it goes', () => {
       type: 'openErrorLocation',
       nodeId: 'find_slot',
       functionId: 3,
+      about: picked,
     });
 
     expect(asked).toEqual([['openErrorLocation', 'wf_1', 3]]);
@@ -797,7 +930,12 @@ describe('what a run-tab subject says, and where it goes', () => {
   it('opens a recorded output from the run tab’s run', () => {
     const { frame, asked } = onRunTab();
 
-    frame.send({ type: 'openOutput', workflowId: 'wf_1', functionId: 3 });
+    frame.send({
+      type: 'openOutput',
+      workflowId: 'wf_1',
+      functionId: 3,
+      about: picked,
+    });
 
     expect(asked).toEqual([['openOutput', 'wf_1', 3]]);
   });

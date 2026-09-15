@@ -10,6 +10,7 @@ import type {
 } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 import type {
+  BlockAbout,
   BlockSubject,
   InspectorMode,
   InspectorStrings,
@@ -67,6 +68,11 @@ export type InspectorProps = {
    *  about the same block from the other surface is
    *  a different form, never the same one again. */
   source: BlockSubject['source'];
+
+  /** The document the block is in. A block of the
+   *  same id in another document is a different
+   *  form too. */
+  path: string;
 
   /** The workflow the block is in, which a question
    *  about the block names it by. */
@@ -152,6 +158,7 @@ const NOT_IN_WORKFLOW = 'inspector-not-in-workflow';
 export function Inspector({
   strings,
   source,
+  path,
   workflow,
   nodeId,
   selected,
@@ -190,21 +197,29 @@ export function Inspector({
     held.current = undefined;
   });
 
-  // One form per surface, block and revision. What
-  // somebody has set so far belongs to the form it
-  // was set in: the next revision, or another block,
-  // starts again from the document.
+  // One form per surface, document, block and
+  // revision. What somebody has set so far belongs
+  // to the form it was set in: the next revision,
+  // another block, or the same block in another
+  // file, starts again from the document.
   const form =
     selected === undefined
       ? undefined
-      : `${source}:${selected.node.id}:${revision}`;
-  const block = `${source}:${selectedId}`;
+      : `${source}:${path}:${selected.node.id}:${revision}`;
+  const block = `${source}:${path}:${selectedId}`;
 
   const [edited, setEdited] = useState<{ form: string; node: WorkflowNode }>();
   const draft =
     edited !== undefined && edited.form === form ? edited.node : selected?.node;
 
   const readOnly = revision === undefined;
+
+  // What every message about this block names it by.
+  // The pane draws whichever surface was last in
+  // front, and that can change while a message is on
+  // its way, so each says where it came from and the
+  // host sends it there.
+  const about: BlockAbout = { source, path, nodeId };
 
   const commit = (field: InspectorField): void => {
     if (form === undefined || draft === undefined) return;
@@ -213,7 +228,7 @@ export function Inspector({
     const next = formToConfig(draft, [field]);
 
     setEdited({ form, node: next });
-    postToHost({ type: 'edit', baseRevision: revision, node: next });
+    postToHost({ type: 'edit', baseRevision: revision, node: next, about });
   };
 
   // The picker writes a document rather than a
@@ -228,6 +243,7 @@ export function Inspector({
       baseRevision: revision,
       nodeId: selectedId,
       export: exported,
+      about,
     });
   };
 
@@ -288,6 +304,7 @@ export function Inspector({
 
       <Faces
         strings={strings}
+        about={about}
         mode={mode}
         run={run}
         inWorkflow={selected !== undefined}
@@ -321,7 +338,11 @@ export function Inspector({
               onCommit={commit}
               onAssign={assign}
               onOpenFunction={() =>
-                postToHost({ type: 'openFunction', nodeId: selected.node.id })
+                postToHost({
+                  type: 'openFunction',
+                  nodeId: selected.node.id,
+                  about,
+                })
               }
               onAskAgent={() =>
                 postToHost({
@@ -339,6 +360,7 @@ export function Inspector({
         ) : run === undefined || found === undefined ? null : (
           <EvidenceFace
             strings={strings}
+            about={about}
             run={run}
             block={evidence}
             found={found}
@@ -368,11 +390,13 @@ export function Inspector({
  */
 function Faces({
   strings,
+  about,
   mode,
   run,
   inWorkflow,
 }: {
   strings: InspectorStrings;
+  about: BlockAbout;
   mode: InspectorMode;
   run: ShownRun | undefined;
   inWorkflow: boolean;
@@ -389,7 +413,9 @@ function Faces({
         panel={FACE}
         controlsAll
         active={mode}
-        onPick={(face) => postToHost({ type: 'inspectorMode', mode: face })}
+        onPick={(face) =>
+          postToHost({ type: 'inspectorMode', mode: face, about })
+        }
         items={[
           {
             id: 'configure',

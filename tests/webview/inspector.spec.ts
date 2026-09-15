@@ -80,6 +80,22 @@ import { canvasWords, inspectorWords as inspectorStrings } from './words.js';
  * says back for the host to act on.
  */
 
+/**
+ * How the pane names the block a message is about,
+ * read off the subject it was drawn from: the
+ * surface it was picked on, the document it is in
+ * and its id.
+ */
+function about(init: InspectorInit) {
+  const { subject } = init;
+
+  if (subject.at !== 'block') throw new Error(`about ${subject.at}`);
+
+  const { source, path, nodeId } = subject.block;
+
+  return { source, path, nodeId };
+}
+
 /** The pane with nothing to inspect, with the
  *  canvas file when a canvas is in front. */
 function nothing(file: string | undefined) {
@@ -1338,11 +1354,12 @@ test.describe('a block in the Inspector', () => {
     await expect(page.locator('[data-field="cases"] .row')).toHaveCount(2);
   });
 
+  /** And it says which block it is about, so the
+   *  host sends it to the document it was made
+   *  against and to no other. */
   test('sends an edit once the field is finished with', async ({ page }) => {
-    const harness = await openInspector(
-      page,
-      blockInit(blockSubject('find_slot')),
-    );
+    const shown = blockInit(blockSubject('find_slot'));
+    const harness = await openInspector(page, shown);
 
     const title = page.locator('[data-field="title"] input');
 
@@ -1356,6 +1373,52 @@ test.describe('a block in the Inspector', () => {
     expect(sent[0]).toMatchObject({
       baseRevision: ir.revision,
       node: { id: 'find_slot', title: 'Find an open slot' },
+      about: about(shown),
+    });
+  });
+
+  /**
+   * One pane draws the blocks of every open file,
+   * and two files made from one pattern share their
+   * ids and can sit at one revision. What somebody
+   * set in one file's form belongs to that file: it
+   * never shows in the other's, and is never sent as
+   * an edit to it.
+   */
+  test('starts a form afresh for the same block in another file', async ({
+    page,
+  }) => {
+    const inFile = (name: string, title: string, revision: number) =>
+      blockInit(
+        blockSubject('find_slot', { title }, 'configure', {
+          ...ir,
+          name,
+          revision,
+        }),
+      );
+
+    const harness = await openInspector(page, inFile('a', 'Alpha', 2));
+    const title = page.locator('[data-field="title"] input');
+
+    await title.fill('Alpha 2');
+    await title.press('Enter');
+    await expect.poll(() => harness.postedOfType('edit')).toHaveLength(1);
+
+    await harness.show(inFile('a', 'Alpha 2', 3));
+    await expect(title).toHaveValue('Alpha 2');
+
+    await harness.show(inFile('b', 'Beta', 2));
+    await expect(title).toHaveValue('Beta');
+
+    const tries = page.locator('[data-field="retryMaxAttempts"] input');
+    await tries.fill('5');
+    await tries.press('Enter');
+
+    await expect.poll(() => harness.postedOfType('edit')).toHaveLength(2);
+    const [, sent] = await harness.postedOfType('edit');
+    expect(sent).toMatchObject({
+      baseRevision: 2,
+      node: { id: 'find_slot', title: 'Beta', retry: { maxAttempts: 5 } },
     });
   });
 
@@ -2341,20 +2404,21 @@ test.describe('a block in the Inspector', () => {
    * person chose survives only where the selection
    * does.
    */
-  test('posts the face a person picked', async ({ page }) => {
+  test('posts the face a person picked, and the block it is for', async ({
+    page,
+  }) => {
     const harness = await mountInspector(page);
+    const shown = blockInit({
+      ...blockSubject('find_slot', {}, 'evidence'),
+      run: runOf(IN_FLIGHT),
+    });
 
-    await harness.show(
-      blockInit({
-        ...blockSubject('find_slot', {}, 'evidence'),
-        run: runOf(IN_FLIGHT),
-      }),
-    );
+    await harness.show(shown);
 
     await page.locator('button[data-inspector-tab="configure"]').click();
 
     expect(await harness.postedOfType('inspectorMode')).toEqual([
-      { type: 'inspectorMode', mode: 'configure' },
+      { type: 'inspectorMode', mode: 'configure', about: about(shown) },
     ]);
   });
 
@@ -2833,15 +2897,18 @@ test.describe('a block in the Inspector', () => {
      * tries, and each wrote a stack of its own.
      */
     test('asks for the line by block and row', async ({ page }) => {
-      const harness = await openInspector(
-        page,
-        onEvidence('find_slot', recording([THREW_IN_LIB])),
-      );
+      const shown = onEvidence('find_slot', recording([THREW_IN_LIB]));
+      const harness = await openInspector(page, shown);
 
       await page.locator('[data-evidence-action="openErrorLocation"]').click();
 
       expect(await harness.postedOfType('openErrorLocation')).toEqual([
-        { type: 'openErrorLocation', nodeId: 'find_slot', functionId: 3 },
+        {
+          type: 'openErrorLocation',
+          nodeId: 'find_slot',
+          functionId: 3,
+          about: about(shown),
+        },
       ]);
     });
 
@@ -2859,10 +2926,8 @@ test.describe('a block in the Inspector', () => {
      * gets to answer from memory.
      */
     test('offers the four ways on from a failed step', async ({ page }) => {
-      const harness = await openInspector(
-        page,
-        onEvidence('find_slot', recording([THREW_IN_LIB])),
-      );
+      const shown = onEvidence('find_slot', recording([THREW_IN_LIB]));
+      const harness = await openInspector(page, shown);
 
       await expect(actions(page)).toHaveCount(4);
       expect(
@@ -2887,7 +2952,7 @@ test.describe('a block in the Inspector', () => {
       await page.locator('[data-evidence-action="askAgent"]').click();
 
       expect(await harness.postedOfType('openFunction')).toEqual([
-        { type: 'openFunction', nodeId: 'find_slot' },
+        { type: 'openFunction', nodeId: 'find_slot', about: about(shown) },
       ]);
       expect(await harness.postedOfType('replayFrom')).toEqual([
         { type: 'replayFrom', workflowId: 'wf_1', nodeId: 'find_slot' },
@@ -3104,9 +3169,11 @@ test.describe('a block in the Inspector', () => {
       await expect(output.locator('.inline-chip')).toHaveCount(1);
       await expect(output.locator('.artifact-ref')).toHaveCount(0);
 
-      await harness.show(
-        onEvidence('find_slot', recording([returning(INLINE_LIMIT + 1)])),
+      const long = onEvidence(
+        'find_slot',
+        recording([returning(INLINE_LIMIT + 1)]),
       );
+      await harness.show(long);
 
       await expect(output.locator('.state-word')).toHaveText(
         inspectorStrings.artifact,
@@ -3128,7 +3195,12 @@ test.describe('a block in the Inspector', () => {
 
       await open.click();
       expect(await harness.postedOfType('openOutput')).toEqual([
-        { type: 'openOutput', workflowId: 'wf_1', functionId: 3 },
+        {
+          type: 'openOutput',
+          workflowId: 'wf_1',
+          functionId: 3,
+          about: about(long),
+        },
       ]);
 
       await harness.show(
@@ -4023,16 +4095,14 @@ test.describe('a block in the Inspector', () => {
     test('reaches the code and the agent from a row picked there', async ({
       page,
     }) => {
-      const harness = await openInspector(
-        page,
-        picked('find_slot', GRAPH.ir, seeRun().live, 1),
-      );
+      const shown = picked('find_slot', GRAPH.ir, seeRun().live, 1);
+      const harness = await openInspector(page, shown);
 
       await page.locator('[data-evidence-action="openFunction"]').click();
       await page.locator('[data-evidence-action="askAgent"]').click();
 
       expect(await harness.postedOfType('openFunction')).toEqual([
-        { type: 'openFunction', nodeId: 'find_slot' },
+        { type: 'openFunction', nodeId: 'find_slot', about: about(shown) },
       ]);
       expect(await harness.postedOfType('askAgent')).toEqual([
         {
@@ -4356,11 +4426,8 @@ test.describe('the groups a block is set in', () => {
     test(`offers the function and the agent from the foot of the form in ${theme}`, async ({
       page,
     }) => {
-      const harness = await openInspector(
-        page,
-        blockInit(blockSubject('find_slot')),
-        theme,
-      );
+      const shown = blockInit(blockSubject('find_slot'));
+      const harness = await openInspector(page, shown, theme);
 
       const actions = page.locator('[data-configure-actions]');
       await expect(actions).toHaveCount(1);
@@ -4400,7 +4467,7 @@ test.describe('the groups a block is set in', () => {
       await ask.click();
 
       expect(await harness.postedOfType('openFunction')).toEqual([
-        { type: 'openFunction', nodeId: 'find_slot' },
+        { type: 'openFunction', nodeId: 'find_slot', about: about(shown) },
       ]);
       expect(await harness.postedOfType('askAboutBlock')).toEqual([
         {
@@ -5138,12 +5205,13 @@ test.describe('the function picker', () => {
   /** The picker open over a block, the way a person
    *  opens it: by pressing the function it runs. */
   async function openPicker(page: Page, nodeId = 'slot_open') {
-    const harness = await openInspector(page, blockInit(blockSubject(nodeId)));
+    const shown = blockInit(blockSubject(nodeId));
+    const harness = await openInspector(page, shown);
 
     await page.locator('[data-picker-current]').click();
     await expect(page.locator('[data-picker-new]')).toBeVisible();
 
-    return harness;
+    return { ...harness, shown };
   }
 
   test('offers what fits, and counts what does not', async ({ page }) => {
@@ -5216,6 +5284,7 @@ test.describe('the function picker', () => {
         baseRevision: ir.revision,
         nodeId: 'slot_open',
         export: 'tryAgain',
+        about: about(harness.shown),
       },
     ]);
   });
@@ -5242,6 +5311,7 @@ test.describe('the function picker', () => {
         baseRevision: ir.revision,
         nodeId: 'slot_open',
         export: 'decideLater',
+        about: about(harness.shown),
       },
     ]);
   });

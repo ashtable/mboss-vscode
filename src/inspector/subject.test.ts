@@ -151,6 +151,7 @@ describe('a block selected on a canvas', () => {
       block: {
         source: 'canvas',
         file: 'groom_booking.workflow.json',
+        path: '/work/grooming/.mboss/workflows/groom_booking.workflow.json',
         workflow: 'groom_booking',
         ir,
         revision: ir.revision,
@@ -318,6 +319,7 @@ describe('a block picked on the run tab', () => {
       block: {
         source: 'run',
         file: 'groom_booking.workflow.json',
+        path: '/work/grooming/.mboss/workflows/groom_booking.workflow.json',
         workflow: 'groom_booking',
         ir: document,
         revision: 8,
@@ -340,13 +342,21 @@ describe('a block picked on the run tab', () => {
   it('reads the canvas open on the document, not the copy the run read', () => {
     const open: RunDocument = {
       at: 'canvas',
-      canvas: canvas({ read: { ok: true, ir: at(9) }, revision: 9 }),
+      canvas: canvas({
+        path: '/work/other/.mboss/workflows/groom_booking.workflow.json',
+        read: { ok: true, ir: at(9) },
+        revision: 9,
+      }),
       proposedBy: undefined,
     };
 
     expect(subject(reading(), open)).toMatchObject({
       at: 'block',
-      block: { revision: 9, ir: { revision: 9 } },
+      block: {
+        path: '/work/other/.mboss/workflows/groom_booking.workflow.json',
+        revision: 9,
+        ir: { revision: 9 },
+      },
     });
   });
 

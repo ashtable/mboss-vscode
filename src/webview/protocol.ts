@@ -961,6 +961,14 @@ export type BlockSubject = {
    *  `<name>.workflow.json`. */
   file: string;
 
+  /**
+   * Where that file is. The pane draws the blocks
+   * of every open document, and two documents can
+   * share a name and their blocks' ids, so this is
+   * what tells one block's form from the other's.
+   */
+  path: string;
+
   workflow: string;
 
   /** The document buffer's IR (a canvas session's,
@@ -1009,6 +1017,18 @@ export type BlockSubject = {
    */
   proposal: string | undefined;
 };
+
+/**
+ * Which block a message from the pane is about: the
+ * surface it was picked on, the document it is in
+ * and its id.
+ *
+ * Said in every message about a block, because one
+ * pane draws them all and what is in front can
+ * change between a message being made and it being
+ * heard.
+ */
+export type BlockAbout = Pick<BlockSubject, 'source' | 'path' | 'nodeId'>;
 
 /**
  * The Runs panel's input, as a trigger's card shows

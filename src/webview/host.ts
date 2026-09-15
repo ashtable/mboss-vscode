@@ -51,6 +51,32 @@ const Select = z.object({
 });
 
 /**
+ * Which block a message from the Inspector is
+ * about: the surface it was picked on, the document
+ * it is in and its id.
+ *
+ * The pane is one frame for every canvas and the
+ * run tab, so what it says carries no surface of
+ * its own. And what is in front can change between
+ * a message being made and it being heard: a field
+ * commits as focus leaves it, and the same click
+ * can bring another surface forward first, by a
+ * shorter path than the message takes. Two files
+ * made from one pattern share their blocks' ids and
+ * can sit at one revision, so a message sent to
+ * whatever is in front can be written into a
+ * document nobody made it against.
+ *
+ * So each says where it came from, and the host
+ * sends it there.
+ */
+const About = z.object({
+  source: z.enum(['canvas', 'run']),
+  path: z.string(),
+  nodeId: z.string(),
+});
+
+/**
  * Which of the Inspector's two faces somebody
  * picked.
  *
@@ -65,6 +91,7 @@ const Select = z.object({
 const InspectorModePicked = z.object({
   type: z.literal('inspectorMode'),
   mode: z.enum(['configure', 'evidence']),
+  about: About,
 });
 
 /**
@@ -79,6 +106,7 @@ const InspectorModePicked = z.object({
 const OpenFunction = z.object({
   type: z.literal('openFunction'),
   nodeId: z.string(),
+  about: About,
 });
 
 /**
@@ -101,6 +129,7 @@ const OpenErrorLocation = z.object({
   type: z.literal('openErrorLocation'),
   nodeId: z.string(),
   functionId: z.number().int(),
+  about: About,
 });
 
 /**
@@ -118,6 +147,7 @@ const OpenOutput = z.object({
   type: z.literal('openOutput'),
   workflowId: z.string(),
   functionId: z.number().int(),
+  about: About,
 });
 
 /**
@@ -243,6 +273,7 @@ const Edit = z.object({
   type: z.literal('edit'),
   baseRevision: z.number().int(),
   node: z.unknown(),
+  about: About,
 });
 
 /**
@@ -261,6 +292,16 @@ const Assign = z.object({
   nodeId: z.string(),
   export: z.string().nullable(),
 });
+
+/**
+ * The same, from the Inspector's picker, which says
+ * which block it is about.
+ *
+ * The board's own drop says nothing of the kind: it
+ * is made on the canvas that sends it, so that
+ * canvas is the surface it belongs to.
+ */
+const InspectorAssign = Assign.extend({ about: About });
 
 /**
  * The JSON view committing what somebody typed.
@@ -786,7 +827,7 @@ const SCHEMAS = {
     Ready,
     InspectorModePicked,
     Edit,
-    Assign,
+    InspectorAssign,
     OpenFunction,
     OpenErrorLocation,
     OpenOutput,

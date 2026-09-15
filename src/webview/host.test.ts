@@ -228,16 +228,27 @@ describe('what each view may say', () => {
     startBlank: ['gallery'],
   };
 
+  /**
+   * The block the Inspector's own messages are
+   * about: the surface it was picked on, the
+   * document it is in and its id.
+   */
+  const ABOUT = {
+    source: 'canvas',
+    path: '/work/grooming/.mboss/workflows/groom_booking.workflow.json',
+    nodeId: 'find_slot',
+  };
+
   /** One message of each kind that ought to parse
    *  wherever its kind is listed. */
   const SAMPLE: Record<string, Record<string, unknown>> = {
     ready: {},
 
     select: { nodeId: 'find_slot' },
-    inspectorMode: { mode: 'evidence' },
-    openFunction: { nodeId: 'find_slot' },
-    openErrorLocation: { nodeId: 'find_slot', functionId: 2 },
-    openOutput: { workflowId: 'wf_c9d2f3', functionId: 2 },
+    inspectorMode: { mode: 'evidence', about: ABOUT },
+    openFunction: { nodeId: 'find_slot', about: ABOUT },
+    openErrorLocation: { nodeId: 'find_slot', functionId: 2, about: ABOUT },
+    openOutput: { workflowId: 'wf_c9d2f3', functionId: 2, about: ABOUT },
     connect: {
       baseRevision: 3,
       from: { node: 'find_slot' },
@@ -251,8 +262,13 @@ describe('what each view may say', () => {
     move: { baseRevision: 3, positions: { find_slot: { x: 1, y: 2 } } },
     arrange: { baseRevision: 3 },
     delete: { baseRevision: 3, nodeIds: ['find_slot'], edgeIds: ['e2'] },
-    edit: { baseRevision: 3, node: { id: 'find_slot' } },
-    assign: { baseRevision: 3, nodeId: 'find_slot', export: 'findSlot' },
+    edit: { baseRevision: 3, node: { id: 'find_slot' }, about: ABOUT },
+    assign: {
+      baseRevision: 3,
+      nodeId: 'find_slot',
+      export: 'findSlot',
+      about: ABOUT,
+    },
     text: { text: '{}' },
 
     prompt: { text: 'why did it fail?' },
@@ -346,6 +362,50 @@ describe('what each view may say', () => {
       true,
     );
     expect(inspector.safeParse({ ...replay, from: 'end' }).success).toBe(false);
+  });
+
+  /**
+   * The pane draws whichever canvas or run tab was
+   * last in front, and which that is can change
+   * between a message being made in the pane and it
+   * arriving. So every message about a block says
+   * which block, and one that says nothing is not a
+   * message the host can send anywhere.
+   *
+   * The canvas's own drop is the exception: a
+   * function dropped on a block is made on the board
+   * it lands on, which is the surface that sent it.
+   */
+  it('refuses a message about a block that names no block', () => {
+    const inspector = messageSchemaFor('inspector');
+    const kinds = [
+      'inspectorMode',
+      'edit',
+      'assign',
+      'openFunction',
+      'openErrorLocation',
+      'openOutput',
+    ];
+
+    /** That kind's message, saying nothing about
+     *  which block it is. */
+    const unnamed = (kind: string): Record<string, unknown> => {
+      const said: Record<string, unknown> = { type: kind, ...SAMPLE[kind] };
+      delete said['about'];
+
+      return said;
+    };
+
+    for (const kind of kinds) {
+      expect({
+        kind,
+        parses: inspector.safeParse(unnamed(kind)).success,
+      }).toEqual({ kind, parses: false });
+    }
+
+    expect(
+      messageSchemaFor('canvas').safeParse(unnamed('assign')).success,
+    ).toBe(true);
   });
 
   /**
