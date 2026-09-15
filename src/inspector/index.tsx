@@ -122,6 +122,7 @@ function Block({
       misfits={strings.misfits}
       kindWords={block.kindWords}
       diagnostics={block.diagnostics}
+      runInput={block.runInput}
       onShowRun={onShowRun}
     />
   );

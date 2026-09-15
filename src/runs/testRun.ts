@@ -23,7 +23,7 @@ import {
 import type { FollowedRun, Following } from './following.js';
 import { decidedArms } from './operations.js';
 import { readRun } from './reading.js';
-import { hasRecovered } from './rows.js';
+import { hasRecovered, payloadIn } from './rows.js';
 import { newRunId, type RunStart, type RunStarter } from './runner.js';
 import {
   refusedRunId,
@@ -575,7 +575,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
 
       problem = undefined;
 
-      const payload = parsed(input);
+      const payload = payloadIn(input);
 
       if (!payload.ok) {
         problem = { detail: messages.runNotJson(), rebuildToRun: false };
@@ -786,25 +786,6 @@ function sent(row: SessionRun): string | undefined {
   return row.input === undefined
     ? undefined
     : JSON.stringify(row.input, null, 2);
-}
-
-/**
- * What the input box holds, as a payload.
- *
- * An empty box is a run with no input rather than
- * a mistake — plenty of workflows take none — and
- * anything else has to be JSON before it is worth
- * sending, because the route parses it and would
- * only say the same thing later.
- */
-function parsed(text: string): { ok: true; value: unknown } | { ok: false } {
-  if (text.trim() === '') return { ok: true, value: undefined };
-
-  try {
-    return { ok: true, value: JSON.parse(text) as unknown };
-  } catch {
-    return { ok: false };
-  }
 }
 
 /**

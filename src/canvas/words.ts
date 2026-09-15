@@ -3,7 +3,7 @@ import { l10n } from 'vscode';
 import type { HandlerMisfit, NodeKind } from '../core/rules.js';
 import { once } from '../once.js';
 import type { SizeWords } from '../runs/rows.js';
-import { runWords } from '../runs/words.js';
+import { runWords, runsWords } from '../runs/words.js';
 import type { DurationWords } from '../webview/time.js';
 
 /**
@@ -561,6 +561,43 @@ export const inspectorWords = once(() => ({
   ),
   showRun: l10n.t('Show the run'),
 
+  /* — how a trigger starts, and the run it starts — */
+
+  // A trigger has no function: it is how DBOS
+  // starts the workflow, so its form is headed by
+  // that and says so under its rows.
+  startsOn: l10n.t('starts on'),
+  workflow: l10n.t('workflow'),
+  triggerOwnsNoFunction: l10n.t(
+    'a Trigger owns no ƒ — it names the workflow and its input type · DBOS starts the workflow with that input',
+  ),
+
+  // A scheduled workflow is started by DBOS's
+  // scheduler and never by Run. Said in the Runs
+  // view's own words, which both views then share
+  // one translation of.
+  runsOnSchedule: runsWords().scheduledNotRunnable,
+
+  // The Runs view's input box, reflected on a
+  // trigger's card and never written from it: the
+  // box is the one place a run's input is typed.
+  // Each sentence says what Run does with what the
+  // box holds, which is why every one names Run.
+  sampleInput: l10n.t('input · sample for Run'),
+  noInputRun: l10n.t('no input · Run sends none'),
+  notJsonYet: l10n.t('not JSON yet · Run will refuse it'),
+  localRunsSetTo: l10n.t(
+    'Local runs is set to {0} · Run with this input switches it to {1}',
+  ),
+  usedByRunOnly: l10n.t('used by Run only · not part of the saved workflow'),
+  runWithInput: l10n.t('Run with this input'),
+
+  // Why there is no Run: the app runs the workflow
+  // as saved and built, so a run from a buffer with
+  // changes would start something not on screen.
+  saveToRun: l10n.t('save the workflow to run it'),
+  needsTopic: l10n.t('the trigger needs a topic to run'),
+
   /* — what a queue block’s children are doing — */
 
   // The readings a queue card draws, under the ids
@@ -707,6 +744,7 @@ export const inspectorWords = once(() => ({
   fields: inspectorFields(),
   fieldsByKind: inspectorFieldsByKind(),
   units: inspectorUnits(),
+  placeholders: inspectorPlaceholders(),
   options: inspectorOptions(),
   hints: inspectorHints(),
 
@@ -812,8 +850,10 @@ function inspectorFields(): Record<string, string> {
 
     mode: l10n.t('kind'),
     topic: l10n.t('topic'),
-    idempotencyKeyPath: l10n.t('idempotency key path'),
-    requesterEmailPath: l10n.t('requester email path'),
+    // What each path picks out of the payload; that
+    // it is a path is said in its empty box.
+    idempotencyKeyPath: l10n.t('idempotency'),
+    requesterEmailPath: l10n.t('requester'),
     repeat: l10n.t('repeat'),
     on: l10n.t('on'),
     at: l10n.t('at'),
@@ -928,6 +968,24 @@ function inspectorUnits(): Record<string, string> {
 }
 
 /**
+ * What an empty box is for, keyed by the field it
+ * is drawn in.
+ *
+ * Said in the box rather than in the label, as a
+ * unit is said beside a number, so the label stays
+ * one short noun; and only while the box is empty,
+ * so it is never read as a value.
+ */
+function inspectorPlaceholders(): Record<string, string> {
+  const payloadPath = l10n.t('payload path');
+
+  return {
+    idempotencyKeyPath: payloadPath,
+    requesterEmailPath: payloadPath,
+  };
+}
+
+/**
  * What a group needs saying about it, under its
  * header.
  *
@@ -963,9 +1021,14 @@ function inspectorHints(): Record<string, string> {
  */
 function inspectorOptions(): Record<string, string> {
   return {
-    'mode.manual': l10n.t('by hand'),
-    'mode.event': l10n.t('an event'),
-    'mode.schedule': l10n.t('a schedule'),
+    // How a trigger starts, said the way the graph
+    // says it under the block. "On event" is a word
+    // of its own: the graph's is a template with the
+    // topic in it, whose translation cannot be cut
+    // back to its head.
+    'mode.manual': l10n.t('on request'),
+    'mode.event': l10n.t('on event'),
+    'mode.schedule': l10n.t('on a schedule'),
 
     'repeat.hourly': l10n.t('hourly'),
     'repeat.daily': l10n.t('daily'),

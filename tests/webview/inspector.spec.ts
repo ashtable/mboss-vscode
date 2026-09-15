@@ -6,7 +6,7 @@ import {
   withDecisionCases,
   type WorkflowIR,
 } from '../../src/core/rules.js';
-import { INLINE_LIMIT } from '../../src/runs/rows.js';
+import { INLINE_LIMIT, inlineJson } from '../../src/runs/rows.js';
 import {
   TIMER_THEN_ANSWER,
   liveStep,
@@ -34,6 +34,7 @@ import {
   THREW,
   THREW_IN_LIB,
   apiCallSubject,
+  type TriggerConfig,
   blockInit,
   blockSubject,
   everyKind,
@@ -48,6 +49,7 @@ import {
   queuedRun,
   recording,
   runOf,
+  triggerSubject,
   word,
 } from './fixtures/canvas.js';
 import {
@@ -3920,8 +3922,8 @@ test.describe('a field at rest and in use', () => {
    * answers with the field's. The DevTools protocol
    * can reach it, so that is what is asked. The field
    * is given a placeholder and emptied by hand, since
-   * no form draws one yet, and nothing is told: the
-   * page's own idea of the value is left alone.
+   * a step's form draws none, and nothing is told:
+   * the page's own idea of the value is left alone.
    */
   async function placeholderColour(
     page: Page,
@@ -5163,5 +5165,735 @@ test.describe('a block under a proposal, seen from the run tab', () => {
     await fold.click();
 
     await expect(fold).toHaveAttribute('aria-expanded', 'true');
+  });
+});
+
+test.describe('a trigger block', () => {
+  const MANUAL: TriggerConfig = { mode: 'manual' };
+
+  /** The canonical document's own trigger. */
+  const EVENT: TriggerConfig = {
+    mode: 'event',
+    topic: 'booking.requested',
+    idempotencyKeyPath: 'requestId',
+    requesterEmailPath: 'customer.email',
+  };
+
+  const WEEKLY: TriggerConfig = {
+    mode: 'schedule',
+    cron: '30 9 * * 1',
+    timezone: 'Europe/London',
+    start: '2026-09-01T00:00:00Z',
+    ends: '2026-12-31T00:00:00Z',
+  };
+
+  /** Where the Runs view's input is reflected. */
+  function sample(page: Page): Locator {
+    return page.locator('[role="tabpanel"] [data-run-sample]');
+  }
+
+  /** The row of ways out at the foot of the form. */
+  function actions(page: Page): Locator {
+    return page.locator('[data-configure-actions]');
+  }
+
+  /** The value a row says, by the hook it carries. */
+  function workflowRow(page: Page): Locator {
+    return page.locator('[data-property][data-workflow] .value');
+  }
+
+  test('owns no function, no tries and nothing it takes', async ({ page }) => {
+    await openInspector(page, blockInit(triggerSubject(EVENT)));
+
+    // The rows a trigger does have, so the absences
+    // below are read off a drawn form.
+    await expect(page.locator('[data-field="mode"]')).toHaveCount(1);
+    await expect(page.locator('[data-field="out"]')).toHaveCount(1);
+
+    await expect(page.locator('.lib-fn')).toHaveCount(0);
+    await expect(page.locator('[data-field="handler"]')).toHaveCount(0);
+    await expect(page.locator('[data-field^="retry"]')).toHaveCount(0);
+    await expect(page.locator('[data-field="in"]')).toHaveCount(0);
+    await expect(page.locator('[data-open-function]')).toHaveCount(0);
+
+    const hint = page.locator('[data-owns-no-function]');
+    await expect(hint).toHaveText(inspectorStrings.triggerOwnsNoFunction);
+    expect(inspectorStrings.triggerOwnsNoFunction).toBe(
+      'a Trigger owns no ƒ — it names the workflow and its input type · ' +
+        'DBOS starts the workflow with that input',
+    );
+  });
+
+  test('says how it starts first, in words and in the machine face', async ({
+    page,
+  }) => {
+    await openInspector(page, blockInit(triggerSubject(MANUAL)));
+    const { fields, fieldsByKind, options } = inspectorStrings;
+
+    await expect(
+      page.locator('[data-field="startsOn"] .section-label'),
+    ).toHaveText(inspectorStrings.startsOn);
+    expect(inspectorStrings.startsOn).toBe('starts on');
+
+    // Kind, then the workflow it starts, then the
+    // type of what it starts that workflow with.
+    const rows = page.locator('[role="tabpanel"] [data-property]');
+    await expect(rows).toHaveCount(3);
+    await expect(rows.locator('.property-label')).toHaveText([
+      word(fields, 'mode'),
+      inspectorStrings.workflow,
+      word(fieldsByKind.trigger!, 'out'),
+    ]);
+    expect(word(fields, 'mode')).toBe('kind');
+    expect(inspectorStrings.workflow).toBe('workflow');
+
+    const kind = page.locator('[data-field="mode"] select');
+    await expect(kind).toHaveAttribute('data-mono', '');
+    await expect(kind.locator('option')).toHaveText([
+      word(options, 'mode.manual'),
+      word(options, 'mode.event'),
+      word(options, 'mode.schedule'),
+    ]);
+    expect(
+      await kind
+        .locator('option')
+        .evaluateAll((all) =>
+          all.map((one) => (one as HTMLOptionElement).value),
+        ),
+    ).toEqual(['manual', 'event', 'schedule']);
+    expect([
+      options['mode.manual'],
+      options['mode.event'],
+      options['mode.schedule'],
+    ]).toEqual(['on request', 'on event', 'on a schedule']);
+  });
+
+  test('names the saved workflow, and the type its input is', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(
+        triggerSubject(EVENT, {
+          selectedWorkflow: 'booking_intake',
+          saved: { name: 'booking_intake', mode: 'event' },
+        }),
+      ),
+    );
+
+    await expect(workflowRow(page)).toHaveText('booking_intake');
+    await expect(workflowRow(page)).toHaveAttribute('data-mono', '');
+    await expect(page.locator('[data-workflow] input')).toHaveCount(0);
+
+    await expect(page.locator('[data-field="out"] input')).toHaveValue(
+      'WebhookEvent',
+    );
+
+    // A file the Runs view has not saved is named
+    // by what the document calls itself.
+    await harness.show(blockInit(triggerSubject(EVENT, { saved: undefined })));
+
+    await expect(workflowRow(page)).toHaveText('groom_booking');
+  });
+
+  /**
+   * The workflow is read, and the rows either side
+   * of it are fields, whose text sits inside their
+   * padding and edge. So its name starts where their
+   * text does, and the values read down one edge.
+   * Below the form, the sentence saying a schedule
+   * starts the workflow stands where the sample it
+   * replaces would, as far off the form.
+   */
+  test('reads its values down one edge, fields and the workflow alike', async ({
+    page,
+  }) => {
+    const harness = await openInspector(page, blockInit(triggerSubject(EVENT)));
+
+    const textStart = (selector: string) =>
+      page.locator(selector).evaluate((drawn) => {
+        const style = getComputedStyle(drawn);
+
+        return (
+          drawn.getBoundingClientRect().left +
+          Number.parseFloat(style.paddingLeft) +
+          Number.parseFloat(style.borderLeftWidth)
+        );
+      });
+
+    const workflow = await textStart('[data-workflow] .value');
+    expect(workflow).toBeCloseTo(
+      await textStart('[data-field="mode"] select'),
+      0,
+    );
+    expect(workflow).toBeCloseTo(
+      await textStart('[data-field="out"] input'),
+      0,
+    );
+
+    const offForm = async (selector: string) => {
+      const [form, below] = await Promise.all([
+        page.locator('.configure').boundingBox(),
+        page.locator(selector).boundingBox(),
+      ]);
+      const top = await page
+        .locator(selector)
+        .evaluate((drawn) =>
+          Number.parseFloat(getComputedStyle(drawn).paddingTop),
+        );
+
+      return below!.y + top - (form!.y + form!.height);
+    };
+
+    const sampled = await offForm('[data-run-sample]');
+
+    await harness.show(blockInit(triggerSubject(WEEKLY)));
+    await expect(page.locator('[data-on-schedule]')).toHaveCount(1);
+
+    expect(await offForm('[data-on-schedule]')).toBeCloseTo(sampled, 0);
+  });
+
+  test('labels the two payload paths by what they pick out', async ({
+    page,
+  }) => {
+    await openInspector(page, blockInit(triggerSubject(EVENT)));
+    const { fields } = inspectorStrings;
+
+    await expect(
+      page.locator('[data-field="idempotencyKeyPath"] .property-label'),
+    ).toHaveText(word(fields, 'idempotencyKeyPath'));
+    await expect(
+      page.locator('[data-field="requesterEmailPath"] .property-label'),
+    ).toHaveText(word(fields, 'requesterEmailPath'));
+    expect([fields.idempotencyKeyPath, fields.requesterEmailPath]).toEqual([
+      'idempotency',
+      'requester',
+    ]);
+  });
+
+  /** "Path" is said in the box, where a unit would
+   *  be said beside one, so the label stays a
+   *  single noun. */
+  test('says in an empty path box that a path goes there', async ({ page }) => {
+    await openInspector(
+      page,
+      blockInit(triggerSubject({ mode: 'event', topic: 'booking.requested' })),
+    );
+    const { placeholders } = inspectorStrings;
+
+    for (const id of ['idempotencyKeyPath', 'requesterEmailPath']) {
+      const box = page.locator(`[data-field="${id}"] input`);
+      await expect(box).toHaveValue('');
+      await expect(box).toHaveAttribute('placeholder', word(placeholders, id));
+    }
+    expect(placeholders.idempotencyKeyPath).toBe('payload path');
+    await expect(page.locator('[data-field="topic"] input')).toHaveCount(1);
+    await expect(
+      page.locator('[data-field="topic"] input[placeholder]'),
+    ).toHaveCount(0);
+  });
+
+  test('reflects the Runs view’s input as it changes, read-only', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(triggerSubject(EVENT, { text: '{"bookingId":7}' })),
+    );
+
+    await expect(page.locator('[data-run-sample] .section-label')).toHaveText(
+      inspectorStrings.sampleInput,
+    );
+    expect(inspectorStrings.sampleInput).toBe('input · sample for Run');
+
+    const value = sample(page).locator('[data-recorded] [data-verbatim]');
+    await expect(value).toHaveText(inlineJson({ bookingId: 7 }));
+    await expect(sample(page).locator('.inline-value')).toHaveCount(1);
+
+    await harness.show(
+      blockInit(triggerSubject(EVENT, { text: '{"bookingId":8}' })),
+    );
+
+    await expect(value).toHaveText(inlineJson({ bookingId: 8 }));
+    await expect(
+      sample(page).locator('input, textarea, select, [contenteditable]'),
+    ).toHaveCount(0);
+  });
+
+  test('says Run sends nothing from an empty box', async ({ page }) => {
+    const harness = await mountInspector(page);
+
+    for (const text of ['', '  \n\t']) {
+      await harness.show(blockInit(triggerSubject(MANUAL, { text })));
+
+      const empty = sample(page).locator('[data-no-input]');
+      await expect(empty).toHaveText(inspectorStrings.noInputRun);
+      await expect(sample(page).locator('[data-recorded]')).toHaveCount(0);
+      await expect(sample(page).locator('.inline-value')).toHaveCount(0);
+      await expect(sample(page).locator('.artifact-ref')).toHaveCount(0);
+    }
+    expect(inspectorStrings.noInputRun).toBe('no input · Run sends none');
+  });
+
+  test('draws non-JSON text as typed, and says Run will refuse it', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(triggerSubject(MANUAL, { text: '{ bookingId:' })),
+    );
+
+    await expect(
+      sample(page).locator('[data-recorded] [data-verbatim]'),
+    ).toHaveText('{ bookingId:');
+
+    const refused = sample(page).locator('[data-not-json]');
+    await expect(refused).toHaveText(inspectorStrings.notJsonYet);
+    await expect(refused).toHaveAttribute('data-tone', 'warn');
+    expect(inspectorStrings.notJsonYet).toBe(
+      'not JSON yet · Run will refuse it',
+    );
+
+    await harness.show(
+      blockInit(triggerSubject(MANUAL, { text: '{ "bookingId": 7 }' })),
+    );
+
+    await expect(sample(page).locator('[data-recorded]')).toHaveCount(1);
+    await expect(sample(page).locator('[data-not-json]')).toHaveCount(0);
+  });
+
+  test('says when the Runs view is set to another workflow', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(
+        triggerSubject(MANUAL, {
+          text: '{}',
+          selectedWorkflow: 'refund_approval',
+        }),
+      ),
+    );
+
+    const elsewhere = sample(page).locator('[data-other-workflow]');
+    await expect(elsewhere).toHaveText(
+      filled(
+        inspectorStrings.localRunsSetTo,
+        'refund_approval',
+        'groom_booking',
+      ),
+    );
+    await expect(elsewhere).toHaveAttribute('data-tone', 'warn');
+    await expect(elsewhere).toHaveText(
+      'Local runs is set to refund_approval · ' +
+        'Run with this input switches it to groom_booking',
+    );
+
+    // Set to this workflow, or to none at all, there
+    // is nothing for a run to switch.
+    for (const selectedWorkflow of ['groom_booking', undefined]) {
+      await harness.show(
+        blockInit(triggerSubject(MANUAL, { text: '{}', selectedWorkflow })),
+      );
+
+      await expect(sample(page).locator('[data-recorded]')).toHaveCount(1);
+      await expect(sample(page).locator('[data-other-workflow]')).toHaveCount(
+        0,
+      );
+    }
+  });
+
+  test('says why the last start of this workflow was refused', async ({
+    page,
+  }) => {
+    const detail = 'The app did not answer on :3000. Start the stack.';
+    const problem = { detail, rebuildToRun: false };
+    const harness = await openInspector(
+      page,
+      blockInit(triggerSubject(MANUAL, { text: '{}', problem })),
+    );
+
+    const refused = sample(page).locator('[data-run-problem]');
+    await expect(refused).toHaveText(detail);
+    await expect(refused).toHaveAttribute('data-tone', 'fail');
+
+    // A refusal is about the workflow the Runs view
+    // is set to, which is not always this one.
+    await harness.show(
+      blockInit(
+        triggerSubject(MANUAL, {
+          text: '{}',
+          problem,
+          selectedWorkflow: 'refund_approval',
+        }),
+      ),
+    );
+
+    await expect(sample(page).locator('[data-other-workflow]')).toHaveCount(1);
+    await expect(sample(page).locator('[data-run-problem]')).toHaveCount(0);
+  });
+
+  test('opens a long input where it can be read', async ({ page }) => {
+    const long = JSON.stringify({ note: 'x'.repeat(110) });
+    expect(inlineJson(JSON.parse(long)).length).toBeGreaterThan(INLINE_LIMIT);
+
+    const harness = await openInspector(
+      page,
+      blockInit(triggerSubject(MANUAL, { text: long })),
+    );
+
+    const artifact = sample(page).locator('[data-recorded] .artifact-ref');
+    await expect(artifact).toHaveCount(1);
+    await expect(artifact.locator('.artifact-size')).toHaveText(
+      filled(inspectorStrings.sizes.bytes, String(long.length)),
+    );
+    await expect(sample(page).locator('.inline-value')).toHaveCount(0);
+
+    await artifact.locator('[data-open-run-input]').click();
+
+    expect(await harness.postedOfType('openRunInput')).toEqual([
+      { type: 'openRunInput' },
+    ]);
+
+    // One short of the limit stays whole.
+    const short = JSON.stringify({ note: 'x'.repeat(106) });
+    expect(inlineJson(JSON.parse(short)).length).toBe(INLINE_LIMIT);
+
+    await harness.show(blockInit(triggerSubject(MANUAL, { text: short })));
+
+    await expect(sample(page).locator('.inline-value')).toHaveCount(1);
+    await expect(sample(page).locator('.artifact-ref')).toHaveCount(0);
+  });
+
+  test('says the input is for Run alone, never part of the workflow', async ({
+    page,
+  }) => {
+    await openInspector(
+      page,
+      blockInit(triggerSubject(MANUAL, { text: '{"bookingId":7}' })),
+    );
+
+    const alone = sample(page).locator('[data-used-by-run]');
+    await expect(alone).toHaveText(
+      'used by Run only · not part of the saved workflow',
+    );
+    await expect(alone).toHaveText(inspectorStrings.usedByRunOnly);
+
+    // There is one way to run a workflow from here,
+    // and nothing on the pane or in its words names
+    // another.
+    const said = await page.locator('body').textContent();
+    expect(said).toContain(inspectorStrings.usedByRunOnly);
+    expect(said).not.toMatch(/debug/i);
+    expect(JSON.stringify(inspectorStrings)).not.toMatch(/debug run/i);
+  });
+
+  test('starts its workflow with the Runs input, and nothing else', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(
+        triggerSubject(MANUAL, {
+          text: '{"bookingId":7}',
+          selectedWorkflow: 'booking_intake',
+          saved: { name: 'booking_intake', mode: 'manual' },
+        }),
+      ),
+    );
+
+    await expect(actions(page).locator(':scope > *')).toHaveCount(2);
+
+    const run = actions(page).locator(':scope > [data-run-trigger]');
+    await expect(run).toHaveText(inspectorStrings.runWithInput);
+    expect(inspectorStrings.runWithInput).toBe('Run with this input');
+    await expect(run).toHaveAttribute('data-variant', 'secondary');
+    await expect(run).toHaveAttribute('data-ink', 'brand');
+
+    const ask = actions(page).locator(':scope > [data-ask-block]');
+    await expect(ask).toHaveAttribute('data-variant', 'quiet');
+    expect(
+      await actions(page)
+        .locator(':scope > *')
+        .evaluateAll((all) => all.map((one) => Object.keys(one.dataset))),
+    ).toEqual([
+      expect.arrayContaining(['runTrigger']),
+      expect.arrayContaining(['askBlock']),
+    ]);
+
+    await run.click();
+    await ask.click();
+
+    expect(await harness.postedOfType('runTrigger')).toEqual([
+      { type: 'runTrigger', workflow: 'booking_intake' },
+    ]);
+    expect(await harness.postedOfType('askAboutBlock')).toEqual([
+      {
+        type: 'askAboutBlock',
+        workflow: 'groom_booking',
+        nodeId: 'booking_requested',
+      },
+    ]);
+  });
+
+  test('leaves a scheduled trigger to its schedule', async ({ page }) => {
+    const harness = await mountInspector(page);
+
+    for (const block of [
+      // Saved on a schedule, and nothing unsaved.
+      triggerSubject(WEEKLY, { text: '{"n":1}' }),
+      // Switched to one and not saved yet: what the
+      // saved file will do once it is.
+      triggerSubject(WEEKLY, {
+        text: '{"n":1}',
+        saved: { name: 'groom_booking', mode: 'manual' },
+        unsaved: true,
+      }),
+    ]) {
+      await harness.show(blockInit(block));
+
+      const scheduled = page.locator('[data-on-schedule]');
+      await expect(scheduled).toHaveText(inspectorStrings.runsOnSchedule);
+      expect(inspectorStrings.runsOnSchedule).toBe('runs on its schedule');
+
+      await expect(sample(page)).toHaveCount(0);
+      await expect(page.locator('[data-recorded]')).toHaveCount(0);
+      await expect(page.locator('[data-used-by-run]')).toHaveCount(0);
+      expect(await page.locator('body').textContent()).not.toContain(
+        inspectorStrings.usedByRunOnly,
+      );
+      await expect(page.locator('[data-run-trigger]')).toHaveCount(0);
+      await expect(page.locator('[data-run-refused]')).toHaveCount(0);
+      await expect(actions(page).locator(':scope > *')).toHaveCount(1);
+      await expect(
+        actions(page).locator(':scope > [data-ask-block]'),
+      ).toHaveCount(1);
+    }
+  });
+
+  test('asks for a save before a run the canvas does not show', async ({
+    page,
+  }) => {
+    const harness = await mountInspector(page);
+    const save = inspectorStrings.saveToRun;
+    expect(save).toBe('save the workflow to run it');
+
+    for (const [why, block] of [
+      [
+        'switched off a saved schedule',
+        triggerSubject(MANUAL, {
+          saved: { name: 'groom_booking', mode: 'schedule' },
+          unsaved: true,
+        }),
+      ],
+      // A file written on a schedule behind a buffer
+      // that has not read it back yet.
+      [
+        'saved on a schedule the canvas is not showing',
+        triggerSubject(MANUAL, {
+          saved: { name: 'groom_booking', mode: 'schedule' },
+        }),
+      ],
+      ['changed and not saved', triggerSubject(MANUAL, { unsaved: true })],
+      ['never saved', triggerSubject(MANUAL, { saved: undefined })],
+      // Unsaved is said first: saving is what gives
+      // the file its topic.
+      [
+        'changed, over a file with no topic',
+        triggerSubject(
+          { mode: 'event', topic: '' },
+          { saved: undefined, needsTopic: true, unsaved: true },
+        ),
+      ],
+    ] as const) {
+      await harness.show(blockInit(block));
+
+      await expect(sample(page), why).toHaveCount(1);
+      await expect(page.locator('[data-run-trigger]'), why).toHaveCount(0);
+
+      const refused = actions(page).locator(':scope > [data-run-refused]');
+      await expect(refused, why).toHaveText(save);
+      await expect(actions(page).locator('[data-ask-block]'), why).toHaveCount(
+        1,
+      );
+    }
+
+    // Named by what the document calls itself.
+    await expect(workflowRow(page)).toHaveText('groom_booking');
+  });
+
+  test('says a saved event trigger needs a topic before it can run', async ({
+    page,
+  }) => {
+    await openInspector(
+      page,
+      blockInit(
+        triggerSubject(
+          { mode: 'event', topic: '' },
+          { saved: undefined, needsTopic: true },
+        ),
+      ),
+    );
+
+    await expect(page.locator('[data-run-trigger]')).toHaveCount(0);
+    await expect(
+      actions(page).locator(':scope > [data-run-refused]'),
+    ).toHaveText(inspectorStrings.needsTopic);
+    expect(inspectorStrings.needsTopic).toBe(
+      'the trigger needs a topic to run',
+    );
+  });
+
+  test('offers nothing to do while an agent’s proposal holds it', async ({
+    page,
+  }) => {
+    await openInspector(
+      page,
+      blockInit(
+        triggerSubject(
+          MANUAL,
+          { text: '{"bookingId":7}' },
+          {
+            source: 'run',
+            revision: undefined,
+            proposal: 'Preview — proposed by Claude · not applied yet',
+            run: runOf(IN_FLIGHT),
+          },
+        ),
+      ),
+    );
+
+    await expect(page.locator('[data-proposal]')).toHaveCount(1);
+    await expect(page.locator('[data-field="mode"] select')).toBeDisabled();
+
+    await expect(page.locator('[data-run-trigger]')).toHaveCount(0);
+    await expect(page.locator('[data-ask-block]')).toHaveCount(0);
+    await expect(page.locator('[data-run-refused]')).toHaveCount(0);
+    await expect(actions(page)).toHaveCount(0);
+  });
+
+  /**
+   * The input is the Runs view's, so nothing a person
+   * does to the trigger's own fields may carry it
+   * into the document. Two edits, the second made
+   * once the first has come back as the next
+   * revision, the way the host answers one.
+   */
+  test('keeps the Runs input out of every edit it sends', async ({ page }) => {
+    const SENTINEL = 'SENTINEL-7f3a';
+    const at = triggerSubject(EVENT, { text: SENTINEL });
+    const harness = await openInspector(page, blockInit(at));
+
+    await expect(sample(page).locator('[data-verbatim]')).toHaveText(SENTINEL);
+
+    const type = page.locator('[data-field="out"] input');
+    await type.fill('BookingRequest');
+    await type.press('Enter');
+
+    await expect
+      .poll(async () => (await harness.postedOfType('edit')).length)
+      .toBe(1);
+
+    const next = triggerSubject(EVENT, { text: SENTINEL });
+    const revision = next.ir.revision + 1;
+    const landed = {
+      ...next,
+      ir: {
+        ...next.ir,
+        revision,
+        nodes: next.ir.nodes.map((one) =>
+          one.id === 'booking_requested'
+            ? { ...one, out: 'BookingRequest' }
+            : one,
+        ),
+      },
+      revision,
+    };
+    await page
+      .locator('[data-field="topic"] input')
+      .evaluate((box) => box.setAttribute('data-probe', ''));
+    await harness.show(blockInit(landed));
+    await expect(page.locator('[data-probe]')).toHaveCount(0);
+
+    const topic = page.locator('[data-field="topic"] input');
+    await topic.fill('booking.created');
+    await topic.press('Enter');
+
+    const edits = async () => harness.postedOfType('edit');
+    await expect.poll(async () => (await edits()).length).toBe(2);
+    expect((await edits()).map((edit) => edit.baseRevision)).toEqual([
+      at.revision,
+      revision,
+    ]);
+
+    expect(JSON.stringify(await harness.posted())).not.toContain(SENTINEL);
+  });
+
+  test('heads a trigger with its derived state on Configure too', async ({
+    page,
+  }) => {
+    await openInspector(
+      page,
+      blockInit(triggerSubject(EVENT, {}, { run: runOf(IN_FLIGHT) })),
+    );
+
+    await expect(page.locator('[data-field="mode"]')).toHaveCount(1);
+
+    const status = page.locator('[data-inspector-header] .status-line');
+    await expect(status).toHaveCount(1);
+    await expect(status).toHaveAttribute('data-run-state', 'done');
+    await expect(status).toHaveAttribute('data-provenance', 'derived');
+    await expect(status.locator('.status-glyph')).toHaveText('✓');
+    await expect(status).toHaveText(`✓${inspectorStrings.runStates.done}`);
+    await expect(status).toHaveAccessibleDescription(/derived/);
+  });
+
+  test('fits every label on one line in the column every block uses', async ({
+    page,
+  }) => {
+    const harness = await mountInspector(page);
+
+    for (const config of [
+      MANUAL,
+      EVENT,
+      { mode: 'event', topic: 'booking.requested' } as const,
+      WEEKLY,
+    ]) {
+      await harness.show(blockInit(triggerSubject(config)));
+
+      const rows = page.locator('[role="tabpanel"] [data-property]');
+      await expect(rows.first()).toBeVisible();
+      const drawn = await rows.all();
+      expect(drawn.length, config.mode).toBeGreaterThanOrEqual(3);
+
+      for (const row of drawn) {
+        const label = row.locator('.property-label');
+        const said = await label.textContent();
+
+        expect(
+          await row.evaluate(
+            (one) => getComputedStyle(one).gridTemplateColumns,
+          ),
+          said ?? '',
+        ).toMatch(/^76px /);
+        expect(await linesIn(label), said ?? '').toBe(1);
+      }
+    }
+
+    // The schedule's own rows are all there to be
+    // measured.
+    await expect(
+      page.locator('[role="tabpanel"] [data-property] .property-label'),
+    ).toHaveText([
+      'kind',
+      'workflow',
+      'input type',
+      'repeat',
+      'on',
+      'at',
+      'timezone',
+      'starts',
+      'ends',
+    ]);
   });
 });

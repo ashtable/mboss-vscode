@@ -1109,6 +1109,15 @@ describe('every field a person sees', () => {
     ).toEqual([]);
   });
 
+  it('says a placeholder only in a field some form binds', () => {
+    const placeholders = Object.keys(strings.placeholders);
+
+    expect(placeholders.length).toBeGreaterThan(0);
+    expect(
+      placeholders.filter((id) => !shown.some((field) => field.id === id)),
+    ).toEqual([]);
+  });
+
   it('has a word for every choice it offers', () => {
     const unlabelled = shown
       .flatMap((field) =>

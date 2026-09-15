@@ -13,6 +13,7 @@ import type {
   BlockSubject,
   InspectorMode,
   InspectorStrings,
+  RunInputView,
   ShownRun,
 } from '../webview/protocol.js';
 import { FieldHint } from '../webview/signal/FieldHint.js';
@@ -132,6 +133,11 @@ export type InspectorProps = {
    *  can be drawn on that field. */
   diagnostics: Diagnostic[];
 
+  /** What the Runs view holds, beside a trigger,
+   *  which a trigger's card reflects and starts a
+   *  run with. */
+  runInput: RunInputView | undefined;
+
   /** Asks for the whole run in the block's place. */
   onShowRun: () => void;
 };
@@ -159,6 +165,7 @@ export function Inspector({
   misfits,
   kindWords,
   diagnostics,
+  runInput,
   onShowRun,
 }: InspectorProps) {
   const selectedId = selected?.node.id;
@@ -300,6 +307,7 @@ export function Inspector({
               block={block}
               held={held}
               ir={selected.ir}
+              workflow={workflow}
               node={selected.node}
               draft={draft}
               readOnly={readOnly}
@@ -307,6 +315,7 @@ export function Inspector({
               lib={lib}
               misfits={misfits}
               diagnostics={diagnostics}
+              runInput={runInput}
               folded={folded}
               setFolded={setFolded}
               onCommit={commit}
@@ -321,6 +330,10 @@ export function Inspector({
                   nodeId: selected.node.id,
                 })
               }
+              onRunTrigger={(name) =>
+                postToHost({ type: 'runTrigger', workflow: name })
+              }
+              onOpenRunInput={() => postToHost({ type: 'openRunInput' })}
             />
           )
         ) : run === undefined || found === undefined ? null : (

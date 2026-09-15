@@ -31,6 +31,7 @@ import type {
   InspectorInit,
   InspectorMode,
   InspectorSubject,
+  RunInputView,
   ShownRun,
 } from '../../../src/webview/protocol.js';
 
@@ -173,6 +174,7 @@ export function blockSubject(
   const nodes = document.nodes.map((one) =>
     one.id === nodeId ? ({ ...one, ...over } as WorkflowNode) : one,
   );
+  const node = nodes.find((one) => one.id === nodeId);
 
   return {
     source: 'canvas',
@@ -189,8 +191,46 @@ export function blockSubject(
     run: undefined,
     functionId: undefined,
     decided: {},
-    runInput: undefined,
+    // The host carries the Runs view's side on a
+    // trigger and on nothing else: here, an empty
+    // box, set to this workflow, saved as it reads.
+    runInput:
+      node?.kind === 'trigger'
+        ? {
+            text: '',
+            selectedWorkflow: document.name,
+            saved: { name: document.name, mode: node.config.mode },
+            needsTopic: false,
+            unsaved: false,
+            problem: undefined,
+          }
+        : undefined,
     proposal: undefined,
+  };
+}
+
+/** How a trigger starts. */
+export type TriggerConfig = Extract<
+  WorkflowNode,
+  { kind: 'trigger' }
+>['config'];
+
+/**
+ * The canonical document's trigger, set to start
+ * the way a test needs, beside what the Runs view
+ * holds for it.
+ */
+export function triggerSubject(
+  config: TriggerConfig,
+  runInput: Partial<RunInputView> = {},
+  over: Partial<BlockSubject> = {},
+): BlockSubject {
+  const block = blockSubject('booking_requested', { config });
+
+  return {
+    ...block,
+    runInput: { ...block.runInput!, ...runInput },
+    ...over,
   };
 }
 

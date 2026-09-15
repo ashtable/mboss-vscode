@@ -522,6 +522,27 @@ function asRaw(raw: string, serialization: string | null): RunInput {
 }
 
 /**
+ * What a run's input box holds, as the payload a
+ * start sends.
+ *
+ * An empty box is a run with no input rather than
+ * a mistake — plenty of workflows take none — and
+ * anything else has to be JSON before it is worth
+ * sending, because the route parses it and would
+ * only say the same thing later.
+ *
+ * Here, beside what a run was started with, rather
+ * than beside the start: a trigger's card says what
+ * Run will do with the box, and one rule read by
+ * both is how the card and the start agree.
+ */
+export function payloadIn(
+  typed: string,
+): { ok: true; value: unknown } | { ok: false } {
+  return typed.trim() === '' ? { ok: true, value: undefined } : jsonIn(typed);
+}
+
+/**
  * How much of a step's output a panel will hold.
  *
  * A step may return a megabyte, and a cell that

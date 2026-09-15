@@ -18,8 +18,20 @@ import type {
   WorkflowIR,
   WorkflowNode,
 } from '../core/rules.js';
+import {
+  INLINE_LIMIT,
+  OUTPUT_KEPT,
+  inlineJson,
+  payloadIn,
+  sizeOf,
+  type SizeWords,
+} from '../runs/rows.js';
 import { filled } from '../webview/fill.js';
-import type { InspectorStrings } from '../webview/protocol.js';
+import type {
+  InspectorStrings,
+  RecordedValue,
+  RunInputView,
+} from '../webview/protocol.js';
 import { Button } from '../webview/signal/Button.js';
 import { Callout } from '../webview/signal/Callout.js';
 import { EmptyState } from '../webview/signal/EmptyState.js';
@@ -39,6 +51,7 @@ import {
 } from './lens.js';
 import { fieldNotes } from './notes.js';
 import { outcomesOf } from './outcomes.js';
+import { Recorded } from './Value.js';
 
 /**
  * The Configure face: the one place a block's
@@ -64,6 +77,12 @@ import { outcomesOf } from './outcomes.js';
  * drawn over the document — every field is still
  * drawn, so what the block is set to can be read,
  * and none of them can be changed.
+ *
+ * A trigger is the one block with no function. It
+ * is how DBOS starts the workflow, so its form says
+ * how it starts, and in place of the function it
+ * reflects the input a run from the Runs view would
+ * start the workflow with, and offers that run.
  */
 
 /** The field a block is renamed in, which is drawn
@@ -210,6 +229,7 @@ export function ConfigureFace({
   block,
   held,
   ir,
+  workflow,
   node,
   draft,
   readOnly,
@@ -217,12 +237,15 @@ export function ConfigureFace({
   lib,
   misfits,
   diagnostics,
+  runInput,
   folded,
   setFolded,
   onCommit,
   onAssign,
   onOpenFunction,
   onAskAgent,
+  onRunTrigger,
+  onOpenRunInput,
 }: {
   strings: InspectorStrings;
 
@@ -234,6 +257,9 @@ export function ConfigureFace({
   held: RefObject<Held | undefined>;
 
   ir: WorkflowIR;
+
+  /** The workflow's name, as the document says it. */
+  workflow: string;
 
   /** The block as the document has it. */
   node: WorkflowNode;
@@ -250,12 +276,18 @@ export function ConfigureFace({
   lib: LibFunction[] | undefined;
   misfits: Record<HandlerMisfit['kind'], string>;
   diagnostics: Diagnostic[];
+
+  /** What the Runs view holds, beside a trigger. */
+  runInput: RunInputView | undefined;
+
   folded: Set<string>;
   setFolded: Dispatch<SetStateAction<Set<string>>>;
   onCommit: (field: InspectorField) => void;
   onAssign: (exported: string | null) => void;
   onOpenFunction: () => void;
   onAskAgent: () => void;
+  onRunTrigger: (workflow: string) => void;
+  onOpenRunInput: () => void;
 }) {
   const form = configToForm(draft);
   const rows = useHandsBack<HTMLDivElement>(held, block);
@@ -294,6 +326,21 @@ export function ConfigureFace({
   const retries =
     tries?.control === 'number' && tries.value !== null && tries.value > 1;
   const retriesEnd = groupEnd(shown, RETRY_POLICY);
+
+  // A trigger on a schedule is started by DBOS's
+  // scheduler and never by Run. Read off the
+  // document rather than the saved file, so a switch
+  // not saved yet says what the file will do once it
+  // is.
+  const scheduled = node.kind === 'trigger' && node.config.mode === 'schedule';
+
+  // Where a run can be started from this card: only
+  // a trigger's, and never one on a schedule, which
+  // the card says in the run's place.
+  const start =
+    node.kind !== 'trigger' || scheduled || runInput === undefined
+      ? undefined
+      : startFrom(runInput, strings, onRunTrigger);
 
   // One form asks for a wider label column. A
   // queue's limits are told apart by the scope in
@@ -391,20 +438,29 @@ export function ConfigureFace({
       )}
 
       <div className="configure" ref={rows}>
-        {shown.map((field, at) => {
-          const drawn = drawField(field, shown[at - 1]);
+        {form.kind === 'trigger' ? (
+          <StartsOn
+            strings={strings}
+            workflow={runInput?.saved?.name ?? workflow}
+            fields={shown}
+            draw={(field) => drawField(field, undefined)}
+          />
+        ) : (
+          shown.map((field, at) => {
+            const drawn = drawField(field, shown[at - 1]);
 
-          return at === retriesEnd && retries ? (
-            <Fragment key={field.id}>
-              {drawn}
-              <FieldHint hook={{ 'retry-hint': '' }}>
-                {strings.durationCoversTries}
-              </FieldHint>
-            </Fragment>
-          ) : (
-            drawn
-          );
-        })}
+            return at === retriesEnd && retries ? (
+              <Fragment key={field.id}>
+                {drawn}
+                <FieldHint hook={{ 'retry-hint': '' }}>
+                  {strings.durationCoversTries}
+                </FieldHint>
+              </Fragment>
+            ) : (
+              drawn
+            );
+          })
+        )}
 
         {outcomesOf(ir, node).map((outcome) => (
           <PropertyRow
@@ -445,15 +501,238 @@ export function ConfigureFace({
         )}
       </div>
 
+      {scheduled ? (
+        <FieldHint hook={{ 'on-schedule': '' }}>
+          {strings.runsOnSchedule}
+        </FieldHint>
+      ) : node.kind !== 'trigger' || runInput === undefined ? null : (
+        <RunSample strings={strings} input={runInput} onOpen={onOpenRunInput} />
+      )}
+
       <Actions
         strings={strings}
         node={node}
         readOnly={readOnly}
+        start={start}
         onOpenFunction={onOpenFunction}
         onAskAgent={onAskAgent}
       />
     </>
   );
+}
+
+/**
+ * How a trigger starts: what kind of start it is,
+ * the workflow it starts and the type of the input
+ * it starts that workflow with, then whatever that
+ * kind of start is set by.
+ *
+ * Drawn in an order of its own rather than the
+ * form's. The form also lists a type the trigger
+ * takes, which is never drawn: nothing hands a
+ * trigger anything. The workflow is read rather
+ * than set, because it is the file's.
+ */
+function StartsOn({
+  strings,
+  workflow,
+  fields,
+  draw,
+}: {
+  strings: InspectorStrings;
+
+  /** The saved workflow's name where the Runs view
+   *  has one, which is the name a run starts. */
+  workflow: string;
+
+  fields: InspectorField[];
+  draw: (field: InspectorField) => ReactNode;
+}) {
+  const kind = fields.find((field) => field.id === 'mode');
+  const type = fields.find((field) => field.id === 'out');
+  const rest = fields.filter(
+    (field) => !['in', 'mode', 'out'].includes(field.id),
+  );
+
+  return (
+    <>
+      <Group id="startsOn" name={strings.startsOn} />
+
+      {kind === undefined ? null : draw(kind)}
+
+      <PropertyRow
+        label={strings.workflow}
+        value={workflow}
+        mono
+        hook={{ workflow: '' }}
+      />
+
+      {type === undefined ? null : draw(type)}
+
+      {rest.map((field) => draw(field))}
+
+      <FieldHint hook={{ 'owns-no-function': '' }}>
+        {strings.triggerOwnsNoFunction}
+      </FieldHint>
+    </>
+  );
+}
+
+/**
+ * What Run with this input would start the
+ * workflow with: the Runs view's input box, read
+ * here and never written, so the box stays the one
+ * place a run's input is typed.
+ *
+ * Drawn as Run takes it. An empty box is a run with
+ * no input, and text that is not JSON is drawn as it
+ * was typed beside the refusal Run would give. Where
+ * the Runs view is set to another workflow the card
+ * says that Run switches it, and where the Runs
+ * view's last start of this workflow was refused,
+ * why.
+ */
+function RunSample({
+  strings,
+  input,
+  onOpen,
+}: {
+  strings: InspectorStrings;
+  input: RunInputView;
+  onOpen: () => void;
+}) {
+  const { saved, selectedWorkflow, problem } = input;
+  const drawn = sampleOf(input.text, strings.sizes);
+
+  // Set to no workflow, the Runs view has none for
+  // a run to switch it from.
+  const switches =
+    saved === undefined ||
+    selectedWorkflow === undefined ||
+    selectedWorkflow === saved.name
+      ? undefined
+      : filled(strings.localRunsSetTo, selectedWorkflow, saved.name);
+
+  // A refusal is about the workflow the Runs view is
+  // set to, which is this card's only when it is
+  // this workflow.
+  const refusal =
+    saved !== undefined && selectedWorkflow === saved.name
+      ? problem?.detail
+      : undefined;
+
+  return (
+    <section className="run-sample" data-run-sample="">
+      <SectionLabel>{strings.sampleInput}</SectionLabel>
+
+      {drawn === undefined ? (
+        <FieldHint hook={{ 'no-input': '' }}>{strings.noInputRun}</FieldHint>
+      ) : (
+        <Recorded
+          value={drawn.value}
+          words={{
+            inline: strings.inline,
+            artifact: strings.artifact,
+            open: strings.openInput,
+          }}
+          onOpen={onOpen}
+          openHook={{ 'open-run-input': '' }}
+        />
+      )}
+
+      {drawn === undefined || drawn.json ? null : (
+        <FieldHint tone="warn" hook={{ 'not-json': '' }}>
+          {strings.notJsonYet}
+        </FieldHint>
+      )}
+
+      {switches === undefined ? null : (
+        <FieldHint tone="warn" hook={{ 'other-workflow': '' }}>
+          {switches}
+        </FieldHint>
+      )}
+
+      {refusal === undefined ? null : (
+        <FieldHint tone="fail" hook={{ 'run-problem': '' }}>
+          {refusal}
+        </FieldHint>
+      )}
+
+      <FieldHint hook={{ 'used-by-run': '' }}>
+        {strings.usedByRunOnly}
+      </FieldHint>
+    </section>
+  );
+}
+
+/**
+ * The Runs view's input as a card draws it, or
+ * nothing for an empty box.
+ *
+ * JSON is printed the way a recorded payload is, and
+ * anything else as it was typed; either is whole
+ * where it is short and named by its size where it
+ * is not, by the one limit every recorded value is
+ * drawn under.
+ */
+function sampleOf(
+  typed: string,
+  sizes: SizeWords,
+): { value: RecordedValue; json: boolean } | undefined {
+  const read = payloadIn(typed);
+
+  // JSON has no `undefined`, so only an empty box
+  // reads as one.
+  if (read.ok && read.value === undefined) return undefined;
+
+  const shown = read.ok ? inlineJson(read.value) : typed;
+
+  return {
+    json: read.ok,
+    value:
+      shown.length <= INLINE_LIMIT
+        ? { kind: 'inline', text: shown }
+        : {
+            kind: 'artifact',
+            preview: shown.slice(0, OUTPUT_KEPT),
+            size: sizeOf(new TextEncoder().encode(typed).length, sizes),
+          },
+  };
+}
+
+/** A run a card can start, or the one sentence
+ *  saying why it cannot. */
+type Start = { ok: true; onStart: () => void } | { ok: false; reason: string };
+
+/**
+ * Whether Run with this input would start what the
+ * canvas shows, and why not where it would not.
+ *
+ * A run starts the workflow as it was saved and
+ * built, by its saved name. So any unsaved change —
+ * to this trigger or to any other block — means a
+ * run would start something that is not on screen,
+ * and that is said first, since saving is also how
+ * a file gets a topic it lacks. A file the Runs view
+ * has no entry for was never saved, or was saved as
+ * an event trigger with no topic, and only the
+ * second has more to say.
+ */
+function startFrom(
+  input: RunInputView,
+  strings: InspectorStrings,
+  onRun: (workflow: string) => void,
+): Start {
+  const { saved, unsaved, needsTopic } = input;
+
+  if (!unsaved && saved !== undefined && saved.mode !== 'schedule') {
+    return { ok: true, onStart: () => onRun(saved.name) };
+  }
+
+  return {
+    ok: false,
+    reason: !unsaved && needsTopic ? strings.needsTopic : strings.saveToRun,
+  };
 }
 
 /**
@@ -477,26 +756,30 @@ function groupEnd(fields: InspectorField[], id: string): number | undefined {
 
 /**
  * The ways out of the form, at its foot: to the code
- * the block runs, and to the agent.
+ * the block runs, to a run, and to the agent.
  *
  * The code only where a function is behind the
- * block, since there is nothing else to open. The
- * agent only where the block may be changed: what
- * holds a block back is an agent's proposal waiting
- * on the document, and a question put over it would
- * be answered about a block that is about to be
- * something else.
+ * block, since there is nothing else to open. A run
+ * only where the card offers one, and in its place
+ * the sentence saying why where the card cannot
+ * start it. The run and the agent only where the
+ * block may be changed: what holds a block back is
+ * an agent's proposal waiting on the document, and a
+ * question put over it, or a run of it, would be
+ * about a block that is about to be something else.
  */
 function Actions({
   strings,
   node,
   readOnly,
+  start,
   onOpenFunction,
   onAskAgent,
 }: {
   strings: InspectorStrings;
   node: WorkflowNode;
   readOnly: boolean;
+  start: Start | undefined;
   onOpenFunction: () => void;
   onAskAgent: () => void;
 }) {
@@ -516,6 +799,19 @@ function Actions({
           {strings.openHandler}
         </Button>
       ) : null}
+
+      {readOnly || start === undefined ? null : start.ok ? (
+        <Button
+          variant="secondary"
+          ink="brand"
+          hook={{ 'run-trigger': '' }}
+          onClick={start.onStart}
+        >
+          {strings.runWithInput}
+        </Button>
+      ) : (
+        <FieldHint hook={{ 'run-refused': '' }}>{start.reason}</FieldHint>
+      )}
 
       {readOnly ? null : (
         <Button variant="quiet" hook={{ 'ask-block': '' }} onClick={onAskAgent}>
@@ -1126,6 +1422,7 @@ function Control({
           {...named}
           mono
           value={field.value}
+          placeholder={strings.placeholders[field.id]}
           readOnly={readOnly}
           onCommit={(value) => onCommit({ ...field, value })}
         />

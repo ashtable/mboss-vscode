@@ -334,6 +334,21 @@ body {
   margin-top: var(--space-2);
 }
 
+/* The workflow a trigger starts is read, between
+   rows of fields. Its name starts where their text
+   does, inside their padding and edge, so the
+   values read down one edge whether or not a theme
+   draws the fields' boxes. */
+.configure > .property[data-workflow] > .value {
+  padding-inline-start: calc(var(--space-1-5) + 1px);
+}
+
+/* A sentence about the whole form, after it: as far
+   off the form as a group under its own label. */
+.configure + .field-hint {
+  margin-top: var(--space-3);
+}
+
 /* The ways out of the form, at its foot, each
    Button its own width. Set further off than the
    rows are from each other: nothing in it is set,
@@ -344,6 +359,26 @@ body {
   align-items: center;
   gap: var(--space-2);
   margin-top: var(--space-2);
+}
+
+/* Why a run is not on offer, said on a line of its
+   own where the Button would be, so the Buttons
+   after it start their own line rather than
+   squeezing a sentence between them. */
+.configure-actions > .field-hint {
+  flex-basis: 100%;
+}
+
+/* The input a run from a trigger's card would
+   send, under a label of its own: set off from the
+   rows above as a group is, and each sentence about
+   it a step closer to it than the label is. */
+.run-sample {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+  padding-top: var(--space-3);
 }
 
 /* — what a run recorded about a block — */
