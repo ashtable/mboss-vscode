@@ -2574,7 +2574,7 @@ test.describe('the Inspector column', () => {
     await harness.show(canvasInit({ ...showing('reply_decision') }));
 
     await expect(page.locator('[data-inspector-heading]')).toHaveText(
-      'Node inspector · Branch',
+      `${inspectorStrings.heading} · Branch`,
     );
     await expect(page.locator('[data-field="title"] input')).toHaveValue(
       'Reply?',

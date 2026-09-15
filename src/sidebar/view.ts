@@ -65,6 +65,10 @@ export type SidebarRuns = {
 export class AgentSidebarView implements WebviewViewProvider {
   static readonly viewType = 'mboss.agentSidebar';
 
+  /** The pane VS Code last resolved, until it is
+   *  closed. */
+  private view: WebviewView | undefined;
+
   constructor(
     private readonly extensionUri: Uri,
     private readonly panel: AgentPanel,
@@ -73,20 +77,36 @@ export class AgentSidebarView implements WebviewViewProvider {
     private readonly runs: SidebarRuns,
   ) {}
 
-  static register(
-    extensionUri: Uri,
-    panel: AgentPanel,
-    chooseAgent: () => Promise<void>,
-    preview: PreviewStore,
-    runs: SidebarRuns,
-  ): Disposable {
+  /** Registers a provider that `extension.ts` built,
+   *  so it can still be asked whether its pane is on
+   *  screen. */
+  static register(provider: AgentSidebarView): Disposable {
     return window.registerWebviewViewProvider(
       AgentSidebarView.viewType,
-      new AgentSidebarView(extensionUri, panel, chooseAgent, preview, runs),
+      provider,
     );
   }
 
+  /**
+   * Whether this pane is on screen: expanded, in the
+   * container the side bar shows.
+   *
+   * The Inspector sits in the same container, and
+   * this is how it learns whether that container is
+   * showing without asking the editor for a view it
+   * does not own. A pane never resolved, or closed,
+   * is not on screen.
+   */
+  visible(): boolean {
+    return this.view?.visible ?? false;
+  }
+
   resolveWebviewView(view: WebviewView): void {
+    this.view = view;
+    view.onDidDispose(() => {
+      if (this.view === view) this.view = undefined;
+    });
+
     const draw = (): SidebarInit => sidebarInit(this.panel, this.preview);
 
     mountWebview(view, {

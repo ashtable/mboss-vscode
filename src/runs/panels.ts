@@ -51,24 +51,43 @@ function pointIn(said: {
 export class RunsListView implements WebviewViewProvider {
   static readonly viewType = 'mboss.runs';
 
+  /** The pane VS Code last resolved, until it is
+   *  closed. */
+  private view: WebviewView | undefined;
+
   constructor(
     private readonly extensionUri: Uri,
     private readonly store: RunsStore,
     private readonly see: SeePanel,
   ) {}
 
-  static register(
-    extensionUri: Uri,
-    store: RunsStore,
-    see: SeePanel,
-  ): Disposable {
-    return window.registerWebviewViewProvider(
-      RunsListView.viewType,
-      new RunsListView(extensionUri, store, see),
-    );
+  /** Registers a provider that `extension.ts` built,
+   *  so it can still be asked whether its pane is on
+   *  screen. */
+  static register(provider: RunsListView): Disposable {
+    return window.registerWebviewViewProvider(RunsListView.viewType, provider);
+  }
+
+  /**
+   * Whether this pane is on screen: expanded, in the
+   * container the side bar shows.
+   *
+   * The Inspector sits in the same container, and
+   * this is how it learns whether that container is
+   * showing without asking the editor for a view it
+   * does not own. A pane never resolved, or closed,
+   * is not on screen.
+   */
+  visible(): boolean {
+    return this.view?.visible ?? false;
   }
 
   resolveWebviewView(view: WebviewView): void {
+    this.view = view;
+    view.onDidDispose(() => {
+      if (this.view === view) this.view = undefined;
+    });
+
     mountWebview(view, {
       extensionUri: this.extensionUri,
       view: 'runs',

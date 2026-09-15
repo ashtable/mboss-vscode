@@ -124,6 +124,7 @@ describe('what each view may say', () => {
       'sidebar',
       'runs',
       'see',
+      'inspector',
       'gallery',
     ] as const) {
       expect(messageSchemaFor(view).safeParse({ type: 'ready' }).success).toBe(
@@ -148,7 +149,7 @@ describe('what each view may say', () => {
    * run page and the list both open a run.
    */
   const POSTS: Record<string, readonly WebviewName[]> = {
-    ready: ['canvas', 'sidebar', 'runs', 'see', 'gallery'],
+    ready: ['canvas', 'sidebar', 'runs', 'see', 'inspector', 'gallery'],
 
     select: ['canvas'],
     inspectorMode: ['canvas'],
@@ -285,6 +286,7 @@ describe('what each view may say', () => {
     'sidebar',
     'runs',
     'see',
+    'inspector',
     'gallery',
   ];
 

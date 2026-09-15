@@ -138,6 +138,38 @@ describe('the agent sidebar', () => {
 
     expect(reached).toEqual([['detach', 'file:///project/lib/a.ts']]);
   });
+
+  /**
+   * Whether the mBoss container is on screen is
+   * read off its panes, and this is one of them. A
+   * pane nobody has opened yet has no frame to ask,
+   * and one that was closed has none any more.
+   */
+  it('shows nothing until resolved, then what its frame shows', () => {
+    const frame = fakeWebview();
+    const view = new AgentSidebarView(
+      extensionUri,
+      panel,
+      async () => undefined,
+      preview,
+      { openRun: async () => undefined, replayFrom: async () => undefined },
+    );
+
+    expect(view.visible()).toBe(false);
+
+    view.resolveWebviewView(frame.panel);
+
+    expect(view.visible()).toBe(true);
+
+    frame.hide();
+
+    expect(view.visible()).toBe(false);
+
+    frame.show();
+    frame.close();
+
+    expect(view.visible()).toBe(false);
+  });
 });
 
 /**

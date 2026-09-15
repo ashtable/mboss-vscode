@@ -27,7 +27,7 @@ import type { runsWords, seeWords } from '../runs/words.js';
 import type { WorkflowTrigger } from '../runs/workflows.js';
 import type { sidebarWords } from '../sidebar/words.js';
 
-import type { RunWord } from './states.js';
+import type { GlyphState, RunWord } from './states.js';
 
 /**
  * What the host and a webview say to each other.
@@ -83,7 +83,7 @@ export type ShownRun = LiveRun & {
 
 /** Sent whenever the host has state to show. */
 export type HostMessage =
-  CanvasInit | SidebarInit | RunsInit | SeeInit | GalleryInit;
+  CanvasInit | SidebarInit | RunsInit | SeeInit | InspectorInit | GalleryInit;
 
 export type CanvasInit = {
   type: 'init';
@@ -1041,6 +1041,200 @@ export type SeeRawRow = {
 };
 
 export type SeeStrings = ReturnType<typeof seeWords>;
+
+/**
+ * The Inspector: one pane in the side bar about
+ * whichever canvas or run tab was last in front.
+ *
+ * One pane rather than a column in each surface,
+ * so a block reads the same wherever somebody
+ * picked it, and the run tab has room for its
+ * graph and its trace. The host decides what the
+ * pane is about and sends the whole of it; the
+ * pane holds nothing, like every other view.
+ */
+export type InspectorInit = {
+  type: 'init';
+  view: 'inspector';
+  strings: InspectorStrings;
+  subject: InspectorSubject;
+};
+
+/**
+ * What the pane is about: nothing, a block, or a
+ * whole run.
+ *
+ * Nothing still names the canvas file when a canvas
+ * is in front, so a person can tell an empty pane
+ * waiting on that canvas from one about no surface
+ * at all.
+ */
+export type InspectorSubject =
+  | { at: 'none'; file: string | undefined }
+  | { at: 'block'; block: BlockSubject }
+  | { at: 'run'; run: RunLevel };
+
+/**
+ * A block, from a canvas or from the run tab.
+ *
+ * Configure reads the document buffer on either
+ * surface, because an edit lands in the buffer and
+ * the run tab's own copy was read off disk once.
+ */
+export type BlockSubject = {
+  source: 'canvas' | 'run';
+
+  /** The workflow file's name,
+   *  `<name>.workflow.json`. */
+  file: string;
+
+  workflow: string;
+
+  /** The document buffer's IR (a canvas session's,
+   *  or the text document's), never the run's disk
+   *  copy. */
+  ir: WorkflowIR;
+
+  /** Present when the buffer parses and no proposal
+   *  is showing: what every edit carries as
+   *  `baseRevision`. */
+  revision: number | undefined;
+
+  nodeId: string;
+
+  face: InspectorMode;
+
+  manifest: LibManifest | undefined;
+
+  diagnostics: Diagnostic[];
+
+  paletteLabels: Record<NodeKind, string>;
+
+  kindWords: Record<NodeKind, string>;
+
+  run: ShownRun | undefined;
+
+  /** The row a run-tab selection picked; the
+   *  block's headline row when absent. */
+  functionId: number | undefined;
+
+  decided: Record<string, string>;
+
+  /** Only on a trigger block. */
+  runInput: RunInputView | undefined;
+};
+
+/**
+ * The Runs panel's input, as a trigger's card shows
+ * it: read there and never written from here, so
+ * the panel stays the one place a run's input is
+ * typed.
+ */
+export type RunInputView = {
+  /** What the Runs panel's input box holds right
+   *  now. */
+  text: string;
+
+  /** The workflow the Runs panel is set to. */
+  selectedWorkflow: string | undefined;
+
+  /** This document's entry in the Runs panel's
+   *  saved workflows, matched by file path. */
+  saved: { name: string; mode: WorkflowTrigger['mode'] } | undefined;
+
+  /** Why the saved file is not runnable although it
+   *  is on disk: its event trigger has no topic. */
+  needsTopic: boolean;
+
+  /** The document buffer has unsaved changes, so a
+   *  run would start the saved workflow, not the
+   *  one shown. */
+  unsaved: boolean;
+
+  problem: TestRunProblem | undefined;
+};
+
+/**
+ * A whole run, when one is in front and no block of
+ * it is picked.
+ *
+ * The recovery sentences, the lineage and the
+ * replay note are read only on the run tab, which
+ * reads the ledger for them; a run a canvas follows
+ * carries none of the three.
+ */
+export type RunLevel = {
+  source: 'canvas' | 'run';
+
+  workflowId: string;
+
+  short: string;
+
+  workflow: string;
+
+  state: GlyphState;
+
+  /** The run's one line: "done · 1.6 s",
+   *  "waiting", "done · 9.1 s · ↻ recovered". */
+  line: string;
+
+  input: RecordedValue | undefined;
+
+  ledger: { label: string; value: string }[];
+
+  recovery: string[] | undefined;
+
+  /** The parent first (at most one `of`), then one
+   *  `to` per replay started from this run; empty
+   *  when nothing was replayed either side. */
+  lineage: RunLineage[];
+
+  controls: {
+    cancel: boolean;
+    resume: boolean;
+    cancelledAt: string | undefined;
+    gaveUp: boolean;
+  };
+
+  /** Whether Replay from start (a fork at step 0)
+   *  is on offer; `replayRefused` says why when it
+   *  is not. */
+  replayStart: boolean;
+
+  replayRefused: string | undefined;
+
+  note: string | undefined;
+};
+
+/** A recorded value: short enough to show whole, or
+ *  a preview with its size and a way to open it. */
+export type RecordedValue =
+  | { kind: 'inline'; text: string }
+  | { kind: 'artifact'; preview: string; size: string };
+
+/** One lineage line. The view composes the words,
+ *  because each id in them is a Button. */
+export type RunLineage =
+  | {
+      /** The run this one was replayed from. */
+      direction: 'of';
+      workflowId: string;
+      short: string;
+      /** This run's own first step: where the
+       *  replay forked. */
+      startStep: number;
+    }
+  | {
+      /** A replay started from this run. */
+      direction: 'to';
+      workflowId: string;
+      short: string;
+      /** The replay's own first step. */
+      startStep: number;
+      /** The replay's word, as a run's outcome is
+       *  said. */
+      word: string;
+    };
 
 /**
  * The patterns a workflow can be started from.

@@ -690,6 +690,9 @@ const SCHEMAS = {
     CancelRun,
     ResumeRun,
   ]),
+  // Only that it has mounted: a pane about nothing
+  // offers nothing to press.
+  inspector: z.discriminatedUnion('type', [Ready]),
   gallery: z.discriminatedUnion('type', [Ready, UsePattern, StartBlank]),
 };
 

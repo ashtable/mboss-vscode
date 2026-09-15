@@ -1,0 +1,60 @@
+@import '../webview/tokens.css';
+
+/**
+ * The Inspector pane.
+ *
+ * A pane docked in the side bar beside Agent and
+ * Runs, so it sits on the side bar's ground rather
+ * than the editor's or a widget's: any other ground
+ * shows as a seam against the panes above it.
+ */
+
+body {
+  --canvas: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+
+/* The height of the pane rather than at least it.
+   A pane is usually shorter than what it holds, and
+   a page that scrolled would carry the header away
+   with it; whatever scrolls does so inside. */
+.inspector-view {
+  box-sizing: border-box;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* — the header — */
+
+/* The title, then the file at the row's far end on
+   the same baseline. No rule under it: nothing
+   below is a section it has to be told apart from. */
+.inspector-header {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3-5) 0;
+}
+
+.inspector-title {
+  flex: none;
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--w-semibold);
+  line-height: var(--leading-tight);
+  color: var(--ink);
+}
+
+/* A file name is what the machine calls it, and a
+   long one gives way before the title does. */
+.inspector-file {
+  min-width: 0;
+  margin-inline-start: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}

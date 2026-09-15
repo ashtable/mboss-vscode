@@ -85,8 +85,9 @@
     }
   },
   "inspectorWords": {
-    "heading": "Node inspector",
-    "nothingSelected": "Pick a block to set what it does.",
+    "heading": "Inspector",
+    "nothingSelected": "Pick a block to set what it does",
+    "nothingSelectedDetail": "Select a node on the canvas, or open a run to see what it recorded.",
     "tabs": {
       "configure": "Configure",
       "evidence": "Run evidence"

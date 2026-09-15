@@ -344,8 +344,16 @@ function boardLabels(): Record<string, string> {
  * drift.
  */
 export const inspectorWords = once(() => ({
-  heading: l10n.t('Node inspector'),
-  nothingSelected: l10n.t('Pick a block to set what it does.'),
+  heading: l10n.t('Inspector'),
+
+  // A title, so no full stop, and the sentence
+  // under it says where to pick from. Opening a run
+  // is what gives the pane a run to be about: a row
+  // picked in the Runs list only marks that row.
+  nothingSelected: l10n.t('Pick a block to set what it does'),
+  nothingSelectedDetail: l10n.t(
+    'Select a node on the canvas, or open a run to see what it recorded.',
+  ),
 
   // The column's two faces, named for the question
   // each answers rather than for the panel it draws:

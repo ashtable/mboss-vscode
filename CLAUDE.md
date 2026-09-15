@@ -4,13 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-The mBoss VS Code extension ("Design Durable Apps with DBOS"). It contributes five
+The mBoss VS Code extension ("Design Durable Apps with DBOS"). It contributes six
 React webviews — the **workflow canvas** (a custom editor for
 `**/.mboss/workflows/*.workflow.json`), the **agent sidebar** (an Agent Client
 Protocol client that drives claude-code / codex / gemini / a custom command), the
 **Runs** list (a project's DBOS run history read from the project's own Postgres),
-the **See** panel (one run in detail) and the **gallery** (the patterns a workflow
-can be started from) — and it ships an MCP server bundle plus
+the **See** panel (one run in detail), the **Inspector** (a side-bar pane about
+whichever canvas or run tab was last in front) and the **gallery** (the patterns a
+workflow can be started from) — and it ships an MCP server bundle plus
 an Agent Skill that it copies into every project it creates or refreshes.
 
 Three nested git submodules, each pinned to a version branch in `.gitmodules`
@@ -77,8 +78,8 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
 
 `src/build.ts` makes two esbuild calls because `platform` is per build: the
 host (`src/extension.ts` → `dist/extension.cjs`, CommonJS, `@mboss/core`
-aliased, `vscode` + DBOS/elk optional requires external) and the five webviews
-(`src/{canvas,sidebar,runs,see,gallery}/index.tsx` → `dist/webview/<name>.{js,css}`,
+aliased, `vscode` + DBOS/elk optional requires external) and the six webviews
+(`src/{canvas,sidebar,runs,see,inspector,gallery}/index.tsx` → `dist/webview/<name>.{js,css}`,
 ESM, browser, **no alias, no externals but `*.woff2`**). `WEBVIEW_ENTRIES` is
 typed against `WebviewName` in `src/webview/entry.ts`.
 
@@ -131,7 +132,7 @@ behaviour modules take the editor as an argument:
   canvas editor.
 - Only editor plumbing value-imports `vscode`: `extension.ts`, `messages.ts`,
   `trust.ts`, the four `words.ts`, `vscodeApi.ts`, `statusBar.ts`, the providers
-  (`sidebar/view.ts`, `runs/panels.ts`, `canvas/editor.ts`,
+  (`sidebar/view.ts`, `runs/panels.ts`, `inspector/view.ts`, `canvas/editor.ts`,
   `gallery/panel.ts`), `webview/host.ts`, every `host.ts`, and `acp/fs.ts`. `import type { Disposable } from 'vscode'` is fine anywhere.
 - `src/webview/host.ts` is a different kind of `host.ts`: the host side of the
   webview protocol (see below).
@@ -223,7 +224,7 @@ behaviour modules take the editor as an argument:
   `mountView` in `src/webview/mount.tsx`.
 - Host → webview is trusted and is always one whole `init` (the `HostMessage`
   union in `protocol.ts`), re-sent on every change. `protocol.ts` is a
-  declaration file rather than a module — five near-disjoint regions, one per
+  declaration file rather than a module — six near-disjoint regions, one per
   view, plus the union and `isHostMessageFor` — and it imports **only leaves**:
   a type it needs must come from a module that does not import it back, which
   is why `StackAction` lives in `runs/stack.ts` beside the commands it names

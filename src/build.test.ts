@@ -580,9 +580,10 @@ describe('building over an older build', () => {
 describe('the entry list', () => {
   /**
    * One entry per surface a frame is pointed at.
-   * The Inspector is not one of them: it is the
-   * canvas' own right-hand column, drawn from the
-   * same message as the graph beside it.
+   * The Inspector is one of them: a frame of its
+   * own in the side bar, drawn from one message the
+   * host builds from whichever canvas or run tab
+   * was last in front.
    */
   it('names the surfaces this extension puts in a frame', () => {
     expect([...WEBVIEW_ENTRIES]).toEqual([
@@ -590,6 +591,7 @@ describe('the entry list', () => {
       'sidebar',
       'runs',
       'see',
+      'inspector',
       'gallery',
     ]);
   });

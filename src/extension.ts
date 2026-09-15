@@ -13,6 +13,7 @@ import { isProject, workflowDocument } from './core/index.js';
 import { galleryHost } from './gallery/host.js';
 import { GalleryPanel } from './gallery/panel.js';
 import { inspectorFocus } from './inspector/focus.js';
+import { InspectorView } from './inspector/view.js';
 import { previewStore } from './preview/store.js';
 import { openDatabase, openManagement } from './runs/db.js';
 import { projectSdk } from './runs/sdk.js';
@@ -210,6 +211,25 @@ export function activate(context: ExtensionContext): void {
     workspace.onDidChangeWorkspaceFolders(() => panel.refresh()),
   );
 
+  // The three panes of the mBoss container, built
+  // here rather than inside their registrations, so
+  // the Agent and Runs panes can still be asked
+  // whether they are on screen.
+  const agentView = new AgentSidebarView(
+    context.extensionUri,
+    panel,
+    pickAgent,
+    preview,
+    { openRun, replayFrom: canvasRuns.replayFrom },
+  );
+  const runsView = new RunsListView(context.extensionUri, runs, see);
+  const inspectorView = new InspectorView(
+    context.extensionUri,
+    focus,
+    sessions,
+    runs,
+  );
+
   context.subscriptions.push(
     WorkflowCanvasEditor.register(
       context.extensionUri,
@@ -222,11 +242,9 @@ export function activate(context: ExtensionContext): void {
       sessions,
       focus,
     ),
-    AgentSidebarView.register(context.extensionUri, panel, pickAgent, preview, {
-      openRun,
-      replayFrom: canvasRuns.replayFrom,
-    }),
-    RunsListView.register(context.extensionUri, runs, see),
+    AgentSidebarView.register(agentView),
+    RunsListView.register(runsView),
+    InspectorView.register(inspectorView),
     { dispose: () => see.dispose() },
     { dispose: () => gallery.dispose() },
     { dispose: () => panel.dispose() },
