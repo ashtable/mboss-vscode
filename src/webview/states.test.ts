@@ -1,15 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
-import { canvasWords } from '../canvas/words.js';
 import { FAILED_STATUSES, QUEUED_STATUSES } from '../runs/queries.js';
 import { FIRST_DISPATCH } from '../runs/rows.js';
+import { runWords } from '../runs/words.js';
 
 import {
   glyphOf,
   glyphStateOf,
+  inFlight,
   runWord,
+  settled,
   stepWord,
   type GlyphState,
+  type RunEvidence,
   type RunWord,
   type StepWord,
 } from './states.js';
@@ -27,8 +30,19 @@ import {
  * "failed" about the same run.
  */
 
-/** In flight, on the dispatch every run gets. */
-const RUNNING = { status: 'PENDING', recoveryAttempts: FIRST_DISPATCH };
+/** What a reader holds about a run in flight, on
+ *  the dispatch every run gets, parked on nobody. */
+const RUNNING: RunEvidence = {
+  status: 'PENDING',
+  recoveryAttempts: FIRST_DISPATCH,
+  parked: false,
+};
+
+/** The same, where the reader kept only the
+ *  status. */
+function held(status: string): RunEvidence {
+  return { status, parked: false };
+}
 
 const EVERY_STATE: readonly GlyphState[] = [
   'idle',
@@ -61,27 +75,27 @@ const EVERY_STEP: readonly StepWord[] = [
 
 describe('the word a run is said in', () => {
   it('says done for a run that finished', () => {
-    expect(runWord({ status: 'SUCCESS' }, false)).toBe('done');
+    expect(runWord(held('SUCCESS'))).toBe('done');
   });
 
   it('says running for a run in flight on its first dispatch', () => {
-    expect(runWord(RUNNING, false)).toBe('running');
+    expect(runWord(RUNNING)).toBe('running');
   });
 
   /** The column counts dispatches rather than
    *  crashes, so one more than the first is the
    *  first time anything picked the run back up. */
   it('says recovering for a run something picked back up', () => {
-    const again = { status: 'PENDING', recoveryAttempts: FIRST_DISPATCH + 1 };
+    const again = { ...RUNNING, recoveryAttempts: FIRST_DISPATCH + 1 };
 
-    expect(runWord(again, false)).toBe('recovering');
+    expect(runWord(again)).toBe('recovering');
   });
 
   /** Nothing is happening in a parked run, whatever
    *  it took to get it there. */
   it('says waiting for a parked run, however often it was dispatched', () => {
-    expect(runWord(RUNNING, true)).toBe('waiting');
-    expect(runWord({ status: 'PENDING', recoveryAttempts: 4 }, true)).toBe(
+    expect(runWord({ ...RUNNING, parked: true })).toBe('waiting');
+    expect(runWord({ ...RUNNING, recoveryAttempts: 4, parked: true })).toBe(
       'waiting',
     );
   });
@@ -90,29 +104,27 @@ describe('the word a run is said in', () => {
     expect(QUEUED_STATUSES).not.toHaveLength(0);
 
     for (const status of QUEUED_STATUSES) {
-      expect(runWord({ status }, false)).toBe('queued');
+      expect(runWord(held(status))).toBe('queued');
     }
   });
 
   it('says failed for a run that threw', () => {
-    expect(runWord({ status: 'ERROR' }, false)).toBe('failed');
+    expect(runWord(held('ERROR'))).toBe('failed');
   });
 
   it('says gave up for a run it stopped restarting', () => {
-    const dead = { status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' };
-
-    expect(runWord(dead, false)).toBe('gaveUp');
+    expect(runWord(held('MAX_RECOVERY_ATTEMPTS_EXCEEDED'))).toBe('gaveUp');
   });
 
   it('says cancelled for a run somebody stopped', () => {
-    expect(runWord({ status: 'CANCELLED' }, false)).toBe('cancelled');
+    expect(runWord(held('CANCELLED'))).toBe('cancelled');
   });
 
-  /** A queue item is read by five columns and the
-   *  dispatch count is not one of them, so an item
-   *  still going reads running and nothing finer. */
-  it('says running for a run whose dispatch count nobody read', () => {
-    expect(runWord({ status: 'PENDING' }, false)).toBe('running');
+  /** A queue item's row carries no dispatch count,
+   *  so an item still going reads running and
+   *  nothing finer. */
+  it('says running for a run whose dispatch count nobody kept', () => {
+    expect(runWord(held('PENDING'))).toBe('running');
   });
 
   /** Whatever the filter calls failed is over, and
@@ -121,18 +133,98 @@ describe('the word a run is said in', () => {
     expect(FAILED_STATUSES).not.toHaveLength(0);
 
     for (const status of FAILED_STATUSES) {
-      expect(['failed', 'gaveUp', 'cancelled']).toContain(
-        runWord({ status }, false),
-      );
+      expect(settled(runWord(held(status)))).toBe(true);
     }
   });
 
   /** A word this build has never seen is a run that
    *  is still somewhere in flight. Saying so is
    *  what keeps a status out of a panel that has
-   *  promised never to print one. */
+   *  promised never to print one — and a tick off
+   *  a run nobody understands. */
   it('says running for a status this build has not heard of', () => {
-    expect(runWord({ status: 'PAUSED' }, false)).toBe('running');
+    expect(runWord(held('PAUSED'))).toBe('running');
+  });
+
+  /**
+   * Whether the run is parked is the reader's to
+   * say, and a reader that cannot say has to say
+   * `false` out loud: the shape refuses a read that
+   * left the question out.
+   */
+  it('takes whether the run is parked as evidence, never as a guess', () => {
+    const asked: RunEvidence = { status: 'PENDING', parked: false };
+
+    expect(runWord(asked)).toBe('running');
+    expect(runWord({ ...asked, parked: true })).toBe('waiting');
+  });
+});
+
+describe('the words a run is over at', () => {
+  /**
+   * What the session log asks before it stamps how
+   * long a run took, and what the list asks before it
+   * offers to stop one. A word missing from the set
+   * is a row that never gets a duration and is
+   * re-armed by every refresh for ever — which is
+   * what a run that gave up used to be, on the two
+   * surfaces that spelled the set by hand.
+   */
+  it('counts done, failed, gave up and cancelled as over', () => {
+    for (const word of ['done', 'failed', 'gaveUp', 'cancelled'] as const) {
+      expect(settled(word), word).toBe(true);
+    }
+  });
+
+  it('counts nothing else as over, the watch letting go included', () => {
+    for (const word of [
+      'running',
+      'recovering',
+      'waiting',
+      'queued',
+      'quiet',
+    ] as const) {
+      expect(settled(word), word).toBe(false);
+    }
+  });
+
+  /** What a watch keeps reading for and a board
+   *  draws a frontier ahead of the ledger for: a run
+   *  picked back up is still going, and so is one
+   *  nothing has claimed yet. */
+  it('counts running, recovering and queued as still moving', () => {
+    for (const word of ['running', 'recovering', 'queued'] as const) {
+      expect(inFlight(word), word).toBe(true);
+    }
+  });
+
+  /** A parked run is at the block it parked on, and a
+   *  run the watch let go of is nobody's to draw
+   *  ahead. */
+  it('counts a parked run, a quiet one and every ending as not moving', () => {
+    for (const word of [
+      'waiting',
+      'quiet',
+      'done',
+      'failed',
+      'gaveUp',
+      'cancelled',
+    ] as const) {
+      expect(inFlight(word), word).toBe(false);
+    }
+  });
+
+  /** Every word is exactly one of over, moving and
+   *  parked, so no surface can find a run in two of
+   *  them or in none. */
+  it('puts every word in exactly one of over, moving and parked', () => {
+    expect(EVERY_WORD).not.toHaveLength(0);
+
+    for (const word of EVERY_WORD) {
+      const places = [settled(word), inFlight(word), word === 'waiting'];
+
+      expect(places.filter(Boolean), word).toHaveLength(1);
+    }
   });
 });
 
@@ -226,10 +318,10 @@ describe('the word a step is said in', () => {
 
 describe('the words the keys stand for', () => {
   /** The keys are this file's and the copy is the
-   *  canvas bag's, so a key with nothing behind it
+   *  runs bag's, so a key with nothing behind it
    *  draws an empty span rather than failing. */
   it('is one localized word per key', () => {
-    const words = canvasWords().runOutcomes;
+    const words = runWords();
 
     expect(EVERY_WORD).not.toHaveLength(0);
 
@@ -239,7 +331,7 @@ describe('the words the keys stand for', () => {
   });
 
   it('is written in lower case, every one of them', () => {
-    const said = Object.values(canvasWords().runOutcomes);
+    const said = Object.values(runWords());
 
     expect(said).not.toHaveLength(0);
 

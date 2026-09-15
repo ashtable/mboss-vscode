@@ -4,8 +4,9 @@ import {
   type RecordedSegment,
   type WorkflowIR,
 } from '../core/rules.js';
+import { runWord, type RunWord } from '../webview/states.js';
 
-import { FAILED_STATUSES } from './queries.js';
+import { FAILED_STATUSES, SUCCEEDED_STATUS } from './queries.js';
 import {
   stepError,
   storedValue,
@@ -62,20 +63,6 @@ export type StepState = 'done' | 'failed' | 'waiting';
 
 /** Who a recorded row belongs to. */
 export type OperationOwner = 'node' | 'sdk' | 'unmapped';
-
-/**
- * Where the run is, as the ledger has it.
- *
- * `waiting` and `quiet` are both stopped watches and
- * are kept apart on purpose. A parked run is waiting
- * on a person and will move when they act; a quiet
- * one is waiting on nobody and the watch simply let
- * go of it. Telling somebody a quiet run is waiting
- * would send them looking for an email that was
- * never sent.
- */
-export type LiveOutcome =
-  'running' | 'done' | 'failed' | 'waiting' | 'quiet' | 'cancelled';
 
 /**
  * What the reader knows about the drawing.
@@ -197,28 +184,28 @@ export type Reading = {
 
   outage: Outage | undefined;
 
-  outcome: LiveOutcome;
+  /** Whether the run is sitting on somebody — a
+   *  block parked on a person, or a timer still
+   *  ahead of now — answered once with every row
+   *  the run wrote, and carried so that nobody who
+   *  draws the run asks the steps the same question
+   *  again and gets half the answer. */
+  parked: boolean;
+
+  /** Where the run is, in the one word every
+   *  surface says it in. Never `quiet`: that is the
+   *  watch's word, and the watch adds it. */
+  outcome: RunWord;
 
   /** Sticky: once the ledger has said a run was
    *  picked back up, it stays said. */
   recovered: boolean;
 };
 
-/** The one status that means it worked. */
-const SUCCEEDED = 'SUCCESS';
-
-/** One of the three DBOS calls failed, told apart
- *  because somebody asked for it. */
-const CANCELLED = 'CANCELLED';
-
-/** DBOS's own three, widened so a status read out of
- *  a row can be compared against them. */
-const FAILED: readonly string[] = FAILED_STATUSES;
-
 /** DBOS's own three and the one that worked, so a
  *  status read out of a row can be asked whether the
  *  run is over at all. */
-const ENDED: readonly string[] = [SUCCEEDED, ...FAILED_STATUSES];
+const ENDED: readonly string[] = [SUCCEEDED_STATUS, ...FAILED_STATUSES];
 
 /**
  * Whether the ledger says this run is over.
@@ -279,12 +266,26 @@ export function readRun(
     ),
   );
 
+  // A step that threw is not an ending: DBOS may
+  // retry it, and only the status column says the
+  // run is over. What this reader adds to the
+  // status is whether the run is parked, which it
+  // alone can see: a block waiting on a person, or
+  // a timer still ahead of now.
+  const parkedRun =
+    operations.some((one) => one.state === 'waiting') || asleep(steps, now);
+
   return {
     steps: operations,
     from: timeline.from,
     to: timeline.to,
     outage: timeline.outage,
-    outcome: outcomeOf(run, operations, steps, now),
+    parked: parkedRun,
+    outcome: runWord({
+      status: run.status,
+      recoveryAttempts: run.recoveryAttempts,
+      parked: parkedRun,
+    }),
     recovered,
   };
 }
@@ -494,31 +495,6 @@ export function parkedNodes(names: readonly string[]): Set<string> {
   }
 
   return parked;
-}
-
-/**
- * Where the run is, as the ledger has it.
- *
- * A step that threw is not an ending: DBOS may retry
- * it, and only the status column says the run is
- * over.
- */
-function outcomeOf(
-  run: Run,
-  operations: readonly Operation[],
-  all: readonly Step[],
-  now: number,
-): LiveOutcome {
-  if (run.status === SUCCEEDED) return 'done';
-
-  // Before the failed set, which contains it.
-  // Somebody asked for this one; it is not a failure
-  // anybody has to look into.
-  if (run.status === CANCELLED) return 'cancelled';
-  if (FAILED.includes(run.status)) return 'failed';
-  if (operations.some((one) => one.state === 'waiting')) return 'waiting';
-
-  return asleep(all, now) ? 'waiting' : 'running';
 }
 
 /**

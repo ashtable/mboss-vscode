@@ -129,7 +129,7 @@ describe('a row of the run history', () => {
   it('marks a run that recovered, whatever it went on to do', () => {
     const row = rowOf(RUN);
 
-    expect(row.severity).toBe('ok');
+    expect(row.word).toBe('done');
     expect(row.recovered).toBe(true);
   });
 
@@ -150,7 +150,7 @@ describe('a row of the run history', () => {
   it('draws a failure loudly and says what it was', () => {
     const row = rowOf({ ...RUN, status: 'ERROR', error: 'login failed' });
 
-    expect(row.severity).toBe('failed');
+    expect(row.word).toBe('failed');
     expect(row.error).toBe('login failed');
   });
 
@@ -158,14 +158,13 @@ describe('a row of the run history', () => {
    * A run DBOS gave up on is not the same news as a
    * run that threw: one is a bug to read, the other
    * is a loop somebody has to break. No mockup
-   * draws it, so it gets its own severity rather
-   * than being folded in with the ordinary
-   * failures.
+   * draws it, so it gets its own word rather than
+   * being folded in with the ordinary failures.
    */
   it('tells a run DBOS gave up on apart from one that threw', () => {
     const row = rowOf({ ...RUN, status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' });
 
-    expect(row.severity).toBe('exhausted');
+    expect(row.word).toBe('gaveUp');
     expect(row.status).toBe('MAX_RECOVERY_ATTEMPTS_EXCEEDED');
   });
 
@@ -180,14 +179,32 @@ describe('a row of the run history', () => {
   it('tells a run somebody cancelled apart from one that failed', () => {
     const row = rowOf({ ...RUN, status: 'CANCELLED' });
 
-    expect(row.severity).toBe('cancelled');
+    expect(row.word).toBe('cancelled');
     expect(row.status).toBe('CANCELLED');
-    expect(rowOf({ ...RUN, status: 'ERROR' }).severity).toBe('failed');
+    expect(rowOf({ ...RUN, status: 'ERROR' }).word).toBe('failed');
   });
 
   it('draws a run that has not finished as still going', () => {
-    for (const status of ['PENDING', 'ENQUEUED', 'DELAYED']) {
-      expect(rowOf({ ...RUN, status }).severity).toBe('running');
+    const going = { ...RUN, status: 'PENDING', completedAt: undefined };
+
+    expect(rowOf({ ...going, recoveryAttempts: 1 }).word).toBe('running');
+  });
+
+  /** The column counts dispatches, so one more than
+   *  the first is the first time anything picked the
+   *  run back up — and somebody reading a slow run is
+   *  owed that word. */
+  it('says recovering for a run something picked back up', () => {
+    const again = { ...RUN, status: 'PENDING', completedAt: undefined };
+
+    expect(rowOf(again).word).toBe('recovering');
+  });
+
+  it('says queued for a run nothing has claimed yet', () => {
+    for (const status of ['ENQUEUED', 'DELAYED']) {
+      expect(rowOf({ ...RUN, status, completedAt: undefined }).word).toBe(
+        'queued',
+      );
     }
   });
 
@@ -764,7 +781,7 @@ describe('the line under a run', () => {
       lastOperationAt: 1000,
     });
 
-    expect(row.severity).toBe('failed');
+    expect(row.word).toBe('failed');
     expect(row.summary).toBe('failed · charge_card');
   });
 
@@ -777,7 +794,7 @@ describe('the line under a run', () => {
       lastOperationAt: 1000,
     });
 
-    expect(row.severity).toBe('waiting');
+    expect(row.word).toBe('waiting');
     expect(row.summary).toContain('waiting · await_reply · ');
     expect(row.stoppedAt).toBeDefined();
     expect(row.summary).toContain(row.stoppedAt ?? 'no time');
@@ -787,19 +804,36 @@ describe('the line under a run', () => {
     const row = rowOf({
       ...RUN,
       status: 'PENDING',
+      recoveryAttempts: 1,
       completedAt: undefined,
       lastOperation: 'find_slot',
       lastOperationAt: 1000,
     });
 
-    expect(row.severity).toBe('running');
+    expect(row.word).toBe('running');
+    expect(row.summary).toBe('running · after find_slot');
+  });
+
+  /** Still going, however many times it was
+   *  dispatched: the word says so, and the line
+   *  says where it got to. */
+  it('says the same of a run that is recovering', () => {
+    const row = rowOf({
+      ...RUN,
+      status: 'PENDING',
+      completedAt: undefined,
+      lastOperation: 'find_slot',
+      lastOperationAt: 1000,
+    });
+
+    expect(row.word).toBe('recovering');
     expect(row.summary).toBe('running · after find_slot');
   });
 
   it('counts the durable operations a finished run recorded', () => {
     const row = rowOf({ ...RUN, operationCount: 7 });
 
-    expect(row.severity).toBe('ok');
+    expect(row.word).toBe('done');
     expect(row.summary).toBe('done · 7 durable operations');
   });
 
@@ -823,20 +857,21 @@ describe('a run waiting on a person', () => {
     const inFlight = {
       ...RUN,
       status: 'PENDING',
+      recoveryAttempts: 1,
       completedAt: undefined,
       lastOperationAt: 1000,
     };
 
-    expect(rowOf({ ...inFlight, lastOperation: 'x.register' }).severity).toBe(
+    expect(rowOf({ ...inFlight, lastOperation: 'x.register' }).word).toBe(
       'waiting',
     );
-    expect(rowOf({ ...inFlight, lastOperation: 'x.resend.2' }).severity).toBe(
+    expect(rowOf({ ...inFlight, lastOperation: 'x.resend.2' }).word).toBe(
       'waiting',
     );
-    expect(rowOf({ ...inFlight, lastOperation: 'x.clear' }).severity).toBe(
+    expect(rowOf({ ...inFlight, lastOperation: 'x.clear' }).word).toBe(
       'running',
     );
-    expect(rowOf({ ...inFlight, lastOperation: 'find_slot' }).severity).toBe(
+    expect(rowOf({ ...inFlight, lastOperation: 'find_slot' }).word).toBe(
       'running',
     );
 
@@ -844,8 +879,8 @@ describe('a run waiting on a person', () => {
     // anybody, whatever its last row was.
     expect(
       rowOf({ ...RUN, lastOperation: 'x.register', lastOperationAt: 1000 })
-        .severity,
-    ).toBe('ok');
+        .word,
+    ).toBe('done');
   });
 
   /** Built from local components rather than
@@ -883,12 +918,17 @@ describe('a run waiting on a person', () => {
       note: undefined,
     };
 
-    expect(seeInit(parked).run?.severity).toBe('waiting');
+    expect(seeInit(parked).run?.word).toBe('waiting');
   });
 
   it('says a run whose blocks all cleared is running', () => {
     const woken = {
-      run: { ...RUN, status: 'PENDING', completedAt: undefined },
+      run: {
+        ...RUN,
+        status: 'PENDING',
+        recoveryAttempts: 1,
+        completedAt: undefined,
+      },
       steps: [
         { ...step(0, 0, 1000), name: 'find_slot.register' },
         { ...step(1, 1000, 2000), name: 'find_slot.clear' },
@@ -897,7 +937,63 @@ describe('a run waiting on a person', () => {
       note: undefined,
     };
 
-    expect(seeInit(woken).run?.severity).toBe('running');
+    expect(seeInit(woken).run?.word).toBe('running');
+  });
+});
+
+/**
+ * One crossing, two readers.
+ *
+ * The list and the page hold different evidence for
+ * whether a run is parked, and may disagree about
+ * that on purpose. About everything else the
+ * ledger says they must not: three crossings used
+ * to answer this, and a status none of them had
+ * heard of was done on one surface and still going
+ * on the next.
+ */
+describe('one word for one run', () => {
+  const page = (run: Run): SeeView => ({
+    run,
+    steps: [],
+    selectedStep: undefined,
+    note: undefined,
+  });
+
+  it('says the same word in the list and on the page', () => {
+    const statuses = [
+      'SUCCESS',
+      'ERROR',
+      'MAX_RECOVERY_ATTEMPTS_EXCEEDED',
+      'CANCELLED',
+      'PENDING',
+      'ENQUEUED',
+      'DELAYED',
+      'PAUSED',
+    ];
+
+    for (const status of statuses) {
+      const run = { ...RUN, status, completedAt: undefined };
+
+      expect(rowOf(run).word, status).toBe(seeInit(page(run)).run?.word);
+    }
+  });
+
+  it('says a run DBOS gave up on gave up, on the page as well', () => {
+    const dead = { ...RUN, status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' };
+
+    expect(seeInit(page(dead)).run?.word).toBe('gaveUp');
+  });
+
+  /** A status this build has never seen is a run
+   *  still somewhere in flight, on both surfaces: a
+   *  tick on a state nobody understands is the one
+   *  claim neither may make. */
+  it('calls a status it has never seen still going, on both', () => {
+    const odd = { ...RUN, status: 'PAUSED', recoveryAttempts: 1 };
+
+    expect(rowOf(odd).word).toBe('running');
+    expect(seeInit(page(odd)).run?.word).toBe('running');
   });
 });
 
@@ -1306,7 +1402,12 @@ describe('a run that decided and then went to sleep', () => {
    *  a sleep row whose deadline is `wakesAt`. */
   function parked(wakesAt: number): SeeRun {
     const shown = seeInit({
-      run: { ...RUN, status: 'PENDING', completedAt: undefined },
+      run: {
+        ...RUN,
+        status: 'PENDING',
+        recoveryAttempts: 1,
+        completedAt: undefined,
+      },
       steps: [
         {
           ...step(0, 0, 1000),

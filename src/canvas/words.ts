@@ -2,8 +2,7 @@ import { l10n } from 'vscode';
 
 import type { HandlerMisfit, NodeKind } from '../core/rules.js';
 import { once } from '../once.js';
-import type { LiveOutcome } from '../runs/reading.js';
-import type { RunWord } from '../webview/states.js';
+import { runWords } from '../runs/words.js';
 import type { DurationWords } from '../webview/time.js';
 
 /**
@@ -245,36 +244,10 @@ export const canvasWords = once(() => ({
   // on is that workflow.
   followingRun: l10n.t('run'),
 
-  // Where a run or a step has got to, in the one
-  // vocabulary every panel says it in: the keys are
-  // `webview/states.ts`'s and the copy is here.
-  // `quiet` is the watch's own and not the ledger's
-  // — it is letting go of a run that may yet move —
-  // and it has to read as something other than an
-  // ending.
-  runOutcomes: {
-    running: l10n.t('running'),
-    done: l10n.t('done'),
-    failed: l10n.t('failed'),
-    waiting: l10n.t('waiting'),
-    quiet: l10n.t('quiet'),
-    cancelled: l10n.t('cancelled'),
-
-    // Dispatched more than once and still going: it
-    // is running, but not for the first time, and
-    // somebody reading a slow run is owed that.
-    recovering: l10n.t('recovering'),
-
-    // Filed, and not claimed by a worker yet.
-    queued: l10n.t('queued'),
-
-    // Restarted as often as DBOS allows and then
-    // abandoned. Its own word rather than one more
-    // failure: nothing is going to pick this run
-    // back up, and what caused it will keep
-    // happening until somebody breaks the loop.
-    gaveUp: l10n.t('gave up'),
-  } satisfies Record<LiveOutcome | RunWord, string>,
+  // Where a run or a step has got to: the one set
+  // of words, held with the runs the list draws and
+  // carried here for the chip and the node lines.
+  runOutcomes: runWords(),
 
   // On the rail's own chip, while a block is on
   // its way onto the canvas. The chip is where a

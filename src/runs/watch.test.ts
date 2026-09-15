@@ -5,7 +5,6 @@ import { TIMER_THEN_ANSWER } from '../test-support/runs.js';
 import type { OpenDatabase } from './db.js';
 import type { OperationOutputRow, WorkflowStatusRow } from './rows.js';
 import {
-  SETTLED,
   WATCH_INTERVAL_MS,
   WATCH_QUIET_MS,
   watchRun,
@@ -777,18 +776,6 @@ describe('watchRun', () => {
 
     it('gives up after fifteen seconds of silence', () => {
       expect(WATCH_QUIET_MS).toBe(15_000);
-    });
-
-    /**
-     * A different question from when the watch lets
-     * go, which the two cases above it are about.
-     * This is the list a session row consults, and
-     * an outcome missing from it is a row that
-     * never gets a duration and is re-armed by
-     * every refresh for ever.
-     */
-    it('counts done, failed and cancelled as finished', () => {
-      expect([...SETTLED].sort()).toEqual(['cancelled', 'done', 'failed']);
     });
   });
   /**

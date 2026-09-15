@@ -12,6 +12,7 @@ import {
 import type { StepState } from '../runs/reading.js';
 import type { LiveRun, LiveStep, QueueCounts } from '../runs/watch.js';
 import { filled } from '../webview/fill.js';
+import { inFlight } from '../webview/states.js';
 import { fine } from '../webview/time.js';
 
 /**
@@ -615,10 +616,9 @@ function tonesOf(
   // it parked on, one that ended is where it ended,
   // and one the watch let go of is somewhere nobody
   // is being told about any more.
-  const ahead =
-    run.outcome === 'running'
-      ? frontierFrom(ir, run.steps.at(-1)?.nodeId, recorded, decided)
-      : { nodes: new Set<string>(), edges: new Set<string>() };
+  const ahead = inFlight(run.outcome)
+    ? frontierFrom(ir, run.steps.at(-1)?.nodeId, recorded, decided)
+    : { nodes: new Set<string>(), edges: new Set<string>() };
 
   for (const id of ahead.nodes) nodes.set(id, 'running');
 

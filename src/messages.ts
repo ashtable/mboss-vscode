@@ -678,8 +678,8 @@ export const messages = {
    * selects.
    */
   runsReplayOf: (id: string) => l10n.t('replay of {0}', id),
-  runsReplayInto: (id: string, status: string) =>
-    l10n.t('└ replay → {0} · {1}', id, status),
+  runsReplayInto: (id: string, word: string) =>
+    l10n.t('└ replay → {0} · {1}', id, word),
 
   /**
    * What a replay did.

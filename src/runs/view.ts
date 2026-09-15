@@ -7,10 +7,10 @@ import {
 import { replayBoundaries, type Unoffered } from '../core/index.js';
 import { ownerOf, type NodeBox, type WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
+import { inFlight, runWord, type RunWord } from '../webview/states.js';
 import { clock, duration, fine } from '../webview/time.js';
 import type {
   RunRow,
-  RunSeverity,
   SeeBar,
   SeeChip,
   SeeGraph,
@@ -32,7 +32,7 @@ import type {
   RunEvidence,
 } from './evidence.js';
 import type { Lineage, LineageRun } from './openRun.js';
-import { seeWords } from './words.js';
+import { runWords, seeWords } from './words.js';
 import { decidedArms, groupsOf, type TraceGroup } from './operations.js';
 import { replayRowReason } from './replayZone.js';
 import { readRun, type Operation, type Reading } from './reading.js';
@@ -231,13 +231,10 @@ function seeRun(view: SeeView): SeeRun {
             run.status,
             lasted(run.completedAt - run.createdAt),
           ),
-    // The page holds every row, so it asks the
-    // reading whether a block is parked rather than
-    // the list's question about one recorded name.
-    severity: severityOf(
-      run,
-      reading.steps.some((step) => step.state === 'waiting'),
-    ),
+    // The reading answered where the run is, with
+    // every row the page holds; the header says that
+    // word rather than asking the steps again.
+    word: reading.outcome,
     span: spanOf(run),
     recovered: recoveredBanner(run, reading),
     chips: drawn.map((step) => chipOf(step, points)),
@@ -311,18 +308,18 @@ function lineageOf(view: SeeView): SeeLineageRun | undefined {
 /**
  * One run of the tree, in the words a row draws.
  *
- * `severity` is the list's own question asked with
- * the evidence this read has, which is no recorded
- * name for the other run — so nothing here can say
- * it is parked, and it does not.
+ * The word is asked with the evidence this read
+ * has, which is no recorded name for the other run
+ * — so nothing here can say it is parked, and it
+ * says so.
  */
 function lineageRunOf(
   run: Run,
-): Pick<SeeLineageRun, 'workflowId' | 'status' | 'severity'> {
+): Pick<SeeLineageRun, 'workflowId' | 'status' | 'word'> {
   return {
     workflowId: run.workflowId,
     status: run.status,
-    severity: severityOf(run, false),
+    word: wordOf(run, false),
   };
 }
 
@@ -554,13 +551,13 @@ function inputOf(run: Run): { text: string; cut: boolean } | undefined {
  * others means.
  */
 export function rowOf(run: Run, page: readonly Run[] = []): RunRow {
-  const severity = severityOf(run, parked(run.lastOperation));
+  const word = wordOf(run, parked(run.lastOperation));
 
   return {
     workflowId: run.workflowId,
     name: run.name,
     status: run.status,
-    severity,
+    word,
     when: whenOf(run),
     recovered: hasRecovered(run),
     // Only past the first: the tag beside it
@@ -572,7 +569,7 @@ export function rowOf(run: Run, page: readonly Run[] = []): RunRow {
         ? messages.runsRecoveredNote(recoveriesOf(run))
         : undefined,
     error: run.error,
-    summary: summaryOf(run, severity),
+    summary: summaryOf(run, word),
     stoppedAt:
       run.lastOperationAt === undefined
         ? undefined
@@ -587,7 +584,7 @@ export function rowOf(run: Run, page: readonly Run[] = []): RunRow {
       .map((one) =>
         messages.runsReplayInto(
           one.workflowId,
-          severityOf(one, parked(one.lastOperation)),
+          runWords()[wordOf(one, parked(one.lastOperation))],
         ),
       ),
   };
@@ -603,8 +600,8 @@ export function rowOf(run: Run, page: readonly Run[] = []): RunRow {
  * line: a projection over no rows is not a fact
  * worth drawing.
  */
-function summaryOf(run: Run, severity: RunSeverity): string | undefined {
-  if (severity === 'ok') {
+function summaryOf(run: Run, word: RunWord): string | undefined {
+  if (word === 'done') {
     return run.operationCount === undefined
       ? undefined
       : messages.runDoneSummary(run.operationCount);
@@ -616,47 +613,35 @@ function summaryOf(run: Run, severity: RunSeverity): string | undefined {
   const owner = ownerOf(at);
   const nodeId = owner.kind === 'node' ? owner.nodeId : at;
 
-  if (severity === 'waiting') {
+  if (word === 'waiting') {
     return run.lastOperationAt === undefined
       ? undefined
       : messages.runWaitingSummary(nodeId, clock(run.lastOperationAt));
   }
 
-  return severity === 'running'
+  // Still going, however many times it was
+  // dispatched and whether or not a worker has
+  // claimed it yet; everything else is over and
+  // stopped at this block.
+  return inFlight(word)
     ? messages.runRunningSummary(nodeId)
     : messages.runFailedSummary(nodeId);
 }
 
 /**
- * How loudly a run is drawn.
+ * The word for a run this module read, with the
+ * evidence it holds for whether the run is parked.
  *
- * `MAX_RECOVERY_ATTEMPTS_EXCEEDED` is its own
- * severity rather than one more failure. A run that
- * threw is a bug to read; a run DBOS restarted as
- * many times as it allows and then stopped
- * restarting is something that will keep happening
- * until somebody breaks the loop, and no mockup
- * draws that state for this to copy.
- *
- * Whether the run is parked arrives as an answer,
- * because the two readers hold different evidence.
- * The list has one recorded name per run and no rows
- * at all; the page has every row it wrote. Asking
- * the list's question of the page is what used to
- * make the page unable to say `waiting`: it reads
- * one run through a query that never selected the
- * column that question is asked of.
+ * The crossing is one function everywhere; what
+ * differs by reader is the evidence, and this is
+ * where a row's is put together.
  */
-function severityOf(run: Run, parked: boolean): RunSeverity {
-  if (run.status === 'MAX_RECOVERY_ATTEMPTS_EXCEEDED') return 'exhausted';
-  // Before the failed set, which holds it: somebody
-  // asked for this one, so it is not a failure
-  // anybody has to look into.
-  if (run.status === 'CANCELLED') return 'cancelled';
-  if (run.status === 'ERROR') return 'failed';
-  if (!IN_FLIGHT.has(run.status)) return 'ok';
-
-  return parked ? 'waiting' : 'running';
+function wordOf(run: Run, parked: boolean): RunWord {
+  return runWord({
+    status: run.status,
+    recoveryAttempts: run.recoveryAttempts,
+    parked,
+  });
 }
 
 /**

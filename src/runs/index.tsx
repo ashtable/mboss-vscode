@@ -2,6 +2,7 @@ import { useState } from 'react';
 
 import { postToHost } from '../webview/client.js';
 import { mountView } from '../webview/mount.js';
+import { settled } from '../webview/states.js';
 import type {
   RunRow,
   RunsInit,
@@ -34,14 +35,18 @@ import './runs.css';
 
 /** One glyph per outcome, in place of an icon set
  *  the extension would have to ship. */
-const MARKS: Record<RunRow['severity'], string> = {
-  ok: '✓',
+const MARKS: Record<RunRow['word'], string> = {
+  done: '✓',
   running: '●',
+  // Turning: picked back up, and going again.
+  recovering: '↻',
   // Half filled: something is true of this run and
   // nothing is happening in it.
   waiting: '◐',
+  // Hollow: filed, and nothing has happened yet.
+  queued: '○',
   failed: '✕',
-  exhausted: '⊘',
+  gaveUp: '⊘',
   // Barred rather than crossed: somebody asked for
   // this, so it is not the same news as a run that
   // threw.
@@ -62,29 +67,18 @@ const STEP_MARKS: Record<StepState, string> = {
  *  `quiet` is a state no step ever carries. */
 const SESSION_MARKS: Record<SessionRow['outcome'], string> = {
   running: '●',
+  recovering: '↻',
   done: '✓',
   failed: '✕',
+  gaveUp: '⊘',
   waiting: '◐',
+  queued: '○',
   quiet: '○',
   // The same mark the ledger's own rows carry, so a
   // run somebody stopped reads the same in both
   // lists.
   cancelled: '■',
 };
-
-/**
- * The outcomes a run can still be stopped from.
- *
- * `quiet` is on the list because a quiet run is one
- * the watch let go of rather than one that ended —
- * DBOS still has it going, and it can still be
- * stopped.
- */
-const STOPPABLE: readonly LiveRun['outcome'][] = [
-  'running',
-  'waiting',
-  'quiet',
-];
 
 /** The compose service the app runs in, as the
  *  scaffold's own compose file names it. Rebuild
@@ -373,7 +367,10 @@ function RunningNow({
       </ol>
 
       <div className="zone-actions">
-        {STOPPABLE.includes(live.outcome) ? (
+        {/* Anything not over can still be stopped —
+            a quiet run included, which the watch let
+            go of while DBOS still has it going. */}
+        {!settled(live.outcome) ? (
           <button
             type="button"
             data-cancel-run
@@ -607,7 +604,7 @@ function Row({
       type="button"
       className="run-row"
       data-run={row.workflowId}
-      data-severity={row.severity}
+      data-severity={row.word}
       data-recovered={String(row.recovered)}
       aria-current={selected}
       onClick={() =>
@@ -617,7 +614,7 @@ function Row({
       <span className="run-line">
         <span className="mono run-id">{row.workflowId}</span>
         <span className="run-mark" aria-hidden="true">
-          {MARKS[row.severity]}
+          {MARKS[row.word]}
         </span>
       </span>
 

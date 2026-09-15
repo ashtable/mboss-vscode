@@ -18,7 +18,6 @@ import { postToHost } from '../webview/client.js';
 import { mountView } from '../webview/mount.js';
 import type {
   InspectorStrings,
-  RunSeverity,
   SeeBar,
   SeeChip,
   SeeGraph,
@@ -30,6 +29,7 @@ import type {
   TraceGroupView,
   TraceOpView,
 } from '../webview/protocol.js';
+import type { RunWord } from '../webview/states.js';
 
 import './see.css';
 
@@ -51,14 +51,16 @@ const nodeTypes: NodeTypes = {
 
 const edgeTypes: EdgeTypes = { wire: Wire };
 
-/** One mark per severity, the same ones the run
- *  list draws its rows with. */
-const SEVERITY_MARK: Record<RunSeverity, string> = {
-  ok: '✓',
+/** One mark per word, the same ones the run list
+ *  draws its rows with. */
+const WORD_MARK: Record<RunWord, string> = {
+  done: '✓',
   running: '●',
+  recovering: '↻',
   waiting: '◐',
+  queued: '○',
   failed: '✕',
-  exhausted: '⊘',
+  gaveUp: '⊘',
   cancelled: '■',
 };
 
@@ -118,7 +120,7 @@ function Run({
       <main className="see-main">
         <header className="see-head">
           <p className="mono crumb">{run.breadcrumb}</p>
-          <p className="title" data-severity={run.severity}>
+          <p className="title" data-severity={run.word}>
             {run.headline}
           </p>
 
@@ -506,7 +508,7 @@ function Controls({ run, strings }: { run: SeeRun; strings: SeeStrings }) {
               the one run whose give-up clock starts
               again, and somebody picking one back up
               is entitled to know that. */}
-          {run.severity === 'exhausted' ? (
+          {run.word === 'gaveUp' ? (
             <p className="hint" data-attempts-reset>
               {strings.resumeResetsAttempts}
             </p>
@@ -585,7 +587,7 @@ function LineageRow({
           {run.workflowId}
         </button>
         <span className="glyph" aria-hidden="true">
-          {SEVERITY_MARK[run.severity]}
+          {WORD_MARK[run.word]}
         </span>
         <span className="hint">{run.status}</span>
       </p>

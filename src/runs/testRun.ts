@@ -7,6 +7,7 @@ import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
 import type { RunsInit, TestRunProblem } from '../webview/protocol.js';
+import { settled } from '../webview/states.js';
 
 import type { OpenDatabase } from './db.js';
 import type { EnvName } from './env.js';
@@ -27,7 +28,7 @@ import {
   type SessionRun,
 } from './sessionLog.js';
 import { evidenceLines, evidenceSentence, sessionRowOf } from './view.js';
-import { SETTLED, type LedgerRead, type LiveRun } from './watch.js';
+import type { LedgerRead, LiveRun } from './watch.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 
 /**
@@ -283,7 +284,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       ...(failed === undefined
         ? {}
         : { failedStep: { name: failed.name, error: run.error ?? '' } }),
-      ...(SETTLED.includes(run.outcome)
+      ...(settled(run.outcome)
         ? { durationMs: Date.now() - row.startedAt }
         : {}),
     });
@@ -499,7 +500,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     unsettled: () =>
       deps.sessionLog
         .list()
-        .filter((row) => !SETTLED.includes(row.outcome))
+        .filter((row) => !settled(row.outcome))
         .map((row) => ({
           workflowId: row.workflowId,
           workflow: row.workflow,

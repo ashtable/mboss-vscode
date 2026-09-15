@@ -71,4 +71,25 @@ every row the run wrote; a watch has every row and a clock. Questions like
 because deriving it needs evidence the caller may not have — which is how the
 run page came to ask a question about a column its own query never selected.
 
-`src/runs/view.ts:severityOf`
+`RunEvidence` is that shape for the one question every surface asks —
+where the run has got to — and `parked` is the part of it only the reader
+can answer.
+
+`src/webview/states.ts:RunEvidence`
+
+### word
+
+Where a run or a step has got to, in the one lowercase vocabulary every
+panel says it in — `done`, `running`, `recovering`, `waiting`, `queued`,
+`failed`, `gave up`, `cancelled` for a run, and four of those for a step —
+as against the ledger's own status, which is DBOS's and is printed only where
+a row is shown as evidence.
+
+One crossing between the two, and it takes its evidence rather than reading
+it: whoever read the run answered "parked" — the run tab from every row it
+wrote, the list from one recorded name, a read with neither saying `false` —
+and the crossing says the word. There used to be three, each with its own
+copy of the ledger's words, and they disagreed about a status none of them
+had heard of: one ticked it as done, two said it was still going.
+
+`src/webview/states.ts:runWord`

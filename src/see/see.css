@@ -70,11 +70,12 @@ body {
 }
 
 .see-head > .title[data-severity='failed'],
-.see-head > .title[data-severity='exhausted'] {
+.see-head > .title[data-severity='gaveUp'] {
   color: var(--fail);
 }
 
-.see-head > .title[data-severity='running'] {
+.see-head > .title[data-severity='running'],
+.see-head > .title[data-severity='recovering'] {
   color: var(--warn);
 }
 

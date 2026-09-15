@@ -1,8 +1,8 @@
 import { ownerOf } from '../../core/rules.js';
 import type { QueuePolicy } from '../../core/rules.js';
-import type { LiveOutcome, StepState } from '../../runs/reading.js';
+import type { StepState } from '../../runs/reading.js';
 import { FIRST_DISPATCH, type StepError } from '../../runs/rows.js';
-import type { LiveRun, LiveStep } from '../../runs/watch.js';
+import type { LiveOutcome, LiveRun, LiveStep } from '../../runs/watch.js';
 import { filled } from '../../webview/fill.js';
 import type { InspectorStrings } from '../../webview/protocol.js';
 

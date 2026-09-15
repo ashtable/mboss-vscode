@@ -1270,12 +1270,14 @@ button.lib-fn {
 }
 
 .evidence .run-status[data-run-state='failed'],
-.evidence .run-status[data-run-outcome='failed'] {
+.evidence .run-status[data-run-outcome='failed'],
+.evidence .run-status[data-run-outcome='gaveUp'] {
   color: var(--fail);
 }
 
 .evidence .run-status[data-run-state='waiting'],
-.evidence .run-status[data-run-outcome='waiting'] {
+.evidence .run-status[data-run-outcome='waiting'],
+.evidence .run-status[data-run-outcome='recovering'] {
   color: var(--warn);
 }
 
@@ -1288,6 +1290,7 @@ button.lib-fn {
    of is nobody's news — neither is a failure to
    find. */
 .evidence .run-status[data-run-outcome='cancelled'],
+.evidence .run-status[data-run-outcome='queued'],
 .evidence .run-status[data-run-outcome='quiet'] {
   color: var(--ink-muted);
 }

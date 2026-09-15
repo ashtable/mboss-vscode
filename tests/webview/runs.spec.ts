@@ -46,7 +46,7 @@ const ROWS: RunRow[] = [
     workflowId: 'wf_c9d2f3',
     name: 'groom_booking',
     status: 'SUCCESS',
-    severity: 'ok',
+    word: 'done',
     when: '14:02 · 8.2 s',
     recovered: true,
     recoveredNote: undefined,
@@ -61,7 +61,7 @@ const ROWS: RunRow[] = [
     workflowId: 'wf_a1b4e7',
     name: 'groom_booking',
     status: 'SUCCESS',
-    severity: 'ok',
+    word: 'done',
     when: '13:57 · 4.8 s',
     recovered: false,
     recoveredNote: undefined,
@@ -76,7 +76,7 @@ const ROWS: RunRow[] = [
     workflowId: 'wf_77c101',
     name: 'nightly_sync',
     status: 'ERROR',
-    severity: 'failed',
+    word: 'failed',
     when: '13:41 · 1.2 s',
     recovered: false,
     recoveredNote: undefined,
@@ -91,7 +91,7 @@ const ROWS: RunRow[] = [
     workflowId: 'wf_ff0912',
     name: 'nightly_sync',
     status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED',
-    severity: 'exhausted',
+    word: 'gaveUp',
     when: '13:20 · 61.0 s',
     recovered: true,
     recoveredNote: 'recovered from 3 crashes',
@@ -149,7 +149,7 @@ function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     name: 'groom_booking',
     breadcrumb: 'mBoss › runs › groom_booking › wf_c9d2f3',
     headline: 'SUCCESS · 8.2 s total',
-    severity: 'ok',
+    word: 'done',
     span: 'started 14:02:11 · finished 14:02:19',
     recovered: {
       heading: 'Recovered — completed durable operations were not re-executed',
@@ -879,7 +879,7 @@ test.describe('this session', () => {
             workflowId: 'wf_c9d2f3',
             name: 'groom_booking',
             status: 'SUCCESS',
-            severity: 'ok',
+            word: 'done',
             when: '14:02 · 8.2 s',
             recovered: false,
             recoveredNote: undefined,
@@ -1092,7 +1092,7 @@ test.describe('the run list', () => {
             workflowId: 'wf_parked',
             name: 'expense_claim',
             status: 'PENDING',
-            severity: 'waiting',
+            word: 'waiting',
             when: '14:06',
             recovered: false,
             recoveredNote: undefined,
@@ -1166,7 +1166,7 @@ test.describe('the run list', () => {
             workflowId: 'wf_c9d2f3',
             name: 'groom_booking',
             status: 'ERROR',
-            severity: 'failed',
+            word: 'failed',
             when: '14:02 · 8.2 s',
             recovered: false,
             recoveredNote: undefined,
@@ -1181,7 +1181,7 @@ test.describe('the run list', () => {
             workflowId: 'wf_fork1',
             name: 'groom_booking',
             status: 'SUCCESS',
-            severity: 'ok',
+            word: 'done',
             when: '14:09 · 3.1 s',
             recovered: false,
             recoveredNote: undefined,
@@ -1257,7 +1257,7 @@ test.describe('the run list', () => {
     await showList(page, runsInit());
 
     const exhausted = page.locator('[data-run="wf_ff0912"]');
-    await expect(exhausted).toHaveAttribute('data-severity', 'exhausted');
+    await expect(exhausted).toHaveAttribute('data-severity', 'gaveUp');
     await expect(exhausted).toContainText('gave up after 3 attempts');
 
     const mark = (run: string): Promise<string | null> =>
@@ -1964,7 +1964,7 @@ test.describe('one run in detail', () => {
     await harness.show(
       seeInit(
         seeRun({
-          severity: 'cancelled',
+          word: 'cancelled',
           controls: {
             cancel: false,
             resume: true,
@@ -2000,7 +2000,7 @@ test.describe('one run in detail', () => {
       page,
       seeInit(
         seeRun({
-          severity: 'cancelled',
+          word: 'cancelled',
           controls: {
             cancel: false,
             resume: true,
@@ -2060,14 +2060,14 @@ test.describe('one run in detail', () => {
    * run up again, and a person resuming one is
    * entitled to know the give-up clock restarts.
    */
-  test('says recovery_attempts starts again from 0 on an exhausted run', async ({
+  test('says recovery_attempts starts again from 0 on a run that gave up', async ({
     page,
   }) => {
     const harness = await showRun(
       page,
       seeInit(
         seeRun({
-          severity: 'exhausted',
+          word: 'gaveUp',
           controls: {
             cancel: false,
             resume: true,
@@ -2085,7 +2085,7 @@ test.describe('one run in detail', () => {
     await harness.show(
       seeInit(
         seeRun({
-          severity: 'cancelled',
+          word: 'cancelled',
           controls: {
             cancel: false,
             resume: true,
@@ -3310,7 +3310,7 @@ const REPLAYED: TraceGroupView[] = GROUPS.map((group, at) => ({
 const LINEAGE: SeeLineageRun = {
   workflowId: 'wf_a1b4e7',
   status: 'ERROR',
-  severity: 'failed',
+  word: 'failed',
   startStep: undefined,
   from: undefined,
   here: false,
@@ -3318,7 +3318,7 @@ const LINEAGE: SeeLineageRun = {
     {
       workflowId: 'wf_c9d2f3',
       status: 'SUCCESS',
-      severity: 'ok',
+      word: 'done',
       startStep: 3,
       from: 'replay from Refund payment',
       here: true,

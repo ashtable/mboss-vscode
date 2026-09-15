@@ -13,12 +13,13 @@ import type { RunFilter } from '../runs/queries.js';
 import type { RunCounts } from '../runs/rows.js';
 import type { ServiceHealth, StackAction } from '../runs/stack.js';
 import type { QueueEvidence } from '../runs/queueEvidence.js';
-import type { LiveOutcome } from '../runs/reading.js';
 import type { SessionVia } from '../runs/sessionLog.js';
-import type { LiveRun } from '../runs/watch.js';
+import type { LiveOutcome, LiveRun } from '../runs/watch.js';
 import type { runsWords, seeWords } from '../runs/words.js';
 import type { WorkflowTrigger } from '../runs/workflows.js';
 import type { sidebarWords } from '../sidebar/words.js';
+
+import type { RunWord } from './states.js';
 
 /**
  * What the host and a webview say to each other.
@@ -515,7 +516,9 @@ export type RunRow = {
   /** DBOS's own status word. */
   status: string;
 
-  severity: RunSeverity;
+  /** Where it has got to, in the one word every
+   *  surface says it in. */
+  word: RunWord;
 
   /** `14:02 · 8.2 s`, already formatted. */
   when: string;
@@ -571,27 +574,6 @@ export type RunRow = {
   forks: string[];
 };
 
-/**
- * How loudly a run is drawn.
- *
- * `exhausted` is the run DBOS gave up recovering.
- * No mockup draws that state — both drawn examples
- * are ordinary successes that recovered once — so
- * it is its own severity rather than an ordinary
- * failure: a run that failed is a bug to read, and
- * a run that failed *after* being restarted as
- * many times as DBOS allows is a loop somebody has
- * to break.
- *
- * `cancelled` is its own for the opposite reason:
- * somebody asked for it, so it is not news anybody
- * has to look into. The run still appears under the
- * Failed filter, which is DBOS's own partial index
- * rather than anything this panel decides.
- */
-export type RunSeverity =
-  'ok' | 'running' | 'waiting' | 'failed' | 'exhausted' | 'cancelled';
-
 export type RunsStrings = ReturnType<typeof runsWords>;
 
 /**
@@ -638,7 +620,9 @@ export type SeeRun = {
   /** `SUCCESS · 8.2 s total` */
   headline: string;
 
-  severity: RunSeverity;
+  /** Where it has got to, in the one word every
+   *  surface says it in. */
+  word: RunWord;
 
   /** `started 14:02:11 · finished 14:02:19` */
   span: string;
@@ -787,10 +771,10 @@ export type SeeLineageRun = {
   workflowId: string;
 
   /** DBOS's own word, passed through as everywhere
-   *  else; `severity` is what it is drawn by. */
+   *  else; `word` is what it is drawn by. */
   status: string;
 
-  severity: RunSeverity;
+  word: RunWord;
 
   /**
    * The first step this run ran for itself, and

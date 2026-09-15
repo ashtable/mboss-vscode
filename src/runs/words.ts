@@ -5,6 +5,7 @@ import { once } from '../once.js';
 
 import type { RunFilter } from './queries.js';
 import type { ServiceHealth } from './stack.js';
+import type { LiveOutcome } from './watch.js';
 
 /**
  * Every word the run list and the flight recorder
@@ -24,6 +25,45 @@ import type { ServiceHealth } from './stack.js';
  * table rather than written twice, because the
  * store says them too.
  */
+
+/**
+ * Where a run or a step has got to, in the one
+ * vocabulary every panel says it in.
+ *
+ * The keys are `webview/states.ts`'s and the copy
+ * is here, once: every bag that carries these words
+ * takes them from here, and so does the host for the
+ * one sentence it composes with a word in it. `quiet`
+ * is the watch's own and not the ledger's — it is
+ * letting go of a run that may yet move — and it
+ * has to read as something other than an ending.
+ */
+export const runWords = once(
+  () =>
+    ({
+      running: l10n.t('running'),
+      done: l10n.t('done'),
+      failed: l10n.t('failed'),
+      waiting: l10n.t('waiting'),
+      quiet: l10n.t('quiet'),
+      cancelled: l10n.t('cancelled'),
+
+      // Dispatched more than once and still going: it
+      // is running, but not for the first time, and
+      // somebody reading a slow run is owed that.
+      recovering: l10n.t('recovering'),
+
+      // Filed, and not claimed by a worker yet.
+      queued: l10n.t('queued'),
+
+      // Restarted as often as DBOS allows and then
+      // abandoned. Its own word rather than one more
+      // failure: nothing is going to pick this run
+      // back up, and what caused it will keep
+      // happening until somebody breaks the loop.
+      gaveUp: l10n.t('gave up'),
+    }) satisfies Record<LiveOutcome, string>,
+);
 
 export const runsWords = once(() => ({
   heading: l10n.t('Runs'),

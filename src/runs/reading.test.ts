@@ -585,6 +585,55 @@ describe('where the run is', () => {
 
     expect(woken.outcome).toBe('running');
   });
+
+  /** A run DBOS stopped restarting is over, and it
+   *  is not the news a run that threw is. */
+  it('says gave up for a run DBOS stopped restarting', () => {
+    const dead = { ...RUN, status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' };
+
+    expect(readRun(dead, [], IR, false, NOW, IR).outcome).toBe('gaveUp');
+  });
+
+  it('says queued for a run nothing has claimed yet', () => {
+    const filed = { ...RUN, status: 'ENQUEUED' };
+
+    expect(readRun(filed, [], IR, false, NOW, IR).outcome).toBe('queued');
+  });
+
+  /** The column counts dispatches, so one more than
+   *  the first is the first time anything picked the
+   *  run back up. */
+  it('says recovering for a run something picked back up', () => {
+    const again = { ...RUN, recoveryAttempts: 2 };
+
+    expect(
+      readRun(again, ledger('parse_claim'), IR, false, NOW, IR).outcome,
+    ).toBe('recovering');
+  });
+
+  /**
+   * Answered once, with every row the page holds,
+   * and carried: a header that asked the steps again
+   * would get the parked block and miss the timer.
+   */
+  it('carries whether the run is parked, timers included', () => {
+    expect(
+      readRun(RUN, ledger('manager_ok.register'), IR, false, NOW, IR).parked,
+    ).toBe(true);
+    expect(
+      readRun(
+        RUN,
+        [step({ name: 'DBOS.sleep', startedAt: 1000, completedAt: 90_000 })],
+        IR,
+        false,
+        50_000,
+        IR,
+      ).parked,
+    ).toBe(true);
+    expect(readRun(RUN, ledger('parse_claim'), IR, false, NOW, IR).parked).toBe(
+      false,
+    );
+  });
 });
 
 describe('the window a run is drawn in', () => {

@@ -25,8 +25,13 @@ import {
   type WorkflowNode,
 } from '../../src/core/rules.js';
 import type { QueueEvidence } from '../../src/runs/queueEvidence.js';
-import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
-import type { LiveRun, LiveStep, QueueCounts } from '../../src/runs/watch.js';
+import type { StepState } from '../../src/runs/reading.js';
+import type {
+  LiveOutcome,
+  LiveRun,
+  LiveStep,
+  QueueCounts,
+} from '../../src/runs/watch.js';
 import { liveStep } from '../../src/test-support/runs.js';
 import { filled } from '../../src/webview/fill.js';
 import { shortRunId } from '../../src/webview/ids.js';

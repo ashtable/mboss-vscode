@@ -4,6 +4,7 @@ import { boxesFor } from '../core/index.js';
 import { ownerOf, type WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import type { SeeInit } from '../webview/protocol.js';
+import { inFlight } from '../webview/states.js';
 
 import type { Database } from './db.js';
 import type { FollowedRun, Following } from './following.js';
@@ -221,12 +222,11 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
       ...shown,
       run: read.run,
       steps: read.steps,
-      following:
-        run.outcome === 'running'
-          ? 'following'
-          : run.outcome === 'waiting'
-            ? 'waiting'
-            : 'quiet',
+      following: inFlight(run.outcome)
+        ? 'following'
+        : run.outcome === 'waiting'
+          ? 'waiting'
+          : 'quiet',
     };
     changed();
   });

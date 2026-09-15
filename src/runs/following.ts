@@ -2,6 +2,7 @@ import type { Disposable } from 'vscode';
 
 import { queuedWorkflowName, type WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
+import { inFlight } from '../webview/states.js';
 
 import type { OpenDatabase } from './db.js';
 import {
@@ -92,11 +93,11 @@ export function following(deps: FollowingDeps): Following {
   const watching = new Map<string, RunWatcher>();
 
   const heard = (run: LiveRun, read: LedgerRead): void => {
-    // A watch stops itself on anything but
-    // `running`, so what is held here goes with it —
-    // otherwise a re-arm would find a watcher that
-    // is no longer watching.
-    if (run.outcome !== 'running') watching.delete(run.workflowId);
+    // A watch stops itself on anything but a run
+    // still in flight, so what is held here goes
+    // with it — otherwise a re-arm would find a
+    // watcher that is no longer watching.
+    if (!inFlight(run.outcome)) watching.delete(run.workflowId);
 
     reports.fire({ run, read });
   };

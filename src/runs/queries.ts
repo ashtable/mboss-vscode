@@ -76,6 +76,13 @@ export const FAILED_STATUSES = [
  */
 export const QUEUED_STATUSES = ['ENQUEUED', 'DELAYED'] as const;
 
+/** The one status that means the run worked. Held
+ *  here beside the sets the filters read, so the
+ *  crossing that says it in a word and the queries
+ *  that filter by it spell the ledger's words in
+ *  one place. */
+export const SUCCEEDED_STATUS = 'SUCCESS';
+
 /**
  * What every read of a run selects.
  *

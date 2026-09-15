@@ -1,13 +1,9 @@
 import type { WorkflowIR } from '../core/rules.js';
+import { inFlight, type RunWord } from '../webview/states.js';
 
 import type { Database, OpenDatabase } from './db.js';
 import { queueCountsQuery, runQuery, stepsQuery } from './queries.js';
-import {
-  readRun,
-  type LiveOutcome,
-  type Operation,
-  type Reading,
-} from './reading.js';
+import { readRun, type Operation, type Reading } from './reading.js';
 import {
   hasRecovered,
   toRun,
@@ -81,6 +77,21 @@ export type QueueCounts = {
   failed: number;
 };
 
+/**
+ * Where the run is, as the watch says it.
+ *
+ * The crossing's word, or `quiet`: the one word
+ * that is the watch's own rather than the ledger's.
+ * `waiting` and `quiet` are both stopped watches and
+ * are kept apart on purpose. A parked run is waiting
+ * on a person and will move when they act; a quiet
+ * one is waiting on nobody and the watch simply let
+ * go of it. Telling somebody a quiet run is waiting
+ * would send them looking for an email that was
+ * never sent.
+ */
+export type LiveOutcome = RunWord | 'quiet';
+
 export type LiveRun = {
   workflowId: string;
 
@@ -143,18 +154,6 @@ export type LiveRun = {
  *  reading made of them so nothing has to ask the
  *  database again for what is already in hand. */
 export type LedgerRead = { run: Run; steps: Step[] };
-
-/**
- * The outcomes a run will not move on from.
- *
- * Not the question of when a watch lets go, which
- * is any outcome but `running` — `waiting` and
- * `quiet` stop one too, over runs that may yet
- * move. This is what a session row asks before it
- * stamps how long the run took and stops being
- * re-armed.
- */
-export const SETTLED: readonly LiveOutcome[] = ['done', 'failed', 'cancelled'];
 
 export type RunWatcher = { stop(): void };
 
@@ -366,7 +365,7 @@ export function watchRun(
     if (seen !== undefined && !same(seen.live, last)) {
       report(seen.live, seen.read);
 
-      if (seen.live.outcome !== 'running') return stop();
+      if (!inFlight(seen.live.outcome)) return stop();
     } else if (Date.now() - movedAt >= WATCH_QUIET_MS) {
       // Nothing to say about a run whose row never
       // appeared — only that nobody is watching it

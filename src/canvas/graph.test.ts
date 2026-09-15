@@ -11,8 +11,8 @@ import {
   type NodeKind,
   type WorkflowIR,
 } from '../core/rules.js';
-import type { LiveOutcome, StepState } from '../runs/reading.js';
-import type { LiveRun, QueueCounts } from '../runs/watch.js';
+import type { StepState } from '../runs/reading.js';
+import type { LiveOutcome, LiveRun, QueueCounts } from '../runs/watch.js';
 import {
   TIMER_THEN_ANSWER,
   TIMER_WAKES_AT,
