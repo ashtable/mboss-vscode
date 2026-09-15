@@ -167,6 +167,10 @@ export type SubjectInputs = {
    *  it. */
   file: string;
 
+  /** Where the document is, which is how a question
+   *  about one of its blocks names the file. */
+  path: string;
+
   /** The workflow the file holds, by its name. */
   workflow: string;
 
@@ -524,6 +528,7 @@ export class CanvasSession {
   subjectInputs(): SubjectInputs {
     return {
       file: basename(this.document.uri.fsPath),
+      path: this.document.uri.fsPath,
       workflow: this.name,
       read: this.read,
       revision: this.revision(),

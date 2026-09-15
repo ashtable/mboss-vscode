@@ -1,4 +1,4 @@
-import { basename } from 'node:path';
+import { basename, dirname, relative } from 'node:path';
 
 import {
   window,
@@ -8,11 +8,13 @@ import {
   type WebviewViewProvider,
 } from 'vscode';
 
+import type { Agent } from '../acp/agent.js';
 import type { CanvasCode, CanvasSession } from '../canvas/editor.js';
 import type { CanvasSessions } from '../canvas/sessions.js';
 import { inspectorWords } from '../canvas/words.js';
-import { manifestFor, workflowDocument } from '../core/index.js';
+import { manifestFor, projectOf, workflowDocument } from '../core/index.js';
 import type { LibManifest, WorkflowIR } from '../core/rules.js';
+import { messages } from '../messages.js';
 import type { PreviewStore } from '../preview/store.js';
 import type { AskAgent } from '../runs/evidence.js';
 import { pointIn } from '../runs/panels.js';
@@ -106,6 +108,10 @@ export type InspectorHost = {
   /** Resolves a pane that never has, and hands
    *  focus back to the editor. */
   meetInspector(): Promise<void> | void;
+
+  /** Brings the agent's side bar into view, where
+   *  what it answers is written. */
+  revealAgent(): Promise<void>;
 
   /** Opens a workflow document in its canvas. */
   openCanvas(
@@ -219,6 +225,7 @@ export class InspectorView implements WebviewViewProvider {
     private readonly preview: Pick<PreviewStore, 'forWorkflow' | 'onChanged'>,
     private readonly runs: InspectorRuns,
     private readonly trust: Trust,
+    private readonly agent: Agent,
     private readonly code: CanvasCode,
     private readonly sessions: CanvasSessions,
     private readonly focus: InspectorFocus,
@@ -474,6 +481,13 @@ export class InspectorView implements WebviewViewProvider {
         void this.runs.openInput(message.workflowId);
 
         return;
+
+      // About the block the pane is showing, from
+      // whichever surface it was picked on.
+      case 'askAboutBlock':
+        void this.askAboutBlock(message.workflow, message.nodeId);
+
+        return;
     }
 
     // The rest is about the block, and a block is on
@@ -600,6 +614,49 @@ export class InspectorView implements WebviewViewProvider {
 
     canvas.select(nodeId);
     await canvas.edit(message);
+  }
+
+  /**
+   * Asks the agent about a block as it is set.
+   *
+   * In words read off the block the pane is drawing,
+   * so the name is the one on screen and the file is
+   * the document that block is in; a question about
+   * any other block is not one this pane put, and
+   * is not asked. The side bar comes into view
+   * first, as it does for a question about a run,
+   * so the answer lands where somebody is looking.
+   */
+  private async askAboutBlock(workflow: string, nodeId: string): Promise<void> {
+    const { subject } = inspectorInit(this.focused());
+    const path = this.documentPath();
+
+    if (subject.at !== 'block' || path === undefined) return;
+
+    const { block } = subject;
+    if (block.workflow !== workflow || block.nodeId !== nodeId) return;
+
+    const node = block.ir.nodes.find((one) => one.id === nodeId);
+    if (node === undefined) return;
+
+    // Said from the project, the way the side bar
+    // names every other file.
+    const project = projectOf(path) ?? dirname(path);
+
+    await this.host.revealAgent();
+    await this.agent.send({
+      text: messages.askAboutBlock(node.title, nodeId, relative(project, path)),
+    });
+  }
+
+  /** The document the block in the pane is drawn
+   *  from, on either surface. */
+  private documentPath(): string | undefined {
+    const holder = this.focus.holder();
+
+    return holder?.at === 'canvas'
+      ? holder.session.subjectInputs().path
+      : this.runDocument()?.path;
   }
 
   /**

@@ -966,6 +966,7 @@ describe('selecting a node', () => {
 
     expect(canvasOn().subjectInputs()).toEqual({
       file: 'groom_booking.workflow.json',
+      path: GROOM_BOOKING,
       workflow: 'groom_booking',
       read: init.document,
       revision: ir.revision,

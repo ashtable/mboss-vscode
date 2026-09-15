@@ -445,6 +445,21 @@ const AskAgent = z.object({
   functionId: z.number().int().optional(),
 });
 
+/**
+ * Somebody wants the agent to look at a block as it
+ * is set, from the form it is set in.
+ *
+ * The workflow and the block, and nothing a run
+ * recorded: the host puts the question in words
+ * read off the document it is showing, never off
+ * the frame.
+ */
+const AskAboutBlock = z.object({
+  type: z.literal('askAboutBlock'),
+  workflow: z.string(),
+  nodeId: z.string(),
+});
+
 /** Somebody opened a run in the flight recorder:
  *  one of this session's, from the list, from a
  *  transcript row, or the one a canvas is drawing
@@ -704,7 +719,8 @@ const SCHEMAS = {
   ]),
   // Everything a block's two faces offer: its
   // edits, the ways into its code and its recorded
-  // values, and the ways on from a run — and what
+  // values, a question for the agent about it, and
+  // the ways on from a run — and what
   // the card about a whole run offers: stopping it,
   // picking it back up and its recorded input.
   inspector: z.discriminatedUnion('type', [
@@ -718,6 +734,7 @@ const SCHEMAS = {
     InspectQueue,
     ReplayFrom,
     AskAgent,
+    AskAboutBlock,
     OpenRun,
     CancelRun,
     ResumeRun,

@@ -72,6 +72,7 @@ function Block({
     <Inspector
       strings={strings}
       source={block.source}
+      workflow={block.workflow}
       selected={node === undefined ? undefined : { ir: block.ir, node }}
       mode={block.face}
       revision={block.revision}

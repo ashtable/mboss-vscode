@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { signatureOf } from '../../src/canvas/libFunction.js';
 import {
   handlerFit,
   withDecisionCases,
@@ -26,6 +27,7 @@ import {
   PARTITIONED,
   THREW,
   THREW_IN_LIB,
+  apiCallSubject,
   blockInit,
   blockSubject,
   inspectorInit,
@@ -1254,7 +1256,7 @@ test.describe('a block in the Inspector', () => {
     expect(sized.top).toBeGreaterThanOrEqual(strip.y + strip.height);
     expect(sized.bottom).toBeLessThanOrEqual(sized.pane);
 
-    const last = page.locator('[data-field="enqueuePolicy"] .section-head');
+    const last = page.locator('[data-field="enqueuePolicy"] .section-label');
     await last.scrollIntoViewIfNeeded();
     await expect(last).toBeInViewport();
     await expect(page.locator('[data-inspector-heading]')).toBeInViewport();
@@ -1333,27 +1335,6 @@ test.describe('a block in the Inspector', () => {
   });
 
   /**
-   * And the one kind that has none says why, rather
-   * than leaving the row out and reading as a kind
-   * whose fields somebody forgot.
-   */
-  test('tells a transaction it runs once inside its commit', async ({
-    page,
-  }) => {
-    await openInspector(page, blockInit(blockSubject('record_booking')));
-
-    const retry = page.locator('[data-field="retry"]');
-
-    await expect(retry.locator('.property-label')).toHaveText(
-      inspectorStrings.retryPolicy,
-    );
-    await expect(retry.locator('.value')).toHaveText(inspectorStrings.retry);
-    await expect(page.locator('[data-field="retryMaxAttempts"]')).toHaveCount(
-      0,
-    );
-  });
-
-  /**
    * A queue block's form, which is the only one in
    * the column grouped under headers.
    *
@@ -1368,13 +1349,28 @@ test.describe('a block in the Inspector', () => {
     test('come as groups, the last of them folded away', async ({ page }) => {
       await openInspector(page, blockInit(queueSubject(INDEXING)));
 
-      await expect(
-        page.locator('[data-control="section"] .section-head'),
-      ).toHaveText([
-        `${MARK}${word(inspectorStrings.fields, 'queuePolicy')}`,
-        `${MARK}${word(inspectorStrings.fields, 'enqueuePolicy')}`,
-        `${MARK}${word(inspectorStrings.fields, 'advanced')}`,
+      // Named, and not folded: a policy is read
+      // whole. Only the knobs nobody turns often fold
+      // away, behind the one header that is a button.
+      const labels = page.locator('[data-control="section"] > p.section-label');
+      await expect(labels).toHaveText([
+        word(inspectorStrings.fieldsByKind.queue ?? {}, 'function'),
+        word(inspectorStrings.fields, 'retryPolicy') +
+          ` · ${inspectorStrings.configured}`,
+        word(inspectorStrings.fields, 'queuePolicy'),
+        word(inspectorStrings.fields, 'enqueuePolicy'),
       ]);
+
+      const folding = page.locator('.section-head');
+      await expect(folding).toHaveCount(1);
+      await expect(folding).toHaveText(
+        `${MARK}${word(inspectorStrings.fields, 'advanced')}`,
+      );
+      expect(
+        await folding.evaluate((head) =>
+          head.parentElement?.matches('[data-field="advanced"]'),
+        ),
+      ).toBe(true);
 
       await expect(page.locator('[data-field="queueName"] input')).toHaveValue(
         'document-index',
@@ -1523,18 +1519,10 @@ test.describe('a block in the Inspector', () => {
 
       await head.click();
 
+      await expect(head).toHaveAttribute('aria-expanded', 'false');
       await expect(page.locator('[data-field="onConflict"]')).toHaveCount(0);
-
-      // And a group folded from the top takes its
-      // own fields with it and nobody else's.
-      await page.locator('[data-field="queuePolicy"] .section-head').click();
-
-      await expect(page.locator('[data-field="queueName"]')).toHaveCount(0);
-      await expect(
-        page.locator('[data-field="queuePolicy"] .section-head'),
-      ).toBeVisible();
-      await expect(page.locator('[data-field="itemsPath"] input')).toHaveValue(
-        'pages',
+      await expect(page.locator('[data-field="queueName"] input')).toHaveValue(
+        'document-index',
       );
     });
 
@@ -2345,6 +2333,420 @@ test.describe('a block in the Inspector', () => {
  * line, and every control in a row answers to a
  * name.
  */
+/**
+ * How a block's form is grouped, and what sits at
+ * its foot.
+ *
+ * A form is read in groups, each under a quiet label
+ * saying what it holds: the function a block runs,
+ * what an API call calls, how hard the block tries.
+ * The rows in a group say nothing the label already
+ * says, a number is kept apart from the unit it is
+ * counted in, and the ways out of the form — to the
+ * function's code, and to the agent — come last.
+ */
+test.describe('the groups a block is set in', () => {
+  /** The labels over the groups on the page, in
+   *  the order they are drawn. */
+  function groupLabels(page: Page): Locator {
+    return page.locator(
+      '[role="tabpanel"] [data-control="section"] .section-label',
+    );
+  }
+
+  /** Whether what a value holds sits side by side
+   *  rather than wrapped under itself. */
+  function oneRow(value: Locator): Promise<boolean> {
+    return value.evaluate((node) => {
+      const tallest = Math.max(
+        ...[...node.children].map((one) => one.getBoundingClientRect().height),
+      );
+
+      return node.getBoundingClientRect().height <= tallest + 1;
+    });
+  }
+
+  /** How many lines an element's text is set on. */
+  function linesOf(element: Locator): Promise<number> {
+    return element.evaluate((node) => {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+
+      return new Set(
+        [...range.getClientRects()].map((box) => Math.round(box.top)),
+      ).size;
+    });
+  }
+
+  /**
+   * The function behind a block already says what
+   * it takes and what it gives back, on the row
+   * that names it, so a block whose declarations
+   * agree with it draws no rows repeating them. A
+   * block with nothing behind it has no such row,
+   * and its declarations are the only place those
+   * types are said.
+   */
+  test('shows a function’s types in its row rather than as fields', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('find_slot')),
+    );
+
+    const findSlot = manifest.functions.find((fn) => fn.export === 'findSlot')!;
+    await expect(page.locator('[data-picker-current] .signature')).toHaveText(
+      signatureOf(findSlot),
+    );
+    await expect(page.locator('[data-field="in"]')).toHaveCount(0);
+    await expect(page.locator('[data-field="out"]')).toHaveCount(0);
+
+    await harness.show(
+      blockInit(blockSubject('find_slot', { handler: undefined })),
+    );
+
+    await expect(page.locator('[data-picker-current]')).toHaveAttribute(
+      'data-state',
+      'empty',
+    );
+    await expect(page.locator('[data-field="out"] .property-label')).toHaveText(
+      word(inspectorStrings.fields, 'out'),
+    );
+    await expect(page.locator('[data-field="out"] input')).toHaveValue(
+      'SlotGrid',
+    );
+    await expect(page.locator('[data-field="in"] input')).toHaveValue(
+      'BookingReq',
+    );
+  });
+
+  test('labels a block’s groups by what they hold', async ({ page }) => {
+    const harness = await openInspector(page, blockInit(apiCallSubject()));
+    const fields = inspectorStrings.fields;
+
+    await expect(groupLabels(page)).toHaveText([
+      word(fields, 'function'),
+      word(fields, 'request'),
+      `${word(fields, 'retryPolicy')} · ${inspectorStrings.configured}`,
+    ]);
+
+    // Worked out of the configuration rather than
+    // read off a run, and said once for the whole
+    // group rather than on every row in it.
+    const mark = page.locator(
+      '[data-field="retryPolicy"] .section-label ' +
+        '[data-provenance="configured"]',
+    );
+    await expect(mark).toHaveText(`· ${inspectorStrings.configured}`);
+    await expect(page.locator('[data-property] [data-provenance]')).toHaveCount(
+      0,
+    );
+
+    // The function a group is named for is named by
+    // that group, so the row carries no label of its
+    // own.
+    await expect(
+      page.locator('[data-field="handler"] .property-label'),
+    ).toHaveCount(0);
+    await expect(page.locator('[data-field="handler"]')).toHaveAccessibleName(
+      word(fields, 'function'),
+    );
+
+    const service = page.locator('[data-field="service"]');
+    await expect(service.locator('.property-label')).toHaveText(
+      word(fields, 'service'),
+    );
+    await expect(service.locator('input')).toHaveValue('Airtable');
+    await expect(service.locator('input')).toHaveAttribute('data-mono', '');
+
+    const retry = {
+      retryMaxAttempts: ['5', undefined],
+      retryIntervalSeconds: ['1', 's'],
+      retryBackoffRate: ['2', '×'],
+    } as const;
+
+    for (const [id, [value, unit]] of Object.entries(retry)) {
+      const row = page.locator(`[data-field="${id}"]`);
+
+      await expect(row.locator('.property-label')).toHaveText(word(fields, id));
+      await expect(row.locator('input')).toHaveValue(value);
+
+      // The unit is drawn beside the box and read out
+      // with it, and never typed into it: the value
+      // stays a number.
+      if (unit === undefined) {
+        await expect(row.locator('.property-unit')).toHaveCount(0);
+      } else {
+        await expect(row.locator('.property-unit')).toHaveText(unit);
+        await expect(row.locator('.property-unit')).toHaveAttribute(
+          'aria-hidden',
+          'true',
+        );
+        await expect(row.locator('input')).toHaveAccessibleDescription(unit);
+
+        // Beside the number, as "1 s" is written,
+        // rather than at the far edge of the row.
+        const [value, drawn] = await Promise.all([
+          row.locator('.value').boundingBox(),
+          row.locator('.property-unit').boundingBox(),
+        ]);
+        expect(drawn!.x - value!.x, id).toBeLessThan(48);
+      }
+    }
+
+    // A label is one short noun, on one line, at a
+    // pane's width and at a narrower one.
+    for (const width of [300, 240]) {
+      await page.setViewportSize({ width, height: 900 });
+
+      const rows = page.locator('[role="tabpanel"] [data-property]');
+      await expect(rows).toHaveCount(4);
+
+      for (const row of await rows.all()) {
+        expect(
+          await linesOf(row.locator('.property-label')),
+          `${width}px`,
+        ).toBe(1);
+        expect(await oneRow(row.locator('.value')), `${width}px`).toBe(true);
+      }
+    }
+
+    // What a trigger starts on is its kind.
+    await harness.show(blockInit(blockSubject('booking_requested')));
+
+    await expect(
+      page.locator('[data-field="mode"] .property-label'),
+    ).toHaveText(word(fields, 'mode'));
+    expect(word(fields, 'mode')).toBe('kind');
+  });
+
+  /**
+   * One row of the ledger can cover every try DBOS
+   * made at a step, which is worth saying where a
+   * block is set to try more than once — after the
+   * last of the rows that set it, and on this face
+   * only, since the numbers are what it is about.
+   */
+  test('says what the duration covers after the retry rows, only when a step retries', async ({
+    page,
+  }) => {
+    const harness = await openInspector(page, blockInit(apiCallSubject()));
+
+    const hint = page.locator('[data-retry-hint]');
+    await expect(hint).toHaveCount(1);
+    await expect(hint).toHaveText(inspectorStrings.durationCoversTries);
+
+    expect(
+      await hint.evaluate(
+        (node) =>
+          node.previousElementSibling?.getAttribute('data-field') ?? null,
+      ),
+    ).toBe('retryBackoffRate');
+
+    // What the host sends once a person has set it
+    // to try once: the next revision.
+    const once = apiCallSubject({
+      retry: { maxAttempts: 1, intervalSeconds: 1, backoffRate: 2 },
+    });
+    const revision = once.ir.revision + 1;
+    await harness.show(
+      blockInit({ ...once, ir: { ...once.ir, revision }, revision }),
+    );
+    await expect(
+      page.locator('[data-field="retryMaxAttempts"] input'),
+    ).toHaveValue('1');
+    await expect(page.locator('[data-retry-hint]')).toHaveCount(0);
+    await expect(
+      page.getByText(inspectorStrings.durationCoversTries),
+    ).toHaveCount(0);
+
+    await harness.show(
+      blockInit({
+        ...apiCallSubject({}, 'evidence'),
+        run: recording([{ ...DONE, name: 'api_call', nodeId: 'api_call' }]),
+      }),
+    );
+    await expect(
+      page.locator('[data-evidence-field="retry"] .value'),
+    ).toHaveCount(1);
+    await expect(
+      page.getByText(inspectorStrings.durationCoversTries),
+    ).toHaveCount(0);
+  });
+
+  for (const theme of THEMES_ALL) {
+    test(`offers the function and the agent from the foot of the form in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await openInspector(
+        page,
+        blockInit(blockSubject('find_slot')),
+        theme,
+      );
+
+      const actions = page.locator('[data-configure-actions]');
+      await expect(actions).toHaveCount(1);
+      await expect(actions.locator('.btn')).toHaveText([
+        inspectorStrings.openHandler,
+        inspectorStrings.askAgent,
+      ]);
+
+      // The last thing on the face.
+      expect(
+        await actions.evaluate(
+          (row) =>
+            row.parentElement?.getAttribute('role') === 'tabpanel' &&
+            row.nextElementSibling === null,
+        ),
+      ).toBe(true);
+
+      const open = actions.locator('[data-open-function]');
+      await expect(open).toHaveAttribute('data-variant', 'secondary');
+      await expect(open).toHaveAttribute('data-ink', 'brand');
+
+      const drawn = await open.evaluate((button) => ({
+        edge: getComputedStyle(button).borderTopColor,
+        ink: getComputedStyle(button).color,
+      }));
+      const edge = colourOf(theme, 'hairline-strong');
+      const ink = colourOf(theme, 'state-ink') || colourOf(theme, 'brand');
+      expect(sameColour(drawn.edge, edge), `${drawn.edge} ≠ ${edge}`).toBe(
+        true,
+      );
+      expect(sameColour(drawn.ink, ink), `${drawn.ink} ≠ ${ink}`).toBe(true);
+
+      const ask = actions.locator('[data-ask-block]');
+      await expect(ask).toHaveAttribute('data-variant', 'quiet');
+
+      await open.click();
+      await ask.click();
+
+      expect(await harness.postedOfType('openFunction')).toEqual([
+        { type: 'openFunction', nodeId: 'find_slot' },
+      ]);
+      expect(await harness.postedOfType('askAboutBlock')).toEqual([
+        {
+          type: 'askAboutBlock',
+          workflow: 'groom_booking',
+          nodeId: 'find_slot',
+        },
+      ]);
+    });
+
+    test(`marks a group’s configured values with a quiet word in ${theme}`, async ({
+      page,
+    }) => {
+      await openInspector(page, blockInit(apiCallSubject()), theme);
+
+      const mark = page.locator(
+        '[data-field="retryPolicy"] [data-provenance="configured"]',
+      );
+      await expect(mark).toHaveCount(1);
+
+      const drawn = await mark.evaluate((word) => ({
+        transform: getComputedStyle(word).textTransform,
+        border: getComputedStyle(word).borderTopStyle,
+        ink: getComputedStyle(word).color,
+      }));
+      const faint = colourOf(theme, 'ink-faint');
+
+      expect(drawn.transform).toBe('none');
+      expect(drawn.border).toBe('none');
+      expect(sameColour(drawn.ink, faint), `${drawn.ink} ≠ ${faint}`).toBe(
+        true,
+      );
+    });
+  }
+
+  /** A block nothing may be changed on still opens
+   *  its code, and offers nothing that would start a
+   *  conversation about changing it. */
+  test('keeps only Open function on a block that cannot be edited', async ({
+    page,
+  }) => {
+    await openInspector(
+      page,
+      blockInit({
+        ...blockSubject('find_slot'),
+        source: 'run',
+        revision: undefined,
+        proposal: 'Preview — proposed by Claude · not applied yet',
+        run: runOf(IN_FLIGHT),
+      }),
+    );
+
+    const actions = page.locator('[data-configure-actions]');
+    await expect(actions).toHaveCount(1);
+    await expect(actions.locator('[data-open-function]')).toHaveCount(1);
+    await expect(page.locator('[data-ask-block]')).toHaveCount(0);
+    await expect(actions.locator('.btn')).toHaveCount(1);
+  });
+
+  /** A block with no function behind it has no code
+   *  to open. */
+  test('offers no Open function on a block with nothing behind it', async ({
+    page,
+  }) => {
+    await openInspector(
+      page,
+      blockInit(blockSubject('find_slot', { handler: undefined })),
+    );
+
+    await expect(page.locator('[data-ask-block]')).toHaveCount(1);
+    await expect(page.locator('[data-open-function]')).toHaveCount(0);
+  });
+
+  /**
+   * A transaction's writes and DBOS's record that
+   * it ran commit together, so it runs once and has
+   * no policy to set. Said in the groups every
+   * code-running block has, rather than in a box of
+   * its own: the database it commits to, and the
+   * retry policy it does not have.
+   */
+  test('says a transaction runs once, inside its own commit', async ({
+    page,
+  }) => {
+    await openInspector(page, blockInit(blockSubject('record_booking')));
+    const fields = inspectorStrings.fields;
+
+    await expect(groupLabels(page)).toHaveText([
+      word(fields, 'function'),
+      word(fields, 'database'),
+      word(fields, 'retryPolicy'),
+    ]);
+
+    await expect(
+      page.locator('[data-field="handler"] [data-commit-hint]'),
+    ).toHaveText(inspectorStrings.oneCommit);
+    await expect(
+      page.locator('[data-field="handler"] .field-hint'),
+    ).toHaveCount(2);
+
+    const database = page.locator('[data-database]');
+    await expect(database.locator('.value')).toHaveText(
+      inspectorStrings.database,
+    );
+    await expect(database.locator('input, select, textarea')).toHaveCount(0);
+    expect(
+      await database.evaluate(
+        (row) => row.previousElementSibling?.getAttribute('data-field') ?? null,
+      ),
+    ).toBe('database');
+
+    await expect(
+      page.locator('[data-field="retryPolicy"] .field-hint'),
+    ).toHaveText(inspectorStrings.retry);
+    await expect(
+      page.locator('[data-field="retryPolicy"] [data-provenance]'),
+    ).toHaveCount(0);
+
+    await expect(page.locator('[data-callout="transaction"]')).toHaveCount(0);
+    await expect(page.locator('[data-field^="retry"] input')).toHaveCount(0);
+  });
+});
+
 test.describe('a field at rest and in use', () => {
   /** The field a step's tries are counted in, found
    *  the way a screen reader finds it: by the label
@@ -2544,7 +2946,10 @@ test.describe('a field at rest and in use', () => {
       for (const block of [
         blockSubject('find_slot'),
         blockSubject('slot_open'),
-        blockSubject('record_booking'),
+        // Declaring a type its function does not
+        // return, so the rows it declares are drawn
+        // rather than left to the signature.
+        blockSubject('record_booking', { out: 'Receipt' }),
         blockSubject('booking_requested'),
         blockSubject('send_confirmation'),
         queueSubject(INDEXING),
@@ -2656,7 +3061,9 @@ test.describe('a field at rest and in use', () => {
       new Set(['0px']),
     );
 
-    expect(read.firstInGroup).toEqual(['1px', '1px']);
+    // The retry policy, the queue's registration and
+    // what each item is enqueued with.
+    expect(read.firstInGroup).toEqual(['1px', '1px', '1px']);
     expect(read.afterGroup.length).toBeGreaterThanOrEqual(2);
     expect(new Set(read.afterGroup)).toEqual(new Set(['0px']));
 
@@ -3117,29 +3524,16 @@ test.describe('the function picker', () => {
   });
 
   /**
-   * The two kinds whose relationship with their
-   * code is the thing a person gets wrong: a branch
-   * owns none of it, and a transaction's writes ride
-   * on the step record.
+   * The kind whose relationship with its code is the
+   * thing a person gets wrong: a branch owns none of
+   * it.
    */
-  test('says what a branch and a transaction are', async ({ page }) => {
-    const harness = await openInspector(
-      page,
-      blockInit(blockSubject('slot_open')),
-    );
+  test('says what a branch is', async ({ page }) => {
+    await openInspector(page, blockInit(blockSubject('slot_open')));
 
     await expect(
       page.locator('[data-callout="branch"] .callout-title'),
     ).toHaveText(inspectorStrings.callouts.branch.title);
-
-    await harness.show(blockInit(blockSubject('record_booking')));
-
-    await expect(page.locator('[data-callout="transaction"]')).toContainText(
-      inspectorStrings.callouts.transaction.title,
-    );
-    await expect(page.locator('[data-field="database"]')).toContainText(
-      inspectorStrings.database,
-    );
   });
 
   /**
@@ -3217,7 +3611,7 @@ test.describe('the function picker', () => {
     );
 
     await expect(
-      page.locator('[data-field="handler"] .property-label'),
+      page.locator('[data-field="function"] .section-label'),
     ).toHaveText('function');
     await expect(page.locator('[data-field="logic"]')).toHaveCount(0);
 
@@ -3227,9 +3621,13 @@ test.describe('the function picker', () => {
       }),
     );
 
+    // No group over a branch's logic: the picker
+    // names itself, and at rest it is one row.
     await expect(
       page.locator('[data-field="logic"] .property-label'),
     ).toHaveText('logic');
+    await expect(page.locator('[data-field="function"]')).toHaveCount(0);
+    await expect(page.locator('[data-picker-current]')).toHaveCount(1);
     await expect(page.locator('[data-field="handler"]')).toHaveCount(0);
   });
 

@@ -60,6 +60,7 @@ const OFFERED: StartRefusal = () => undefined;
 function canvas(over: Partial<SubjectInputs> = {}): SubjectInputs {
   return {
     file: 'groom_booking.workflow.json',
+    path: '/work/grooming/.mboss/workflows/groom_booking.workflow.json',
     workflow: 'groom_booking',
     read: { ok: true, ir },
     revision: ir.revision,

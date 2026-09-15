@@ -91,8 +91,7 @@ function bind(node: WorkflowNode): {
     case 'step':
     case 'codeStep':
       return bound(node, [
-        ...base<typeof node>(),
-        handler<typeof node>(),
+        ...runsCode<typeof node>(),
         ...retryFields<typeof node>(),
       ]);
     // Its own case now, because it is the one kind
@@ -101,11 +100,11 @@ function bind(node: WorkflowNode): {
     // together, so a second attempt is not a thing
     // the generated code can ask for.
     case 'transaction':
-      return bound(node, [...base<typeof node>(), handler<typeof node>()]);
+      return bound(node, runsCode<typeof node>());
     case 'apiCall':
       return bound(node, [
-        ...base<Of<'apiCall'>>(),
-        handler<Of<'apiCall'>>(),
+        ...runsCode<Of<'apiCall'>>(),
+        section('request'),
         text(
           'service',
           (one) => one.config.service,
@@ -139,12 +138,21 @@ function bound<N extends WorkflowNode>(node: N, lenses: Lens<N>[]) {
 /* — the fields every node has — */
 
 function base<N extends WorkflowNode>(): Lens<N>[] {
+  return [title<N>(), ...declared<N>()];
+}
+
+function title<N extends WorkflowNode>(): Lens<N> {
+  return text(
+    'title',
+    (node) => node.title,
+    (node, value) => replace(node, { title: value } as Partial<N>),
+  );
+}
+
+/** The types a node declares it takes and
+ *  produces. */
+function declared<N extends WorkflowNode>(): Lens<N>[] {
   return [
-    text(
-      'title',
-      (node) => node.title,
-      (node, value) => replace(node, { title: value } as Partial<N>),
-    ),
     text(
       'in',
       (node) => node.in,
@@ -156,6 +164,19 @@ function base<N extends WorkflowNode>(): Lens<N>[] {
       (node, value) => optional(node, 'out', value),
     ),
   ];
+}
+
+/**
+ * A block that runs code: its name, then the group
+ * the function behind it is set in.
+ *
+ * The types it declares are in that group rather
+ * than above it, because they are what the function
+ * is held to, and whether they are drawn at all
+ * depends on what the function says.
+ */
+function runsCode<N extends WorkflowNode>(): Lens<N>[] {
+  return [title<N>(), section('function'), handler<N>(), ...declared<N>()];
 }
 
 /**
@@ -220,7 +241,11 @@ function retryFields<N extends WorkflowNode>(): Lens<N>[] {
         value === null ? node : written(node, { [key]: value }),
     );
 
+  // Under a header of their own, which owns the
+  // three and nothing else: the group is what says
+  // the numbers are configuration.
   return [
+    section('retryPolicy'),
     turned('retryMaxAttempts', 'maxAttempts'),
     turned('retryIntervalSeconds', 'intervalSeconds'),
     turned('retryBackoffRate', 'backoffRate'),
@@ -408,26 +433,24 @@ function partitioned(node: Queue): boolean {
  * and the knobs nobody turns often are a third one,
  * folded.
  *
- * The block's own fields, the function its items
- * run and that function's policy come first and
- * belong to no group. A header owns everything
- * after it as far as the next one, so what belongs
- * to no group has to be said before the first
- * header rather than after the last.
+ * The function its items run and that function's
+ * policy come first, each in the group every block
+ * that runs code has. A header owns everything
+ * after it as far as the next one, so the order of
+ * the headers is the order of the groups.
  */
 function queueFields(node: Queue): Lens<Queue>[] {
   const held = partitioned(node);
 
   return [
-    ...base<Queue>(),
-    handler<Queue>(),
+    ...runsCode<Queue>(),
 
     // A queue block starts a run per item, so what
     // is set here is one item's retry rather than
     // the whole block's.
     ...retryFields<Queue>(),
 
-    section<Queue>('queuePolicy', false),
+    section<Queue>('queuePolicy'),
     text(
       'queueName',
       (one) => one.config.queue.name,
@@ -439,7 +462,7 @@ function queueFields(node: Queue): Lens<Queue>[] {
     partitioningField(),
     ...(held ? [queueCount('partitionConcurrency')] : []),
 
-    section<Queue>('enqueuePolicy', false),
+    section<Queue>('enqueuePolicy'),
     text(
       'itemsPath',
       (one) => one.config.itemsPath,
@@ -457,7 +480,7 @@ function queueFields(node: Queue): Lens<Queue>[] {
     enqueueText('deduplicationPath'),
     ...(held ? [enqueueText('partitionPath')] : []),
 
-    section<Queue>('advanced', true),
+    section<Queue>('advanced', { folds: true }),
     queueCount('partitionWorkerConcurrency'),
     ...rateFields(
       'partitionRateLimitPer',

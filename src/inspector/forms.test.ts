@@ -568,9 +568,12 @@ describe('a queue block', () => {
   it('reads back both policies, and the advanced knobs under them', () => {
     expect(ids(sample('index_pages'))).toEqual([
       'title',
+      'function',
+      'handler',
       'in',
       'out',
-      'handler',
+
+      'retryPolicy',
       'retryMaxAttempts',
       'retryIntervalSeconds',
       'retryBackoffRate',
@@ -621,15 +624,17 @@ describe('a queue block', () => {
     });
   });
 
-  it('opens a group per policy, the last of them folded', () => {
+  it('opens a group per policy, and folds only the advanced one', () => {
     expect(
       fieldsOf(sample('index_pages')).filter(
         (field) => field.control === 'section',
       ),
     ).toEqual([
-      { id: 'queuePolicy', control: 'section', collapsed: false },
-      { id: 'enqueuePolicy', control: 'section', collapsed: false },
-      { id: 'advanced', control: 'section', collapsed: true },
+      { id: 'function', control: 'section', folds: false },
+      { id: 'retryPolicy', control: 'section', folds: false },
+      { id: 'queuePolicy', control: 'section', folds: false },
+      { id: 'enqueuePolicy', control: 'section', folds: false },
+      { id: 'advanced', control: 'section', folds: true },
     ]);
   });
 
@@ -853,39 +858,77 @@ describe('the function a block runs', () => {
   });
 });
 
-describe('a node’s own fields', () => {
-  it('carry the title and the types it declares', () => {
-    const node = sample('parse_request');
+/**
+ * The groups a block's form is read in.
+ *
+ * A header owns every field after it as far as the
+ * next one, so where a group starts is where its
+ * header is written, and a field the wrong side of
+ * one is drawn in somebody else's group.
+ */
+describe('a block’s groups', () => {
+  const HANDLER_KINDS: NodeKind[] = [
+    'step',
+    'transaction',
+    'apiCall',
+    'codeStep',
+    'queue',
+  ];
 
-    expect(find(node, 'title')).toMatchObject({ value: 'Parse request' });
-    expect(find(node, 'in')).toMatchObject({ value: 'WebhookEvent' });
-    expect(find(node, 'out')).toMatchObject({ value: 'BookingReq' });
-    expect(find(node, 'handler')).toMatchObject({ value: 'parseRequest' });
-  });
-
-  it('drop an emptied optional rather than storing a blank', () => {
-    const node = sample('parse_request');
-
-    const edited = formToConfig(node, set(fieldsOf(node), 'out', ''));
-
-    expect(edited).not.toHaveProperty('out');
-    expect(() => NodeSchema.parse(edited)).not.toThrow();
-  });
+  const ids = (node: WorkflowNode): string[] =>
+    fieldsOf(node).map((field) => field.id);
 
   it('offer no handler on a kind that runs no code', () => {
-    const handlerKinds: NodeKind[] = [
-      'step',
-      'transaction',
-      'apiCall',
-      'codeStep',
-      'queue',
-    ];
-
     for (const node of SAMPLES) {
       expect(find(node, 'handler') !== undefined).toBe(
-        handlerKinds.includes(node.kind),
+        HANDLER_KINDS.includes(node.kind),
       );
     }
+  });
+
+  /** And the types the block declares go in that
+   *  group too, since they are what the function is
+   *  held to. */
+  it('open with the function a block runs and the types it declares', () => {
+    const opening = SAMPLES.filter((node) =>
+      HANDLER_KINDS.includes(node.kind),
+    ).map((node) => [node.id, ids(node).slice(0, 5)]);
+
+    expect(opening).toEqual(
+      opening.map(([id]) => [
+        id,
+        ['title', 'function', 'handler', 'in', 'out'],
+      ]),
+    );
+  });
+
+  it('leave a branch’s logic under no group', () => {
+    expect(ids(sample('route_claim')).slice(0, 4)).toEqual([
+      'title',
+      'in',
+      'out',
+      'logic',
+    ]);
+  });
+
+  it('give an API call’s service a group of its own', () => {
+    const shown = ids(sample('call_out'));
+
+    expect(
+      shown.slice(shown.indexOf('request'), shown.indexOf('request') + 2),
+    ).toEqual(['request', 'service']);
+  });
+
+  it('head every retry policy with its group', () => {
+    const headed = SAMPLES.flatMap((node) => {
+      const shown = ids(node);
+      const at = shown.indexOf('retryMaxAttempts');
+
+      return at === -1 ? [] : [[node.id, shown[at - 1]]];
+    });
+
+    expect(headed.length).toBeGreaterThan(5);
+    expect(headed).toEqual(headed.map(([id]) => [id, 'retryPolicy']));
   });
 });
 
@@ -1024,7 +1067,11 @@ describe('every field a person sees', () => {
         : [field],
     );
 
-  const shown = SAMPLES.flatMap((node) => everyField(fieldsOf(node)));
+  const shownBy = SAMPLES.map((node) => ({
+    node,
+    fields: everyField(fieldsOf(node)),
+  }));
+  const shown = shownBy.flatMap(({ fields }) => fields);
 
   it('has a word to draw beside it', () => {
     const unlabelled = shown
@@ -1032,6 +1079,34 @@ describe('every field a person sees', () => {
       .filter((id) => strings.fields[id] === undefined);
 
     expect([...new Set(unlabelled)]).toEqual([]);
+  });
+
+  /** A word that differs by kind has to be a word
+   *  for a field that kind's form has, or it names
+   *  nothing on any form. */
+  it('overrides a word only for an id that kind’s form binds', () => {
+    const overrides = Object.entries(strings.fieldsByKind).flatMap(
+      ([kind, words]) => Object.keys(words).map((id) => [kind, id]),
+    );
+
+    expect(overrides.length).toBeGreaterThan(0);
+    expect(
+      overrides.filter(
+        ([kind, id]) =>
+          !shownBy
+            .filter(({ node }) => node.kind === kind)
+            .some(({ fields }) => fields.some((field) => field.id === id)),
+      ),
+    ).toEqual([]);
+  });
+
+  it('draws a unit only beside a field some form binds', () => {
+    const units = Object.keys(strings.units);
+
+    expect(units.length).toBeGreaterThan(0);
+    expect(
+      units.filter((id) => !shown.some((field) => field.id === id)),
+    ).toEqual([]);
   });
 
   it('has a word for every choice it offers', () => {

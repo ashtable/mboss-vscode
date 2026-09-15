@@ -212,10 +212,13 @@
       "logic": "logic",
       "database": "database",
       "service": "service",
-      "retryMaxAttempts": "attempts",
-      "retryIntervalSeconds": "first retry after, in seconds",
-      "retryBackoffRate": "backoff, times",
-      "mode": "run",
+      "function": "function",
+      "request": "request",
+      "retryPolicy": "retry policy",
+      "retryMaxAttempts": "max attempts",
+      "retryIntervalSeconds": "interval",
+      "retryBackoffRate": "backoff",
+      "mode": "kind",
       "topic": "topic",
       "idempotencyKeyPath": "idempotency key path",
       "requesterEmailPath": "requester email path",
@@ -283,6 +286,18 @@
       "fieldRequired": "required",
       "fieldMultiple": "multiple"
     },
+    "fieldsByKind": {
+      "trigger": {
+        "out": "input type"
+      },
+      "queue": {
+        "function": "handler"
+      }
+    },
+    "units": {
+      "retryIntervalSeconds": "s",
+      "retryBackoffRate": "×"
+    },
     "options": {
       "mode.manual": "by hand",
       "mode.event": "an event",
@@ -346,17 +361,15 @@
     },
     "dropHere": "drop a ƒ here",
     "end": "end",
+    "commitsTo": "commits to",
     "database": "app postgres · prisma tx",
     "retryPolicy": "retry policy",
     "retry": "runs once, inside its own commit",
+    "oneCommit": "One commit. The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.",
     "callouts": {
       "branch": {
         "title": "Branches own no code.",
         "body": "The lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph."
-      },
-      "transaction": {
-        "title": "One commit.",
-        "body": "The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice."
       }
     }
   },

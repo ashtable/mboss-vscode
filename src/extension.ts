@@ -258,6 +258,7 @@ export function activate(context: ExtensionContext): void {
       onChanged: (listener) => runs.onChanged(listener),
     },
     trust,
+    panel,
     watchers,
     sessions,
     focus,

@@ -22,6 +22,7 @@ export function SectionLabel({
   children,
   tone,
   level,
+  id,
   hook,
 }: {
   children: ReactNode;
@@ -30,12 +31,21 @@ export function SectionLabel({
 
   level?: 2 | 3;
 
+  /** What a group of controls names to be read out
+   *  by this label. */
+  id?: string;
+
   hook?: Record<string, string>;
 }) {
   const Heading = level === undefined ? 'p' : level === 2 ? 'h2' : 'h3';
 
   return (
-    <Heading className="section-label" data-tone={tone} {...hooked(hook)}>
+    <Heading
+      className="section-label"
+      id={id}
+      data-tone={tone}
+      {...hooked(hook)}
+    >
       {children}
     </Heading>
   );

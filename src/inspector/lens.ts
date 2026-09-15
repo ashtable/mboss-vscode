@@ -1,3 +1,9 @@
+import {
+  declaredTypeMisfit,
+  type LibFunction,
+  type WorkflowNode,
+} from '../core/rules.js';
+
 /**
  * A field, read and written in one place.
  *
@@ -22,8 +28,8 @@ export type InspectorField =
   | { id: string; control: 'picker'; value: string | undefined }
   | { id: string; control: 'rows'; rows: InspectorField[][] }
   // The one row nobody edits: a header over the
-  // fields after it, and the fold it opens with.
-  | { id: string; control: 'section'; collapsed: boolean };
+  // fields after it, and whether it folds them.
+  | { id: string; control: 'section'; folds: boolean };
 
 /** One field of one subject, both ways. */
 export type Lens<S> = {
@@ -213,19 +219,25 @@ export function rows<S, Item>(
 }
 
 /**
- * A header the fields after it fold under.
+ * A header over the fields after it.
  *
  * The one lens that reads nothing off the subject
- * and writes nothing back into it. Which groups a
+ * and writes nothing back into it. Most headers
+ * only name a group, which is read whole. One that
+ * folds is asked for, and opens folded: it is for
+ * the knobs nobody turns often. Which groups a
  * person has open is how they are reading the form,
  * not something the document should remember, so
- * the fold it opens with is all it carries and the
- * write is the identity.
+ * whether it folds is all it carries and the write
+ * is the identity.
  */
-export function section<S>(id: string, collapsed: boolean): Lens<S> {
+export function section<S>(
+  id: string,
+  { folds }: { folds: boolean } = { folds: false },
+): Lens<S> {
   return {
     id,
-    read: () => ({ id, control: 'section', collapsed }),
+    read: () => ({ id, control: 'section', folds }),
     write: (subject) => subject,
   };
 }
@@ -255,6 +267,37 @@ export function visible(
 
     return true;
   });
+}
+
+/**
+ * Whether a block's takes and produces are drawn as
+ * rows of their own.
+ *
+ * The row naming the function a block runs already
+ * carries that function's signature, so where the
+ * block declares the same types the signature says
+ * them and two more rows would say them again. The
+ * rows come back wherever the signature cannot
+ * speak for the block: nothing is behind it, the
+ * scan has no such export, it fans out — so it
+ * takes the collection while the function takes
+ * one item — or what it declares and what the
+ * function is written with disagree.
+ *
+ * A queue fans out by being one, and declares the
+ * item rather than the collection, so it is held to
+ * the function like any other block. Core's own
+ * comparison makes the same exception, and is asked
+ * rather than copied.
+ */
+export function showsDeclarations(
+  node: WorkflowNode,
+  fn: LibFunction | undefined,
+): boolean {
+  if (node.handler === undefined || fn === undefined) return true;
+  if (node.kind !== 'queue' && node.forEach !== undefined) return true;
+
+  return declaredTypeMisfit(node, fn) !== undefined;
 }
 
 /**

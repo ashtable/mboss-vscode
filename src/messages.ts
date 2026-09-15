@@ -296,6 +296,19 @@ export const messages = {
       error,
     ),
 
+  /**
+   * What the extension asks the agent about a block
+   * as it is set, from the form it is set in.
+   *
+   * No run: the question is about the block, and
+   * the three things that find it are what the
+   * sentence carries — its name as a person reads
+   * it, the id the document knows it by, and the
+   * file, said the way the project names it.
+   */
+  askAboutBlock: (block: string, nodeId: string, file: string) =>
+    l10n.t('Look at block {0} ({1}) in {2}.', block, nodeId, file),
+
   /** The same question about a run no step failed
    *  in — the ingress refused it, or the workflow
    *  itself threw. */

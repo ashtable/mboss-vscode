@@ -963,6 +963,19 @@ body.vscode-high-contrast-light {
   min-width: 0;
 }
 
+/* A number counted in a unit is as wide as what is
+   typed in it, so the unit reads beside the number
+   the way "1 s" is written rather than at the far
+   edge of the row. Never narrower than two figures
+   and the field's own padding, so an emptied field
+   is still something to click. */
+.property > .value:has(> .property-unit) > .field-input {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: calc(2ch + 2 * var(--space-1-5) + 2px);
+  field-sizing: content;
+}
+
 .property-provenance {
   color: var(--ink-faint);
   white-space: nowrap;

@@ -329,6 +329,38 @@ export function queueSubject(
 }
 
 /**
+ * The every-kind document's API call, set up the way
+ * a real one is: a function behind it, a service to
+ * call and a policy that tries five times — which is
+ * the one form holding every group a block's recipe
+ * can have.
+ *
+ * The canonical fixture calls no API, so this is
+ * reached the way the queue is.
+ */
+export function apiCallSubject(
+  over: Partial<WorkflowNode> = {},
+  face: InspectorMode = 'configure',
+): BlockSubject {
+  const called = {
+    handler: { export: 'chargeCard' },
+    config: { service: 'Airtable' },
+    retry: { maxAttempts: 5, intervalSeconds: 1, backoffRate: 2 },
+    ...over,
+  };
+
+  return {
+    ...blockSubject(
+      'api_call',
+      called as Partial<WorkflowNode>,
+      face,
+      everyKind,
+    ),
+    diagnostics: [],
+  };
+}
+
+/**
  * A word the host resolved for a field or a group.
  *
  * The bags are keyed by id, so a missing one reads

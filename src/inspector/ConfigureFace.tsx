@@ -1,10 +1,12 @@
 import {
+  Fragment,
   useEffect,
   useId,
   useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
+  type ReactNode,
   type RefObject,
   type SetStateAction,
 } from 'react';
@@ -29,7 +31,12 @@ import { SectionLabel } from '../webview/signal/SectionLabel.js';
 import { fitsFor, signatureOf, type LibFit } from '../canvas/libFunction.js';
 
 import { configToForm, type InspectorField } from './forms.js';
-import { pickerAfter, visible, type PickerEvent } from './lens.js';
+import {
+  pickerAfter,
+  showsDeclarations,
+  visible,
+  type PickerEvent,
+} from './lens.js';
 import { fieldNotes } from './notes.js';
 import { outcomesOf } from './outcomes.js';
 
@@ -63,6 +70,14 @@ import { outcomesOf } from './outcomes.js';
  *  at the top of the pane rather than in this
  *  face. */
 export const TITLE = 'title';
+
+/** The types a block declares, drawn only where the
+ *  function behind it cannot say them. */
+const DECLARED = new Set(['in', 'out']);
+
+/** The group a block's tries are set in, which says
+ *  once that its numbers are configuration. */
+const RETRY_POLICY = 'retryPolicy';
 
 /**
  * Which control had focus, said so that it can be
@@ -140,11 +155,12 @@ function controlsUnder(form: HTMLElement, field: string): HTMLElement[] {
   );
 }
 
-/** The groups a kind opens with folded. */
+/** The groups a kind opens with folded: every one
+ *  that folds at all. */
 export function initiallyFolded(node: WorkflowNode): Set<string> {
   return new Set(
     configToForm(node)
-      .fields.filter((field) => field.control === 'section' && field.collapsed)
+      .fields.filter((field) => field.control === 'section' && field.folds)
       .map((field) => field.id),
   );
 }
@@ -205,6 +221,8 @@ export function ConfigureFace({
   setFolded,
   onCommit,
   onAssign,
+  onOpenFunction,
+  onAskAgent,
 }: {
   strings: InspectorStrings;
 
@@ -236,9 +254,17 @@ export function ConfigureFace({
   setFolded: Dispatch<SetStateAction<Set<string>>>;
   onCommit: (field: InspectorField) => void;
   onAssign: (exported: string | null) => void;
+  onOpenFunction: () => void;
+  onAskAgent: () => void;
 }) {
   const form = configToForm(draft);
   const rows = useHandsBack<HTMLDivElement>(held, block);
+  const groups = useId();
+
+  // Two ids read differently by kind, and the rest
+  // read the same on every one.
+  const word = (id: string): string | undefined =>
+    strings.fieldsByKind[form.kind]?.[id] ?? strings.fields[id];
 
   // Asked of the document rather than of the
   // draft, because the findings were asked of the
@@ -247,6 +273,27 @@ export function ConfigureFace({
   // when the document does — which is the moment
   // this face is built again anyway.
   const notes = fieldNotes(ir, node, diagnostics);
+
+  // Asked of the document too, so a row somebody is
+  // typing into does not leave under them before
+  // the host has written what they typed.
+  const declares = showsDeclarations(
+    node,
+    lib?.find((fn) => fn.export === node.handler?.export),
+  );
+
+  const shown = visible(form.fields, folded).filter(
+    (field) => field.id !== TITLE && (declares || !DECLARED.has(field.id)),
+  );
+
+  // One row can cover every try DBOS made at a step,
+  // which is worth saying where the block may make
+  // more than one — once, after the last of the
+  // rows that set how many.
+  const tries = form.fields.find((field) => field.id === 'retryMaxAttempts');
+  const retries =
+    tries?.control === 'number' && tries.value !== null && tries.value > 1;
+  const retriesEnd = groupEnd(shown, RETRY_POLICY);
 
   // One form asks for a wider label column. A
   // queue's limits are told apart by the scope in
@@ -269,6 +316,72 @@ export function ConfigureFace({
       return next;
     });
 
+  // One field, drawn as what it is, after the one
+  // before it.
+  const drawField = (
+    field: InspectorField,
+    before: InspectorField | undefined,
+  ): ReactNode => {
+    if (field.control === 'section') {
+      return field.folds ? (
+        <Fold
+          key={field.id}
+          id={field.id}
+          name={word(field.id)}
+          hint={strings.hints[field.id]}
+          open={!folded.has(field.id)}
+          onFold={() => fold(field.id)}
+        />
+      ) : (
+        <Group
+          key={field.id}
+          id={field.id}
+          labelId={`${groups}${field.id}`}
+          name={word(field.id)}
+          mark={field.id === RETRY_POLICY ? strings.configured : undefined}
+          hint={strings.hints[field.id]}
+        />
+      );
+    }
+
+    if (field.control === 'picker') {
+      // A picker that opens a group is named by that
+      // group's label, which says the same word.
+      const named =
+        before?.control === 'section' && !before.folds
+          ? `${groups}${before.id}`
+          : undefined;
+
+      return (
+        <Picker
+          key={field.id}
+          strings={strings}
+          misfits={misfits}
+          field={field}
+          label={word(field.id)}
+          labelledBy={named}
+          node={draft}
+          lib={lib}
+          readOnly={readOnly}
+          onAssign={onAssign}
+        />
+      );
+    }
+
+    return (
+      <Row
+        key={field.id}
+        strings={strings}
+        word={word}
+        field={field}
+        labels={labels}
+        notes={notes[field.id]}
+        readOnly={readOnly}
+        onCommit={onCommit}
+      />
+    );
+  };
+
   return (
     <>
       {proposal === undefined ? null : (
@@ -278,45 +391,18 @@ export function ConfigureFace({
       )}
 
       <div className="configure" ref={rows}>
-        {visible(form.fields, folded).map((field) => {
-          if (field.id === TITLE) return null;
+        {shown.map((field, at) => {
+          const drawn = drawField(field, shown[at - 1]);
 
-          if (field.control === 'section')
-            return (
-              <Section
-                key={field.id}
-                id={field.id}
-                name={strings.fields[field.id]}
-                hint={strings.hints[field.id]}
-                open={!folded.has(field.id)}
-                onFold={() => fold(field.id)}
-              />
-            );
-
-          if (field.control === 'picker')
-            return (
-              <Picker
-                key={field.id}
-                strings={strings}
-                misfits={misfits}
-                field={field}
-                node={draft}
-                lib={lib}
-                readOnly={readOnly}
-                onAssign={onAssign}
-              />
-            );
-
-          return (
-            <Row
-              key={field.id}
-              strings={strings}
-              field={field}
-              labels={labels}
-              notes={notes[field.id]}
-              readOnly={readOnly}
-              onCommit={onCommit}
-            />
+          return at === retriesEnd && retries ? (
+            <Fragment key={field.id}>
+              {drawn}
+              <FieldHint hook={{ 'retry-hint': '' }}>
+                {strings.durationCoversTries}
+              </FieldHint>
+            </Fragment>
+          ) : (
+            drawn
           );
         })}
 
@@ -336,29 +422,107 @@ export function ConfigureFace({
             {/* Read rather than edited: which database
                 a transaction commits to is the
                 project's, not the block's. */}
+            <Group id="database" name={word('database')} />
             <PropertyRow
-              label={strings.fields.database}
+              label={strings.commitsTo}
               value={strings.database}
               mono
-              hook={{ field: 'database' }}
+              hook={{ database: '' }}
             />
 
             {/* The one kind with no retry fields.
                 Told rather than left off: eight
-                kinds carry the three fields, and a
-                row that is simply missing from the
-                ninth reads as an oversight instead
-                of as the answer. */}
-            <PropertyRow
-              label={strings.retryPolicy}
-              value={strings.retry}
-              mono
-              hook={{ field: 'retry' }}
+                kinds carry the group, and a group
+                that is simply missing from the ninth
+                reads as an oversight instead of as
+                the answer. */}
+            <Group
+              id={RETRY_POLICY}
+              name={word(RETRY_POLICY)}
+              hint={strings.retry}
             />
           </>
         )}
       </div>
+
+      <Actions
+        strings={strings}
+        node={node}
+        readOnly={readOnly}
+        onOpenFunction={onOpenFunction}
+        onAskAgent={onAskAgent}
+      />
     </>
+  );
+}
+
+/**
+ * Where the group under a header ends: the place of
+ * its last field in the list, or of the header
+ * itself where nothing follows it. Nothing where
+ * the list has no such header.
+ */
+function groupEnd(fields: InspectorField[], id: string): number | undefined {
+  const start = fields.findIndex(
+    (field) => field.control === 'section' && field.id === id,
+  );
+  if (start === -1) return undefined;
+
+  const next = fields.findIndex(
+    (field, at) => at > start && field.control === 'section',
+  );
+
+  return (next === -1 ? fields.length : next) - 1;
+}
+
+/**
+ * The ways out of the form, at its foot: to the code
+ * the block runs, and to the agent.
+ *
+ * The code only where a function is behind the
+ * block, since there is nothing else to open. The
+ * agent only where the block may be changed: what
+ * holds a block back is an agent's proposal waiting
+ * on the document, and a question put over it would
+ * be answered about a block that is about to be
+ * something else.
+ */
+function Actions({
+  strings,
+  node,
+  readOnly,
+  onOpenFunction,
+  onAskAgent,
+}: {
+  strings: InspectorStrings;
+  node: WorkflowNode;
+  readOnly: boolean;
+  onOpenFunction: () => void;
+  onAskAgent: () => void;
+}) {
+  const opens = node.handler !== undefined;
+
+  if (!opens && readOnly) return null;
+
+  return (
+    <div className="configure-actions" data-configure-actions="">
+      {opens ? (
+        <Button
+          variant="secondary"
+          ink="brand"
+          hook={{ 'open-function': '' }}
+          onClick={onOpenFunction}
+        >
+          {strings.openHandler}
+        </Button>
+      ) : null}
+
+      {readOnly ? null : (
+        <Button variant="quiet" hook={{ 'ask-block': '' }} onClick={onAskAgent}>
+          {strings.askAgent}
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -372,6 +536,7 @@ export function ConfigureFace({
  */
 function Row({
   strings,
+  word,
   field,
   labels,
   notes,
@@ -379,6 +544,10 @@ function Row({
   onCommit,
 }: {
   strings: InspectorStrings;
+
+  /** What a field is called on the block's kind. */
+  word: (id: string) => string | undefined;
+
   field: InspectorField;
   labels: 'wide' | undefined;
 
@@ -396,7 +565,7 @@ function Row({
     case 'rows':
       return (
         <div className="form-group" data-field={field.id} data-control="rows">
-          <SectionLabel>{strings.fields[field.id]}</SectionLabel>
+          <SectionLabel>{word(field.id)}</SectionLabel>
 
           <div className="rows">
             {field.rows.map((row, index) => (
@@ -405,6 +574,7 @@ function Row({
                   <Row
                     key={inner.id}
                     strings={strings}
+                    word={word}
                     field={inner}
                     labels={labels}
                     readOnly={readOnly}
@@ -439,9 +609,10 @@ function Row({
     default:
       return (
         <PropertyRow
-          label={strings.fields[field.id]}
+          label={word(field.id)}
           labels={labels}
           field={field.id}
+          unit={strings.units[field.id]}
           note={notes?.join(' ')}
           control={(named) => (
             <Control
@@ -458,7 +629,60 @@ function Row({
 }
 
 /**
- * A group's header, and the way it folds.
+ * A group's label, over the rows it names.
+ *
+ * Only a name, because a group is read whole. Where
+ * every row in it comes from the same place — the
+ * configuration, rather than anything a run
+ * recorded — the label says so once, in a quiet
+ * word after it, and the rows say nothing. What the
+ * group needs saying that no one row does is said
+ * under the label.
+ */
+function Group({
+  id,
+  labelId,
+  name,
+  mark,
+  hint,
+}: {
+  id: string;
+
+  /** Where a control the group opens with is named
+   *  by this label. */
+  labelId?: string;
+
+  name: string | undefined;
+
+  /** The word saying the rows are configuration. */
+  mark?: string;
+
+  hint?: string;
+}) {
+  return (
+    <div className="form-section" data-field={id} data-control="section">
+      <SectionLabel id={labelId}>
+        {name}
+        {mark === undefined ? null : (
+          <>
+            {' '}
+            <span className="property-provenance" data-provenance="configured">
+              · {mark}
+            </span>
+          </>
+        )}
+      </SectionLabel>
+
+      {hint === undefined ? null : (
+        <FieldHint hookClass="field-note">{hint}</FieldHint>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The one group that folds: a header over the knobs
+ * nobody turns often, and the way it folds.
  *
  * The whole header is the button rather than a
  * caret beside a label, because what a person is
@@ -468,7 +692,7 @@ function Row({
  * marker is turned by it, so the two cannot
  * disagree.
  */
-function Section({
+function Fold({
   id,
   name,
   hint,
@@ -538,6 +762,8 @@ function Picker({
   strings,
   misfits,
   field,
+  label,
+  labelledBy,
   node,
   lib,
   readOnly,
@@ -546,6 +772,15 @@ function Picker({
   strings: InspectorStrings;
   misfits: Record<HandlerMisfit['kind'], string>;
   field: Extract<InspectorField, { control: 'picker' }>;
+
+  /** What the field is called, drawn over the row
+   *  unless a group's label already says it. */
+  label: string | undefined;
+
+  /** The group label that names the picker, where
+   *  one does. */
+  labelledBy: string | undefined;
+
   node: WorkflowNode;
   lib: LibFunction[] | undefined;
   readOnly: boolean;
@@ -556,7 +791,7 @@ function Picker({
 
   const root = useRef<HTMLDivElement>(null);
   const current = useRef<HTMLButtonElement>(null);
-  const label = useId();
+  const own = useId();
 
   const after = (event: PickerEvent): void =>
     setPicking((was) => pickerAfter(event, was));
@@ -611,25 +846,20 @@ function Picker({
     onAssign(exported);
   };
 
-  const callout =
-    node.kind === 'branch'
-      ? strings.callouts.branch
-      : node.kind === 'transaction'
-        ? strings.callouts.transaction
-        : undefined;
-
   return (
     <div
       className="picker-field"
       data-field={field.id}
       data-control="picker"
       role="group"
-      aria-labelledby={label}
+      aria-labelledby={labelledBy ?? own}
       ref={root}
     >
-      <span className="property-label" id={label}>
-        {strings.fields[field.id]}
-      </span>
+      {labelledBy === undefined ? (
+        <span className="property-label" id={own}>
+          {label}
+        </span>
+      ) : null}
 
       {/* Where the name is all anybody knows — the
           code has not been read, or does not have
@@ -718,16 +948,24 @@ function Picker({
 
       {/* What a kind's relationship with its code
           is, where a person would otherwise have to
-          guess it. */}
-      {callout === undefined ? null : (
+          guess it: a branch owns none of it, in a
+          box of its own because it changes what the
+          picker offers, and a transaction's writes
+          commit with the record that it ran, said
+          under the function it is about. */}
+      {node.kind === 'branch' ? (
         <Callout
           tone="info"
-          title={callout.title}
+          title={strings.callouts.branch.title}
           hook={{ callout: node.kind }}
         >
-          {callout.body}
+          {strings.callouts.branch.body}
         </Callout>
-      )}
+      ) : null}
+
+      {node.kind === 'transaction' ? (
+        <FieldHint hook={{ 'commit-hint': '' }}>{strings.oneCommit}</FieldHint>
+      ) : null}
     </div>
   );
 }

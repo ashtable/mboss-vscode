@@ -678,6 +678,8 @@ export const inspectorWords = once(() => ({
   // is a page.
   openRun: l10n.t('Open run'),
   fields: inspectorFields(),
+  fieldsByKind: inspectorFieldsByKind(),
+  units: inspectorUnits(),
   options: inspectorOptions(),
   hints: inspectorHints(),
 
@@ -707,6 +709,14 @@ export const inspectorWords = once(() => ({
   misfits: misfitWords(),
   dropHere: l10n.t('drop a ƒ here'),
   end: l10n.t('end'),
+
+  // Which database a transaction's writes commit
+  // to, and through what: read rather than set,
+  // because it is the project's and not the
+  // block's. Its group is already called the
+  // database, so the row says what the block does
+  // with it.
+  commitsTo: l10n.t('commits to'),
   database: l10n.t('app postgres · prisma tx'),
 
   // What a transaction is told instead of the three
@@ -715,27 +725,26 @@ export const inspectorWords = once(() => ({
   retryPolicy: l10n.t('retry policy'),
   retry: l10n.t('runs once, inside its own commit'),
 
-  /** The two kinds whose relationship with their
-   *  code needs saying out loud. */
+  // Under a transaction's function. Which record
+  // commits with the writes is the whole point, and
+  // it is not the step's. A step's completion is
+  // recorded in the system database, which is a
+  // different database and so a different
+  // transaction. What rides along with the writes
+  // is the datasource's own completion row, in the
+  // app's Postgres — the one the database group
+  // names.
+  oneCommit: l10n.t(
+    'One commit. The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.',
+  ),
+
+  /** The kind whose relationship with its code
+   *  needs saying out loud. */
   callouts: {
     branch: {
       title: l10n.t('Branches own no code.'),
       body: l10n.t(
         'The lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph.',
-      ),
-    },
-    // Which record commits with the writes is the
-    // whole point, and it is not the step's. A
-    // step's completion is recorded in the system
-    // database, which is a different database and
-    // so a different transaction. What rides along
-    // with the writes is the datasource's own
-    // completion row, in the app's Postgres — the
-    // one the row beside this callout names.
-    transaction: {
-      title: l10n.t('One commit.'),
-      body: l10n.t(
-        'The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.',
       ),
     },
   },
@@ -760,11 +769,21 @@ function inspectorFields(): Record<string, string> {
     database: l10n.t('database'),
     service: l10n.t('service'),
 
-    retryMaxAttempts: l10n.t('attempts'),
-    retryIntervalSeconds: l10n.t('first retry after, in seconds'),
-    retryBackoffRate: l10n.t('backoff, times'),
+    // The groups a block that runs code is read in:
+    // the function behind it, what an API call
+    // calls, and how hard the block tries.
+    function: l10n.t('function'),
+    request: l10n.t('request'),
+    retryPolicy: l10n.t('retry policy'),
 
-    mode: l10n.t('run'),
+    // Short nouns, one line each in the label
+    // column. The unit a number is counted in is
+    // drawn beside the number, never in its label.
+    retryMaxAttempts: l10n.t('max attempts'),
+    retryIntervalSeconds: l10n.t('interval'),
+    retryBackoffRate: l10n.t('backoff'),
+
+    mode: l10n.t('kind'),
     topic: l10n.t('topic'),
     idempotencyKeyPath: l10n.t('idempotency key path'),
     requesterEmailPath: l10n.t('requester email path'),
@@ -843,6 +862,41 @@ function inspectorFields(): Record<string, string> {
     fieldType: l10n.t('type'),
     fieldRequired: l10n.t('required'),
     fieldMultiple: l10n.t('multiple'),
+  };
+}
+
+/**
+ * What a field is called on one kind, where that
+ * differs from what it is called on every other.
+ *
+ * Two ids read differently by kind. A trigger
+ * produces nothing a function returns: what it
+ * declares is the type of the input a run starts
+ * with. And the function a queue runs is run once
+ * per item it hands out, which is what a handler
+ * is. Everything else is `inspectorFields()`'s.
+ */
+function inspectorFieldsByKind(): Partial<
+  Record<NodeKind, Record<string, string>>
+> {
+  return {
+    trigger: { out: l10n.t('input type') },
+    queue: { function: l10n.t('handler') },
+  };
+}
+
+/**
+ * What a number is counted in, keyed by the field
+ * it is drawn beside.
+ *
+ * Drawn after the box rather than written in the
+ * label or typed into the value, so the label stays
+ * one short noun and the value stays a number.
+ */
+function inspectorUnits(): Record<string, string> {
+  return {
+    retryIntervalSeconds: l10n.t('s'),
+    retryBackoffRate: l10n.t('×'),
   };
 }
 

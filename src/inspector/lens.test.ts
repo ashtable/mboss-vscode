@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  NodeSchema,
+  type LibFunction,
+  type WorkflowNode,
+} from '../core/rules.js';
+
+import { configToForm, formToConfig } from './forms.js';
+import {
   apply,
   pickerAfter,
   section,
+  showsDeclarations,
   visible,
   type InspectorField,
 } from './lens.js';
@@ -21,22 +29,30 @@ import {
 describe('a section header', () => {
   const subject = { name: 'orders' };
 
-  it('reads the fold it opens with', () => {
-    expect(section<typeof subject>('advanced', true).read(subject)).toEqual({
-      id: 'advanced',
+  it('reads whether it folds', () => {
+    expect(
+      section<typeof subject>('advanced', { folds: true }).read(subject),
+    ).toEqual({ id: 'advanced', control: 'section', folds: true });
+  });
+
+  /** Most groups are only named. Folding one away
+   *  is asked for, group by group. */
+  it('folds nothing unless it is asked to', () => {
+    expect(section<typeof subject>('queuePolicy').read(subject)).toEqual({
+      id: 'queuePolicy',
       control: 'section',
-      collapsed: true,
+      folds: false,
     });
   });
 
   it('writes nothing back, not even its own field', () => {
-    const lens = section<typeof subject>('advanced', true);
+    const lens = section<typeof subject>('advanced', { folds: true });
 
     expect(lens.write(subject, lens.read(subject))).toBe(subject);
   });
 
   it('leaves the subject alone when a whole form is applied', () => {
-    const lens = section<typeof subject>('advanced', false);
+    const lens = section<typeof subject>('advanced');
 
     expect(apply(subject, [lens], [lens.read(subject)])).toEqual(subject);
   });
@@ -53,9 +69,9 @@ describe('a section header', () => {
 describe('the fields a folded form draws', () => {
   const form: InspectorField[] = [
     { id: 'title', control: 'text', value: 'Orders' },
-    { id: 'queue', control: 'section', collapsed: false },
+    { id: 'queue', control: 'section', folds: false },
     { id: 'queueName', control: 'text', value: 'orders' },
-    { id: 'advanced', control: 'section', collapsed: true },
+    { id: 'advanced', control: 'section', folds: true },
     { id: 'onConflict', control: 'text', value: '' },
   ];
 
@@ -81,7 +97,7 @@ describe('the fields a folded form draws', () => {
     expect(visible(form, new Set(['queue', 'advanced']))).toContainEqual({
       id: 'queue',
       control: 'section',
-      collapsed: false,
+      folds: false,
     });
   });
 
@@ -146,5 +162,137 @@ describe('whether the function picker is open', () => {
     for (const event of ['escape', 'pick', 'outside', 'end-naming'] as const) {
       expect(pickerAfter(event, closed)).toEqual(closed);
     }
+  });
+});
+
+/**
+ * The types a block declares, which the form reads
+ * and writes like any other field.
+ */
+describe('a node’s own fields', () => {
+  const node = NodeSchema.parse({
+    id: 'parse_request',
+    kind: 'step',
+    title: 'Parse request',
+    in: 'WebhookEvent',
+    out: 'BookingReq',
+    handler: { export: 'parseRequest' },
+    config: {},
+  });
+
+  const field = (id: string): InspectorField | undefined =>
+    configToForm(node).fields.find((one) => one.id === id);
+
+  it('carry the title and the types it declares', () => {
+    expect(field('title')).toMatchObject({ value: 'Parse request' });
+    expect(field('in')).toMatchObject({ value: 'WebhookEvent' });
+    expect(field('out')).toMatchObject({ value: 'BookingReq' });
+    expect(field('handler')).toMatchObject({ value: 'parseRequest' });
+  });
+
+  it('drop an emptied optional rather than storing a blank', () => {
+    const edited = formToConfig(node, [
+      { id: 'out', control: 'text', value: '' },
+    ]);
+
+    expect(edited).not.toHaveProperty('out');
+    expect(() => NodeSchema.parse(edited)).not.toThrow();
+  });
+});
+
+/**
+ * Whether a block's takes and produces are drawn
+ * as rows of their own.
+ *
+ * Where a function is behind the block and the
+ * scan read it, its signature already says what
+ * goes in and what comes out, on the row that names
+ * it; two more rows saying the same thing again are
+ * two more to read. They come back wherever that
+ * row cannot speak for them: nothing is behind the
+ * block, the scan has no such export, the block
+ * fans out so it takes the collection while the
+ * function takes one item, or what the block
+ * declares and what the function is written with
+ * disagree — the one place somebody has to see
+ * both.
+ */
+describe('whether a block shows the types it declares', () => {
+  const step = (over: object = {}): WorkflowNode =>
+    NodeSchema.parse({
+      id: 'find_slot',
+      kind: 'step',
+      title: 'Find open slot',
+      in: 'BookingReq',
+      out: 'SlotGrid',
+      handler: { export: 'findSlot' },
+      config: {},
+      ...over,
+    });
+
+  const findSlot: LibFunction = {
+    export: 'findSlot',
+    file: 'lib/findSlot.ts',
+    params: [{ name: 'req', type: 'BookingReq' }],
+    returnType: 'SlotGrid',
+  };
+
+  it('leaves them to the signature where the function agrees', () => {
+    expect(showsDeclarations(step(), findSlot)).toBe(false);
+  });
+
+  it('draws them on a block nothing is behind', () => {
+    expect(showsDeclarations(step({ handler: undefined }), undefined)).toBe(
+      true,
+    );
+  });
+
+  it('draws them where the scan has no such export', () => {
+    expect(showsDeclarations(step(), undefined)).toBe(true);
+  });
+
+  it('draws them on a block that fans out', () => {
+    const fanned = step({ forEach: { itemsPath: 'slots' } });
+
+    expect(showsDeclarations(fanned, findSlot)).toBe(true);
+  });
+
+  it('draws them where the block and the function disagree', () => {
+    expect(showsDeclarations(step({ out: 'Booking' }), findSlot)).toBe(true);
+    expect(
+      showsDeclarations(step(), {
+        ...findSlot,
+        params: [{ name: 'req', type: 'WebhookEvent' }],
+      }),
+    ).toBe(true);
+  });
+
+  /** A queue fans out by being one, and what it
+   *  declares is the item: the function's one
+   *  parameter is held to that, so the signature
+   *  speaks for it until the two disagree. */
+  it('holds a queue to the item it declares', () => {
+    const queue = (itemType: string): WorkflowNode =>
+      NodeSchema.parse({
+        id: 'index_pages',
+        kind: 'queue',
+        title: 'Index each page',
+        handler: { export: 'indexItem' },
+        config: {
+          itemsPath: 'pages',
+          itemType,
+          queue: { name: 'document-index' },
+          enqueue: {},
+        },
+      });
+    const indexItem: LibFunction = {
+      export: 'indexItem',
+      file: 'lib/indexItem.ts',
+      params: [{ name: 'item', type: 'Item' }],
+      returnType: 'Indexed',
+    };
+
+    expect(showsDeclarations(queue('Item'), indexItem)).toBe(false);
+    expect(showsDeclarations(queue('Page'), indexItem)).toBe(true);
   });
 });

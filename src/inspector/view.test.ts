@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type { TextDocument } from 'vscode';
 import { describe, expect, it } from 'vitest';
 
+import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { fakeWebview } from '../../test/doubles/webview.js';
 import type { CanvasSession, SubjectInputs } from '../canvas/editor.js';
@@ -69,9 +70,11 @@ function session(
   over: Partial<SubjectInputs> = {},
   did: unknown[][] = [],
 ) {
+  const workflow = file.replace(/\.workflow\.json$/, '');
   const inputs: SubjectInputs = {
     file,
-    workflow: file.replace(/\.workflow\.json$/, ''),
+    path: workflowDocument(PROJECT, workflow),
+    workflow,
     read: { ok: true, ir },
     revision: ir.revision,
     manifest: undefined,
@@ -191,8 +194,15 @@ function mounted(
   // run tab, registering a moment after it is asked
   // for, as a real one does.
   const texts = new Map<string, string>([[PATH, JSON.stringify(ir)]]);
+
+  // The agent, and the side bar it answers in, which
+  // says how much the agent had been told by the
+  // time it was brought into view.
+  const agent = fakeAgent();
   const host = {
     met: 0,
+    revealAgent: async () =>
+      void asked.push(['revealAgent', agent.told.length]),
     opens: undefined as CanvasSession | undefined,
     meetInspector: () => void (host.met += 1),
     openCanvas: async (
@@ -229,6 +239,7 @@ function mounted(
     },
     runs,
     trust,
+    agent,
     { onGenerated: generated.on },
     sessions,
     focus,
@@ -246,6 +257,7 @@ function mounted(
     focus,
     sessions: registry,
     runs,
+    agent,
     asked,
     host,
     view,
@@ -429,6 +441,59 @@ describe('what a canvas subject says, and where it goes', () => {
     frame.send({ type: 'openOutput', workflowId: 'wf_1', functionId: 3 });
 
     expect(canvas.did).toEqual([['openOutput', 'wf_1', 3]]);
+  });
+
+  /**
+   * A question about a block as it is set, not about
+   * a run: the block by its name and id, and the
+   * file it is in, said the way the project names
+   * it. The side bar comes into view first, so the
+   * answer lands somewhere somebody is looking.
+   */
+  it('asks the agent about a block in one sentence, after showing the agent', async () => {
+    const { frame, agent, asked } = about();
+
+    frame.send({
+      type: 'askAboutBlock',
+      workflow: 'groom_booking',
+      nodeId: 'find_slot',
+    });
+    await until(() => agent.told.length === 1);
+
+    expect(asked).toEqual([['revealAgent', 0]]);
+    expect(agent.told).toEqual([
+      {
+        at: 'send',
+        prompt: {
+          text: messages.askAboutBlock(
+            'Find open slot',
+            'find_slot',
+            '.mboss/workflows/groom_booking.workflow.json',
+          ),
+        },
+      },
+    ]);
+  });
+
+  /** A question can only be put in words drawn off
+   *  the block the pane is showing. */
+  it('asks nothing about a block the pane is not showing', async () => {
+    const { frame, agent, asked } = about();
+
+    frame.send({
+      type: 'askAboutBlock',
+      workflow: 'groom_booking',
+      nodeId: 'book_appointment',
+    });
+    frame.send({
+      type: 'askAboutBlock',
+      workflow: 'refund_approval',
+      nodeId: 'find_slot',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(asked).toEqual([]);
+    expect(agent.told).toEqual([]);
   });
 
   /**
@@ -707,6 +772,31 @@ describe('what a run-tab subject says, and where it goes', () => {
     frame.send({ type: 'openOutput', workflowId: 'wf_1', functionId: 3 });
 
     expect(asked).toEqual([['openOutput', 'wf_1', 3]]);
+  });
+
+  it('asks the agent about a block in one sentence, after showing the agent', async () => {
+    const { frame, agent, asked } = onRunTab();
+
+    frame.send({
+      type: 'askAboutBlock',
+      workflow: 'groom_booking',
+      nodeId: 'find_slot',
+    });
+    await until(() => agent.told.length === 1);
+
+    expect(asked).toEqual([['revealAgent', 0]]);
+    expect(agent.told).toEqual([
+      {
+        at: 'send',
+        prompt: {
+          text: messages.askAboutBlock(
+            'Find open slot',
+            'find_slot',
+            '.mboss/workflows/groom_booking.workflow.json',
+          ),
+        },
+      },
+    ]);
   });
 
   it('reads a queue, replays and asks the agent through the runs store', () => {

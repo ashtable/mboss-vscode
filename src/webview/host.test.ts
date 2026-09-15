@@ -185,6 +185,10 @@ describe('what each view may say', () => {
     runWorkflow: ['runs'],
     rerun: ['runs'],
     askAgent: ['runs', 'inspector'],
+    // About a block as it is set, rather than about
+    // anything a run recorded, so only the pane that
+    // sets a block asks it.
+    askAboutBlock: ['inspector'],
     openRun: ['runs', 'canvas', 'sidebar', 'inspector'],
     openProduction: ['runs'],
     replayRun: ['runs'],
@@ -261,6 +265,7 @@ describe('what each view may say', () => {
     runWorkflow: { workflow: 'groom_booking', input: '{}' },
     rerun: { workflowId: 'wf_c9d2f3' },
     askAgent: { workflowId: 'wf_c9d2f3' },
+    askAboutBlock: { workflow: 'groom_booking', nodeId: 'find_slot' },
     openRun: { workflowId: 'wf_c9d2f3' },
     openProduction: {},
     replayRun: { workflowId: 'wf_c9d2f3' },

@@ -62,6 +62,10 @@ export type InspectorProps = {
    *  a different form, never the same one again. */
   source: BlockSubject['source'];
 
+  /** The workflow the block is in, which a question
+   *  about the block names it by. */
+  workflow: string;
+
   /** Nothing where the document does not have the
    *  block: one a run recorded and the document has
    *  lost since, which has nothing to configure. */
@@ -126,6 +130,7 @@ const NOT_IN_WORKFLOW = 'inspector-not-in-workflow';
 export function Inspector({
   strings,
   source,
+  workflow,
   selected,
   mode,
   revision,
@@ -270,6 +275,16 @@ export function Inspector({
               setFolded={setFolded}
               onCommit={commit}
               onAssign={assign}
+              onOpenFunction={() =>
+                postToHost({ type: 'openFunction', nodeId: selected.node.id })
+              }
+              onAskAgent={() =>
+                postToHost({
+                  type: 'askAboutBlock',
+                  workflow,
+                  nodeId: selected.node.id,
+                })
+              }
             />
           )
         ) : run === undefined ? null : (

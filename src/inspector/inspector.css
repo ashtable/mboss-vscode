@@ -311,6 +311,41 @@ body {
   margin-top: var(--space-1);
 }
 
+/* A label is one or two short words, and two of
+   them can run a few pixels past the label column.
+   Rather than wrap under itself and make its row
+   the one taller row in a group, a label may take
+   some of the gap before the value, which stays
+   where every other row's value is. */
+.configure > .property > .property-label {
+  margin-inline-end: calc(-1 * var(--space-2));
+}
+
+/* The function a group is named for sits straight
+   under the label that names it: the label has
+   already given the space above. */
+.form-section + .picker-field {
+  padding-top: 0;
+}
+
+/* What a group needs saying once its rows are all
+   drawn, clear of the last of them. */
+.configure > .property + .field-hint {
+  margin-top: var(--space-2);
+}
+
+/* The ways out of the form, at its foot, each
+   Button its own width. Set further off than the
+   rows are from each other: nothing in it is set,
+   only gone to from here. */
+.configure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
 /* The whole header is the target. Only what a
    button brings is reset here, so the type
    treatment stays `.section-label`'s. */

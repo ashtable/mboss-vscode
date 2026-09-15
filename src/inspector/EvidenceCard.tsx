@@ -522,27 +522,19 @@ function BlockCard({
         <Recorded strings={strings} run={run} row={row} />
       )}
 
+      {/* What one row can cover, where more than one
+          try was allowed, is said under the numbers
+          that allow it, on the face they are set. */}
       {policy === undefined ? null : (
-        <>
-          <p data-evidence-field="retry">
-            <span className="value mono" data-size="small">
-              {policy.text}
-            </span>
-            <span className="value-label">
-              {strings.retryPolicy}
-              <Chip word={strings.configured} kind="configured" />
-            </span>
-          </p>
-
-          {/* Only where more than one try was
-              allowed. Said because one row can cover
-              several of them, and a duration read as
-              one run of the code is the wrong number
-              to take to a timeout. */}
-          {policy.retries ? (
-            <p className="hint">{strings.durationCoversTries}</p>
-          ) : null}
-        </>
+        <p data-evidence-field="retry">
+          <span className="value mono" data-size="small">
+            {policy}
+          </span>
+          <span className="value-label">
+            {strings.retryPolicy}
+            <Chip word={strings.configured} kind="configured" />
+          </span>
+        </p>
       )}
 
       {/* Under everything the run recorded, because
@@ -1058,18 +1050,13 @@ function Chip({
  *
  * The numbers are read through the defaults, so a
  * block nobody configured shows what it will
- * actually run under rather than nothing at all —
- * and `retries` says whether more than one try was
- * on offer, which is what decides whether the
- * duration needs explaining.
+ * actually run under rather than nothing at all.
  */
 function policyOf(
   strings: InspectorStrings,
   block: EvidenceBlock,
-): { text: string; retries: boolean } | undefined {
-  if (block.kind === 'transaction') {
-    return { text: strings.retry, retries: false };
-  }
+): string | undefined {
+  if (block.kind === 'transaction') return strings.retry;
 
   if (!RETRIES.has(block.kind)) return undefined;
 
@@ -1081,16 +1068,13 @@ function policyOf(
   const policy = { ...DEFAULT_RETRY, ...block.retry };
 
   return policy.maxAttempts === 1
-    ? { text: strings.policyOff, retries: false }
-    : {
-        text: filled(
-          strings.policy,
-          String(policy.maxAttempts),
-          String(policy.intervalSeconds),
-          String(policy.backoffRate),
-        ),
-        retries: true,
-      };
+    ? strings.policyOff
+    : filled(
+        strings.policy,
+        String(policy.maxAttempts),
+        String(policy.intervalSeconds),
+        String(policy.backoffRate),
+      );
 }
 
 /** When the run ran, as far as the ledger timed
