@@ -5885,6 +5885,12 @@ test.describe('a block under a proposal, seen from the run tab', () => {
       proposed(blockSubject('find_slot')),
     );
 
+    // Everything said up to here, so what follows is
+    // read against a drawn pane rather than against
+    // an empty list: the claim is that these gestures
+    // add nothing at all, of any kind.
+    const before = await harness.posted();
+
     await page.locator('[data-picker-current]').click();
     await expect(page.locator('[data-picker-fn]')).toHaveCount(0);
 
@@ -5896,11 +5902,7 @@ test.describe('a block under a proposal, seen from the run tab', () => {
 
     await expect(title).toHaveValue('Find open slot');
 
-    const said = (await harness.posted()).map(
-      (message) => (message as { type: string }).type,
-    );
-    expect(said).not.toContain('edit');
-    expect(said).not.toContain('assign');
+    expect(await harness.posted()).toEqual(before);
   });
 
   /** A fold is how somebody reads the form, not a
