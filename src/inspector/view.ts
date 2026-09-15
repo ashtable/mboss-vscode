@@ -20,16 +20,22 @@ import type { AskAgent } from '../runs/evidence.js';
 import { pointIn } from '../runs/panels.js';
 import type { InspectedRun, ReplayPick } from '../runs/store.js';
 import type { SeeView } from '../runs/view.js';
+import { needsTopic, projectWorkflows } from '../runs/workflows.js';
 import type { Trust } from '../trust.js';
 import type { VsCodeApi } from '../vscodeApi.js';
 import { mountWebview, type Heard, type Mount } from '../webview/host.js';
-import type { InspectorMode } from '../webview/protocol.js';
+import type {
+  InspectorInit,
+  InspectorMode,
+  RunsInit,
+} from '../webview/protocol.js';
 
 import type { InspectorFocus } from './focus.js';
 import {
   inspectorInit,
   type Focused,
   type RunDocument,
+  type RunsPanel,
   type StartRefusal,
 } from './subject.js';
 
@@ -99,7 +105,23 @@ export type InspectorRuns = {
   /** Opens what a run was started with, whole. */
   openInput(workflowId: string): Promise<void>;
 
+  /** What the Runs view draws, of which a trigger's
+   *  card reads the input box, the workflow it is
+   *  set to and why its last start was refused. */
+  list(): Pick<RunsInit, 'testRun'>;
+
+  /** Starts a run of that workflow with what the
+   *  Runs view's input box holds. */
+  runTrigger(workflow: string): Promise<void>;
+
+  /** Opens what the Runs view's input box holds. */
+  openRunInput(): Promise<void>;
+
   onChanged(listener: () => void): Disposable;
+
+  /** Fires when the Runs view's input box changes,
+   *  which `onChanged` does not. */
+  onInputChanged(listener: () => void): Disposable;
 };
 
 /**
@@ -127,6 +149,10 @@ export type InspectorHost = {
    *  open one's buffer, unsaved changes and all,
    *  else the file. */
   documentText(path: string): string | undefined;
+
+  /** Whether the editor holds changes to that
+   *  document nobody has saved. */
+  unsaved(path: string): boolean;
 };
 
 /** What a block picked on a surface can ask about
@@ -192,6 +218,10 @@ export class InspectorView implements WebviewViewProvider {
   /** Whether the pane has ever been on screen in
    *  this window, or been asked to be. */
   private met = false;
+
+  /** Whether the pane last drew a trigger's card,
+   *  the one subject that shows the Runs view. */
+  private drewTrigger = false;
 
   /** The block each canvas last had selected, so a
    *  signal can say whether a selection landed. */
@@ -281,7 +311,7 @@ export class InspectorView implements WebviewViewProvider {
       extensionUri: this.extensionUri,
       view: 'inspector',
       title: inspectorWords().heading,
-      init: () => inspectorInit(this.focused()),
+      init: () => this.init(),
       heard: (message) => this.heard(message, () => mounted.repaint()),
       follows: [
         (repaint) => this.focus.onChanged(repaint),
@@ -295,9 +325,22 @@ export class InspectorView implements WebviewViewProvider {
 
             if (moved === about) repaint();
           }),
+        // A trigger's card shows which workflow the
+        // Runs view is set to and why its last start
+        // was refused, on whichever surface it was
+        // picked; any other block on a canvas shows
+        // nothing the runs say.
         (repaint) =>
           this.runs.onChanged(() => {
-            if (this.focus.holder()?.at === 'run') repaint();
+            if (this.focus.holder()?.at === 'run' || this.drewTrigger) {
+              repaint();
+            }
+          }),
+        // A keystroke in the Runs view, which only a
+        // trigger's card shows.
+        (repaint) =>
+          this.runs.onInputChanged(() => {
+            if (this.drewTrigger) repaint();
           }),
         (repaint) =>
           this.api.onDocumentChanged((document) => {
@@ -319,6 +362,18 @@ export class InspectorView implements WebviewViewProvider {
     });
   }
 
+  /** The message for the pane, remembering whether
+   *  it is a trigger's card. */
+  private init(): InspectorInit {
+    const init = inspectorInit(this.focused());
+    const { subject } = init;
+
+    this.drewTrigger =
+      subject.at === 'block' && subject.block.runInput !== undefined;
+
+    return init;
+  }
+
   private focused(): Focused {
     const holder = this.focus.holder();
 
@@ -326,14 +381,36 @@ export class InspectorView implements WebviewViewProvider {
 
     const startRefusal: StartRefusal = (workflow, document) =>
       this.runs.replayStartRefusal(workflow, document);
+    const runsPanel: RunsPanel = (path) => this.runsPanel(path);
 
     return holder.at === 'canvas'
       ? {
           at: 'canvas',
           canvas: holder.session.subjectInputs(),
           startRefusal,
+          runsPanel,
         }
-      : this.onRunTab(startRefusal);
+      : this.onRunTab(startRefusal, runsPanel);
+  }
+
+  /**
+   * The Runs view about one document, for a
+   * trigger's card: the input box as the store holds
+   * it, and the saved workflows of the project the
+   * runs are read from, read off disk as the Runs
+   * view reads them. A document outside that project
+   * is none of them, and no run from here can start
+   * it.
+   */
+  private runsPanel(path: string): ReturnType<RunsPanel> {
+    const project = this.runs.project();
+
+    return {
+      testRun: this.runs.list().testRun,
+      workflows: project === undefined ? [] : projectWorkflows(project),
+      needsTopic: needsTopic(path),
+      unsaved: this.host.unsaved(path),
+    };
   }
 
   /**
@@ -346,7 +423,7 @@ export class InspectorView implements WebviewViewProvider {
    * so a run cancelled from here says so without a
    * read of it.
    */
-  private onRunTab(startRefusal: StartRefusal): Focused {
+  private onRunTab(startRefusal: StartRefusal, runsPanel: RunsPanel): Focused {
     const shown = this.runs.detail();
     const reading =
       shown === undefined
@@ -366,6 +443,7 @@ export class InspectorView implements WebviewViewProvider {
         document: undefined,
         now,
         startRefusal,
+        runsPanel,
       };
     }
 
@@ -381,6 +459,7 @@ export class InspectorView implements WebviewViewProvider {
         : {
             at: 'buffer',
             file: basename(path),
+            path,
             text: this.host.documentText(path),
             manifest: this.manifestOf(project),
             proposedBy,
@@ -393,6 +472,7 @@ export class InspectorView implements WebviewViewProvider {
       document,
       now,
       startRefusal,
+      runsPanel,
     };
   }
 
@@ -495,6 +575,19 @@ export class InspectorView implements WebviewViewProvider {
 
       case 'inspectRun':
         this.showWholeRun();
+
+        return;
+
+      // By the workflow alone, from either surface:
+      // the input is the Runs view's, and the store
+      // reads it there.
+      case 'runTrigger':
+        void this.runs.runTrigger(message.workflow);
+
+        return;
+
+      case 'openRunInput':
+        void this.runs.openRunInput();
 
         return;
     }

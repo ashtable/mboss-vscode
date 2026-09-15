@@ -138,9 +138,29 @@ export type TestRun = Disposable & {
    *  right one. */
   selectWorkflow(workflow: string): void;
 
-  /** Starts one run of a saved workflow, with
-   *  whatever the input box holds. */
-  runWorkflow(workflow: string, input: string): Promise<void>;
+  /**
+   * What the Runs view's input box now says.
+   *
+   * The box is the one place a run's input is
+   * typed, and it says every change as it is made,
+   * so the zone holds the text rather than being
+   * handed it with each start. Said on a signal of
+   * its own: the view is showing the text already,
+   * and drawing the list again per keystroke would
+   * be a whole picture per character.
+   */
+  setInput(text: string): void;
+
+  /**
+   * Starts one run of a saved workflow, with what
+   * the input box holds.
+   *
+   * Nothing is handed in beside the workflow,
+   * whichever door the start came through, so no
+   * other door can start a run with an input
+   * somebody did not type in the box.
+   */
+  runWorkflow(workflow: string): Promise<void>;
 
   /** Starts a run of the same workflow with the
    *  same input. */
@@ -214,10 +234,15 @@ export type TestRun = Disposable & {
   render(): TestRunZone;
 
   onChanged(listener: () => void): Disposable;
+
+  /** Fires when the input box's text changes, and
+   *  for nothing else. */
+  onInputChanged(listener: () => void): Disposable;
 };
 
 export function testRunZone(deps: TestRunDeps): TestRun {
   const changes = emitter();
+  const inputChanges = emitter();
 
   let workflows: ProjectWorkflow[] = [];
   let workflow: string | undefined;
@@ -537,16 +562,20 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       changed();
     },
 
-    runWorkflow: async (name, text) => {
+    setInput: (text) => {
+      input = text;
+      inputChanges.fire();
+    },
+
+    runWorkflow: async (name) => {
       readWorkflows();
 
       const flow = workflows.find((one) => one.name === name);
       if (flow === undefined) return;
 
       problem = undefined;
-      input = text;
 
-      const payload = parsed(text);
+      const payload = parsed(input);
 
       if (!payload.ok) {
         problem = { detail: messages.runNotJson(), rebuildToRun: false };
@@ -710,10 +739,12 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     }),
 
     onChanged: changes.on,
+    onInputChanged: inputChanges.on,
 
     dispose: () => {
       reports.dispose();
       changes.dispose();
+      inputChanges.dispose();
     },
   };
 }

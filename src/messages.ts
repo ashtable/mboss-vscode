@@ -977,16 +977,16 @@ export const messages = {
   runCancelledByYou: (at: string) => l10n.t('{0} · by you', at),
 
   /**
-   * `mBoss: Run Workflow…`'s two questions: which
-   * one, then what to send it. The picker offers
-   * only what can be started this way — a scheduled
-   * workflow is listed in the panel's own dropdown,
-   * where there is a row to put the reason beside,
-   * and left out here instead.
+   * `mBoss: Run Workflow…`'s one question: which
+   * workflow. The title says where the input comes
+   * from, since nothing in the palette shows it. The
+   * picker offers only what can be started this way
+   * — a scheduled workflow is listed in the panel's
+   * own dropdown, where there is a row to put the
+   * reason beside, and left out here instead.
    */
-  runWorkflowPickTitle: () => l10n.t('Which workflow should run?'),
-  runWorkflowInputTitle: () => l10n.t('What input should it run with?'),
-  runWorkflowInputPrompt: () => l10n.t('JSON, or leave empty for none.'),
+  runWorkflowPickTitle: () =>
+    l10n.t('Which workflow should run with the input in the Runs view?'),
   runWorkflowNone: () =>
     l10n.t('This project has no workflow that can be started by hand.'),
 

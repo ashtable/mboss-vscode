@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
@@ -14,13 +15,15 @@ import {
 import { messages } from '../messages.js';
 import type { Run, Step } from '../runs/rows.js';
 import type { SeeView } from '../runs/view.js';
-import { liveRun } from '../test-support/runs.js';
+import { needsTopic, projectWorkflows } from '../runs/workflows.js';
+import { liveRun, project, savedWorkflow } from '../test-support/runs.js';
 import { shortRunId } from '../webview/ids.js';
 import { fine } from '../webview/time.js';
 
 import {
   inspectorInit,
   type RunDocument,
+  type RunsPanel,
   type StartRefusal,
 } from './subject.js';
 
@@ -55,6 +58,12 @@ const NOW = 50_000;
  *  it is, unless a case says otherwise. */
 const OFFERED: StartRefusal = () => undefined;
 
+/** The Runs panel, for a case about no trigger:
+ *  asking it is the failure. */
+const NOT_ASKED: RunsPanel = (path) => {
+  throw new Error(`asked the Runs panel about ${path}`);
+};
+
 /** A canvas on groom_booking, as its session
  *  answers. */
 function canvas(over: Partial<SubjectInputs> = {}): SubjectInputs {
@@ -86,8 +95,12 @@ describe('what the Inspector is about', () => {
 
   it('names the file of a canvas with nothing selected', () => {
     expect(
-      inspectorInit({ at: 'canvas', startRefusal: OFFERED, canvas: canvas() })
-        .subject,
+      inspectorInit({
+        at: 'canvas',
+        startRefusal: OFFERED,
+        runsPanel: NOT_ASKED,
+        canvas: canvas(),
+      }).subject,
     ).toEqual({
       at: 'none',
       file: 'groom_booking.workflow.json',
@@ -103,6 +116,7 @@ describe('what the Inspector is about', () => {
         document: undefined,
         now: NOW,
         startRefusal: OFFERED,
+        runsPanel: NOT_ASKED,
       }).subject,
     ).toEqual({ at: 'none', file: undefined });
   });
@@ -124,6 +138,7 @@ describe('a block selected on a canvas', () => {
       inspectorInit({
         at: 'canvas',
         startRefusal: OFFERED,
+        runsPanel: NOT_ASKED,
         canvas: canvas({
           selected: 'find_slot',
           manifest,
@@ -161,6 +176,7 @@ describe('a block selected on a canvas', () => {
       inspectorInit({
         at: 'canvas',
         startRefusal: OFFERED,
+        runsPanel: NOT_ASKED,
         canvas: canvas({ selected: 'find_slot', mode: 'evidence', run }),
       }).subject,
     ).toMatchObject({ at: 'block', block: { face: 'evidence', run } });
@@ -176,6 +192,7 @@ describe('a block selected on a canvas', () => {
       inspectorInit({
         at: 'canvas',
         startRefusal: OFFERED,
+        runsPanel: NOT_ASKED,
         canvas: canvas({ selected: 'find_slot', revision: undefined }),
       }).subject,
     ).toMatchObject({ at: 'block', block: { revision: undefined } });
@@ -186,6 +203,7 @@ describe('a block selected on a canvas', () => {
       inspectorInit({
         at: 'canvas',
         startRefusal: OFFERED,
+        runsPanel: NOT_ASKED,
         canvas: canvas({
           read: { ok: false, detail: 'Unexpected token' },
           revision: undefined,
@@ -248,6 +266,7 @@ describe('a block picked on the run tab', () => {
     return {
       at: 'buffer',
       file: 'groom_booking.workflow.json',
+      path: '/work/grooming/.mboss/workflows/groom_booking.workflow.json',
       text: JSON.stringify(at(7)),
       manifest: undefined,
       proposedBy: undefined,
@@ -269,6 +288,7 @@ describe('a block picked on the run tab', () => {
       document,
       now: NOW,
       startRefusal: OFFERED,
+      runsPanel: NOT_ASKED,
     }).subject;
   }
 
@@ -427,6 +447,196 @@ describe('a block picked on the run tab', () => {
 });
 
 /**
+ * A trigger's card shows the Runs panel's input as
+ * the sample a run from the card would start with,
+ * and says whether that run can start from here.
+ *
+ * The workflow a run starts is the one saved on
+ * disk, so the card reads the saved workflows the
+ * way the Runs panel does and finds this document
+ * among them by where its file is: a name is what
+ * a document says about itself, and two files can
+ * say the same one. Nothing but a trigger is asked,
+ * since reading them reads every document on disk.
+ */
+describe('what a trigger block knows of the Runs input', () => {
+  const PROBLEM = { detail: 'The app is not up.', rebuildToRun: false };
+
+  /** The Runs panel over a real project, with every
+   *  path it was asked about written down. */
+  function panel(dir: string, over: { unsaved?: boolean } = {}) {
+    const asked: string[] = [];
+    const answer: RunsPanel = (path) => {
+      asked.push(path);
+
+      return {
+        testRun: {
+          input: '{"n":1}',
+          selected: 'expense_claim',
+          problem: PROBLEM,
+        },
+        workflows: projectWorkflows(dir),
+        needsTopic: needsTopic(path),
+        unsaved: over.unsaved ?? false,
+      };
+    };
+
+    return { asked, answer };
+  }
+
+  const fileIn = (dir: string, name: string): string =>
+    join(dir, '.mboss', 'workflows', `${name}.workflow.json`);
+
+  /** The canvas on that file, with a block of it
+   *  selected. */
+  function onCanvas(dir: string, runs: RunsPanel, selected: string) {
+    return inspectorInit({
+      at: 'canvas',
+      startRefusal: OFFERED,
+      runsPanel: runs,
+      canvas: canvas({ path: fileIn(dir, 'groom_booking'), selected }),
+    }).subject;
+  }
+
+  /** The run tab with a block picked, drawn from the
+   *  document with no canvas open on it. */
+  function onRunTab(dir: string, runs: RunsPanel, selectedNode: string) {
+    return inspectorInit({
+      at: 'run',
+      reading: {
+        run: {
+          workflowId: 'wf_1',
+          name: 'groom_booking',
+          status: 'SUCCESS',
+          recoveryAttempts: 0,
+          executorId: 'local-dev',
+          applicationVersion: 'v0.1.0',
+          createdAt: 1000,
+          startedAt: 1000,
+          completedAt: 9000,
+          error: undefined,
+          forkedFrom: undefined,
+          wasForkedFrom: false,
+        },
+        steps: [],
+        selectedStep: undefined,
+        note: undefined,
+        ir,
+        selectedNode,
+      },
+      inspected: { run: liveRun({ workflowId: 'wf_1' }), decided: {} },
+      document: {
+        at: 'buffer',
+        file: 'groom_booking.workflow.json',
+        path: fileIn(dir, 'groom_booking'),
+        text: JSON.stringify(ir),
+        manifest: undefined,
+        proposedBy: undefined,
+      },
+      now: NOW,
+      startRefusal: OFFERED,
+      runsPanel: runs,
+    }).subject;
+  }
+
+  const SURFACES = [
+    ['a canvas', onCanvas],
+    ['the run tab', onRunTab],
+  ] as const;
+
+  for (const [surface, about] of SURFACES) {
+    describe(`picked on ${surface}`, () => {
+      it('carries the Runs input and its saved workflow, by file', () => {
+        const dir = project({ workflows: ['groom_booking', 'expense_claim'] });
+        const runs = panel(dir);
+
+        expect(about(dir, runs.answer, 'booking_requested')).toMatchObject({
+          at: 'block',
+          block: {
+            nodeId: 'booking_requested',
+            runInput: {
+              text: '{"n":1}',
+              selectedWorkflow: 'expense_claim',
+              saved: { name: 'groom_booking', mode: 'manual' },
+              needsTopic: false,
+              unsaved: false,
+              problem: PROBLEM,
+            },
+          },
+        });
+        expect(runs.asked).toEqual([fileIn(dir, 'groom_booking')]);
+      });
+
+      it('carries nothing of the Runs panel on any other block', () => {
+        const dir = project({ workflows: ['groom_booking'] });
+        const runs = panel(dir);
+
+        expect(about(dir, runs.answer, 'find_slot')).toMatchObject({
+          at: 'block',
+          block: { nodeId: 'find_slot', runInput: undefined },
+        });
+        expect(runs.asked).toEqual([]);
+      });
+
+      /**
+       * A document of the same name in another file
+       * is another workflow, and the one on screen has
+       * never been saved.
+       */
+      it('names no saved workflow for a file that was never saved', () => {
+        const dir = project({ workflows: [] });
+        writeFileSync(
+          fileIn(dir, 'groom_booking_copy'),
+          savedWorkflow('groom_booking', { mode: 'manual' }),
+          'utf8',
+        );
+
+        expect(projectWorkflows(dir).map((one) => one.name)).toEqual([
+          'groom_booking',
+        ]);
+        expect(
+          about(dir, panel(dir).answer, 'booking_requested'),
+        ).toMatchObject({
+          block: { runInput: { saved: undefined, needsTopic: false } },
+        });
+      });
+
+      it('says a saved event trigger with no topic needs one', () => {
+        const dir = project({ workflows: [] });
+        writeFileSync(
+          fileIn(dir, 'groom_booking'),
+          savedWorkflow('groom_booking', { mode: 'event', topic: '' }),
+          'utf8',
+        );
+
+        expect(
+          about(dir, panel(dir).answer, 'booking_requested'),
+        ).toMatchObject({
+          block: { runInput: { saved: undefined, needsTopic: true } },
+        });
+      });
+
+      /** A run starts the saved file, so changes
+       *  nobody has saved are not what it would run. */
+      it('says whether the document has unsaved changes', () => {
+        const dir = project({ workflows: ['groom_booking'] });
+
+        expect(
+          about(dir, panel(dir, { unsaved: true }).answer, 'booking_requested'),
+        ).toMatchObject({ block: { runInput: { unsaved: true } } });
+        expect(
+          about(
+            dir,
+            panel(dir, { unsaved: false }).answer,
+            'booking_requested',
+          ),
+        ).toMatchObject({ block: { runInput: { unsaved: false } } });
+      });
+    });
+  }
+});
+
+/**
  * A whole run, when one is in front and nothing of
  * it is picked.
  *
@@ -487,6 +697,7 @@ describe('a run with nothing picked', () => {
       document: undefined,
       now: NOW,
       startRefusal,
+      runsPanel: NOT_ASKED,
     }).subject;
   }
 
@@ -873,6 +1084,7 @@ describe('a run with nothing picked', () => {
       return inspectorInit({
         at: 'canvas',
         startRefusal,
+        runsPanel: NOT_ASKED,
         canvas: canvas({
           mode: 'evidence',
           run: liveRun({ workflowId: ID, workflow: 'groom_booking', ...over }),
@@ -980,6 +1192,7 @@ describe('a run with nothing picked', () => {
         inspectorInit({
           at: 'canvas',
           startRefusal: OFFERED,
+          runsPanel: NOT_ASKED,
           canvas: canvas({
             selected: 'find_slot',
             run: liveRun({ workflow: 'groom_booking' }),

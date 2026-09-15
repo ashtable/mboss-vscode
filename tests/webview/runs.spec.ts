@@ -297,7 +297,15 @@ test.describe('a test run', () => {
     { name: 'nightly_sync', title: 'Nightly sync', mode: 'schedule' as const },
   ];
 
-  test('picks a workflow, types input, and sends both', async ({ page }) => {
+  /**
+   * The extension holds the input, so every change
+   * to the box is said as it is made, and a start
+   * names only the workflow: what it runs with is
+   * whatever the extension was last told.
+   */
+  test('says each change to the input, and starts without it', async ({
+    page,
+  }) => {
     const harness = await showList(
       page,
       runsInit({
@@ -314,15 +322,54 @@ test.describe('a test run', () => {
     await expect(page.locator('[data-workflow-picker]')).toHaveValue(
       'groom_booking',
     );
+    await page.locator('[data-input]').fill('{"bookingId":');
     await page.locator('[data-input]').fill('{"bookingId":7}');
     await page.locator('[data-run-workflow]').click();
 
+    expect(await harness.postedOfType('runInput')).toEqual([
+      { type: 'runInput', workflow: 'groom_booking', text: '{"bookingId":' },
+      { type: 'runInput', workflow: 'groom_booking', text: '{"bookingId":7}' },
+    ]);
     expect(await harness.postedOfType('runWorkflow')).toEqual([
-      {
-        type: 'runWorkflow',
-        workflow: 'groom_booking',
-        input: '{"bookingId":7}',
-      },
+      { type: 'runWorkflow', workflow: 'groom_booking' },
+    ]);
+  });
+
+  /**
+   * A view in the side bar is torn down the moment
+   * it is hidden. What was typed is the extension's
+   * now, so the box a view comes back with is the
+   * box it left.
+   */
+  test('shows the input the extension holds when it comes back', async ({
+    page,
+  }) => {
+    await showList(
+      page,
+      runsInit({
+        testRun: {
+          workflows: WORKFLOWS,
+          selected: 'groom_booking',
+          input: '{"n":1}',
+          hint: undefined,
+          problem: undefined,
+        },
+      }),
+    );
+
+    await expect(page.locator('[data-input]')).toHaveCount(1);
+    await expect(page.locator('[data-input]')).toHaveValue('{"n":1}');
+  });
+
+  /** No workflow is set while none can be run, and
+   *  what is typed is still the extension's. */
+  test('says a change to the input with no workflow set', async ({ page }) => {
+    const harness = await showList(page, runsInit());
+
+    await page.locator('[data-input]').fill('{}');
+
+    expect(await harness.postedOfType('runInput')).toEqual([
+      { type: 'runInput', text: '{}' },
     ]);
   });
 

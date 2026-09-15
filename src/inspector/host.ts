@@ -20,8 +20,9 @@ import type { InspectorHost } from './view.js';
  *
  * The agent's side bar, brought into view for a
  * question asked from the pane. A canvas opened for
- * an edit made from the pane, and the text of the
- * document that edit is made against.
+ * an edit made from the pane, the text of the
+ * document that edit is made against, and whether
+ * that document has changes nobody has saved.
  */
 export function inspectorHost(): InspectorHost {
   return {
@@ -72,5 +73,13 @@ export function inspectorHost(): InspectorHost {
         return undefined;
       }
     },
+
+    // Asked of every document the editor holds,
+    // which includes the one a canvas has open: a
+    // custom editor edits the same text document.
+    unsaved: (path) =>
+      workspace.textDocuments.some(
+        (document) => document.uri.fsPath === path && document.isDirty,
+      ),
   };
 }

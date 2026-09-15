@@ -182,6 +182,9 @@ describe('what each view may say', () => {
     stackDown: ['runs'],
     stackRebuild: ['runs'],
     selectWorkflow: ['runs'],
+    // Only the Runs view's input box writes a run's
+    // input.
+    runInput: ['runs'],
     runWorkflow: ['runs'],
     rerun: ['runs'],
     askAgent: ['runs', 'inspector'],
@@ -198,6 +201,11 @@ describe('what each view may say', () => {
     cancelRun: ['runs', 'inspector'],
     resumeRun: ['runs', 'inspector'],
     openInput: ['inspector'],
+
+    // A trigger's card starts its workflow with the
+    // Runs input and opens that input to read.
+    runTrigger: ['inspector'],
+    openRunInput: ['inspector'],
 
     // Only a trigger's face asks to be shown the
     // whole run, and only the Inspector draws one.
@@ -266,7 +274,8 @@ describe('what each view may say', () => {
     stackDown: {},
     stackRebuild: {},
     selectWorkflow: { workflow: 'groom_booking' },
-    runWorkflow: { workflow: 'groom_booking', input: '{}' },
+    runInput: { workflow: 'groom_booking', text: '{}' },
+    runWorkflow: { workflow: 'groom_booking' },
     rerun: { workflowId: 'wf_c9d2f3' },
     askAgent: { workflowId: 'wf_c9d2f3' },
     askAboutBlock: { workflow: 'groom_booking', nodeId: 'find_slot' },
@@ -276,6 +285,8 @@ describe('what each view may say', () => {
     cancelRun: { workflowId: 'wf_c9d2f3' },
     resumeRun: { workflowId: 'wf_c9d2f3' },
     openInput: { workflowId: 'wf_c9d2f3' },
+    runTrigger: { workflow: 'groom_booking' },
+    openRunInput: {},
     inspectRun: {},
 
     stepSelect: { functionId: 2 },
@@ -335,6 +346,30 @@ describe('what each view may say', () => {
       true,
     );
     expect(inspector.safeParse({ ...replay, from: 'end' }).success).toBe(false);
+  });
+
+  /**
+   * The Runs view's input box is the one place a
+   * run's input is written. A start names only the
+   * workflow, and an input a stale bundle still
+   * sends with one is dropped before any handler
+   * sees it.
+   */
+  it('carries no input on a start', () => {
+    expect(
+      messageSchemaFor('runs').parse({
+        type: 'runWorkflow',
+        workflow: 'groom_booking',
+        input: '{"n":1}',
+      }),
+    ).toEqual({ type: 'runWorkflow', workflow: 'groom_booking' });
+    expect(
+      messageSchemaFor('inspector').parse({
+        type: 'runTrigger',
+        workflow: 'groom_booking',
+        input: '{"n":1}',
+      }),
+    ).toEqual({ type: 'runTrigger', workflow: 'groom_booking' });
   });
 
   /**

@@ -5,14 +5,19 @@ import type { Trust } from '../trust.js';
 /**
  * `mBoss: Run Workflow…`.
  *
- * The same two questions the panel's own test-run
- * zone asks, from the palette: which workflow, then
- * whatever it should run with. Answering both calls
- * the store's own `runWorkflow`, so a run started
- * this way is a run started from the panel in every
- * way that matters — recorded in the session list,
- * watched the same, and drawing the same failure a
- * bad answer from the app would.
+ * One question from the palette: which workflow. It
+ * runs with the input in the Runs view's input box,
+ * which is the one place a run's input is typed — a
+ * second box here would be a second input nobody
+ * sees in the view. The pick sets the Runs view to
+ * that workflow and then starts it, as a trigger's
+ * card does, so a run started this way is a run
+ * started from the panel in every way that matters:
+ * recorded in the session list, watched the same,
+ * and drawing any refusal against the workflow that
+ * was picked. The cost: somebody running it from the
+ * palette does not see the input unless the Runs
+ * view is open.
  *
  * A scheduled workflow is left out of the picker: it
  * runs on its own schedule, and a picker row has no
@@ -26,14 +31,6 @@ export type RunWorkflowHost = {
     title: string,
     choices: { id: string; label: string; detail: string }[],
   ): Promise<string | undefined>;
-
-  /** A line of text, or nothing if the box was
-   *  dismissed. */
-  ask(prompt: {
-    title: string;
-    prompt: string;
-    value: string;
-  }): Promise<string | undefined>;
 
   info(message: string): void;
 };
@@ -75,13 +72,7 @@ export function runWorkflowCommand(
     );
     if (picked === undefined) return;
 
-    const input = await host.ask({
-      title: messages.runWorkflowInputTitle(),
-      prompt: messages.runWorkflowInputPrompt(),
-      value: '',
-    });
-    if (input === undefined) return;
-
-    await runs.runWorkflow(picked, input);
+    runs.selectWorkflow(picked);
+    await runs.runWorkflow(picked);
   };
 }

@@ -124,8 +124,12 @@ export class RunsListView implements WebviewViewProvider {
           this.store.selectWorkflow(message.workflow);
         }
 
+        // One input for every workflow: the box is
+        // the same box whichever the view is set to.
+        if (message.type === 'runInput') this.store.setInput(message.text);
+
         if (message.type === 'runWorkflow') {
-          void this.store.runWorkflow(message.workflow, message.input);
+          void this.store.runWorkflow(message.workflow);
         }
 
         if (message.type === 'rerun') void this.store.rerun(message.workflowId);

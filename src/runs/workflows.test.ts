@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { savedWorkflow } from '../test-support/runs.js';
 
-import { projectWorkflows, workflowDocument } from './workflows.js';
+import { needsTopic, projectWorkflows, workflowDocument } from './workflows.js';
 
 /**
  * The documents a project has saved, and one of
@@ -80,5 +80,53 @@ describe('one saved workflow, read whole', () => {
     );
 
     expect(workflowDocument(dir, 'half_typed')).toBeUndefined();
+  });
+});
+
+/**
+ * An event trigger with no topic is what switching
+ * a trigger to an event leaves until somebody names
+ * one. The document reads, and there is still no
+ * route to post its input to, so it is not offered
+ * — and that one reason is worth saying to whoever
+ * is looking at the file. Every other document is
+ * either offered or has nothing to say.
+ */
+describe('a saved workflow that needs a topic to run', () => {
+  const fileOf = (dir: string, name: string): string =>
+    join(dir, '.mboss', 'workflows', `${name}.workflow.json`);
+
+  it('is an event trigger with no topic, which is not offered', () => {
+    const dir = project({
+      expense_claim: { mode: 'event', topic: '' },
+      refund_filed: { mode: 'event', topic: 'refund.filed' },
+    });
+
+    expect(projectWorkflows(dir).map((one) => one.name)).toEqual([
+      'refund_filed',
+    ]);
+    expect(needsTopic(fileOf(dir, 'expense_claim'))).toBe(true);
+  });
+
+  it('is no other document', () => {
+    const dir = project({
+      expense_claim: { mode: 'event', topic: 'expense.filed' },
+      groom_booking: { mode: 'manual' },
+      nightly_sync: { mode: 'schedule', cron: '0 2 * * *' },
+    });
+    writeFileSync(fileOf(dir, 'half_typed'), '{ "nodes": [', 'utf8');
+
+    for (const name of [
+      'expense_claim',
+      'groom_booking',
+      'nightly_sync',
+      'half_typed',
+      'never_saved',
+    ]) {
+      expect({ name, needsTopic: needsTopic(fileOf(dir, name)) }).toEqual({
+        name,
+        needsTopic: false,
+      });
+    }
   });
 });

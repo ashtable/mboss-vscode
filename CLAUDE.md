@@ -342,7 +342,12 @@ none of that.
   same run is read again, which of the two views is on screen, and the
   replay), `stackZone.ts` (what compose says and the three commands) and
   `testRun.ts` (the saved workflows, the chosen one and its input, starting a
-  run, the live watches, the session rows, ask-the-agent). The run page reads
+  run, the live watches, the session rows, ask-the-agent). The run input has
+  one writer: the Runs view's box posts every change (`runInput` →
+  `setInput`, on its own `onInputChanged` signal so the list is not drawn
+  again per keystroke), and every start — Run, a trigger's card
+  (`runTrigger`), the palette command — names only the workflow and reads
+  it. The run page reads
   the same ledger as the list and **borrows the connection** rather than
   opening one: what a read learns about somebody's database is a fact about
   the project, so `history.connection()`/`read()` are lent and the list is

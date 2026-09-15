@@ -117,7 +117,8 @@ describe('one door for three zones', () => {
     const afterHistory = changed.mock.calls.length;
     await store.stackUp();
     const afterStack = changed.mock.calls.length;
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
 
     expect(afterHistory).toBeGreaterThan(0);
     expect(afterStack).toBeGreaterThan(afterHistory);
@@ -151,7 +152,8 @@ describe('one door for three zones', () => {
     }));
     const store = runsStore(deps({ runner: ingress.start }));
 
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
     expect(store.list().testRun.problem).toBeDefined();
 
     await store.stackRebuild();
@@ -167,7 +169,8 @@ describe('one door for three zones', () => {
       deps({ runner: echoing().start, watch: watch.watch }),
     );
 
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
 
     expect(watch.armed).toHaveLength(1);
   });
@@ -183,7 +186,8 @@ describe('one door for three zones', () => {
       }),
     );
 
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
 
     expect(watch.armed).toEqual([]);
   });
@@ -194,10 +198,95 @@ describe('one door for three zones', () => {
       deps({ runner: echoing().start, watch: watch.watch }),
     );
 
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
     store.dispose();
 
     expect(watch.armed.map((held) => held.stopped)).toEqual([true]);
+  });
+
+  /**
+   * The Runs view sends every keystroke, and it is
+   * already showing the text: drawing the list again
+   * for one would be a whole picture per character.
+   * Whoever shows the input somewhere else follows
+   * its own signal.
+   */
+  it('tells the Inspector the input moved, drawing no list', () => {
+    const store = runsStore(deps());
+    const one = vi.fn();
+    const two = vi.fn();
+    const drawn = vi.fn();
+
+    store.onInputChanged(one);
+    store.onInputChanged(two);
+    store.onChanged(drawn);
+    store.setInput('{"n":1}');
+
+    expect(one).toHaveBeenCalledTimes(1);
+    expect(two).toHaveBeenCalledTimes(1);
+    expect(drawn).not.toHaveBeenCalled();
+    expect(store.list().testRun.input).toBe('{"n":1}');
+  });
+
+  /**
+   * A trigger's card starts the workflow its
+   * document is, and the Runs view has to show the
+   * run it started — and any refusal — against that
+   * workflow rather than whichever it was set to.
+   */
+  it('starts a trigger’s workflow with the Runs input', async () => {
+    const ingress = echoing();
+    const store = runsStore(deps({ runner: ingress.start }));
+
+    store.refreshWorkflows();
+    expect(store.list().testRun.selected).toBe('expense_claim');
+
+    store.setInput('{"n":1}');
+    await store.runTrigger('groom_booking');
+
+    expect(store.list().testRun.selected).toBe('groom_booking');
+    expect(ingress.requests.map((request) => request.input)).toEqual([
+      { n: 1 },
+    ]);
+    expect(ingress.requests[0]?.workflow).toBe('groom_booking');
+  });
+
+  /** A start refused before anything is sent still
+   *  says so against the workflow that was asked
+   *  for. */
+  it('draws a refused trigger start against its workflow', async () => {
+    const ingress = echoing();
+    const store = runsStore(deps({ runner: ingress.start }));
+
+    store.refreshWorkflows();
+    store.setInput('{ n: ');
+    await store.runTrigger('groom_booking');
+
+    expect(ingress.requests).toEqual([]);
+    expect(store.list().testRun.selected).toBe('groom_booking');
+    expect(store.list().testRun.problem?.detail).toBe(messages.runNotJson());
+  });
+
+  it('opens the Runs input to read, and nothing for none', async () => {
+    const shown: { content: string; language: string }[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          projects: () => [project()],
+          showText: async (content, language) =>
+            void shown.push({ content, language }),
+        }),
+      }),
+    );
+
+    await store.openRunInput();
+    store.setInput('  ');
+    await store.openRunInput();
+    store.setInput('{"n":1}');
+    await store.openRunInput();
+
+    expect(shown).toEqual([{ content: '{"n":1}', language: 'json' }]);
   });
 });
 
@@ -547,7 +636,10 @@ async function exercise(store: RunsStore): Promise<void> {
   await store.openWorkflow('wf_c9d2f3');
   await store.openFunction('wf_c9d2f3', 'find_slot');
   await store.openOutput('wf_c9d2f3', 0);
-  await store.runWorkflow('groom_booking', '{}');
+  store.setInput('{}');
+  await store.runWorkflow('groom_booking');
+  await store.runTrigger('groom_booking');
+  await store.openRunInput();
   await store.rerun('wf_c9d2f3');
   await store.copyRunId('wf_c9d2f3');
   await store.askAgent({ workflowId: 'wf_c9d2f3' });
@@ -1024,7 +1116,8 @@ describe('the input a run was started with', () => {
       }),
     );
 
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
     const workflowId = store.list().session[0]?.workflowId ?? '';
     watch.say(
       workflowId,

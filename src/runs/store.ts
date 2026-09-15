@@ -319,9 +319,34 @@ export type RunsStore = Disposable & {
    *  box is about the right one. */
   selectWorkflow(workflow: string): void;
 
-  /** Starts one run of a saved workflow, with
-   *  whatever the input box holds. */
-  runWorkflow(workflow: string, input: string): Promise<void>;
+  /** What the Runs view's input box now says: the
+   *  one input every start reads. */
+  setInput(text: string): void;
+
+  /** Starts one run of a saved workflow, with what
+   *  the input box holds. */
+  runWorkflow(workflow: string): Promise<void>;
+
+  /**
+   * Starts a run of the workflow a trigger's card
+   * is about, with what the input box holds.
+   *
+   * The Runs view is set to that workflow first, so
+   * the run it starts and any refusal are drawn
+   * against the workflow that was asked for, not
+   * whichever the view happened to be set to.
+   */
+  runTrigger(workflow: string): Promise<void>;
+
+  /**
+   * Opens what the input box holds in a tab of its
+   * own, where a long input can be read whole.
+   *
+   * Untitled, like every copy opened from here: the
+   * box is still where the input is typed. An empty
+   * box has nothing to open.
+   */
+  openRunInput(): Promise<void>;
 
   /** Starts a run of the same workflow with the
    *  same input. */
@@ -426,6 +451,11 @@ export type RunsStore = Disposable & {
   refreshRun(): Promise<void>;
 
   onChanged(listener: () => void): Disposable;
+
+  /** Fires when the input box's text changes, apart
+   *  from `onChanged`, so the list is not drawn
+   *  again for a keystroke. */
+  onInputChanged(listener: () => void): Disposable;
 };
 
 export function runsStore(deps: RunsDeps): RunsStore {
@@ -873,7 +903,21 @@ export function runsStore(deps: RunsDeps): RunsStore {
     stackRebuild: () => stacking(stack.rebuild),
 
     selectWorkflow: testRun.selectWorkflow,
+    setInput: testRun.setInput,
     runWorkflow: testRun.runWorkflow,
+
+    runTrigger: async (workflow) => {
+      testRun.selectWorkflow(workflow);
+      await testRun.runWorkflow(workflow);
+    },
+
+    openRunInput: async () => {
+      const { input } = testRun.render().testRun;
+      if (input.trim() === '') return;
+
+      await deps.host.showText(input, 'json');
+    },
+
     rerun: testRun.rerun,
     askAgent: testRun.askAgent,
     copyRunId: (workflowId) => deps.host.copy(workflowId),
@@ -1021,6 +1065,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     refreshRun: openRun.again,
 
     onChanged: changes.on,
+    onInputChanged: testRun.onInputChanged,
 
     dispose: () => {
       for (const subscription of followed) subscription.dispose();

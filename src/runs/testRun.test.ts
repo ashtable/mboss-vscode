@@ -144,7 +144,8 @@ describe('the workflows a person can run', () => {
     const shown = zone({ runner: ingress.start });
 
     shown.refresh();
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     expect(shown.render().testRun.problem).toBeDefined();
 
     shown.selectWorkflow('expense_claim');
@@ -152,6 +153,50 @@ describe('the workflows a person can run', () => {
     expect(shown.render().testRun.selected).toBe('expense_claim');
     expect(shown.render().testRun.hint).toContain('claimId');
     expect(shown.render().testRun.problem).toBeUndefined();
+  });
+});
+
+/**
+ * The Runs view's input box is the one place a run's
+ * input is typed, and the zone holds what it says.
+ *
+ * Every start reads it, whichever door the start
+ * came through. The view is not drawn again for a
+ * keystroke — it is showing the text already — so
+ * the input has a signal of its own, apart from the
+ * one that draws the list.
+ */
+describe('the input a run starts with', () => {
+  it('holds what the Runs view typed, on a signal of its own', () => {
+    const shown = zone();
+    const typed: string[] = [];
+    let drawn = 0;
+
+    shown.onInputChanged(() => void typed.push(shown.render().testRun.input));
+    shown.onChanged(() => void (drawn += 1));
+    shown.setInput('{"n":1}');
+
+    expect(shown.render().testRun.input).toBe('{"n":1}');
+    expect(typed).toEqual(['{"n":1}']);
+    expect(drawn).toBe(0);
+  });
+
+  it('starts every run with it', async () => {
+    const ingress = runner((request) => ({
+      ok: true,
+      workflowId: request.workflowId ?? '',
+    }));
+    const shown = zone({ runner: ingress.start });
+
+    shown.setInput('{"n":1}');
+    await shown.runWorkflow('groom_booking');
+    shown.setInput('{"n":2}');
+    await shown.runWorkflow('groom_booking');
+
+    expect(ingress.requests.map((request) => request.input)).toEqual([
+      { n: 1 },
+      { n: 2 },
+    ]);
   });
 });
 
@@ -172,7 +217,8 @@ describe('starting a run', () => {
     });
     const shown = zone({ runner: ingress.start, sessionLog: log });
 
-    await shown.runWorkflow('groom_booking', '{"bookingId":7}');
+    shown.setInput('{"bookingId":7}');
+    await shown.runWorkflow('groom_booking');
 
     expect(seen?.outcome).toBe('running');
     expect(seen?.workflow).toBe('groom_booking');
@@ -185,7 +231,8 @@ describe('starting a run', () => {
     const ingress = runner(() => ({ ok: true, workflowId: 'wf_echo' }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('expense_claim', '{"claimId":"c-1"}');
+    shown.setInput('{"claimId":"c-1"}');
+    await shown.runWorkflow('expense_claim');
 
     expect(ingress.requests[0]?.trigger).toEqual({
       mode: 'event',
@@ -198,7 +245,8 @@ describe('starting a run', () => {
     const ingress = runner(() => ({ ok: true, workflowId: 'wf_1' }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('groom_booking', '{ bookingId: ');
+    shown.setInput('{ bookingId: ');
+    await shown.runWorkflow('groom_booking');
 
     expect(ingress.requests).toEqual([]);
     expect(shown.render().testRun.problem).toBeDefined();
@@ -214,7 +262,8 @@ describe('starting a run', () => {
     }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const row = shown.render().session[0];
 
     expect(row?.outcome).toBe('failed');
@@ -238,7 +287,8 @@ describe('starting a run', () => {
     }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
 
     expect(shown.render().testRun.problem?.detail).toContain('Rebuild');
     expect(shown.render().testRun.problem?.rebuildToRun).toBe(true);
@@ -254,7 +304,8 @@ describe('starting a run', () => {
     }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('expense_claim', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('expense_claim');
     const row = shown.render().session[0];
 
     expect(row?.workflowId.startsWith('refused_')).toBe(true);
@@ -265,7 +316,8 @@ describe('starting a run', () => {
     const ingress = runner(() => ({ ok: true, workflowId: 'wf_1' }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('nightly_sync', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('nightly_sync');
 
     expect(ingress.requests).toEqual([]);
     expect(shown.render().session).toEqual([]);
@@ -279,7 +331,8 @@ describe('starting a run', () => {
       runner: ingress.start,
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
 
     expect(ingress.requests).toEqual([]);
   });
@@ -293,7 +346,8 @@ describe('following a run', () => {
       following: owner.held,
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
 
     // The id the row was recorded under before the
     // request went, which is what the route starts
@@ -325,7 +379,8 @@ describe('following a run', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     owner.watch.say(
@@ -355,7 +410,8 @@ describe('following a run', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     owner.watch.say(
@@ -382,7 +438,8 @@ describe('following a run', () => {
     const owner = follows(watcher(), () => shown.unsettled());
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
     expect(owner.watch.armed).toHaveLength(1);
 
@@ -409,7 +466,8 @@ describe('following a run', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const mine = shown.render().session[0]?.workflowId ?? '';
 
     owner.held.arm('wf_somebody_elses', 'groom_booking');
@@ -522,7 +580,8 @@ describe('running it again', () => {
     const ingress = echoing();
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('groom_booking', '{"bookingId":7}');
+    shown.setInput('{"bookingId":7}');
+    await shown.runWorkflow('groom_booking');
     const first = shown.render().session[0]?.workflowId ?? '';
     await shown.rerun(first);
 
@@ -542,7 +601,8 @@ describe('running it again', () => {
     const ingress = runner(() => ({ ok: true, workflowId: 'wf_echo' }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('expense_claim', '{"claimId":"c-1"}');
+    shown.setInput('{"claimId":"c-1"}');
+    await shown.runWorkflow('expense_claim');
     await shown.rerun('wf_echo');
 
     expect(ingress.requests).toHaveLength(2);
@@ -663,7 +723,8 @@ describe('asking the agent why', () => {
       })).start,
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     await shown.askAgent({ workflowId });
@@ -695,7 +756,8 @@ describe('asking the agent why', () => {
       },
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     owner.watch.say(
@@ -745,7 +807,8 @@ describe('asking the agent why', () => {
       following: owner.held,
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     owner.watch.say(
@@ -865,7 +928,8 @@ describe('asking the agent why', () => {
       })).start,
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     await shown.askAgent({ workflowId, nodeId: 'started' });
@@ -929,7 +993,8 @@ describe('what a followed run was started with', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{"email":"ada@example.com"}');
+    shown.setInput('{"email":"ada@example.com"}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     owner.watch.say(
@@ -944,7 +1009,8 @@ describe('what a followed run was started with', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{"email":"ada@example.com"}');
+    shown.setInput('{"email":"ada@example.com"}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     owner.watch.say(workflowId, liveRun({ workflowId, input: undefined }));
@@ -1010,7 +1076,8 @@ describe('the arms a followed run decided', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     owner.watch.say(
@@ -1066,7 +1133,8 @@ describe('the value behind a row a followed run wrote', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     owner.watch.say(
@@ -1086,7 +1154,8 @@ describe('the value behind a row a followed run wrote', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     const workflowId = shown.render().session[0]?.workflowId ?? '';
 
     owner.watch.say(

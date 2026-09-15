@@ -407,18 +407,36 @@ const SelectWorkflow = z.object({
 });
 
 /**
+ * The Runs view's input box changed.
+ *
+ * Said on every change rather than with a start,
+ * because the box is the one place a run's input
+ * is typed and more than one door starts a run:
+ * each of them reads what the host was last told.
+ * The text as typed, not a payload — what it parses
+ * to is the host's decision, and "that is not JSON"
+ * is a sentence the panel has to be told. The
+ * workflow the view was set to comes along where
+ * there is one; the host holds one input whichever
+ * it is.
+ */
+const RunInput = z.object({
+  type: z.literal('runInput'),
+  workflow: z.string().optional(),
+  text: z.string(),
+});
+
+/**
  * Somebody asked for one run of a workflow.
  *
- * The input arrives as the text they typed, not as
- * a payload: what it parses to is the host's
- * decision, and "that is not JSON" is a sentence
- * the panel has to be told rather than one it may
- * decide for itself.
+ * It names the workflow and nothing else: what the
+ * run starts with is what the input box last said,
+ * and an input a stale page still sends with it is
+ * stripped here.
  */
 const RunWorkflow = z.object({
   type: z.literal('runWorkflow'),
   workflow: z.string(),
-  input: z.string(),
 });
 
 /** Somebody asked for the same thing again. */
@@ -586,6 +604,30 @@ const InspectRun = z.object({
 });
 
 /**
+ * Somebody on a trigger's card asked for a run of
+ * the workflow the trigger starts.
+ *
+ * By workflow alone, as a start from the Runs view
+ * is: the input is whatever the Runs view's box
+ * holds, which the card shows and never writes.
+ */
+const RunTrigger = z.object({
+  type: z.literal('runTrigger'),
+  workflow: z.string(),
+});
+
+/**
+ * Somebody on a trigger's card wants the Runs
+ * view's input in a tab of its own.
+ *
+ * It names nothing: there is one input box, and the
+ * extension is what holds its text.
+ */
+const OpenRunInput = z.object({
+  type: z.literal('openRunInput'),
+});
+
+/**
  * Which of the two views of one run is on screen.
  *
  * Held by the extension rather than by the frame,
@@ -708,6 +750,7 @@ const SCHEMAS = {
     StackDown,
     StackRebuild,
     SelectWorkflow,
+    RunInput,
     RunWorkflow,
     Rerun,
     AskAgent,
@@ -736,7 +779,9 @@ const SCHEMAS = {
   // values, a question for the agent about it, and
   // the ways on from a run — and what
   // the card about a whole run offers: stopping it,
-  // picking it back up and its recorded input.
+  // picking it back up and its recorded input — and
+  // a trigger's card, which starts its workflow and
+  // opens the Runs view's input.
   inspector: z.discriminatedUnion('type', [
     Ready,
     InspectorModePicked,
@@ -754,6 +799,8 @@ const SCHEMAS = {
     ResumeRun,
     OpenInput,
     InspectRun,
+    RunTrigger,
+    OpenRunInput,
   ]),
   gallery: z.discriminatedUnion('type', [Ready, UsePattern, StartBlank]),
 };

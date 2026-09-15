@@ -15,11 +15,14 @@ import {
   type SeeView,
 } from '../runs/view.js';
 import { liveRunOf, type LiveRun } from '../runs/watch.js';
+import type { ProjectWorkflow } from '../runs/workflows.js';
 import { shortRunId } from '../webview/ids.js';
 import type {
   BlockSubject,
   InspectorInit,
   InspectorSubject,
+  RunByHand,
+  RunInputView,
   RunLevel,
 } from '../webview/protocol.js';
 import { glyphStateOf, runWord, type RunWord } from '../webview/states.js';
@@ -51,6 +54,28 @@ export type StartRefusal = (
 ) => string | undefined;
 
 /**
+ * The Runs view, as a trigger block shows it, about
+ * the document at a path.
+ *
+ * Its input box, the workflow it is set to and why
+ * its last start was refused; the workflows its
+ * project has saved that a run can start; whether
+ * the file at that path is left out of them only
+ * for want of a topic; and whether the editor holds
+ * changes to it nobody has saved.
+ *
+ * A question rather than an answer, because the
+ * saved workflows are read off disk, and only a
+ * trigger block asks it.
+ */
+export type RunsPanel = (path: string) => {
+  testRun: Pick<RunByHand, 'input' | 'selected' | 'problem'>;
+  workflows: readonly ProjectWorkflow[];
+  needsTopic: boolean;
+  unsaved: boolean;
+};
+
+/**
  * The surface last in front, with what it holds.
  *
  * A canvas answers with its session's inputs. The
@@ -63,7 +88,12 @@ export type StartRefusal = (
  */
 export type Focused =
   | { at: 'none' }
-  | { at: 'canvas'; canvas: SubjectInputs; startRefusal: StartRefusal }
+  | {
+      at: 'canvas';
+      canvas: SubjectInputs;
+      startRefusal: StartRefusal;
+      runsPanel: RunsPanel;
+    }
   | {
       at: 'run';
       reading: SeeView | undefined;
@@ -71,6 +101,7 @@ export type Focused =
       document: RunDocument | undefined;
       now: number;
       startRefusal: StartRefusal;
+      runsPanel: RunsPanel;
     };
 
 /**
@@ -98,6 +129,10 @@ export type RunDocument =
   | {
       at: 'buffer';
       file: string;
+
+      /** Where the file is, which is how the saved
+       *  workflows know it. */
+      path: string;
 
       /** Absent where the file cannot be read at all. */
       text: string | undefined;
@@ -147,7 +182,7 @@ function subjectOf(focused: Focused): InspectorSubject {
     };
   }
 
-  const block = blockOnCanvas(canvas);
+  const block = blockOnCanvas(canvas, focused.runsPanel);
 
   return block === undefined
     ? { at: 'none', file: canvas.file }
@@ -289,7 +324,10 @@ function wordOf(run: LiveRun): RunWord {
  * selected has no block to be about, so the pane
  * waits on its file like any other.
  */
-function blockOnCanvas(canvas: SubjectInputs): BlockSubject | undefined {
+function blockOnCanvas(
+  canvas: SubjectInputs,
+  runsPanel: RunsPanel,
+): BlockSubject | undefined {
   if (!canvas.read.ok || canvas.selected === undefined) return undefined;
 
   return {
@@ -306,11 +344,15 @@ function blockOnCanvas(canvas: SubjectInputs): BlockSubject | undefined {
     kindWords: kindWords(),
     run: canvas.run,
 
-    // A canvas draws a block, not one of its rows,
-    // and its run is no run's input box.
+    // A canvas draws a block, not one of its rows.
     functionId: undefined,
     decided: canvas.decided,
-    runInput: undefined,
+    runInput: runInputOf(
+      canvas.read.ir,
+      canvas.selected,
+      canvas.path,
+      runsPanel,
+    ),
 
     // A proposal arriving takes a canvas's selection
     // away, so there is never one to explain here.
@@ -365,6 +407,7 @@ function blockOnRunTab(
 
   const there = drawn.ir.nodes.some((node) => node.id === nodeId);
   const proposedBy = document.proposedBy;
+  const path = document.at === 'canvas' ? document.canvas.path : document.path;
 
   return {
     at: 'block',
@@ -383,12 +426,50 @@ function blockOnRunTab(
       run: inspected.run,
       functionId: reading.selectedStep,
       decided: inspected.decided,
-      runInput: undefined,
+      runInput: runInputOf(drawn.ir, nodeId, path, focused.runsPanel),
       proposal:
         proposedBy === undefined
           ? undefined
           : messages.previewHeadline(proposedBy),
     },
+  };
+}
+
+/**
+ * What a trigger's card shows of the Runs view,
+ * and nothing for any other block.
+ *
+ * The run a card starts is of the workflow saved on
+ * disk, so this document is found among the saved
+ * workflows by where its file is: a name is what a
+ * document says about itself, and two files can say
+ * the same one. A file with no entry there is not
+ * one a run can start — never saved, or saved with
+ * an event trigger that names no topic, which is
+ * the one of the two worth saying.
+ */
+function runInputOf(
+  ir: WorkflowIR,
+  nodeId: string,
+  path: string,
+  runsPanel: RunsPanel,
+): RunInputView | undefined {
+  const node = ir.nodes.find((one) => one.id === nodeId);
+  if (node?.kind !== 'trigger') return undefined;
+
+  const panel = runsPanel(path);
+  const saved = panel.workflows.find((one) => one.path === path);
+
+  return {
+    text: panel.testRun.input,
+    selectedWorkflow: panel.testRun.selected,
+    saved:
+      saved === undefined
+        ? undefined
+        : { name: saved.name, mode: saved.trigger.mode },
+    needsTopic: saved === undefined && panel.needsTopic,
+    unsaved: panel.unsaved,
+    problem: panel.testRun.problem,
   };
 }
 

@@ -160,9 +160,14 @@ function mounted(
     },
   };
 
-  // What the run tab holds, and its signal.
-  const tab: { reading: SeeView | undefined } = { reading: undefined };
+  // What the run tab holds, what the Runs view's
+  // input box says, and their two signals.
+  const tab: { reading: SeeView | undefined; input: string } = {
+    reading: undefined,
+    input: '',
+  };
   const moves = emitter();
+  const typing = emitter();
 
   const runs: InspectorRuns = {
     detail: () => tab.reading,
@@ -188,9 +193,21 @@ function mounted(
     cancel: async (workflowId) => void asked.push(['cancel', workflowId]),
     resume: async (workflowId) => void asked.push(['resume', workflowId]),
     openInput: async (workflowId) => void asked.push(['openInput', workflowId]),
+    list: () => ({
+      testRun: {
+        workflows: [],
+        selected: 'groom_booking',
+        input: tab.input,
+        hint: undefined,
+        problem: undefined,
+      },
+    }),
+    runTrigger: async (...args) => void asked.push(['runTrigger', ...args]),
+    openRunInput: async (...args) => void asked.push(['openRunInput', ...args]),
     cancelledHere: () => false,
     replayStartRefusal: () => undefined,
     onChanged: moves.on,
+    onInputChanged: typing.on,
   };
 
   // The document as the editor holds it, and the
@@ -198,6 +215,7 @@ function mounted(
   // run tab, registering a moment after it is asked
   // for, as a real one does.
   const texts = new Map<string, string>([[PATH, JSON.stringify(ir)]]);
+  const dirty = new Set<string>();
 
   // The agent, and the side bar it answers in, which
   // says how much the agent had been told by the
@@ -222,6 +240,7 @@ function mounted(
       }
     },
     documentText: (path: string) => texts.get(path),
+    unsaved: (path: string) => dirty.has(path),
   };
 
   const documents = emitter<TextDocument>();
@@ -268,7 +287,12 @@ function mounted(
     subjects,
     tab,
     moved: () => moves.fire(),
+    typed: (text: string) => {
+      tab.input = text;
+      typing.fire();
+    },
     texts,
+    dirty,
     changed: (path: string) =>
       documents.fire({ uri: { fsPath: path } } as TextDocument),
     proposals,
@@ -865,6 +889,137 @@ describe('the whole run, shown again from a trigger', () => {
     pane.frame.send({ type: 'inspectRun' });
 
     expect(pane.asked).toEqual([['selectNode', null]]);
+  });
+});
+
+/**
+ * A trigger's card shows the Runs view's input as
+ * the sample a run from the card starts with, and
+ * starts that run. The input is only ever written in
+ * the Runs view: the card posts the workflow and
+ * nothing else, and the runs store reads the input
+ * it holds.
+ */
+describe('a trigger block and the Runs input', () => {
+  /** The pane about the trigger selected on a
+   *  canvas. */
+  function onCanvas() {
+    const pane = mounted();
+    const canvas = session('groom_booking.workflow.json', {
+      selected: 'booking_requested',
+    });
+
+    pane.focus.report({ at: 'canvas', session: canvas.canvas });
+
+    return { ...pane, did: canvas.did };
+  }
+
+  /** The pane about the trigger picked on the run
+   *  tab. */
+  function onRunTab() {
+    const pane = mounted();
+
+    pane.tab.reading = seeView({ selectedNode: 'booking_requested' });
+    pane.focus.report({ at: 'run' });
+
+    return { ...pane, did: [] as unknown[][] };
+  }
+
+  const SURFACES = [
+    ['a canvas', onCanvas],
+    ['the run tab', onRunTab],
+  ] as const;
+
+  for (const [surface, about] of SURFACES) {
+    describe(`picked on ${surface}`, () => {
+      it('draws the trigger again when the Runs input moves', () => {
+        const pane = about();
+        const drawn = pane.subjects().length;
+
+        pane.typed('{"n":2}');
+
+        expect(pane.subjects()).toHaveLength(drawn + 1);
+        expect(pane.subjects().at(-1)).toMatchObject({
+          at: 'block',
+          block: { runInput: { text: '{"n":2}' } },
+        });
+      });
+
+      /** The input stays where it was typed: a start
+       *  from the card names the workflow, and an
+       *  input a frame adds to it goes nowhere. */
+      it('starts the trigger’s workflow with no input of its own', () => {
+        const { frame, asked, did } = about();
+
+        frame.send({
+          type: 'runTrigger',
+          workflow: 'groom_booking',
+          input: '{"smuggled":true}',
+        });
+
+        expect(asked).toEqual([['runTrigger', 'groom_booking']]);
+        expect(did).toEqual([]);
+      });
+
+      it('opens the Runs input to read', () => {
+        const { frame, asked, did } = about();
+
+        frame.send({ type: 'openRunInput' });
+
+        expect(asked).toEqual([['openRunInput']]);
+        expect(did).toEqual([]);
+      });
+
+      it('says whether its document has changes nobody saved', () => {
+        const pane = about();
+
+        expect(pane.subjects().at(-1)).toMatchObject({
+          block: { runInput: { unsaved: false } },
+        });
+
+        pane.dirty.add(PATH);
+        pane.typed('{}');
+
+        expect(pane.subjects().at(-1)).toMatchObject({
+          block: { runInput: { unsaved: true } },
+        });
+      });
+    });
+  }
+
+  /** Any other block shows nothing of the Runs view,
+   *  so a keystroke there is no reason to draw it. */
+  it('leaves any other block alone while somebody types', () => {
+    const pane = mounted();
+
+    pane.focus.report({
+      at: 'canvas',
+      session: session('groom_booking.workflow.json', {
+        selected: 'find_slot',
+      }).canvas,
+    });
+    const drawn = pane.subjects().length;
+
+    pane.typed('{"n":2}');
+
+    expect(drawn).toBeGreaterThan(0);
+    expect(pane.subjects()).toHaveLength(drawn);
+  });
+
+  /**
+   * Which workflow the Runs view is set to, and why
+   * its last start was refused, are the store's to
+   * say, and a trigger's card shows both — so the
+   * card is drawn again when the store moves, on a
+   * canvas as on the run tab.
+   */
+  it('draws a canvas trigger again when the runs move', () => {
+    const pane = onCanvas();
+    const drawn = pane.subjects().length;
+
+    pane.moved();
+
+    expect(pane.subjects()).toHaveLength(drawn + 1);
   });
 });
 

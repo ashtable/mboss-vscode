@@ -27,10 +27,10 @@ import './runs.css';
  * them: the stack has to be up before anything can
  * run, a run has to be started before one is live,
  * and both are worth more than the history the moment
- * either is true. It holds nothing beyond one
- * unsent input box — everything else is the extension's,
- * pushed in on every change the way the list always
- * was.
+ * either is true. It holds nothing but what the
+ * input box is showing, and even that is the
+ * extension's too: everything is pushed in on every
+ * change the way the list always was.
  */
 
 /** One glyph per outcome, in place of an icon set
@@ -220,10 +220,17 @@ function Stack({ stack, strings }: { stack: StackZone; strings: RunsStrings }) {
  * extension on every change — `selectWorkflow` — so
  * the hint beside the box and any problem left over
  * from the last attempt are always about the one now
- * showing, rather than being worked out twice. The
- * input box is the one thing this view holds itself:
- * the extension only learns what is in it when a run
- * is actually sent.
+ * showing, rather than being worked out twice.
+ *
+ * The input box says every change too — `runInput`
+ * — because it is the one place a run's input is
+ * typed, and a trigger's card and the palette start
+ * runs with it as well. So Run names only the
+ * workflow. The box keeps its own copy of the text
+ * while somebody types, since the extension does not
+ * draw the view again for a keystroke, and starts
+ * from the extension's copy whenever the view is
+ * drawn anew.
  */
 function TestRun({
   testRun,
@@ -242,11 +249,12 @@ function TestRun({
   const run = (): void => {
     if (testRun.selected === undefined) return;
 
-    postToHost({
-      type: 'runWorkflow',
-      workflow: testRun.selected,
-      input: text,
-    });
+    postToHost({ type: 'runWorkflow', workflow: testRun.selected });
+  };
+
+  const typed = (next: string): void => {
+    setText(next);
+    postToHost({ type: 'runInput', workflow: testRun.selected, text: next });
   };
 
   return (
@@ -284,7 +292,7 @@ function TestRun({
               data-input
               rows={3}
               value={text}
-              onChange={(event) => setText(event.target.value)}
+              onChange={(event) => typed(event.target.value)}
             />
           </label>
 
