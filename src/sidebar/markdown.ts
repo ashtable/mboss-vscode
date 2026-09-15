@@ -15,6 +15,12 @@
  * turned the rest of the paragraph bold would flash
  * and then change back when the pair arrived.
  *
+ * Nothing inside a fenced block is a marker. What
+ * an agent fences is characters it is showing, so
+ * an exponent there is not a word leaned on and a
+ * line opening with a dash is not a step: the
+ * lines come back as they were written.
+ *
  * One `*` or `_` is not emphasis: the faces this
  * panel ships have no italic, and in an agent's
  * sentence either one is as often a glob or a
@@ -45,9 +51,15 @@ export type ProseBlock =
 const BULLET = /^ {0,3}[-*] (.*)$/;
 const NUMBERED = /^ {0,3}(\d{1,9})\. (.*)$/;
 
+/** A line of backticks or tildes, and whatever the
+ *  agent wrote after them. */
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/;
+
 export function parseInline(text: string): ProseBlock[] {
   const blocks: ProseBlock[] = [];
+  const lines = text.split('\n');
   let paragraph: string[] = [];
+  let at = 0;
 
   const closeParagraph = (): void => {
     if (paragraph.length > 0) {
@@ -57,7 +69,16 @@ export function parseInline(text: string): ProseBlock[] {
     paragraph = [];
   };
 
-  for (const line of text.split('\n')) {
+  while (at < lines.length) {
+    const line = lines[at] ?? '';
+    const fence = FENCE.exec(line);
+
+    if (fence !== null) {
+      closeParagraph();
+      at = fenceInto(blocks, lines, at, fence[1] ?? '');
+      continue;
+    }
+
     const bullet = BULLET.exec(line);
     const numbered = NUMBERED.exec(line);
 
@@ -72,11 +93,56 @@ export function parseInline(text: string): ProseBlock[] {
     } else {
       paragraph.push(line);
     }
+
+    at += 1;
   }
 
   closeParagraph();
 
   return blocks;
+}
+
+/**
+ * A fenced block, from the line that opened it to
+ * the one that closes it, or to the end of what has
+ * arrived while the agent is still writing it.
+ *
+ * One run of text, fences and all: the agent is
+ * showing characters, so no rule here touches them
+ * and the breaks between the lines are the agent's.
+ * Answers the line to go on from.
+ */
+function fenceInto(
+  blocks: ProseBlock[],
+  lines: readonly string[],
+  open: number,
+  mark: string,
+): number {
+  let end = open + 1;
+
+  while (end < lines.length && !closesFence(lines[end] ?? '', mark)) {
+    end += 1;
+  }
+
+  blocks.push({
+    at: 'paragraph',
+    runs: [{ at: 'text', text: lines.slice(open, end + 1).join('\n') }],
+  });
+
+  return end + 1;
+}
+
+/** A fence closes on a line of at least as many of
+ *  the same character, with nothing after them. */
+function closesFence(line: string, mark: string): boolean {
+  const fence = FENCE.exec(line);
+  const close = fence?.[1] ?? '';
+
+  return (
+    close.length >= mark.length &&
+    close.startsWith(mark.slice(0, 1)) &&
+    (fence?.[2] ?? '').trim() === ''
+  );
 }
 
 /**
@@ -139,7 +205,10 @@ function runsOf(text: string): ProseRun[] {
     push({ at: 'text', text: text.slice(at, marker.at) });
 
     const open = marker.at + marker.mark.length;
-    const close = text.indexOf(marker.mark, open);
+    const close =
+      marker.mark === '`'
+        ? loneBacktick(text, open)
+        : text.indexOf(marker.mark, open);
 
     // Unclosed, or closed on nothing: the marker is
     // what the agent typed, and reading goes on
@@ -167,7 +236,7 @@ function nextMarker(
   text: string,
   from: number,
 ): { at: number; mark: '`' | '**' } | undefined {
-  const code = text.indexOf('`', from);
+  const code = loneBacktick(text, from);
   const strong = text.indexOf('**', from);
 
   if (code === -1 && strong === -1) return undefined;
@@ -176,4 +245,30 @@ function nextMarker(
   }
 
   return { at: strong, mark: '**' };
+}
+
+/**
+ * The first backtick standing on its own.
+ *
+ * Backticks in a row are characters the agent
+ * typed, not a marker — a fence quoted inside a
+ * sentence, or an empty pair — and letting one of
+ * them pair with the next real span would set the
+ * words between them as code and leave the code
+ * after them as words.
+ */
+function loneBacktick(text: string, from: number): number {
+  let at = text.indexOf('`', from);
+
+  while (at !== -1) {
+    let end = at;
+
+    while (text[end + 1] === '`') end += 1;
+
+    if (end === at) return at;
+
+    at = text.indexOf('`', end + 1);
+  }
+
+  return -1;
 }

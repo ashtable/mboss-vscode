@@ -135,6 +135,66 @@ describe('prose an agent wrote', () => {
     ]);
   });
 
+  /**
+   * A coding agent fences the code it is talking
+   * about, and inside a fence nothing is a marker:
+   * an exponent is not a word leaned on, a line
+   * opening with a dash is not a step, and the
+   * fence's own backticks pair with nothing in the
+   * prose that follows it.
+   */
+  it('keeps a fenced block exactly as it was written', () => {
+    const fenced =
+      '```ts\nconst total = base ** 2;\nconst next = base ** 3;\n\n' +
+      '- items.push(x)\n```';
+
+    expect(
+      parseInline(`Change it like this:\n${fenced}\nThen run \`npm test\`.`),
+    ).toEqual([
+      { at: 'paragraph', runs: [{ at: 'text', text: 'Change it like this:' }] },
+      { at: 'paragraph', runs: [{ at: 'text', text: fenced }] },
+      {
+        at: 'paragraph',
+        runs: [
+          { at: 'text', text: 'Then run ' },
+          { at: 'code', text: 'npm test' },
+          { at: 'text', text: '.' },
+        ],
+      },
+    ]);
+  });
+
+  it('keeps a fence that has not closed yet as text to the end', () => {
+    expect(
+      parseInline('Change it like this:\n~~~ts\nconst total = base ** 2;'),
+    ).toEqual([
+      { at: 'paragraph', runs: [{ at: 'text', text: 'Change it like this:' }] },
+      {
+        at: 'paragraph',
+        runs: [{ at: 'text', text: '~~~ts\nconst total = base ** 2;' }],
+      },
+    ]);
+  });
+
+  /**
+   * Backticks in a row are characters the agent
+   * typed, whether or not they open a fence. One of
+   * them pairing with the next real span would set
+   * the words between them as code and leave the
+   * code after them as words.
+   */
+  it('does not pair a run of backticks with a code span', () => {
+    expect(parseInline('see ``` and `x`')).toEqual([
+      {
+        at: 'paragraph',
+        runs: [
+          { at: 'text', text: 'see ``` and ' },
+          { at: 'code', text: 'x' },
+        ],
+      },
+    ]);
+  });
+
   it('keeps angle brackets as text', () => {
     expect(parseInline('<script>alert(1)</script>')).toEqual([
       {

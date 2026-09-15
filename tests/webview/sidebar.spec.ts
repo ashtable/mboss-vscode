@@ -209,6 +209,32 @@ test.describe('the transcript', () => {
   });
 
   /**
+   * A coding agent fences the code it is talking
+   * about. What is inside the fence is characters
+   * it is showing, so nothing in it is read: the
+   * exponents and the dash stay, and the span after
+   * the block is still the only code on the row.
+   */
+  test('shows code the agent fenced as it wrote it', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [
+      said('Change it like this:\n```ts\nconst total = base ** 2;\n'),
+      said('- items.push(x)\n```\nThen run `npm test`.'),
+    ]);
+
+    const prose = page.locator('[data-block="prose"]');
+    const written = await prose.textContent();
+
+    await expect(prose).toHaveCount(1);
+    expect(written).toContain('const total = base ** 2;');
+    expect(written).toContain('- items.push(x)');
+    await expect(prose.locator('strong')).toHaveCount(0);
+    await expect(prose.locator('li')).toHaveCount(0);
+    await expect(prose.locator('code')).toHaveText(['npm test']);
+  });
+
+  /**
    * What somebody typed is theirs, asterisks and
    * all: the panel shows what was sent, not a
    * reading of it.
