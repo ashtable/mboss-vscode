@@ -10,10 +10,10 @@ import {
   type NodeKind,
   type WorkflowIR,
   type WorkflowNode,
-} from '../../core/rules.js';
+} from '../core/rules.js';
 
-import { editFor } from '../edits.js';
-import { inspectorWords, paletteLabels } from '../words.js';
+import { editFor } from '../canvas/edits.js';
+import { inspectorWords, paletteLabels } from '../canvas/words.js';
 
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
 
@@ -36,7 +36,7 @@ function document(path: string): WorkflowIR {
   return WorkflowIRSchema.parse(
     JSON.parse(
       readFileSync(
-        fileURLToPath(new URL(`../../../${path}`, import.meta.url)),
+        fileURLToPath(new URL(`../../${path}`, import.meta.url)),
         'utf8',
       ),
     ),

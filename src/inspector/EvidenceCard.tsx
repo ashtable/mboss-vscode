@@ -1,14 +1,14 @@
 import { useEffect } from 'react';
 
-import { DEFAULT_RETRY } from '../../core/rules.js';
-import type { NodeKind, QueuePolicy, Retry } from '../../core/rules.js';
-import type { QueueEvidence, QueueItem } from '../../runs/queueEvidence.js';
-import { OUTPUT_KEPT } from '../../runs/rows.js';
-import { postToHost } from '../../webview/client.js';
-import { filled } from '../../webview/fill.js';
-import type { InspectorStrings, ShownRun } from '../../webview/protocol.js';
-import { duration, fine } from '../../webview/time.js';
-import type { RunState } from '../graph.js';
+import { DEFAULT_RETRY } from '../core/rules.js';
+import type { NodeKind, QueuePolicy, Retry } from '../core/rules.js';
+import type { QueueEvidence, QueueItem } from '../runs/queueEvidence.js';
+import { OUTPUT_KEPT } from '../runs/rows.js';
+import { postToHost } from '../webview/client.js';
+import { filled } from '../webview/fill.js';
+import type { InspectorStrings, ShownRun } from '../webview/protocol.js';
+import { duration, fine } from '../webview/time.js';
+import type { RunState } from '../canvas/graph.js';
 
 import {
   evidenceOf,
@@ -101,8 +101,9 @@ export type EvidenceBlock = {
 export type EvidenceProps = {
   strings: InspectorStrings;
 
-  /** The run the canvas is drawing itself against,
-   *  which is the only run this face reads. */
+  /** The run the block's surface is drawing itself
+   *  against, which is the only run this face
+   *  reads. */
   run: ShownRun;
 
   /** The block somebody selected, or nothing, which
@@ -349,8 +350,8 @@ function Reading({
  * Each is a run of its own, so each is a way to one
  * — and which way depends on where this card is
  * mounted. The run page already shows a run and
- * selects another in place; the canvas has no run
- * page and opens one.
+ * selects another in place; the Inspector has no
+ * run page and opens one.
  */
 function Recent({
   strings,
@@ -571,8 +572,9 @@ function BlockCard({
  * column gets to answer.
  *
  * The same four wherever the card is mounted. A
- * door that appeared on the canvas and not on the
- * run page would make one of them the real one.
+ * door that appeared in the Inspector and not on
+ * the run page would make one of them the real
+ * one.
  */
 function Actions({
   strings,

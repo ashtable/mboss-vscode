@@ -152,17 +152,17 @@ describe('what each view may say', () => {
     ready: ['canvas', 'sidebar', 'runs', 'see', 'inspector', 'gallery'],
 
     select: ['canvas'],
-    inspectorMode: ['canvas'],
-    openFunction: ['canvas', 'see'],
-    openErrorLocation: ['canvas', 'see'],
-    openOutput: ['canvas', 'see'],
+    inspectorMode: ['inspector'],
+    openFunction: ['inspector', 'see'],
+    openErrorLocation: ['inspector', 'see'],
+    openOutput: ['inspector', 'see'],
     connect: ['canvas'],
     addNode: ['canvas'],
     move: ['canvas'],
     arrange: ['canvas'],
     delete: ['canvas'],
-    edit: ['canvas'],
-    assign: ['canvas'],
+    edit: ['inspector'],
+    assign: ['canvas', 'inspector'],
     text: ['canvas'],
 
     prompt: ['sidebar'],
@@ -186,8 +186,8 @@ describe('what each view may say', () => {
     selectWorkflow: ['runs'],
     runWorkflow: ['runs'],
     rerun: ['runs'],
-    askAgent: ['runs', 'see', 'canvas'],
-    openRun: ['runs', 'canvas', 'sidebar'],
+    askAgent: ['runs', 'see', 'inspector'],
+    openRun: ['runs', 'canvas', 'sidebar', 'inspector'],
     openProduction: ['runs'],
     replayRun: ['runs'],
 
@@ -197,12 +197,13 @@ describe('what each view may say', () => {
     resumeRun: ['runs', 'see'],
 
     stepSelect: ['see'],
-    replayFrom: ['canvas', 'see', 'sidebar'],
+    replayFrom: ['inspector', 'see', 'sidebar'],
 
-    // Both surfaces that draw the Inspector's
-    // card, because both can be showing a queue
-    // block when somebody opens it.
-    inspectQueue: ['canvas', 'see'],
+    // The Inspector, and the run page's rail
+    // while it still draws the Inspector's card:
+    // either can be showing a queue block when
+    // somebody opens it.
+    inspectQueue: ['inspector', 'see'],
     seeShow: ['see'],
     seeNode: ['see'],
     seeRaw: ['see'],

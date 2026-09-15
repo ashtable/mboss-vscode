@@ -10,7 +10,7 @@ import { painted } from './fixtures/paint.js';
 import { fileEntry, sidebarInit } from './fixtures/sidebar.js';
 import { mount, THEMES_ALL } from './harness.js';
 import { colourOf, ROLES, sameColour, type Role } from './palette.js';
-import { canvasWords, inspectorWords } from './words.js';
+import { canvasWords } from './words.js';
 
 /**
  * What every view is painted from.
@@ -858,13 +858,7 @@ test.describe('the /lib row every function is offered as', () => {
 /** The canvas showing one block, which is what makes
  *  one `/lib` row the one that block runs. */
 function selecting(nodeId: string): Partial<CanvasInit> {
-  return {
-    inspector: {
-      strings: inspectorWords,
-      selected: nodeId,
-      mode: 'configure',
-    },
-  };
+  return { selected: nodeId };
 }
 
 /**

@@ -13,6 +13,7 @@ import {
   validateWorkflow,
   type LibManifest,
   type NodeKind,
+  type WorkflowIR,
   type WorkflowNode,
 } from '../../../src/core/rules.js';
 import type { QueueEvidence } from '../../../src/runs/queueEvidence.js';
@@ -25,8 +26,11 @@ import type {
 } from '../../../src/runs/watch.js';
 import { liveStep } from '../../../src/test-support/runs.js';
 import type {
+  BlockSubject,
   CanvasInit,
+  InspectorInit,
   InspectorMode,
+  InspectorSubject,
   ShownRun,
 } from '../../../src/webview/protocol.js';
 
@@ -34,16 +38,18 @@ import { mount, type ThemeKind } from '../harness.js';
 import { canvasWords, inspectorWords, paletteLabels } from '../words.js';
 
 /**
- * The canvas, as the host would send it.
+ * The canvas, and the Inspector about a block on
+ * it, as the host would send them.
  *
- * More than one spec drives this view — the canvas's
- * own, and the shared-component one, which needs a
- * real surface to read a component off — and
- * Playwright refuses a spec that imports another, so
- * the message they both send lives here. Two copies
- * of it would drift, and a component spec reading a
- * canvas nobody else draws proves nothing about the
- * canvas.
+ * More than one spec drives these views — the
+ * canvas's own, the Inspector's, and the
+ * shared-component one, which needs a real surface
+ * to read a component off — and Playwright refuses a
+ * spec that imports another, so the messages they
+ * send, and the documents and runs those messages
+ * carry, live here. Two copies would drift, and a
+ * block drawn in the Inspector off a document the
+ * canvas never draws proves nothing about either.
  *
  * The words are the ones sent in below, not the ones
  * the extension resolves: that the host resolves the
@@ -113,11 +119,7 @@ export function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
         : undefined,
     diagnostics: validateWorkflow(ir, { manifest }),
     manifest,
-    inspector: {
-      strings: inspectorWords,
-      selected: undefined,
-      mode: 'configure',
-    },
+    selected: undefined,
     preview: undefined,
     run: undefined,
     decided: {},
@@ -130,6 +132,81 @@ export function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
 export async function openCanvas(page: Page, theme: ThemeKind = 'light') {
   const harness = await mount(page, 'canvas', theme);
   await harness.show(canvasInit());
+
+  return harness;
+}
+
+/** The Inspector's whole message about a subject. */
+export function inspectorInit(subject: InspectorSubject): InspectorInit {
+  return {
+    type: 'init',
+    view: 'inspector',
+    strings: inspectorWords,
+    subject,
+  };
+}
+
+/** The Inspector about one block. */
+export function blockInit(block: BlockSubject): InspectorInit {
+  return inspectorInit({ at: 'block', block });
+}
+
+/**
+ * A block selected on a canvas, as the Inspector is
+ * sent it — and, where a test needs the block to
+ * read differently, with the document changed on the
+ * way in. The pane reads everything about a block
+ * off the document, so that is the only place a
+ * variant can come from.
+ *
+ * Everything else is what a canvas on that document
+ * holds with no run in focus: editable at the
+ * document's revision, with the scanned manifest and
+ * what core makes of the document.
+ */
+export function blockSubject(
+  nodeId: string,
+  over: Partial<WorkflowNode> = {},
+  face: InspectorMode = 'configure',
+  document: WorkflowIR = ir,
+): BlockSubject {
+  const nodes = document.nodes.map((one) =>
+    one.id === nodeId ? ({ ...one, ...over } as WorkflowNode) : one,
+  );
+
+  return {
+    source: 'canvas',
+    file: `${document.name}.workflow.json`,
+    workflow: document.name,
+    ir: { ...document, nodes },
+    revision: document.revision,
+    nodeId,
+    face,
+    manifest,
+    diagnostics: validateWorkflow(document, { manifest }),
+    paletteLabels,
+    kindWords: canvasWords.kinds,
+    run: undefined,
+    functionId: undefined,
+    decided: {},
+    runInput: undefined,
+  };
+}
+
+/** Puts the Inspector on a page as wide as a docked
+ *  pane, with nothing on it yet. */
+export async function mountInspector(page: Page, theme: ThemeKind = 'light') {
+  return mount(page, 'inspector', theme, { width: 300 });
+}
+
+/** The Inspector, on a page, showing that. */
+export async function openInspector(
+  page: Page,
+  init: InspectorInit,
+  theme: ThemeKind = 'light',
+) {
+  const harness = await mountInspector(page, theme);
+  await harness.show(init);
 
   return harness;
 }
@@ -153,7 +230,7 @@ export const everyKind = WorkflowIRSchema.parse({
   edges: [],
 });
 
-export const everyKindBoxes: CanvasInit['boxes'] = Object.fromEntries(
+const everyKindBoxes: CanvasInit['boxes'] = Object.fromEntries(
   everyKind.nodes.map((node, index) => {
     const { width, height } = nodeSize(node.kind);
 
@@ -228,32 +305,24 @@ export const DEDUPLICATES: Finding = {
 export const MARK = '▾';
 
 /**
- * The every-kind document with its queue block
- * configured, that block in the column, and
- * whatever core said about the document.
+ * The every-kind document's queue block, configured,
+ * in the Inspector, with whatever core said about
+ * the document.
  *
  * The canonical fixture is a real workflow and holds
- * no queue, so the one form the column groups under
- * headers is reachable only from the document that
- * holds one of every kind.
+ * no queue, so the one form the Inspector groups
+ * under headers is reachable only from the document
+ * that holds one of every kind.
  */
-export function showingQueue(
+export function queueSubject(
   config: object,
   diagnostics: Finding[] = [],
-): Partial<CanvasInit> {
-  const nodes = everyKind.nodes.map((node) =>
-    node.id === 'queue'
-      ? ({ ...node, handler: { export: 'indexPage' }, config } as WorkflowNode)
-      : node,
-  );
+  face: InspectorMode = 'configure',
+): BlockSubject {
+  const queue = { handler: { export: 'indexPage' }, config };
 
   return {
-    document: { ok: true, ir: { ...everyKind, nodes } },
-    inspector: {
-      strings: inspectorWords,
-      selected: 'queue',
-      mode: 'configure',
-    },
+    ...blockSubject('queue', queue as Partial<WorkflowNode>, face, everyKind),
     diagnostics,
   };
 }
@@ -287,24 +356,16 @@ export async function labelTrack(page: Page): Promise<number> {
 /**
  * The canvas with that block selected — and, where
  * a test needs the block to read differently, with
- * the document changed on the way in. The column
- * reads everything about a block off the document,
- * so that is the only place a variant can come
- * from.
+ * the document changed on the way in: the same
+ * block `blockSubject` puts in the Inspector.
  */
 export function showing(
   nodeId: string,
   over: Partial<WorkflowNode> = {},
-  mode: InspectorMode = 'configure',
-): Partial<CanvasInit> {
-  const nodes = ir.nodes.map((one) =>
-    one.id === nodeId ? ({ ...one, ...over } as WorkflowNode) : one,
-  );
+): Pick<CanvasInit, 'document' | 'selected'> {
+  const { ir: shown } = blockSubject(nodeId, over);
 
-  return {
-    document: { ok: true, ir: { ...ir, nodes } },
-    inspector: { strings: inspectorWords, selected: nodeId, mode },
-  };
+  return { document: { ok: true, ir: shown }, selected: nodeId };
 }
 
 /**

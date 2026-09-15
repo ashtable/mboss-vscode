@@ -2,8 +2,8 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { WorkflowIRSchema, withDecisionCases } from '../../core/rules.js';
-import { CORE_ROOT, readJson } from '../../test-support/repo.js';
+import { WorkflowIRSchema, withDecisionCases } from '../core/rules.js';
+import { CORE_ROOT, readJson } from '../test-support/repo.js';
 
 import { outcomesOf } from './outcomes.js';
 

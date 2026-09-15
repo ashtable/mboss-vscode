@@ -38,13 +38,12 @@ import type { HostMessage } from './protocol.js';
 const Ready = z.object({ type: z.literal('ready') });
 
 /**
- * Which block the canvas is showing in its
- * Inspector column.
+ * Which block is selected on the canvas.
  *
  * The selection is the canvas', and this mirrors it
  * to the host — which is what lets the same block
- * still be showing after the panel has been hidden
- * and mounted again.
+ * still be marked after the panel has been hidden
+ * and mounted again, and what the Inspector draws.
  */
 const Select = z.object({
   type: z.literal('select'),
@@ -55,12 +54,13 @@ const Select = z.object({
  * Which of the Inspector's two faces somebody
  * picked.
  *
- * Held by the host for the reason the selection is:
- * a panel is torn down whenever it is hidden, so a
+ * Held by the host, on the canvas the block was
+ * selected on, for the reason the selection is: a
+ * pane is torn down whenever it is hidden, so a
  * face nobody remembered would come back as
  * whichever one the run in focus implies. The two
  * words are `InspectorMode`'s: a third one added
- * here stops compiling where the canvas assigns it.
+ * here stops compiling where the canvas takes it.
  */
 const InspectorModePicked = z.object({
   type: z.literal('inspectorMode'),
@@ -107,8 +107,8 @@ const OpenErrorLocation = z.object({
  * Somebody asked to read a whole recorded output
  * somewhere it fits.
  *
- * A column 284px wide can hold a line of JSON and
- * not a page of it, so the value goes into an
+ * A pane in the side bar can hold a line of JSON
+ * and not a page of it, so the value goes into an
  * editor tab instead. The run travels with the row
  * because the panel may be drawing a run the
  * extension has since moved past, and the extension
@@ -482,9 +482,9 @@ const StepSelect = z.object({
  *
  * Both ways of naming the point are optional and at
  * least one is required, because the surfaces that
- * send this hold different things. A canvas has a
- * block in its column and no row at all, and so
- * does the agent panel, after a turn asked about a
+ * send this hold different things. The Inspector
+ * has a block and no row at all, and so does the
+ * agent panel, after a turn asked about a
  * block; the run page has a row somebody clicked in
  * a trace. Which of a block's several rows a replay
  * starts from is the extension's answer, not the
@@ -618,23 +618,19 @@ const StartBlank = z.object({ type: z.literal('startBlank') });
  * two frames can post the same kind.
  */
 const SCHEMAS = {
+  // The board's own gestures, the JSON view's text
+  // and the followed run's chip. A block's function
+  // can still be dropped onto it here, which is the
+  // one edit both this and the Inspector send.
   canvas: z.discriminatedUnion('type', [
     Ready,
     Select,
-    InspectorModePicked,
-    OpenFunction,
-    OpenErrorLocation,
-    OpenOutput,
     OpenRun,
-    AskAgent,
-    ReplayFrom,
-    InspectQueue,
     Connect,
     AddNode,
     Move,
     Arrange,
     Delete,
-    Edit,
     Assign,
     Text,
   ]),
@@ -690,9 +686,22 @@ const SCHEMAS = {
     CancelRun,
     ResumeRun,
   ]),
-  // Only that it has mounted: a pane about nothing
-  // offers nothing to press.
-  inspector: z.discriminatedUnion('type', [Ready]),
+  // Everything a block's two faces offer: its
+  // edits, the ways into its code and its recorded
+  // values, and the ways on from a run.
+  inspector: z.discriminatedUnion('type', [
+    Ready,
+    InspectorModePicked,
+    Edit,
+    Assign,
+    OpenFunction,
+    OpenErrorLocation,
+    OpenOutput,
+    InspectQueue,
+    ReplayFrom,
+    AskAgent,
+    OpenRun,
+  ]),
   gallery: z.discriminatedUnion('type', [Ready, UsePattern, StartBlank]),
 };
 

@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import type { SubjectInputs } from '../canvas/editor.js';
-import { inspectorWords } from '../canvas/words.js';
+import { inspectorWords, kindWords, paletteLabels } from '../canvas/words.js';
 import { WorkflowIRSchema } from '../core/rules.js';
+import { liveRun } from '../test-support/runs.js';
 
 import { inspectorInit } from './subject.js';
 
@@ -73,5 +74,106 @@ describe('what the Inspector is about', () => {
       at: 'none',
       file: undefined,
     });
+  });
+});
+
+describe('a block selected on a canvas', () => {
+  it('is that block, on Configure, with no run in focus', () => {
+    const diagnostics = [
+      {
+        code: 'V05' as const,
+        severity: 'error' as const,
+        nodeId: 'find_slot',
+        message: 'a finding the canvas reported',
+      },
+    ];
+    const manifest = { functions: [], types: {} } as never;
+
+    expect(
+      inspectorInit({
+        at: 'canvas',
+        canvas: canvas({
+          selected: 'find_slot',
+          manifest,
+          diagnostics,
+          decided: { slot_open: 'yes' },
+        }),
+      }).subject,
+    ).toEqual({
+      at: 'block',
+      block: {
+        source: 'canvas',
+        file: 'groom_booking.workflow.json',
+        workflow: 'groom_booking',
+        ir,
+        revision: ir.revision,
+        nodeId: 'find_slot',
+        face: 'configure',
+        manifest,
+        diagnostics,
+        paletteLabels: paletteLabels(),
+        kindWords: kindWords(),
+        run: undefined,
+        functionId: undefined,
+        decided: { slot_open: 'yes' },
+        runInput: undefined,
+      },
+    });
+  });
+
+  it('carries the face the canvas holds, and its run', () => {
+    const run = liveRun({ workflow: 'groom_booking' });
+
+    expect(
+      inspectorInit({
+        at: 'canvas',
+        canvas: canvas({ selected: 'find_slot', mode: 'evidence', run }),
+      }).subject,
+    ).toMatchObject({ at: 'block', block: { face: 'evidence', run } });
+  });
+
+  /**
+   * Nothing is editable over a draft, and the
+   * canvas says so by holding no revision; the
+   * block is still the one to draw.
+   */
+  it('carries no revision where the canvas may not be edited', () => {
+    expect(
+      inspectorInit({
+        at: 'canvas',
+        canvas: canvas({ selected: 'find_slot', revision: undefined }),
+      }).subject,
+    ).toMatchObject({ at: 'block', block: { revision: undefined } });
+  });
+
+  /**
+   * What a run did as a whole is not a block, and
+   * the pane has nothing of its own to say about it
+   * yet, so it waits on the file like any canvas
+   * with nothing picked.
+   */
+  it('waits on the file while a followed run has nothing selected', () => {
+    expect(
+      inspectorInit({
+        at: 'canvas',
+        canvas: canvas({
+          mode: 'evidence',
+          run: liveRun({ workflow: 'groom_booking' }),
+        }),
+      }).subject,
+    ).toEqual({ at: 'none', file: 'groom_booking.workflow.json' });
+  });
+
+  it('is about nothing but the file where the document does not read', () => {
+    expect(
+      inspectorInit({
+        at: 'canvas',
+        canvas: canvas({
+          read: { ok: false, detail: 'Unexpected token' },
+          revision: undefined,
+          selected: 'find_slot',
+        }),
+      }).subject,
+    ).toEqual({ at: 'none', file: 'groom_booking.workflow.json' });
   });
 });

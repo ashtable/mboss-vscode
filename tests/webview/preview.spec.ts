@@ -11,7 +11,6 @@ import {
 } from '../../src/core/rules.js';
 import type {
   CanvasInit,
-  CanvasInspector,
   CanvasPreview,
   SidebarInit,
   SidebarPreview,
@@ -20,7 +19,6 @@ import type {
 import { mount, type Harness } from './harness.js';
 import {
   canvasWords as canvasStrings,
-  inspectorWords,
   sidebarWords as sidebarStrings,
 } from './words.js';
 
@@ -76,24 +74,6 @@ const WARNING =
 /** Two blocks arriving, out of the ten drawn. */
 const PROPOSED = ['twilio_chat', 'await_reply'];
 
-/**
- * The Inspector column, showing nothing.
- *
- * A proposal is not the document, so the host lets
- * go of the selection while one is outstanding —
- * there is nothing on screen an edit could be made
- * to. The column is still drawn; it is the canvas.
- */
-const inspector: CanvasInspector = {
-  strings: inspectorWords,
-  selected: undefined,
-
-  // Nothing is being followed on a canvas showing a
-  // proposal, so there is no evidence to read
-  // either.
-  mode: 'configure',
-};
-
 function preview(over: Partial<CanvasPreview> = {}): CanvasPreview {
   return {
     headline: HEADLINE,
@@ -123,7 +103,12 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     layoutKey: layoutKeyOf(ir, boxes),
     diagnostics: [],
     manifest: undefined,
-    inspector,
+
+    // A proposal is not the document, so the host
+    // lets go of the selection while one is
+    // outstanding: there is nothing on screen an
+    // edit could be made to.
+    selected: undefined,
     preview: shown.preview,
     // Editable exactly when nothing is proposed, the
     // way the host says it.

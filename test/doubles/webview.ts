@@ -14,6 +14,11 @@ export type FakeWebview = {
   /** Everything the host has posted, in order. */
   readonly posted: unknown[];
 
+  /** Every time the host asked a view to show
+   *  itself, by whether it asked to leave focus
+   *  where it was. */
+  readonly revealed: boolean[];
+
   /** Delivers a message as the webview would. */
   send(message: unknown): void;
 
@@ -55,6 +60,7 @@ export type FakeWebview = {
  */
 export function fakeWebview(options: { active?: boolean } = {}): FakeWebview {
   const posted: unknown[] = [];
+  const revealed: boolean[] = [];
   const listeners: ((message: unknown) => void)[] = [];
   const closers: (() => void)[] = [];
   const watchers = new Set<(event: { webviewPanel: unknown }) => void>();
@@ -97,6 +103,13 @@ export function fakeWebview(options: { active?: boolean } = {}): FakeWebview {
 
       return { dispose: () => void watchers.delete(listener) };
     },
+    // A view asked to show itself, as the host asks
+    // one: shown, and brought forward unless asked
+    // to leave focus where it is.
+    show: (preserveFocus?: boolean) => {
+      revealed.push(preserveFocus ?? false);
+      change('visible', true);
+    },
   };
 
   const change = (state: 'active' | 'visible', to: boolean): void => {
@@ -108,6 +121,7 @@ export function fakeWebview(options: { active?: boolean } = {}): FakeWebview {
 
   return {
     posted,
+    revealed,
     send: (message) => {
       for (const listener of listeners) listener(message);
     },

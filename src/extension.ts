@@ -13,6 +13,7 @@ import { isProject, workflowDocument } from './core/index.js';
 import { galleryHost } from './gallery/host.js';
 import { GalleryPanel } from './gallery/panel.js';
 import { inspectorFocus } from './inspector/focus.js';
+import { inspectorHost } from './inspector/host.js';
 import { InspectorView } from './inspector/view.js';
 import { previewStore } from './preview/store.js';
 import { openDatabase, openManagement } from './runs/db.js';
@@ -141,25 +142,28 @@ export function activate(context: ExtensionContext): void {
 
   // Opening a run takes both the store that reads
   // it and the page that shows one, so the pair is
-  // put together once here. Two surfaces ask for it
-  // — a card on the canvas, and a row mBoss wrote
-  // into the transcript — and neither has any
-  // business holding both halves.
+  // put together once here. Three surfaces ask for
+  // it — the canvas's followed run, a card in the
+  // Inspector, and a row mBoss wrote into the
+  // transcript — and none has any business holding
+  // both halves.
   const openRun = async (workflowId: string): Promise<void> => {
     await runs.select(workflowId);
     see.show();
   };
 
-  // The canvas draws a run and offers the ways out
-  // of it: the whole run, a replay, and the agent.
+  // A replay from a block, which the agent panel
+  // offers after a turn that asked about one.
+  const replayFrom = (workflowId: string, nodeId: string): Promise<void> =>
+    runs.replay(workflowId, { nodeId });
+
+  // The canvas draws a run and offers the one way
+  // out of it its toolbar has: the whole run.
   const canvasRuns: CanvasRuns = {
     live: () => runs.live(),
     decided: (ir) => runs.decided(ir),
     output: (workflowId, functionId) => runs.output(workflowId, functionId),
     openRun,
-    replayFrom: (workflowId, nodeId) => runs.replay(workflowId, { nodeId }),
-    askAgent: (ask) => runs.askAgent(ask),
-    inspectQueue: (workflowId, nodeId) => runs.inspectQueue(workflowId, nodeId),
     onChanged: (listener) => runs.onChanged(listener),
   };
 
@@ -220,14 +224,25 @@ export function activate(context: ExtensionContext): void {
     panel,
     pickAgent,
     preview,
-    { openRun, replayFrom: canvasRuns.replayFrom },
+    { openRun, replayFrom },
   );
   const runsView = new RunsListView(context.extensionUri, runs, see);
   const inspectorView = new InspectorView(
     context.extensionUri,
     focus,
     sessions,
-    runs,
+    {
+      detail: () => runs.detail(),
+      openRun,
+      replay: (workflowId, picked) => runs.replay(workflowId, picked),
+      askAgent: (ask) => runs.askAgent(ask),
+      inspectQueue: (workflowId, nodeId) =>
+        runs.inspectQueue(workflowId, nodeId),
+    },
+    inspectorHost(),
+    // Whether the container the Inspector sits in is
+    // on screen, told by the two panes beside it.
+    () => agentView.visible() || runsView.visible(),
   );
 
   context.subscriptions.push(

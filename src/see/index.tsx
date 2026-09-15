@@ -10,10 +10,7 @@ import { useMemo } from 'react';
 import { RunNode } from '../canvas/RunNode.js';
 import { Wire, WireMarkers } from '../canvas/Wire.js';
 import { toReactFlow, runStateOf } from '../canvas/graph.js';
-import {
-  Evidence,
-  type EvidenceBlock,
-} from '../canvas/inspector/EvidenceCard.js';
+import { Evidence, type EvidenceBlock } from '../inspector/EvidenceCard.js';
 import { postToHost } from '../webview/client.js';
 import { mountView } from '../webview/mount.js';
 import type {

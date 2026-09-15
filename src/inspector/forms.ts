@@ -6,7 +6,7 @@ import {
   type Predicate,
   type Retry,
   type WorkflowNode,
-} from '../../core/rules.js';
+} from '../core/rules.js';
 
 import {
   UNSET,

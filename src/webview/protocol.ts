@@ -147,9 +147,18 @@ export type CanvasInit = {
    */
   manifest: LibManifest | undefined;
 
-  /** The canvas' third column, and the one block it
-   *  is showing. */
-  inspector: CanvasInspector;
+  /**
+   * The block selected on this canvas, by id: always
+   * a block of the document on screen, and never
+   * while a proposal is showing.
+   *
+   * Only the id, because the graph marks it and the
+   * palette offers what fits it, and both already
+   * hold the document. What the block does is drawn
+   * in the Inspector, which is sent the block
+   * itself.
+   */
+  selected: string | undefined;
 
   /**
    * An agent's proposal, drawn over the graph.
@@ -222,28 +231,6 @@ export type CanvasDocument =
   { ok: true; ir: WorkflowIR } | { ok: false; detail: string };
 
 export type CanvasEditing = { revision: number };
-
-/**
- * The Inspector, as a column of the canvas.
- *
- * Which block is selected is said once, here, and
- * the graph reads the halo off it — rather than an
- * id travelling beside a node the same message
- * already carries.
- */
-export type CanvasInspector = {
-  strings: InspectorStrings;
-
-  /** The block the column is showing, by id: always
-   *  a block of the document on screen, and never
-   *  while a proposal is showing. What the column
-   *  draws for it — its fields, where its outcomes
-   *  lead — is read off the document. */
-  selected: string | undefined;
-
-  /** Which of the column's two faces is on screen. */
-  mode: InspectorMode;
-};
 
 /**
  * The two questions the Inspector answers about a

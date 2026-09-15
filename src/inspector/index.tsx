@@ -1,6 +1,13 @@
+import { runStateOf } from '../canvas/graph.js';
 import { mountView } from '../webview/mount.js';
-import type { InspectorInit } from '../webview/protocol.js';
+import type {
+  BlockSubject,
+  InspectorInit,
+  InspectorStrings,
+} from '../webview/protocol.js';
 import { EmptyState } from '../webview/signal/EmptyState.js';
+
+import { Inspector } from './Inspector.js';
 
 import './inspector.css';
 
@@ -32,12 +39,58 @@ function InspectorPanel({ strings, subject }: InspectorInit) {
         ) : null}
       </header>
 
-      <EmptyState
-        kind="empty"
-        title={strings.nothingSelected}
-        detail={strings.nothingSelectedDetail}
-      />
+      {subject.at === 'block' ? (
+        <Block strings={strings} block={subject.block} />
+      ) : (
+        <EmptyState
+          kind="empty"
+          title={strings.nothingSelected}
+          detail={strings.nothingSelectedDetail}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * A block, in the two faces that used to be the
+ * canvas's third column, drawn from what the host
+ * sent about it rather than from a canvas around it.
+ *
+ * What a run did to the block is asked of the
+ * board's own rule, so the card here and the block
+ * on the graph cannot disagree.
+ */
+function Block({
+  strings,
+  block,
+}: {
+  strings: InspectorStrings;
+  block: BlockSubject;
+}) {
+  const node = block.ir.nodes.find((one) => one.id === block.nodeId);
+
+  return (
+    <Inspector
+      strings={strings}
+      selected={node === undefined ? undefined : { ir: block.ir, node }}
+      mode={block.face}
+      revision={block.revision}
+      run={block.run}
+      runState={
+        node === undefined
+          ? undefined
+          : runStateOf(
+              block.ir,
+              block.run,
+              node.id,
+              new Map(Object.entries(block.decided)),
+            )
+      }
+      lib={block.manifest?.functions}
+      misfits={strings.misfits}
+      diagnostics={block.diagnostics}
+    />
   );
 }
 

@@ -286,10 +286,13 @@ none of that.
   selects, notes and writes.
   `CanvasInit.editing` is the one place a view reads whether it may edit and
   against which revision (absent over an unreadable file or a live proposal),
-  and `inspector.selected` is an id: the column reads a block's fields and
-  where its outcomes lead off the document. The webview never
-  repaints itself: it redraws when `onDocumentChanged` fires `reread` + post
-  (tests simulate this with `livingDocument().saved()`).
+  and `CanvasInit.selected` is an id the graph marks. The block itself is
+  drawn in the Inspector pane (`src/inspector/`): `subject.ts` builds a
+  `BlockSubject` from `session.subjectInputs()`, and `InspectorView`
+  routes what the pane says — a face, an edit, the ways into a block's code
+  — to the canvas in focus, and everything about a run to the runs store.
+  The webview never repaints itself: it redraws when `onDocumentChanged`
+  fires `reread` + post (tests simulate this with `livingDocument().saved()`).
   **`canvas/placement.ts` is where a block goes**, browser-safe and read from
   both sides: `onTheGrid` snaps the boxes the engine placed and leaves alone the
   ones the document did; `layoutKeyOf` (revision + hash of nodes/edges/boxes)
@@ -492,7 +495,7 @@ value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
   which rewrites `l10n/bundle.l10n.json` and `tests/webview/words.json` — never
   edit either by hand. Some copy is duplicated across the two systems on purpose
   (agent names in `package.nls.json` enum descriptions and `messages.agents()`).
-- **Add an Inspector field**: `canvas/inspector/forms.ts` lens + entries in
+- **Add an Inspector field**: `inspector/forms.ts` lens + entries in
   `inspectorFields()`/`inspectorOptions()` in `canvas/words.ts`, then
   `npm run strings`; `forms.test.ts` asserts every field and option has a
   word.

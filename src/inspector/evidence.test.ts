@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import type { QueuePolicy } from '../../core/rules.js';
-import { stepError } from '../../runs/rows.js';
-import type { LiveRun, QueueCounts } from '../../runs/watch.js';
+import type { QueuePolicy } from '../core/rules.js';
+import { stepError } from '../runs/rows.js';
+import type { LiveRun, QueueCounts } from '../runs/watch.js';
 import {
   TIMER_WAKES_AT,
   liveRun,
   liveStep,
   timerThenAnswerRun,
-} from '../../test-support/runs.js';
-import { inspectorWords } from '../words.js';
+} from '../test-support/runs.js';
+import { inspectorWords } from '../canvas/words.js';
 
 import {
   evidenceOf,

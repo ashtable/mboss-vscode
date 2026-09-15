@@ -3,7 +3,7 @@ import {
   type Diagnostic,
   type WorkflowIR,
   type WorkflowNode,
-} from '../../core/rules.js';
+} from '../core/rules.js';
 
 import { configToForm, formToConfig } from './forms.js';
 import type { InspectorField } from './lens.js';

@@ -1,10 +1,10 @@
-import { ownerOf } from '../../core/rules.js';
-import type { QueuePolicy } from '../../core/rules.js';
-import type { StepState } from '../../runs/reading.js';
-import { FIRST_DISPATCH, type StepError } from '../../runs/rows.js';
-import type { LiveOutcome, LiveRun, LiveStep } from '../../runs/watch.js';
-import { filled } from '../../webview/fill.js';
-import type { InspectorStrings } from '../../webview/protocol.js';
+import { ownerOf } from '../core/rules.js';
+import type { QueuePolicy } from '../core/rules.js';
+import type { StepState } from '../runs/reading.js';
+import { FIRST_DISPATCH, type StepError } from '../runs/rows.js';
+import type { LiveOutcome, LiveRun, LiveStep } from '../runs/watch.js';
+import { filled } from '../webview/fill.js';
+import type { InspectorStrings } from '../webview/protocol.js';
 
 /**
  * What a run recorded about one block, read off the

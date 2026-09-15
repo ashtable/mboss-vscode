@@ -1,4 +1,4 @@
-import type { WorkflowIR, WorkflowNode } from '../../core/rules.js';
+import type { WorkflowIR, WorkflowNode } from '../core/rules.js';
 
 /**
  * Where each way out of a decision leads.

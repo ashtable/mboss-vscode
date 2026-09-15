@@ -23,8 +23,10 @@ import { runsWords, seeWords } from './words.js';
  * the more exact of the two. The schema has already
  * refused a message naming neither, and this says
  * so rather than inventing a block id nothing has.
+ * Shared with the Inspector, which sends the same
+ * message and means the same point by it.
  */
-function pointIn(said: {
+export function pointIn(said: {
   nodeId?: string;
   functionId?: number;
 }): ReplayPick | undefined {

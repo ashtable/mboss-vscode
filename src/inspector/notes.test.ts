@@ -6,7 +6,7 @@ import {
   type Diagnostic,
   type WorkflowIR,
   type WorkflowNode,
-} from '../../core/rules.js';
+} from '../core/rules.js';
 
 import { fieldNotes } from './notes.js';
 

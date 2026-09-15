@@ -37,7 +37,6 @@ import { mountWebview, type Heard } from '../webview/host.js';
 import type {
   CanvasDocument,
   CanvasInit,
-  CanvasInspector,
   InspectorMode,
   ShownRun,
 } from '../webview/protocol.js';
@@ -52,13 +51,7 @@ import {
 import { layoutKeyOf, onTheGrid } from './placement.js';
 import { misfitNote } from './misfit.js';
 import type { CanvasSessions } from './sessions.js';
-import {
-  canvasWords,
-  inspectorWords,
-  kindWords,
-  misfitWords,
-  paletteLabels,
-} from './words.js';
+import { canvasWords, kindWords, misfitWords, paletteLabels } from './words.js';
 
 /**
  * The editor a workflow document opens in.
@@ -128,55 +121,15 @@ export type CanvasRuns = {
   /**
    * Puts one run on screen in the flight recorder.
    *
-   * The way out of the column: a card here says what
-   * the run recorded about one block, and the whole
-   * run is a page. The canvas hands over an id and
-   * nothing else — which run the page then reads,
-   * and whether it opens a tab or reveals the one
-   * that is already there, is the store's answer.
+   * The way out of the toolbar's followed-run chip:
+   * the canvas draws where a run has got to, and
+   * the whole run is a page. The canvas hands over
+   * an id and nothing else — which run the page then
+   * reads, and whether it opens a tab or reveals the
+   * one that is already there, is the store's
+   * answer.
    */
   openRun(workflowId: string): Promise<void>;
-
-  /**
-   * Offers a replay of that run from that block.
-   *
-   * A block and not a row: a card here is one
-   * block's turn, and a block that ran more than
-   * once has several rows behind it. Which of them a
-   * replay would start from, and whether it may
-   * start at all, is decided where the run's rows
-   * are — the canvas holds a drawing and none of
-   * them.
-   */
-  replayFrom(workflowId: string, nodeId: string): Promise<void>;
-
-  /**
-   * Hands that run to the agent, with the block a
-   * card was showing.
-   *
-   * Any run the ledger has rather than only the one
-   * this canvas is drawing itself against: what is
-   * read about a run is read where the run's rows
-   * are, and the canvas holds no rows at all.
-   */
-  askAgent(ask: {
-    workflowId: string;
-    nodeId?: string;
-    functionId?: number;
-  }): Promise<void>;
-
-  /**
-   * Reads what one queue block is doing beyond this
-   * run's own share of it.
-   *
-   * Asked when somebody opens the block's card and
-   * never on a tick: the whole queue, what the
-   * running app registered and the items themselves
-   * are three statements that change too slowly to
-   * poll. The answer arrives as the run does, on
-   * the next draw.
-   */
-  inspectQueue(workflowId: string, nodeId: string): Promise<void>;
 
   onChanged(listener: () => void): Disposable;
 };
@@ -413,7 +366,7 @@ export class CanvasSession {
   private live: PreviewModel | undefined;
 
   /**
-   * The block the Inspector column is showing.
+   * The block selected on this canvas.
    *
    * A fact about this one open canvas rather than
    * about the window: two canvases are two
@@ -430,10 +383,10 @@ export class CanvasSession {
    *
    * Undefined means nobody has said, which is not
    * the same as either face: with a run in focus the
-   * column opens on what it recorded, and without
+   * Inspector opens on what it recorded, and without
    * one there is nothing to open on. Held beside the
    * selection because it is the same kind of fact
-   * about the same column, and it is let go of in
+   * about the same block, and it is let go of in
    * the same place.
    */
   private chosenMode: InspectorMode | undefined;
@@ -557,7 +510,7 @@ export class CanvasSession {
 
       diagnostics: this.diagnostics(),
       manifest: this.manifest,
-      inspector: this.inspector(),
+      selected: this.nodeAt(this.selected)?.id,
       preview: this.live === undefined ? undefined : canvasPreview(this.live),
       run: this.run,
       decided: this.decided(),
@@ -596,70 +549,11 @@ export class CanvasSession {
    * to say so.
    */
   heard(message: Heard<'canvas'>): boolean {
-    // Asked before the proposal gate, because
-    // neither writes the document: what a run
-    // recorded is readable whatever is drawn over
-    // the graph, and a card whose buttons went dead
-    // because somebody else's draft arrived would be
-    // a card nobody could trust.
+    // Asked before the proposal gate, because it
+    // writes nothing: the run a canvas is following
+    // is readable whatever is drawn over the graph.
     if (message.type === 'openRun') {
       void this.runs.openRun(message.workflowId);
-
-      return false;
-    }
-
-    if (message.type === 'openOutput') {
-      void this.openOutput(message.workflowId, message.functionId);
-
-      return false;
-    }
-
-    // A read as well, and one about the project
-    // rather than about this document: opening the
-    // code behind a block changes nothing here, so
-    // it does not go through the revision gate that
-    // every edit does.
-    if (message.type === 'openFunction') {
-      void this.openFunction(message.nodeId);
-
-      return false;
-    }
-
-    if (message.type === 'openErrorLocation') {
-      void this.openErrorLocation(message.nodeId, message.functionId);
-
-      return false;
-    }
-
-    // A write into the project's database rather
-    // than into this document, so it goes through
-    // neither the proposal gate nor the revision
-    // one. The block is all that travels; every
-    // question about the run is answered where the
-    // run's rows are.
-    if (message.type === 'replayFrom') {
-      if (message.nodeId !== undefined) {
-        void this.runs.replayFrom(message.workflowId, message.nodeId);
-      }
-
-      return false;
-    }
-
-    // A read too, and one whose answer arrives in
-    // another panel entirely — so nothing here is
-    // drawn again and no gate applies.
-    if (message.type === 'askAgent') {
-      void this.runs.askAgent(message);
-
-      return false;
-    }
-
-    // A read as well, and one that draws this panel
-    // again when it lands — but through the store's
-    // own change signal rather than from here, the
-    // way a tick does.
-    if (message.type === 'inspectQueue') {
-      void this.runs.inspectQueue(message.workflowId, message.nodeId);
 
       return false;
     }
@@ -678,18 +572,9 @@ export class CanvasSession {
       return false;
     }
 
-    // Which face is showing is not in the document
-    // either, so the panel has to be drawn again for
-    // the same reason a selection does.
-    if (message.type === 'inspectorMode') {
-      this.chooseMode(message.mode);
-
-      return true;
-    }
-
     // Everything else this panel says is an edit, and
     // the compiler is what says so: what is left after
-    // those two is `EditMessage` exactly, so a new
+    // those is `EditMessage` exactly, so a new
     // message that is not an edit stops compiling here
     // rather than being quietly performed. An edit may
     // have to ask which way out of a block a new wire
@@ -835,19 +720,8 @@ export class CanvasSession {
       : this.preview.forWorkflow(project, this.name);
   }
 
-  /** The column's words, and the block it is
-   *  showing — by id, since the panel holds the
-   *  document the block is in. */
-  private inspector(): CanvasInspector {
-    return {
-      strings: inspectorWords(),
-      selected: this.nodeAt(this.selected)?.id,
-      mode: this.mode(),
-    };
-  }
-
   /**
-   * Which face the column shows.
+   * Which face the Inspector shows.
    *
    * With no run there is nothing recorded to read,
    * so the question does not arise. With one, what
@@ -876,6 +750,12 @@ export class CanvasSession {
    * A row the ledger recorded no value for has
    * nothing to open, and an empty tab over it would
    * say there was something there.
+   *
+   * A read, so no gate applies: what a run recorded
+   * is readable whatever is drawn over the graph,
+   * and a card whose buttons went dead because
+   * somebody else's draft arrived would be a card
+   * nobody could trust.
    */
   async openOutput(workflowId: string, functionId: number): Promise<void> {
     if (this.run?.workflowId !== workflowId) return;
@@ -894,6 +774,11 @@ export class CanvasSession {
    * has read — so a window nobody has trusted, where
    * there is no scan, opens nothing rather than
    * running one to answer a click.
+   *
+   * About the project rather than this document, so
+   * it goes through neither the proposal gate nor
+   * the revision one: looking at the code behind a
+   * block changes nothing here.
    */
   async openFunction(nodeId: string): Promise<void> {
     const project = projectOf(this.document.uri.fsPath);
@@ -944,7 +829,7 @@ export class CanvasSession {
   }
 
   /**
-   * Keeps the column on the same node after the
+   * Keeps the selection on the same node after the
    * document changes, and lets it go when the node
    * is gone — or when a proposal has taken the
    * document's place, since there is then nothing
@@ -1089,7 +974,7 @@ export class CanvasSession {
    * through the document VS Code owns, which is what
    * puts it on the undo stack beside every other
    * edit to the file. What follows a write — the
-   * block the column shows next, the row in the
+   * block selected next, the row in the
    * agent's transcript — follows only what actually
    * landed: a refused or stale edit has already been
    * said out loud, and a row about it would claim

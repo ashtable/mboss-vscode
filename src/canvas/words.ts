@@ -611,6 +611,12 @@ export const inspectorWords = once(() => ({
   hide: l10n.t('Hide incompatible functions'),
   newFunction: l10n.t('New function…'),
   noLib: canvasWords().noLib,
+
+  // Why a function cannot sit behind a block, the
+  // sentence the palette greys a row with. The same
+  // words rather than a copy, and carried here
+  // because the Inspector is sent no canvas words.
+  misfits: misfitWords(),
   dropHere: l10n.t('drop a ƒ here'),
   end: l10n.t('end'),
   database: l10n.t('app postgres · prisma tx'),

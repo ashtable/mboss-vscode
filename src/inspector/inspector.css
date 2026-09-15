@@ -58,3 +58,303 @@ body {
   font-size: var(--text-sm);
   color: var(--ink-faint);
 }
+
+/* — the Inspector column — */
+
+/* A fixed label on the left, the value taking the
+   rest, and a hairline between rows. Values are set
+   in the face the user reads code in, because every
+   one of them is a value out of the document — a
+   topic, a path, a handler's name. */
+
+.inspector {
+  padding: var(--space-3);
+  min-width: 0;
+  overflow-y: auto;
+}
+
+/* The two faces sit above everything either of
+   them draws, so the column reads as one panel
+   answering one of two questions rather than as two
+   panels stacked. */
+.inspector > .tabs {
+  margin-bottom: var(--space-2);
+}
+
+.inspector > .hint {
+  margin-bottom: var(--space-3);
+}
+
+/* A face with no run behind it refuses rather than
+   opening on an empty panel. Scoped here because
+   this is the only tab strip in the extension that
+   can be empty — a run page always has its run. */
+.inspector .tab:disabled {
+  color: var(--ink-faint);
+  cursor: default;
+}
+
+.inspector > .eyebrow {
+  color: var(--brand);
+  margin-bottom: var(--space-3);
+}
+
+.state {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.fields {
+  margin: 0;
+}
+
+.field {
+  display: grid;
+  grid-template-columns: 8.5ch 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-top: 1px solid var(--hairline);
+}
+
+/* One form asks for more label than 8.5ch. A
+   queue's four limits are told apart by the scope
+   in their names, and a scope is no use cut in
+   half — `worker concurrency / partition` in the
+   narrow column is four stacked fragments beside a
+   one-line box. */
+.fields[data-labels='wide'] .field {
+  grid-template-columns: 12ch 1fr;
+}
+
+/* A group's label belongs at the top of the group,
+   not floating halfway down the side of it. */
+.field[data-control='rows'] {
+  align-items: start;
+}
+
+/* And so does a label on a field carrying a
+   sentence under its box. */
+.field[data-noted] {
+  align-items: start;
+}
+
+/* A header over the fields after it. It spans the
+   row rather than sitting in the label column,
+   because it names a group rather than the value
+   beside it, and it takes the space above that the
+   hairline alone does not give. */
+.field[data-control='section'] {
+  display: block;
+  padding-top: var(--space-3);
+}
+
+/* The whole header is the target. Only what a
+   button brings is reset here, so the type
+   treatment stays `.section-label`'s. */
+.section-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  font-family: var(--font-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The marker turns rather than swapping shape, so
+   folding and opening are one thing a person
+   watches move. It is turned by `aria-expanded`,
+   which is where the fold is already said. */
+.section-mark {
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--ink-muted);
+  transform: rotate(-90deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.section-head[aria-expanded='true'] .section-mark {
+  transform: none;
+}
+
+/* What a group or a field needs saying about it
+   that is not a value: which process a limit holds
+   back, or what core says is wrong with what is
+   typed above. Under the thing it is about, in the
+   quiet the rest of the column's prose is set in. */
+.field-note {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--ink-muted);
+}
+
+.field-name {
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.field-value {
+  margin: 0;
+  min-width: 0;
+}
+
+/* One control shape for all of them, so a column
+   of fields reads as a column rather than as a
+   sample sheet of widgets. */
+.field-value input[type='text'],
+.field-value textarea,
+.field-value select {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  padding: 2px var(--space-1);
+  background: var(--vscode-input-background, var(--canvas));
+  color: var(--vscode-input-foreground, var(--ink));
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.field-value textarea {
+  resize: vertical;
+}
+.field-value input[type='checkbox'] {
+  margin: 0;
+  accent-color: var(--brand);
+}
+
+/* A row that is read rather than edited: where an
+   outcome goes, which database a transaction
+   commits to. Set in mono, because every one of
+   them is a value out of the graph. */
+.field[data-control='told'] .field-value {
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* — the function picker — */
+
+/* The small heading over the picker's list. */
+.drawer-name {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xs);
+}
+
+/* The picker breaks the column's label-left rhythm
+   on purpose. What follows the label is a list of
+   signatures, and 8.5ch of label in front of them
+   leaves nothing to read them in. */
+.field[data-control='picker'] {
+  display: block;
+}
+
+.picker-value {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
+/* A block that runs nothing yet says where one
+   goes, rather than leaving a blank to guess at. */
+.picker-nothing {
+  display: inline-block;
+  padding: 2px var(--space-2);
+  border: 1.5px dashed var(--hairline-strong);
+  border-radius: var(--r-sm);
+  color: var(--ink-faint);
+}
+
+.picker {
+  margin-bottom: var(--space-2);
+}
+
+.picker-empty {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+
+/* What was left out of the list, and the way to
+   see it. Plain text rather than a button's
+   clothes: it is an aside about the list, not an
+   action on the block. */
+.picker-hidden {
+  all: unset;
+  display: block;
+  margin: var(--space-1) 0 var(--space-2);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+/* The row a function nobody has written yet is
+   named in. It borrows the picker row's box and
+   nothing else — there is no function in it to mark
+   or to describe — so its one control is stretched
+   across the row and a press anywhere starts the
+   naming. */
+.picker-new {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.picker-name {
+  all: unset;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+/* The way to the code a block runs, set beside its
+   name rather than under the list: it is about the
+   function already chosen, not about choosing
+   one. */
+.picker-open {
+  all: unset;
+  color: var(--ink-faint);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+/* The system's callout: a tinted block, no border
+   and no icon. Spent on the two kinds whose
+   relationship with their code a person would
+   otherwise have to be told twice. */
+.callout {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--r-sm);
+  background: var(--info-tint);
+  color: var(--ink-soft);
+  font-size: var(--text-xs);
+}
+.callout strong {
+  margin-right: 6px;
+  color: var(--info);
+}
+.callout[data-tone='warn'] {
+  background: var(--warn-tint);
+}
+.callout[data-tone='warn'] strong {
+  color: var(--warn);
+}
+
+/* A repeating group — a branch's cases, a form's
+   fields — is drawn as a stack of small blocks so
+   that where one ends and the next begins is
+   readable without a heading per row. */
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.row {
+  border-left: 2px solid var(--brand);
+  padding-left: var(--space-2);
+}
+.row .field {
+  grid-template-columns: 7ch 1fr;
+  border-top: 0;
+  padding: 1px 0;
+}

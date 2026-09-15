@@ -58,7 +58,6 @@ import { spliceGaps, type SpliceGap } from './drag/gaps.js';
 import { pastThreshold } from './drag/gesture.js';
 import {
   lineOf,
-  runStateOf,
   toReactFlow,
   wantsHandler,
   type CanvasEdge,
@@ -66,14 +65,14 @@ import {
 } from './graph.js';
 import { GRID, guides, movedByGrid } from './grid.js';
 import { landingFor, landsAt, nodesFor, rounded } from './placement.js';
-import { Inspector, showInspectorHeading } from './inspector/Inspector.js';
 import { checkCandidateEdge } from './wiring.js';
 
 import '@xyflow/react/dist/style.css';
 
 /**
- * The workflow canvas: what can go on it, what is
- * on it, and what the selected block does.
+ * The workflow canvas: what can go on it, and what
+ * is on it. What the selected block does is set in
+ * the Inspector, a pane beside the canvas.
  *
  * Everything drawn here came from the host: the
  * parsed document, the boxes core laid it out
@@ -222,10 +221,10 @@ function Workspace({
   const editing = init.editing;
   const placing = document.ok && showing === 'canvas' && editing !== undefined;
 
-  // The one block the column is showing, and the
-  // rail marks the function of: found once, here.
+  // The one block selected, which the rail marks
+  // the function of: found once, here.
   const selected = document.ok
-    ? document.ir.nodes.find((node) => node.id === init.inspector.selected)
+    ? document.ir.nodes.find((node) => node.id === init.selected)
     : undefined;
 
   const gaps = useMemo(
@@ -237,11 +236,10 @@ function Workspace({
    * Which way out each decided block took, off the
    * wire.
    *
-   * Built once here rather than in each of the two
-   * places that read it: the graph paints the arms
-   * the run did not take as structure, and the
-   * column beside it has to say the same thing
-   * about the block somebody selected.
+   * Built once per message rather than on every
+   * render: the graph paints the arms the run did
+   * not take as structure, and a new map each time
+   * would redraw every wire for nothing.
    */
   const decided = useMemo(
     () => new Map(Object.entries(init.decided)),
@@ -300,11 +298,6 @@ function Workspace({
           ? {}
           : { spliceEdge: landing.gap.edgeId }),
       });
-
-      // A block that has just arrived says nothing
-      // about itself yet, and the column beside the
-      // canvas is where that gets said.
-      showInspectorHeading();
     };
 
     const off = (key: globalThis.KeyboardEvent): void => {
@@ -358,25 +351,6 @@ function Workspace({
             </section>
           )}
         </TabPanel>
-
-        <Inspector
-          strings={init.inspector.strings}
-          selected={
-            document.ok && selected !== undefined
-              ? { ir: document.ir, node: selected }
-              : undefined
-          }
-          mode={init.inspector.mode}
-          run={init.run}
-          runState={
-            document.ok && selected !== undefined
-              ? runStateOf(document.ir, init.run, selected.id, decided)
-              : undefined
-          }
-          lib={init.manifest?.functions}
-          misfits={init.strings.misfits}
-          diagnostics={init.diagnostics}
-        />
       </div>
     </EditingProvider>
   );
@@ -612,9 +586,9 @@ function Graph({
   const editing = init.editing;
   const editable = editing !== undefined;
 
-  // Said once, by the column that is showing it:
-  // the halo and the fields are the same fact.
-  const selected = init.inspector.selected;
+  // Said once, by the host: the halo here and the
+  // block in the Inspector are the same fact.
+  const selected = init.selected;
 
   const drawn = useMemo(
     () =>
@@ -1096,12 +1070,6 @@ function Graph({
                   position: rounded(landsAt(kind, quickAdd.lands)),
                   connectFrom: { node: quickAdd.from },
                 });
-
-                // The block that has just arrived says
-                // nothing about itself yet, and the
-                // column beside the canvas is where
-                // that gets said.
-                showInspectorHeading();
               }}
             />
           )}

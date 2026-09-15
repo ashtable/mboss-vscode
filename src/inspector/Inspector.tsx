@@ -12,19 +12,18 @@ import type {
   LibFunction,
   WorkflowIR,
   WorkflowNode,
-} from '../../core/rules.js';
-import type { LiveRun } from '../../runs/watch.js';
-import { postToHost } from '../../webview/client.js';
-import { filled } from '../../webview/fill.js';
+} from '../core/rules.js';
+import type { LiveRun } from '../runs/watch.js';
+import { postToHost } from '../webview/client.js';
+import { filled } from '../webview/fill.js';
 import type {
   Callout as CalloutWords,
   InspectorMode,
   InspectorStrings,
-} from '../../webview/protocol.js';
-import { LibFunctionItem } from '../../webview/signal/LibFunctionItem.js';
-import { useEditing } from '../Editing.js';
-import type { RunState } from '../graph.js';
-import { fitsFor, signatureOf, type LibFit } from '../libFunction.js';
+} from '../webview/protocol.js';
+import { LibFunctionItem } from '../webview/signal/LibFunctionItem.js';
+import type { RunState } from '../canvas/graph.js';
+import { fitsFor, signatureOf, type LibFit } from '../canvas/libFunction.js';
 
 import { Evidence } from './EvidenceCard.js';
 import { configToForm, formToConfig, type InspectorField } from './forms.js';
@@ -33,8 +32,9 @@ import { fieldNotes } from './notes.js';
 import { outcomesOf, type DecisionOutcome } from './outcomes.js';
 
 /**
- * The Inspector: the one place a block's config is
- * set, and the canvas' third column.
+ * The Inspector's two faces about one block: the
+ * one place a block's config is set, and what a run
+ * recorded about it.
  *
  * The node being edited is held here rather than
  * only in the document, and that is deliberate. A
@@ -73,10 +73,20 @@ export type InspectorProps = {
    *  is hidden and shown again remembers nothing. */
   mode: InspectorMode;
 
-  /** The run this canvas is drawing itself against,
-   *  which is what the second face reads. Nothing
-   *  being followed is what that face has nothing
-   *  to say about. */
+  /**
+   * What an edit from here is made against, or
+   * nothing where the block may not be edited — a
+   * file that will not parse, or a proposal drawn in
+   * its place. Said about the block the pane was
+   * sent rather than read off a canvas around it:
+   * the pane sits beside the canvas, not inside it.
+   */
+  revision: number | undefined;
+
+  /** The run the block's canvas is drawing
+   *  itself against, which is what the second face
+   *  reads. Nothing being followed is what that face
+   *  has nothing to say about. */
   run: LiveRun | undefined;
 
   /** What that run says about the selected block, as
@@ -99,34 +109,17 @@ export type InspectorProps = {
   diagnostics: Diagnostic[];
 };
 
-/**
- * Brings the top of this column into view.
- *
- * The column is always drawn, so nothing opens —
- * what this does is take a person to it, after they
- * have done something on the canvas that the column
- * is about to ask the next question about.
- *
- * It lives beside the heading it looks for so that
- * the mark and the search for it cannot drift apart.
- */
-export function showInspectorHeading(): void {
-  document
-    .querySelector('[data-inspector-heading]')
-    ?.scrollIntoView({ block: 'nearest' });
-}
-
 export function Inspector({
   strings,
   selected,
   mode,
+  revision,
   run,
   runState,
   lib,
   misfits,
   diagnostics,
 }: InspectorProps) {
-  const editing = useEditing();
   const selectedId = selected?.node.id;
   const [folded, setFolded] = useState<Set<string>>(() =>
     selected === undefined ? new Set() : initiallyFolded(selected.node),
@@ -142,18 +135,18 @@ export function Inspector({
   // the host lets go of the selection while a
   // proposal is showing, and the column agrees.
   const configuring =
-    selected === undefined || editing === undefined ? (
+    selected === undefined || revision === undefined ? (
       <>
         <p className="eyebrow text-muted">{strings.heading}</p>
         <p className="state text-muted">{strings.nothingSelected}</p>
       </>
     ) : (
       <Fields
-        key={`${selected.node.id}:${editing.revision}`}
+        key={`${selected.node.id}:${revision}`}
         strings={strings}
         ir={selected.ir}
         node={selected.node}
-        revision={editing.revision}
+        revision={revision}
         lib={lib}
         misfits={misfits}
         diagnostics={diagnostics}
