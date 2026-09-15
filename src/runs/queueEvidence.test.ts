@@ -370,10 +370,16 @@ describe('the items a queue block started', () => {
     expect(found.recent[0]?.label).toBe('doc_7');
   });
 
-  /** Which is what a queue that deduplicates and
-   *  does not partition shows for every item it has
-   *  finished: DBOS cleared the only name it had. */
-  it('labels a finished item by the end of its own id', async () => {
+  /**
+   * Which is what a queue that deduplicates and
+   * does not partition leaves every item it has
+   * finished: DBOS cleared the only name it had.
+   * No name is made up for it here, because the
+   * card draws a nameless item by its short id in
+   * a span carrying the whole one, and a string
+   * baked on this side could only be text.
+   */
+  it('leaves an item nothing names unlabelled', async () => {
     const found = await read(
       ledger({
         items: [
@@ -389,7 +395,7 @@ describe('the items a queue block started', () => {
 
     expect(found.recent[0]).toEqual({
       workflowId: 'wf_1700000000000_a1b2c3d4',
-      label: '…a1b2c3d4',
+      label: undefined,
       status: 'SUCCESS',
       completedAt: 9000,
     });

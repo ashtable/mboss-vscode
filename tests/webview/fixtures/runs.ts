@@ -432,9 +432,7 @@ export const QUEUE_READ: QueueEvidence = {
     windowSec: 60,
   },
   registered: 'matches',
-  recent: [
-    { workflowId: 'wf_child_9f21', label: '…ld_9f21', status: 'PENDING' },
-  ],
+  recent: [{ workflowId: 'wf_child_9f21', status: 'PENDING' }],
 };
 
 /**

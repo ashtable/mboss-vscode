@@ -1,10 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, type ReactNode } from 'react';
 
 import type { QueuePolicy } from '../core/rules.js';
 import type { QueueEvidence, QueueItem } from '../runs/queueEvidence.js';
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
+import { shortRunId } from '../webview/ids.js';
 import type { InspectorStrings, ShownRun } from '../webview/protocol.js';
+import { Button } from '../webview/signal/Button.js';
+import { FieldHint } from '../webview/signal/FieldHint.js';
+import { PropertyRow } from '../webview/signal/PropertyRow.js';
+import { SectionLabel } from '../webview/signal/SectionLabel.js';
+import { StatusLine } from '../webview/signal/StatusGlyph.js';
+import { glyphStateOf, runWord } from '../webview/states.js';
 import { fine } from '../webview/time.js';
 
 import { queueRowsOf, type QueueRow } from './evidence.js';
@@ -23,7 +30,7 @@ import { queueRowsOf, type QueueRow } from './evidence.js';
  * What a queue block's children are doing.
  *
  * Three provenances on one card, which is the whole
- * reason each row wears its own: the counts are
+ * reason each row says its own: the counts are
  * this run's share, read every tick; the window and
  * the registration are the whole queue's, read once
  * because somebody opened this; and the name and
@@ -49,8 +56,9 @@ export function QueueCard({
   run: ShownRun;
   nodeId: string;
 
-  /** The named export it runs, where it runs one. */
-  handler: string | undefined;
+  /** The function each item runs, drawn the way the
+   *  face for every other block draws its own. */
+  handler: ReactNode;
 
   queue: QueuePolicy;
 }) {
@@ -85,47 +93,46 @@ export function QueueCard({
       : row,
   );
 
+  const read: QueueRow[] =
+    found === undefined
+      ? []
+      : [
+          {
+            id: 'observedStarts',
+            label: strings.queueRows.observedStarts,
+            value: filled(
+              strings.queueStarted,
+              String(found.window.started),
+              String(found.window.windowSec),
+            ),
+            provenance: 'derived',
+          },
+          {
+            id: 'registered',
+            label: strings.queueRows.registered,
+            value: registeredText(strings, found.registered),
+            provenance: 'derived',
+          },
+        ];
+
   return (
-    <section className="evidence" data-evidence="queue">
-      {handler === undefined ? null : (
-        <p className="mono" data-evidence-field="handler">
-          {`ƒ ${handler}`}
-        </p>
-      )}
+    <section className="evidence-face" data-evidence="queue">
+      {handler}
 
-      <div className="evidence-lines">
-        {rows.map((row) => (
-          <Reading key={row.id} strings={strings} row={row} />
-        ))}
-
-        {found === undefined ? null : (
-          <>
-            <Reading
-              strings={strings}
-              row={{
-                id: 'observedStarts',
-                label: strings.queueRows.observedStarts,
-                value: filled(
-                  strings.queueStarted,
-                  String(found.window.started),
-                  String(found.window.windowSec),
-                ),
-                chip: 'derived',
-              }}
-            />
-
-            <Reading
-              strings={strings}
-              row={{
-                id: 'registered',
-                label: strings.queueRows.registered,
-                value: registeredText(strings, found.registered),
-                chip: 'derived',
-              }}
-            />
-          </>
-        )}
-      </div>
+      {[...rows, ...read].map((row) => (
+        <PropertyRow
+          key={row.id}
+          label={row.label}
+          labels="wide"
+          mono
+          value={row.value}
+          provenance={{
+            kind: row.provenance,
+            word: strings[row.provenance],
+          }}
+          hook={{ 'evidence-field': row.id }}
+        />
+      ))}
 
       {found === undefined || found.recent.length === 0 ? null : (
         <Recent strings={strings} items={found.recent} />
@@ -135,36 +142,10 @@ export function QueueCard({
           it is one application's, read out of the
           one development database this window can
           reach. */}
-      <p className="hint" data-evidence-field="local">
+      <FieldHint hook={{ 'evidence-field': 'local' }}>
         {strings.queueLocal}
-      </p>
+      </FieldHint>
     </section>
-  );
-}
-
-/** One reading on a queue card: what it is, what it
- *  says, and whether the panel worked it out or
- *  found it in the document. */
-function Reading({
-  strings,
-  row,
-}: {
-  strings: InspectorStrings;
-  row: QueueRow;
-}) {
-  return (
-    <p className="evidence-line" data-evidence-field={row.id}>
-      <span className="evidence-line-name">{row.label}</span>
-      <span className="value mono">{row.value}</span>
-      {row.chip === undefined ? null : (
-        <Chip
-          word={
-            row.chip === 'configured' ? strings.configured : strings.derived
-          }
-          kind={row.chip}
-        />
-      )}
-    </p>
   );
 }
 
@@ -172,8 +153,11 @@ function Reading({
  * The items the block started, newest first.
  *
  * Each is a run of its own, so each is a way to
- * one: the Inspector is no run page, and opens it
- * on the run tab.
+ * one — the Inspector is no run page, and opens it
+ * on the run tab — and each says where it got to
+ * in the words every other run is said in. DBOS's
+ * own word is the ledger's, and a card that printed
+ * it would call one run two things on two panels.
  */
 function Recent({
   strings,
@@ -183,29 +167,58 @@ function Recent({
   items: readonly QueueItem[];
 }) {
   return (
-    <div data-evidence-field="recentWork">
-      <p className="value-label">{strings.queueRows.recentWork}</p>
-      <ul className="evidence-recent">
-        {items.map((item) => (
-          <li key={item.workflowId}>
-            <button
-              type="button"
-              className="evidence-recent-run mono"
-              data-queue-item={item.workflowId}
-              onClick={() =>
-                postToHost({ type: 'openRun', workflowId: item.workflowId })
-              }
-            >
-              {item.label}
-            </button>
-            <span className="evidence-recent-state">{item.status}</span>
-            {item.completedAt === undefined ? null : (
-              <span className="hint">{fine(item.completedAt)}</span>
-            )}
-          </li>
-        ))}
+    <section className="evidence-section" data-evidence-field="recentWork">
+      <SectionLabel>{strings.queueRows.recentWork}</SectionLabel>
+
+      <ul className="queue-items">
+        {items.map((item) => {
+          // An item's row carries no dispatch count,
+          // so one still going reads running and
+          // nothing finer.
+          const word = runWord({ status: item.status, parked: false });
+
+          return (
+            <li key={item.workflowId} className="queue-item">
+              <Button
+                variant="quiet"
+                mono
+                hook={{ 'queue-item': item.workflowId }}
+                onClick={() =>
+                  postToHost({ type: 'openRun', workflowId: item.workflowId })
+                }
+              >
+                {item.label === undefined ? (
+                  <ShortRun id={item.workflowId} />
+                ) : (
+                  <span className="queue-item-name">{item.label}</span>
+                )}
+              </Button>
+
+              <StatusLine
+                state={glyphStateOf(word)}
+                word={strings.runOutcomes[word]}
+                detail={
+                  item.completedAt === undefined ? undefined : (
+                    <span data-time="fine">{fine(item.completedAt)}</span>
+                  )
+                }
+              />
+            </li>
+          );
+        })}
       </ul>
-    </div>
+    </section>
+  );
+}
+
+/** An item nothing names, by the id every run is
+ *  known by, carrying the whole of it: four
+ *  characters collide about once in fifty runs. */
+function ShortRun({ id }: { id: string }) {
+  return (
+    <span data-short-run={id} title={id}>
+      {shortRunId(id)}
+    </span>
   );
 }
 
@@ -275,20 +288,4 @@ function rateText(
         String(limit.limitPerPeriod),
         String(limit.periodSec),
       );
-}
-
-/** Whether the panel read this, worked it out, or
- *  found it in the document. */
-function Chip({
-  word,
-  kind = 'derived',
-}: {
-  word: string;
-  kind?: 'derived' | 'configured';
-}) {
-  return (
-    <span className="provenance" data-provenance={kind}>
-      {word}
-    </span>
-  );
 }

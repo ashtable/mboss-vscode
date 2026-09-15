@@ -2756,6 +2756,14 @@ test.describe('a block in the Inspector', () => {
       return queueSubject(INDEXED, [], 'evidence');
     }
 
+    /** One reading on the card, found by what it is
+     *  a reading of. */
+    function reading(page: Page, field: string): Locator {
+      return page.locator(
+        `[data-evidence="queue"] [data-evidence-field="${field}"]`,
+      );
+    }
+
     test('draws a card of its own rather than a block’s rows', async ({
       page,
     }) => {
@@ -2771,6 +2779,14 @@ test.describe('a block in the Inspector', () => {
       await expect(page.locator('[data-evidence="block"]')).toHaveCount(0);
     });
 
+    /**
+     * Half the card is this run and half is what
+     * somebody wrote in the document, so every
+     * reading ends in the word saying which: a limit
+     * somebody typed, read as a figure a run
+     * reached, is the mistake the card exists to
+     * prevent.
+     */
     test('says what this run’s items are doing, and where each figure came from', async ({
       page,
     }) => {
@@ -2782,26 +2798,135 @@ test.describe('a block in the Inspector', () => {
         }),
       );
 
-      await expect(
-        page.locator('[data-evidence-field="queue"] .value'),
-      ).toHaveText('document-index');
-      await expect(
-        page.locator('[data-evidence-field="active"] .value'),
-      ).toHaveText('3 of 8 queue-wide');
-      await expect(
-        page.locator('[data-evidence-field="queued"] .value'),
-      ).toHaveText('12 · 4 delayed');
-      await expect(
-        page.locator('[data-evidence-field="rateLimit"] .value'),
-      ).toHaveText('5 per 10 s');
+      const expected = [
+        ['queue', 'document-index', 'configured'],
+        ['active', '3 of 8 queue-wide', 'derived'],
+        ['queued', '12 · 4 delayed', 'derived'],
+        ['failed', '1', 'derived'],
+        ['rateLimit', '5 per 10 s', 'configured'],
+        ['globalConcurrency', '8', 'configured'],
+      ] as const;
 
-      await expect(
-        page.locator('[data-evidence-field="active"] .provenance'),
-      ).toHaveText(inspectorStrings.derived);
-      await expect(
-        page.locator('[data-evidence-field="rateLimit"] .provenance'),
-      ).toHaveText(inspectorStrings.configured);
+      for (const [field, value, kind] of expected) {
+        const row = reading(page, field);
+        const mark = `· ${inspectorStrings[kind]}`;
+
+        await expect(row).toHaveAttribute('data-property', '');
+
+        // The mark is inside the value's box, after
+        // the figure; the room between the two is
+        // drawn rather than typed.
+        await expect(row.locator(':scope > .value')).toHaveText(
+          `${value}${mark}`,
+        );
+        await expect(
+          row.locator(`:scope > .value > [data-provenance="${kind}"]`),
+        ).toHaveText(mark);
+        await labelBeforeValue(row);
+      }
     });
+
+    /**
+     * The pane is narrow and the labels wide, so a
+     * figure and its word seldom fit on one line.
+     * The figure keeps its words whole and the word
+     * comes after the figure's last line, as it
+     * would in a sentence; set side by side, the
+     * word squeezed the figure a character wide.
+     */
+    test('keeps a figure whole, with its word after it', async ({ page }) => {
+      await openInspector(
+        page,
+        blockInit({
+          ...queueCard(),
+          run: queuedRun(
+            { active: 3, queued: 12, delayed: 4, failed: 1 },
+            queueEvidence(),
+          ),
+        }),
+      );
+
+      const laidOut = (field: string) =>
+        reading(page, field)
+          .locator(':scope > .value')
+          .evaluate((value) => {
+            const figure = document.createRange();
+            figure.selectNodeContents(value.firstChild!);
+
+            const tops = [...figure.getClientRects()].map((box) =>
+              Math.round(box.top),
+            );
+            const mark = value.querySelector('[data-provenance]')!;
+
+            return {
+              lines: new Set(tops).size,
+              last: Math.max(...tops),
+              mark: Math.round(mark.getBoundingClientRect().top),
+            };
+          });
+
+      await expect(reading(page, 'failed')).toHaveCount(1);
+
+      expect((await laidOut('queue')).lines).toBe(1);
+
+      const failed = await laidOut('failed');
+      expect(failed.lines).toBeGreaterThan(1);
+      expect(failed.mark).toBeGreaterThanOrEqual(failed.last - 1);
+
+      const pane = await page
+        .locator('[role="tabpanel"]')
+        .evaluate((panel) => panel.scrollWidth - panel.clientWidth);
+      expect(pane).toBeLessThanOrEqual(0);
+    });
+
+    /**
+     * A quiet lowercase word in the faint voice, not
+     * a bordered chip: capitals and an edge are how
+     * this system marks a state or a control, and a
+     * figure's provenance is neither.
+     */
+    for (const theme of THEMES_ALL) {
+      test(`marks a figure’s source with a quiet word in ${theme}`, async ({
+        page,
+      }) => {
+        await openInspector(
+          page,
+          blockInit({
+            ...queueCard(),
+            run: queuedRun({ active: 3 }),
+          }),
+          theme,
+        );
+
+        const marks = [
+          ['queue', 'configured'],
+          ['active', 'derived'],
+          ['rateLimit', 'configured'],
+        ] as const;
+        const faint = colourOf(theme, 'ink-faint');
+
+        for (const [field, kind] of marks) {
+          const mark = reading(page, field).locator(
+            `[data-provenance="${kind}"]`,
+          );
+          await expect(mark).toHaveCount(1);
+          await expect(mark).toHaveText(`· ${inspectorStrings[kind]}`);
+
+          const drawn = await mark.evaluate((word) => ({
+            transform: getComputedStyle(word).textTransform,
+            border: getComputedStyle(word).borderTopStyle,
+            ink: getComputedStyle(word).color,
+          }));
+
+          expect(drawn.transform).toBe('none');
+          expect(drawn.border).toBe('none');
+          expect(
+            sameColour(drawn.ink, faint),
+            `${field}: ${drawn.ink} ≠ ${faint}`,
+          ).toBe(true);
+        }
+      });
+    }
 
     /**
      * The whole queue costs a read of its own, so
@@ -2852,22 +2977,32 @@ test.describe('a block in the Inspector', () => {
         }),
       );
 
+      const derived = `· ${inspectorStrings.derived}`;
+
+      await expect(reading(page, 'observedStarts')).toHaveAttribute(
+        'data-property',
+        '',
+      );
       await expect(
-        page.locator('[data-evidence-field="observedStarts"] .value'),
-      ).toHaveText('74 in the last 60 s');
+        reading(page, 'observedStarts').locator('.value'),
+      ).toHaveText(`74 in the last 60 s${derived}`);
       await expect(
-        page.locator('[data-evidence-field="observedStarts"] .provenance'),
-      ).toHaveText(inspectorStrings.derived);
+        reading(page, 'observedStarts').locator('[data-provenance="derived"]'),
+      ).toHaveText(derived);
+
+      await expect(reading(page, 'registered').locator('.value')).toHaveText(
+        `${inspectorStrings.queueMatches}${derived}`,
+      );
       await expect(
-        page.locator('[data-evidence-field="registered"] .value'),
-      ).toHaveText(inspectorStrings.queueMatches);
+        reading(page, 'registered').locator('[data-provenance="derived"]'),
+      ).toHaveText(derived);
 
       // The window sees only the children still on
       // the queue, so its count of failures is the
       // errored ones and says so.
-      await expect(
-        page.locator('[data-evidence-field="failed"] .value'),
-      ).toHaveText('1 · 2 errored queue-wide in the window');
+      await expect(reading(page, 'failed').locator('.value')).toHaveText(
+        `1 · 2 errored queue-wide in the window${derived}`,
+      );
     });
 
     /**
@@ -2916,13 +3051,182 @@ test.describe('a block in the Inspector', () => {
         }),
       );
 
-      await expect(
-        page.locator('[data-evidence-field="registered"] .value'),
-      ).toHaveText(
+      await expect(reading(page, 'registered').locator('.value')).toHaveText(
         filled(
           inspectorStrings.queueDiffers,
           'global concurrency 4 · min polling interval 1000 ms',
-        ),
+        ) + `· ${inspectorStrings.derived}`,
+      );
+    });
+
+    /**
+     * An item is known by what the application
+     * called it where it called it anything — the
+     * partition it runs in, or the key it was
+     * deduplicated on — and otherwise by its short
+     * id, which is how every other run is named and
+     * which carries the whole id with it, since four
+     * characters collide.
+     */
+    test('names an item by its key, or by its short id', async ({ page }) => {
+      await openInspector(
+        page,
+        blockInit({
+          ...queueCard(),
+          run: queuedRun({ active: 3 }, queueEvidence()),
+        }),
+      );
+
+      const keyed = page.locator('[data-queue-item="wf_child_1"]');
+      const keyless = page.locator('[data-queue-item="wf_child_2"]');
+
+      await expect(keyed).toHaveText('doc_7');
+      await expect(keyed.locator('[data-short-run]')).toHaveCount(0);
+
+      const short = keyless.locator('[data-short-run]');
+      await expect(short).toHaveCount(1);
+      await expect(short).toHaveText(shortRunId('wf_child_2'));
+      await expect(short).toHaveAttribute('data-short-run', 'wf_child_2');
+      await expect(short).toHaveAttribute('title', 'wf_child_2');
+
+      // Both are quiet Buttons: a column of edged
+      // controls would read as a toolbar.
+      for (const item of [keyed, keyless]) {
+        await expect(item).toHaveClass(/\bbtn\b/);
+        await expect(item).toHaveAttribute('data-variant', 'quiet');
+      }
+
+      const said =
+        (await page.locator('[data-evidence="queue"]').textContent()) ?? '';
+      expect(said).not.toContain('wf_child_2');
+    });
+
+    /**
+     * A partition key is whatever the application
+     * made it, and can be longer than the pane is
+     * wide. It wraps inside its own column rather
+     * than pushing where the item got to, and when,
+     * out of sight.
+     */
+    test('keeps a long item name beside where the item got to', async ({
+      page,
+    }) => {
+      await openInspector(
+        page,
+        blockInit({
+          ...queueCard(),
+          run: queuedRun(
+            { active: 3 },
+            queueEvidence({
+              recent: [
+                {
+                  workflowId: 'wf_child_1',
+                  label: 'tenant_acme_corporation_eu_west_2',
+                  status: 'SUCCESS',
+                  completedAt: RECORDED_AT,
+                },
+              ],
+            }),
+          ),
+        }),
+      );
+
+      const line = page.locator('[data-evidence-field="recentWork"] li');
+      await expect(line).toHaveCount(1);
+
+      const laid = await line.evaluate((item) => {
+        const name = item.querySelector('[data-queue-item]')!;
+        const state = item.querySelector('.status-line')!;
+        const panel = item.closest('[role="tabpanel"]')!;
+
+        return {
+          nameRight: name.getBoundingClientRect().right,
+          stateLeft: state.getBoundingClientRect().left,
+          stateRight: state.getBoundingClientRect().right,
+          panelRight: panel.getBoundingClientRect().right,
+          sideways: panel.scrollWidth - panel.clientWidth,
+        };
+      });
+
+      expect(laid.nameRight).toBeLessThanOrEqual(laid.stateLeft);
+      expect(laid.stateRight).toBeLessThanOrEqual(laid.panelRight);
+      expect(laid.sideways).toBeLessThanOrEqual(0);
+    });
+
+    /**
+     * DBOS's words are the ledger's, and a card that
+     * printed `PENDING` beside one item would say a
+     * different thing about the same run from every
+     * other panel. A claimed item is running; one
+     * still waiting for room, or out a delay, is
+     * queued.
+     */
+    test('says where each item got to in the product’s words', async ({
+      page,
+    }) => {
+      await openInspector(
+        page,
+        blockInit({
+          ...queueCard(),
+          run: queuedRun(
+            { active: 3 },
+            queueEvidence({
+              recent: [
+                { workflowId: 'wf_child_1', label: 'doc_1', status: 'PENDING' },
+                {
+                  workflowId: 'wf_child_2',
+                  status: 'SUCCESS',
+                  completedAt: RECORDED_AT,
+                },
+                {
+                  workflowId: 'wf_child_3',
+                  label: 'doc_3',
+                  status: 'ENQUEUED',
+                },
+                {
+                  workflowId: 'wf_child_4',
+                  label: 'doc_4',
+                  status: 'ERROR',
+                  completedAt: RECORDED_AT,
+                },
+              ],
+            }),
+          ),
+        }),
+      );
+
+      const words = inspectorStrings.runOutcomes;
+      const expected = [
+        ['wf_child_1', 'running', words.running],
+        ['wf_child_2', 'done', words.done],
+        ['wf_child_3', 'queued', words.queued],
+        ['wf_child_4', 'failed', words.failed],
+      ] as const;
+
+      const lines = page.locator('[data-evidence-field="recentWork"] li');
+      await expect(lines).toHaveCount(expected.length);
+
+      for (const [at, [id, state, word]] of expected.entries()) {
+        const line = lines.nth(at);
+        const status = line.locator('.status-line');
+
+        await expect(line.locator('[data-queue-item]')).toHaveAttribute(
+          'data-queue-item',
+          id,
+        );
+        await expect(status).toHaveAttribute('data-run-state', state);
+        await expect(status).toContainText(word);
+        expect(word).toBe(word.toLowerCase());
+      }
+
+      // Only a finished item has a time to say.
+      await expect(lines.nth(0).locator('[data-time="fine"]')).toHaveCount(0);
+      await expect(lines.nth(1).locator('[data-time="fine"]')).toHaveCount(1);
+
+      const said =
+        (await page.locator('[data-evidence="queue"]').textContent()) ?? '';
+      expect(said).not.toMatch(
+        /\b(SUCCESS|ERROR|PENDING|ENQUEUED|DELAYED|CANCELLED)\b/,
       );
     });
 
@@ -2942,6 +3246,30 @@ test.describe('a block in the Inspector', () => {
       expect(await harness.postedOfType('openRun')).toEqual([
         { type: 'openRun', workflowId: 'wf_child_1' },
       ]);
+    });
+
+    /** Under everything, because every figure above
+     *  it is one application's, read out of the one
+     *  database this window can reach. */
+    test('says last whose figures these are', async ({ page }) => {
+      await openInspector(
+        page,
+        blockInit({
+          ...queueCard(),
+          run: queuedRun({ active: 3 }, queueEvidence()),
+        }),
+      );
+
+      const local = page.locator(
+        '[data-evidence="queue"] > [data-evidence-field="local"]',
+      );
+
+      await expect(local).toHaveCount(1);
+      await expect(local).toHaveClass(/\bfield-hint\b/);
+      await expect(local).toHaveText(inspectorStrings.queueLocal);
+      await expect(
+        page.locator('[data-evidence="queue"] > :last-child'),
+      ).toHaveAttribute('data-evidence-field', 'local');
     });
   });
 
@@ -3006,16 +3334,26 @@ test.describe('a block in the Inspector', () => {
       );
 
       const card = page.locator('[data-evidence="queue"]');
+      const derived = `· ${inspectorStrings.derived}`;
 
       await expect(card).toHaveCount(1);
       await expect(
         card.locator('[data-evidence-field="queued"] .value'),
-      ).toHaveText('42');
+      ).toHaveText(`42${derived}`);
       await expect(
-        card.locator('[data-evidence-field="observedStarts"] .value'),
-      ).toHaveText('74 in the last 60 s');
+        card.locator(
+          '[data-evidence-field="observedStarts"] [data-provenance="derived"]',
+        ),
+      ).toHaveText(derived);
 
-      await card.locator('[data-queue-item="wf_child_9f21"]').click();
+      // Nothing names this item, so it goes by the
+      // short id every other run goes by.
+      const item = card.locator('[data-queue-item="wf_child_9f21"]');
+      await expect(item.locator('[data-short-run]')).toHaveText(
+        shortRunId('wf_child_9f21'),
+      );
+
+      await item.click();
 
       expect(await harness.postedOfType('openRun')).toEqual([
         { type: 'openRun', workflowId: 'wf_child_9f21' },

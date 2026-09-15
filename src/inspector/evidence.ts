@@ -257,9 +257,9 @@ export type QueueRow = {
 
   /** Whether the panel worked the figure out or
    *  found it in the document. Every reading on the
-   *  card wears one, because half of them are the
+   *  card says which, because half of them are the
    *  run and half of them are what somebody wrote. */
-  chip?: 'derived' | 'configured';
+  provenance: 'derived' | 'configured';
 };
 
 /**
@@ -291,8 +291,8 @@ export function queueRowsOf(
   const reading = (
     id: QueueRowId,
     value: string,
-    chip: QueueRow['chip'],
-  ): Omit<QueueRow, 'label'> => ({ id, value, chip });
+    provenance: QueueRow['provenance'],
+  ): Omit<QueueRow, 'label'> => ({ id, value, provenance });
 
   const rows = [
     reading('queue', queue.name, 'configured'),

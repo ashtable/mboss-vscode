@@ -120,9 +120,10 @@ const RETRIES: ReadonlySet<NodeKind> = new Set<NodeKind>([
  * be at has written none yet; both states are worked
  * out rather than read, and the line says so where a
  * pointer and a screen reader find it. A queue
- * block's state is its children's, which its own
- * card has yet to account for, so it is not claimed
- * here.
+ * block's state is its children's, and they are
+ * seldom all at one: its card says where each got
+ * to, and one word here would be a summary nothing
+ * recorded.
  */
 export function evidenceStatus({
   strings,
@@ -219,6 +220,27 @@ export function EvidenceFace({
     );
   }
 
+  const fn =
+    block.handler === undefined
+      ? undefined
+      : lib?.find((one) => one.export === block.handler);
+
+  // Assigned as the picker draws it, but not a thing
+  // to press: this face opens no list. Name only
+  // where the code has not been read or does not
+  // have it.
+  const handler =
+    block.handler === undefined ? null : (
+      <LibFunctionItem
+        as="div"
+        name={block.handler}
+        signature={fn === undefined ? undefined : signatureOf(fn)}
+        state={fn === undefined ? 'compatible' : 'assigned'}
+        title={fn?.doc}
+        hook={{ 'evidence-field': 'handler' }}
+      />
+    );
+
   // A queue block writes no row of its own, so the
   // face below would draw an empty one. Nothing in
   // the type makes this branch necessary, so the
@@ -230,17 +252,13 @@ export function EvidenceFace({
         strings={strings}
         run={run}
         nodeId={block.id}
-        handler={block.handler}
+        handler={handler}
         queue={block.queue}
       />
     );
   }
 
   const row = found.drawn;
-  const fn =
-    block.handler === undefined
-      ? undefined
-      : lib?.find((one) => one.export === block.handler);
 
   // A wait on the clock records its wake-up time as
   // what it returned, and the face already says that
@@ -252,20 +270,7 @@ export function EvidenceFace({
 
   return (
     <section className="evidence-face" data-evidence="block">
-      {/* Assigned as the picker draws it, but not a
-          thing to press: this face opens no list.
-          Name only where the code has not been read
-          or does not have it. */}
-      {block.handler === undefined ? null : (
-        <LibFunctionItem
-          as="div"
-          name={block.handler}
-          signature={fn === undefined ? undefined : signatureOf(fn)}
-          state={fn === undefined ? 'compatible' : 'assigned'}
-          title={fn?.doc}
-          hook={{ 'evidence-field': 'handler' }}
-        />
-      )}
+      {handler}
 
       {row?.error === undefined ? null : (
         <Failure strings={strings} error={row.error} />

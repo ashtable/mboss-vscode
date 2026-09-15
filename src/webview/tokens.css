@@ -981,6 +981,17 @@ body.vscode-high-contrast-light {
   white-space: nowrap;
 }
 
+/* The word saying where a figure came from goes
+   under the figure when both do not fit on its
+   line. Held beside it instead, a long figure was
+   squeezed until it broke a character at a time;
+   and set as one run of text with it, a figure
+   with a hyphen in it broke there to make room for
+   the word. */
+.property > .value:has(> .property-provenance) {
+  flex-wrap: wrap;
+}
+
 .property input[type='checkbox'] {
   margin: 0;
   accent-color: var(--brand);
@@ -1384,15 +1395,6 @@ button.lib-fn {
   font-size: var(--text-sm);
 }
 
-.value-label {
-  display: block;
-  margin-top: 2px;
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: var(--label-tracking);
-  color: var(--ink-muted);
-}
-
 /* An aside about the thing above it — never a
    failure, which is what the voice colours are
    for. */
@@ -1448,108 +1450,6 @@ button.lib-fn {
   font-weight: 600;
   font-size: var(--text-xs);
   letter-spacing: var(--label-tracking);
-}
-
-/* — evidence — */
-
-/* A queue block's card: the counts its children are
-   at, and the few items it started. Here with the
-   rest of the token layer until it is set in rows
-   like the other evidence the Inspector draws.
-
-   Everything on it is a fact rather than a field, so
-   it is set as a column of readings with room
-   between them. */
-.evidence {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.evidence p {
-  margin: 0;
-}
-
-/* The card's readings, read as a group: what each
-   is on the left, what it says on the right, at the
-   weight of a caption rather than of a headline
-   number. */
-.evidence-lines {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.evidence-line {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-}
-
-.evidence-line-name {
-  font-size: var(--text-xs);
-  letter-spacing: var(--label-tracking);
-  color: var(--ink-muted);
-}
-
-.evidence-line .value {
-  font-size: var(--text-sm);
-}
-
-/* The items a queue block started, each of them a
-   run of its own. Here with the rest of the
-   evidence family, which the Inspector's card draws
-   whichever surface the block was picked on. */
-.evidence-recent {
-  list-style: none;
-  margin: var(--space-1) 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-}
-
-.evidence-recent li {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-}
-
-/* The way to the run an item started. A link
-   rather than a button: it is one of a list of
-   them, and a column of buttons at this size reads
-   as a toolbar. */
-.evidence-recent-run {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  border: 0;
-  padding: 0;
-  background: none;
-  font: inherit;
-  font-family: var(--font-mono);
-  text-align: left;
-  color: var(--ink);
-  cursor: pointer;
-}
-
-.evidence-recent-run:hover {
-  text-decoration: underline;
-}
-
-/* DBOS's own word for where the item got to, so it
-   is set apart from the name beside it rather than
-   coloured — the words are the application's and
-   there are more of them than this panel knows. */
-.evidence-recent-state {
-  flex: none;
-  font-size: var(--text-xs);
-  letter-spacing: var(--label-tracking);
-  color: var(--ink-muted);
 }
 
 /* — one block — */

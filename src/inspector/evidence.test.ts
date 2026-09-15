@@ -474,7 +474,7 @@ describe('what a queue block’s card says', () => {
       strings,
     );
 
-    expect(rows.map((row) => [row.id, row.value, row.chip])).toEqual([
+    expect(rows.map((row) => [row.id, row.value, row.provenance])).toEqual([
       ['queue', 'document-index', 'configured'],
       ['active', '3 of 8 queue-wide', 'derived'],
       ['queued', '12', 'derived'],
@@ -539,7 +539,7 @@ describe('what a queue block’s card says', () => {
       id: 'rateLimit',
       label: strings.queueRows.rateLimit,
       value: '5 per 10 s',
-      chip: 'configured',
+      provenance: 'configured',
     });
   });
 

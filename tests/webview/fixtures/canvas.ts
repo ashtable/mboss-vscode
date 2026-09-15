@@ -488,9 +488,11 @@ export function queueEvidence(
     registered: 'matches',
     recent: [
       { workflowId: 'wf_child_1', label: 'doc_7', status: 'PENDING' },
+
+      // Nothing names this one: DBOS clears a dedup
+      // key when an item finishes.
       {
         workflowId: 'wf_child_2',
-        label: '…b2c3d4e5',
         status: 'SUCCESS',
         completedAt: RECORDED_AT,
       },

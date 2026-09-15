@@ -633,6 +633,12 @@ export const inspectorWords = once(() => ({
     'local application only — production queues live in Conductor',
   ),
 
+  // Where each item the block started got to. An
+  // item is a run of its own, so it is said in the
+  // words a run is said in everywhere else, and the
+  // same bag the canvas carries rather than a copy.
+  runOutcomes: runWords(),
+
   /* — the run itself — */
 
   // What the run was started with, drawn here and

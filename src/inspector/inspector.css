@@ -382,6 +382,40 @@ body {
   margin-bottom: var(--space-1-5);
 }
 
+/* The items a queue block started. One grid across
+   the list, so every item's state starts at the
+   same edge whatever the item is called, and a
+   person reads down the states for the one that
+   failed. The name's column is capped so a long
+   partition key wraps rather than pushing a state
+   and the time it ended out of the pane. */
+.queue-items {
+  display: grid;
+  grid-template-columns: fit-content(40%) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.queue-item {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+}
+
+.queue-item > .btn {
+  justify-self: start;
+}
+
+/* A name the application made up has nowhere to
+   break but anywhere. */
+.queue-item-name {
+  overflow-wrap: anywhere;
+}
+
 .evidence-policy {
   margin: 0;
   font-size: var(--text-sm);

@@ -1,4 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
+
+import { REPO_ROOT, sourceFiles } from '../test-support/repo.js';
 
 import { shortRunId } from './ids.js';
 
@@ -86,5 +91,27 @@ describe('a run id shortened for the screen', () => {
     for (const id of EVERY_SHAPE) {
       expect(shortRunId(id)).toMatch(SHORT);
     }
+  });
+
+  /**
+   * A second shortener is how one panel came to
+   * call a run by the end of its id while the next
+   * called the same run by a hash: each surface
+   * that shortened for itself chose its own
+   * characters. One rule means a reader can carry
+   * a short id from one panel to another.
+   */
+  it('is the only short-id rule in the extension', () => {
+    const rule = join(REPO_ROOT, 'src', 'webview', 'ids.ts');
+
+    const shortening = sourceFiles()
+      .filter((path) => path !== rule)
+      .filter((path) =>
+        /function\s+short(Run)?Id\b/.test(readFileSync(path, 'utf8')),
+      )
+      .map((path) => path.slice(path.lastIndexOf('src/')));
+
+    expect(sourceFiles()).toContain(rule);
+    expect(shortening).toEqual([]);
   });
 });
