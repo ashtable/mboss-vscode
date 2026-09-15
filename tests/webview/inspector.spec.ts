@@ -1474,10 +1474,14 @@ test.describe('a block in the Inspector', () => {
    */
   test.describe('a queue block’s two policies', () => {
     /** The labels over the groups, as a person reads
-     *  them down the face: the one that folds says
-     *  its name after the marker it turns. */
+     *  them down the face: the one that folds is the
+     *  header of a control, and says its name after
+     *  the marker it turns. */
     function groupLabels(page: Page): Locator {
-      return page.locator('[role="tabpanel"] .section-label');
+      return page.locator(
+        '[role="tabpanel"] [data-control="section"] > ' +
+          ':is(.section-label, .section-head)',
+      );
     }
 
     /** A queue registered with a limit on how fast
@@ -1962,6 +1966,14 @@ test.describe('a block in the Inspector', () => {
       const head = page.locator('[data-field="advanced"] .section-head');
       const mark = page.locator('[data-field="advanced"] .section-mark');
 
+      // The header is the one control on the form
+      // that folds, and it is the same control every
+      // other quiet one on it is.
+      await expect(head).toHaveAttribute('data-variant', 'quiet');
+      await expect(
+        page.locator('[data-field="advanced"] .btn.section-head'),
+      ).toHaveCount(1);
+
       await expect(mark).toHaveCSS('transform', 'matrix(0, -1, 1, 0, 0, 0)');
 
       await head.click();
@@ -2022,6 +2034,26 @@ test.describe('a block in the Inspector', () => {
     });
 
     for (const theme of THEMES_ALL) {
+      /**
+       * The fold takes the edge every quiet control
+       * takes, which is what a theme drawing edges
+       * around controls draws it by: a header nobody
+       * can see the bounds of is a header nobody
+       * knows is a control.
+       */
+      test(`draws the fold with the edge every control has in ${theme}`, async ({
+        page,
+      }) => {
+        await openInspector(page, blockInit(queueSubject(INDEXING)), theme);
+
+        const drawn = await page
+          .locator('[data-field="advanced"] .section-head')
+          .evaluate((head) => getComputedStyle(head).borderTopColor);
+        const edge = colourOf(theme, 'control-edge');
+
+        expect(sameColour(drawn, edge), `${drawn} ≠ ${edge}`).toBe(true);
+      });
+
       /**
        * An empty priority and an empty delay are
        * settings nobody gave, and the words for that

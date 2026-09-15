@@ -1121,6 +1121,11 @@ function Group({
  * only place the fold is said out loud, and the
  * marker is turned by it, so the two cannot
  * disagree.
+ *
+ * The one control anybody presses draws it, so the
+ * header answers a pointer and carries an edge in
+ * the themes that draw one wherever any other
+ * quiet control does.
  */
 function Fold({
   id,
@@ -1135,17 +1140,17 @@ function Fold({
 }) {
   return (
     <div className="form-section" data-field={id} data-control="section">
-      <button
-        type="button"
-        className="section-head section-label"
-        aria-expanded={open}
+      <Button
+        variant="quiet"
+        hookClass="section-head"
+        expanded={open}
         onClick={onFold}
       >
         <span className="section-mark" aria-hidden="true">
           ▾
         </span>
         {name}
-      </button>
+      </Button>
     </div>
   );
 }
