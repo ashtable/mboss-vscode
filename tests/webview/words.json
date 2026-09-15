@@ -387,7 +387,8 @@
     "evidenceTarget": "run {0} · mBoss run evidence",
     "changedSince": "changed since · nothing to undo",
     "showLines": "{0} lines · show",
-    "planProgress": "Plan · {0}/{1}"
+    "plan": "Plan",
+    "planSteps": "{0} steps · show"
   },
   "runsWords": {
     "heading": "Runs",

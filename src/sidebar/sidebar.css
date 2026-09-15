@@ -4,14 +4,14 @@
  * The agent panel.
  *
  * A work log, not a chat window. Prose is prose;
- * everything the agent *did* is a card with a
- * status rail down its left edge and one row per
+ * everything the agent *did* is a one-line card
+ * with a rail down its left edge, and a card per
  * file it touched, so the half of the
  * conversation that changes the project is the
  * half that reads as structure. Colour carries
  * exactly two facts here and nothing else: the
  * rail says who did this (`--agent` or `--brand`),
- * and a status word says what happened to it.
+ * and a state word says what happened to it.
  *
  * A view docked in the activity bar is narrow and
  * sits against the editor's side-bar ground rather
@@ -46,39 +46,22 @@ body {
 .agent-head {
   flex: none;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   padding: var(--space-2-5) var(--space-3-5);
   border-bottom: 1px solid var(--hairline);
 }
 
-.agent-head > .eyebrow {
-  color: var(--brand);
-}
-
-.agent-name {
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
+/* The product, then the panel: said once, at the
+   weight of a title and at the editor's own size,
+   in the case it is spelled in. */
+.agent-title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--w-semibold);
+  line-height: var(--leading-tight);
   color: var(--ink);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: 2px var(--space-2);
-  cursor: pointer;
-  transition:
-    border-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-}
-
-.agent-name::after {
-  content: ' ▾';
-}
-
-.agent-name:hover {
-  border-color: var(--brand);
-  color: var(--brand);
 }
 
 .state {
@@ -158,33 +141,146 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* Paragraphs and lists an agent wrote, spaced the
+   way the log spaces its blocks, a step closer. */
+.prose > * {
+  margin: 0;
+}
+
+.prose > * + * {
+  margin-top: var(--space-2);
+}
+
+.prose ul,
+.prose ol {
+  padding-inline-start: var(--space-5);
+}
+
+/* A name out of the code, in the machine face at
+   the size that face reads level with the words
+   around it. */
+.prose code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
 /* What a person asked for, set apart from what
-   came back — the one place the accent tint is
-   used as a fill. */
+   came back — inset from the leading edge and on
+   the accent's wash, the one place that wash is a
+   fill. Its edge is drawn only where a theme
+   draws every control's. */
 .said[data-from='user'] {
-  margin-left: var(--space-6);
-  padding: var(--space-2);
-  border-radius: var(--r-sm);
+  margin-inline-start: var(--space-7);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--control-edge);
+  border-radius: var(--r-md);
   background: var(--brand-tint);
-  border-left: 2px solid var(--brand);
+}
+
+.said-typed {
+  margin: 0;
 }
 
 /* Thinking is a note in the margin, not speech. */
 .said[data-from='thought'] {
-  padding-left: var(--space-3);
-  border-left: 1px solid var(--hairline);
+  padding-inline-start: var(--space-3);
+  border-inline-start: 2px solid var(--hairline);
   font-size: var(--text-sm);
   color: var(--ink-muted);
 }
 
 /* — a unit of work — */
 
-/* The shape both `.tool` and `.file` share: a card
-   with a rail down its left edge naming who did
-   this. Only provenance ever colours the rail —
-   what happened to the call or the file is a word,
-   never a second colour on the same edge. */
-.tool,
+/* A card with a rail down its left edge naming who
+   did this. Only provenance ever colours the rail —
+   how the call went is a word at the end of the
+   line, never a second colour on the same edge. */
+.tool {
+  border: 1px solid var(--hairline);
+  border-left-width: var(--rail-w);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  box-shadow: var(--elev-1);
+}
+
+.tool[data-by='agent'] {
+  border-left-color: var(--agent);
+}
+
+.tool[data-by='person'] {
+  border-left-color: var(--brand);
+}
+
+/* One line, whatever it names: the verb and the
+   word at the end keep their room and the target
+   gives up its end. */
+.tool-line {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-3) var(--space-1-5) var(--space-2);
+  white-space: nowrap;
+  font-size: var(--text-control);
+}
+
+.tool-verb {
+  flex: none;
+  font-weight: var(--w-semibold);
+}
+
+/* A title that is a whole sentence is all verb, so
+   the verb is what gives up its end. With a target
+   beside it, a verb keeps every letter. */
+.tool-line:not(:has(> .tool-target)) > .tool-verb {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-target {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink-muted);
+}
+
+.tool-line > .state-word {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+/* The fold and the way to the run, under the line
+   they belong to, set in as far as the line is: a
+   control's edge, where a theme draws one, starts
+   under the verb rather than against the rail. */
+.tool-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) var(--space-1-5);
+}
+
+/* What the row folded away, once somebody asked. */
+.tool-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--hairline);
+}
+
+.tool-body {
+  margin: 0;
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-muted);
+}
+
+/* — a file, and its diff — */
+
 .file {
   border: 1px solid var(--hairline);
   border-left-width: var(--rail-w);
@@ -193,121 +289,13 @@ body {
   padding: var(--space-2) var(--space-3);
 }
 
-.tool[data-by='agent'],
 .file[data-by='agent'] {
   border-left-color: var(--agent);
 }
 
-.tool[data-by='person'],
 .file[data-by='person'] {
   border-left-color: var(--brand);
 }
-
-.tool-row {
-  margin: 0;
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.tool-mark {
-  flex: none;
-  width: 1em;
-  text-align: center;
-  color: var(--ink-muted);
-}
-
-.tool-verb {
-  font-weight: 600;
-}
-
-.tool-target {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tool-detail {
-  color: var(--ink-muted);
-  font-size: var(--text-sm);
-}
-
-.tool-status {
-  margin-left: auto;
-  flex: none;
-  font-weight: 600;
-  font-size: var(--text-xs);
-  color: var(--ink-faint);
-}
-
-.tool[data-status='in_progress'] .tool-status {
-  color: var(--ok);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .tool[data-status='in_progress'] .tool-status {
-    animation: sig-pulse var(--dur-pulse) ease-in-out infinite;
-  }
-}
-
-.tool[data-status='completed'] .tool-status {
-  color: var(--ink-muted);
-}
-
-.tool[data-status='failed'] .tool-status {
-  color: var(--fail);
-}
-
-.tool-body-toggle {
-  display: block;
-  margin: var(--space-2) 0 0;
-  border: none;
-  background: transparent;
-  color: var(--ink-muted);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-  padding: 0;
-  cursor: pointer;
-}
-
-.tool-body-toggle:hover {
-  color: var(--ink);
-  text-decoration: underline;
-}
-
-.tool-body {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-sm);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--ink-muted);
-}
-
-/* The one place a row the extension wrote leads.
-   Drawn like the fix on a diagnostic, because it is
-   the same kind of thing: one door out of a row,
-   quiet until somebody wants it. */
-.tool-action {
-  margin: var(--space-2) 0 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.tool-action:hover {
-  transform: translateY(var(--lift));
-  border-color: var(--brand);
-}
-
-/* — a file, and its diff — */
 
 .file-head {
   margin: 0;
@@ -499,54 +487,6 @@ body {
 .diagnostic-fix:hover {
   transform: translateY(var(--lift));
   border-color: var(--brand);
-}
-
-/* — the plan — */
-
-.plan-toggle {
-  border: none;
-  background: transparent;
-  color: var(--ink-muted);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-sm);
-  padding: 0;
-  cursor: pointer;
-}
-
-.plan-toggle::before {
-  content: '▸';
-  display: inline-block;
-  margin-right: var(--space-1);
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.plan-toggle[data-open='true']::before {
-  transform: rotate(90deg);
-}
-
-.plan-toggle:hover {
-  color: var(--ink);
-}
-
-.plan-steps {
-  margin-top: var(--space-1);
-}
-
-.step {
-  display: flex;
-  gap: var(--space-2);
-  margin: var(--space-1) 0 0;
-  font-size: var(--text-sm);
-}
-
-.step-mark {
-  flex: none;
-  color: var(--brand);
-}
-
-.step[data-status='completed'] {
-  color: var(--ink-muted);
 }
 
 /* — the one question the panel asks — */

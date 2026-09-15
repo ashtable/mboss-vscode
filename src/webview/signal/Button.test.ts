@@ -132,6 +132,26 @@ describe('the Button every surface presses', () => {
     );
   });
 
+  /**
+   * A Button that opens something under it says
+   * whether that is open. The label stays the same
+   * either way, so a screen reader hears one control
+   * changing state rather than two controls.
+   */
+  it('says whether what it folds away is showing', () => {
+    expect(
+      shown({ variant: 'quiet', expanded: false, children: 'ab' }).markup,
+    ).toContain('aria-expanded="false"');
+
+    expect(
+      shown({ variant: 'quiet', expanded: true, children: 'ab' }).markup,
+    ).toContain('aria-expanded="true"');
+
+    expect(shown({ variant: 'quiet', children: 'ab' }).markup).not.toContain(
+      'aria-expanded',
+    );
+  });
+
   it('says a Button is working without taking its words away', () => {
     const { markup } = shown({
       variant: 'primary',

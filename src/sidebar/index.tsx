@@ -3,19 +3,25 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
   type RefObject,
 } from 'react';
 
 import type { DiffLine } from '../acp/diff.js';
+import { evidenceRunOf } from '../acp/evidenceRow.js';
 import type {
   DiagnosticEntry,
   FileEditEntry,
   PermissionPrompt,
   PlanEntry,
+  Provenance,
   ToolEntry,
+  ToolLine,
 } from '../acp/transcript.js';
-import type { PermissionOptionKind, ToolKind } from '../acp/connection.js';
+import type { PermissionOptionKind } from '../acp/connection.js';
 import { postToHost } from '../webview/client.js';
+import { filled } from '../webview/fill.js';
+import { shortRunId } from '../webview/ids.js';
 import { mountView } from '../webview/mount.js';
 import type {
   SidebarEntry,
@@ -23,8 +29,13 @@ import type {
   SidebarPreview,
   SidebarStrings,
 } from '../webview/protocol.js';
+import { Button } from '../webview/signal/Button.js';
+import { hooked } from '../webview/signal/hook.js';
+import { StateWord } from '../webview/signal/StateWord.js';
 
 import { Composer } from './Composer.js';
+import { namedByFile } from './naming.js';
+import { Prose } from './Prose.js';
 
 import './sidebar.css';
 
@@ -33,55 +44,18 @@ import './sidebar.css';
  *
  * A conversation drawn as a work log rather than
  * as a chat: what the agent said is prose, and
- * what it did is a card with a status rail down
- * its left edge and one row per file it touched.
- * That is the difference this product is about —
- * an agent proposes, mBoss validates, a person
- * approves — and a stream of speech bubbles would
- * hide the half that matters.
+ * what it did is a one-line card with a rail down
+ * its left edge saying who did it, and a card per
+ * file it touched. That is the difference this
+ * product is about — an agent proposes, mBoss
+ * validates, a person approves — and a stream of
+ * speech bubbles would hide the half that matters.
  *
  * The panel holds nothing. It is handed the whole
  * picture every time anything moves, because the
  * view is disposed whenever it is hidden and the
  * extension is what remembers.
  */
-
-/** One typographic mark per kind of work, in place
- *  of an icon set the extension would have to
- *  ship. */
-const MARKS: Record<ToolKind, string> = {
-  read: '▤',
-  edit: '✎',
-  delete: '⌫',
-  move: '⇄',
-  search: '⌕',
-  execute: '❯',
-  think: '◇',
-  fetch: '↓',
-  switch_mode: '⇅',
-  other: '•',
-};
-
-const STEP_MARKS = { pending: '○', in_progress: '◐', completed: '●' };
-
-/**
- * Fills a template's `{n}` placeholders with the
- * values given — the way the host's own l10n does,
- * one step later.
- *
- * A webview resolves no string of its own, but some
- * of what a count names here (how many files a turn
- * touched, how many lines a tool call printed) is
- * only known once the transcript is on screen — so
- * the words travel resolved from the host and the
- * number is filled in where it is counted.
- */
-function withCount(template: string, ...values: number[]): string {
-  return values.reduce<string>(
-    (text, value, index) => text.replace(`{${index}}`, String(value)),
-    template,
-  );
-}
 
 /** One row of the transcript, or the summary that
  *  closes out a run of file edits. */
@@ -121,14 +95,14 @@ function transcriptRows(entries: readonly SidebarEntry[]): Row[] {
     group = [];
   };
 
+  // A run of files closes before whatever follows
+  // it, so its row sits under the files it is about.
   for (const entry of entries) {
+    if (entry.at !== 'file') closeGroup();
+
     rows.push({ kind: 'entry', entry });
 
-    if (entry.at === 'file') {
-      group.push(entry);
-    } else {
-      closeGroup();
-    }
+    if (entry.at === 'file') group.push(entry);
   }
 
   closeGroup();
@@ -154,16 +128,21 @@ function Panel(state: SidebarInit) {
 
   return (
     <div className="agent">
-      <header className="agent-head">
-        <p className="eyebrow">{strings.heading}</p>
-        <button
-          type="button"
-          className="agent-name"
-          data-choose-agent
+      {/* One row: the product and the panel, then the
+          agent a prompt goes to, by the name it goes
+          by. The caret is drawn rather than named, so
+          the control is called what it picks. */}
+      <header className="agent-head" data-agent-head>
+        <h1 className="agent-title">{strings.heading}</h1>
+        <Button
+          variant="quiet"
+          mono
+          hook={{ 'choose-agent': '' }}
           onClick={() => postToHost({ type: 'chooseAgent' })}
         >
           {state.agent ?? strings.chooseAgent}
-        </button>
+          <span aria-hidden="true"> ▾</span>
+        </Button>
       </header>
 
       {blocked === undefined ? null : <p className="state">{blocked}</p>}
@@ -175,9 +154,14 @@ function Panel(state: SidebarInit) {
               <Entry entry={row.entry} strings={strings} />
             </li>
           ) : (
-            <li key={row.key} className="files-batch" data-files-batch>
+            <li
+              key={row.key}
+              className="files-batch"
+              data-block="diff"
+              data-files-batch
+            >
               <span className="files-batch-count">
-                {withCount(strings.filesChanged, row.total)}
+                {filled(strings.filesChanged, String(row.total))}
               </span>
               <span className="files-batch-actions">
                 <button
@@ -378,10 +362,26 @@ function Entry({
   strings: SidebarStrings;
 }) {
   if (entry.at === 'message') {
-    return (
-      <p className="said" data-from={entry.from}>
-        {entry.text}
-      </p>
+    if (entry.reasoning !== undefined) {
+      return (
+        <ToolEventRow
+          by="agent"
+          verb={entry.reasoning.verb}
+          target={entry.reasoning.target}
+          theirs
+          status="in_progress"
+          hook={{ reasoning: '' }}
+          strings={strings}
+        />
+      );
+    }
+
+    return entry.from === 'user' ? (
+      <UserMessage text={entry.text} echo={entry.about !== undefined} />
+    ) : (
+      <div className="said" data-from={entry.from} data-block="prose">
+        <Prose text={entry.text} verbatim />
+      </div>
     );
   }
 
@@ -392,10 +392,11 @@ function Entry({
   if (entry.at === 'diagnostic') return <Diagnostic entry={entry} />;
 
   // What to do after a turn that asked about a
-  // block: a sentence mBoss wrote, so prose.
+  // block: a sentence mBoss wrote, so prose, and
+  // none of it verbatim.
   if (entry.at === 'next') {
     return (
-      <p className="said" data-from="agent" data-next>
+      <p className="said" data-from="agent" data-block="prose" data-next>
         {entry.sentence}
       </p>
     );
@@ -405,16 +406,148 @@ function Entry({
 }
 
 /**
- * One unit of work: what was done, and to what —
- * one line, with a rail down the left edge saying
- * who did it.
+ * What a person asked for, set apart from what came
+ * back.
  *
- * A call's printed output stays folded: the
- * interesting part of a finished call is usually
- * whatever it printed, and the interesting part of
- * a running one is that it is running, so neither
- * needs the text on screen by default.
+ * A prompt somebody typed is shown exactly as it was
+ * sent: it is theirs, asterisks and all. A question
+ * mBoss put for somebody arrives as the column's own
+ * copy of it, which names things from the code, so
+ * that copy is read as prose and none of it is
+ * anybody's verbatim words.
  */
+function UserMessage({ text, echo }: { text: string; echo: boolean }) {
+  return (
+    <div className="said" data-from="user" data-block="user">
+      {echo ? (
+        <Prose text={text} verbatim={false} />
+      ) : (
+        <p className="said-typed" data-verbatim>
+          {text}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The tone each state is said in. Still going is
+ * the only one that moves, and the one mBoss wrote
+ * itself reads as a finished call does: it did the
+ * thing rather than ask for it.
+ */
+const TONE_OF = {
+  pending: 'faint',
+  in_progress: 'ok',
+  completed: 'muted',
+  applied: 'muted',
+  failed: 'fail',
+} as const satisfies Record<ToolEntry['status'], string>;
+
+/**
+ * One unit of work: what was done, and to what, on
+ * one line, with a rail down the left edge saying
+ * who did it and a word at the end saying how it
+ * went.
+ *
+ * One line whatever it names, because a column of
+ * these is read down its left edge: a long target
+ * gives up its end rather than the row growing a
+ * second line. What a call printed stays folded:
+ * the interesting part of a finished call is usually
+ * whatever it printed, and the interesting part of a
+ * running one is that it is running, so neither
+ * needs the text on screen until somebody asks.
+ *
+ * `theirs` says the target is the agent's own words
+ * rather than a name mBoss worked out.
+ */
+function ToolEventRow({
+  by,
+  verb,
+  target,
+  theirs,
+  status,
+  fold,
+  action,
+  hook,
+  strings,
+}: {
+  by: Provenance;
+  verb: string;
+  target: ReactNode;
+  theirs: boolean;
+  status: ToolEntry['status'];
+
+  /** The lines folded under the row, and what the
+   *  control that shows them says. */
+  fold?: { label: string; lines: ReactNode[] };
+
+  action?: ToolEntry['action'];
+  hook: Record<string, string>;
+  strings: SidebarStrings;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="tool" data-block="tool" data-by={by} {...hooked(hook)}>
+      <p className="tool-line">
+        <span className="tool-verb">{verb}</span>
+        {/* A title that names no one thing is all
+            verb, and has no target to set in mono. */}
+        {target === '' ? null : (
+          <span
+            className="tool-target mono"
+            data-verbatim={theirs ? '' : undefined}
+          >
+            {target}
+          </span>
+        )}
+        <StateWord tone={TONE_OF[status]} pulse={status === 'in_progress'}>
+          {strings.toolStatus[status]}
+        </StateWord>
+      </p>
+
+      {fold === undefined && action === undefined ? null : (
+        <div className="tool-controls">
+          {fold === undefined ? null : (
+            <Button
+              variant="quiet"
+              expanded={open}
+              hook={{ 'tool-body-toggle': '' }}
+              onClick={() => setOpen((was) => !was)}
+            >
+              {fold.label}
+            </Button>
+          )}
+
+          {/* The one place this row leads, where it
+              leads anywhere. The label and the id are
+              both the entry's: the panel resolves no
+              words and works out no run. */}
+          {action === undefined ? null : (
+            <Button
+              variant="quiet"
+              ink="brand"
+              hook={{ 'tool-action': action.posts }}
+              onClick={() =>
+                postToHost({ type: 'openRun', workflowId: action.workflowId })
+              }
+            >
+              {action.label}
+            </Button>
+          )}
+        </div>
+      )}
+
+      {open && fold !== undefined ? (
+        <div className="tool-lines">{fold.lines}</div>
+      ) : null}
+    </div>
+  );
+}
+
+/** A call, from the entry the host sent for it. */
 function Tool({
   entry,
   strings,
@@ -422,75 +555,65 @@ function Tool({
   entry: ToolEntry;
   strings: SidebarStrings;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const action = entry.action;
+  // A summary mBoss wrote is lines of its own words
+  // with the run's values set apart; anything else a
+  // call printed is the agent's, line by line.
+  const lines: ToolLine[] = entry.lines ?? entry.body.map((text) => ({ text }));
+  const byAgent = entry.by === 'agent';
 
   return (
-    <div
-      className="tool"
-      data-tool-call={entry.id}
-      data-kind={entry.kind}
-      data-status={entry.status}
-      data-by={entry.by}
-    >
-      <p className="tool-row">
-        <span className="tool-mark" aria-hidden="true">
-          {MARKS[entry.kind]}
-        </span>
-        <span className="tool-verb">{entry.verb}</span>
-        <span className="tool-target mono">{entry.target}</span>
-        {entry.detail === undefined ? null : (
-          <span className="tool-detail">{entry.detail}</span>
-        )}
+    <ToolEventRow
+      by={entry.by}
+      verb={entry.verb}
+      target={targetOf(entry)}
+      theirs={byAgent && !namedByFile(entry)}
+      status={entry.status}
+      fold={
+        lines.length === 0
+          ? undefined
+          : {
+              label: filled(strings.showLines, String(lines.length)),
+              lines: lines.map((line, index) => (
+                <p className="tool-body mono" key={index}>
+                  {byAgent ? <span data-verbatim>{line.text}</span> : line.text}
+                  {line.recorded === undefined ? null : (
+                    <span data-verbatim>{line.recorded}</span>
+                  )}
+                </p>
+              )),
+            }
+      }
+      action={entry.action}
+      hook={{ 'tool-call': entry.id, kind: entry.kind, status: entry.status }}
+      strings={strings}
+    />
+  );
+}
 
-        {/* The status words are the protocol's four.
-            A row the extension wrote itself did the
-            thing rather than asked for it: its rail
-            and verb already say what happened, so it
-            gets none of these. */}
-        {entry.status === 'applied' ? null : (
-          <span className="tool-status">
-            {strings.toolStatus[entry.status]}
-          </span>
-        )}
-      </p>
+/**
+ * What a row is about. The row mBoss wrote about a
+ * run names it by its short id, and the whole id
+ * stays on the name for whoever needs to tell two
+ * short ones apart.
+ */
+function targetOf(entry: ToolEntry): ReactNode {
+  const run = evidenceRunOf(entry);
 
-      {entry.body.length === 0 ? null : (
-        <button
-          type="button"
-          className="tool-body-toggle"
-          data-expanded={expanded}
-          onClick={() => setExpanded((was) => !was)}
-        >
-          {withCount(strings.showLines, entry.body.length)}
-        </button>
-      )}
+  if (run === undefined) return entry.target;
 
-      {expanded
-        ? entry.body.map((line, index) => (
-            <p className="tool-body mono" key={index}>
-              {line}
-            </p>
-          ))
-        : null}
+  const short = shortRunId(run);
+  const at = entry.target.indexOf(short);
 
-      {/* The one place this row leads, where it
-          leads anywhere. The label and the id are
-          both the entry's: the panel resolves no
-          words and works out no run. */}
-      {action === undefined ? null : (
-        <button
-          type="button"
-          className="tool-action"
-          data-tool-action={action.posts}
-          onClick={() =>
-            postToHost({ type: 'openRun', workflowId: action.workflowId })
-          }
-        >
-          {action.label}
-        </button>
-      )}
-    </div>
+  if (at === -1) return entry.target;
+
+  return (
+    <>
+      {entry.target.slice(0, at)}
+      <span data-short-run={run} title={run}>
+        {short}
+      </span>
+      {entry.target.slice(at + short.length)}
+    </>
   );
 }
 
@@ -518,6 +641,7 @@ function FileEdit({
   return (
     <div
       className="file"
+      data-block="diff"
       data-file={entry.path}
       data-by={entry.by}
       data-decision={entry.decision}
@@ -607,7 +731,11 @@ function Diagnostic({ entry }: { entry: DiagnosticEntry }) {
   const fix = entry.fix;
 
   return (
-    <div className="diagnostic" data-source={entry.source}>
+    <div
+      className="diagnostic"
+      data-block="diagnostic"
+      data-source={entry.source}
+    >
       <p className="eyebrow">{entry.source}</p>
 
       {entry.rows.map((row, index) => (
@@ -637,8 +765,11 @@ function Diagnostic({ entry }: { entry: DiagnosticEntry }) {
   );
 }
 
-/** A checklist, collapsed to one row until somebody
- *  asks to see it. */
+/**
+ * The agent's checklist, drawn as a row of work: the
+ * step it is on, and whether it is still going. The
+ * steps fold under it, each with its own word.
+ */
 function Plan({
   entry,
   strings,
@@ -646,33 +777,35 @@ function Plan({
   entry: PlanEntry;
   strings: SidebarStrings;
 }) {
-  const [open, setOpen] = useState(false);
-  const done = entry.steps.filter((step) => step.status === 'completed').length;
+  const now =
+    entry.steps.find((step) => step.status === 'in_progress') ??
+    entry.steps.find((step) => step.status === 'pending');
 
   return (
-    <div className="plan">
-      <button
-        type="button"
-        className="plan-toggle"
-        data-open={open}
-        onClick={() => setOpen((was) => !was)}
-      >
-        {withCount(strings.planProgress, done, entry.steps.length)}
-      </button>
-
-      {open ? (
-        <div className="plan-steps">
-          {entry.steps.map((step, index) => (
-            <p className="step" data-status={step.status} key={index}>
-              <span className="step-mark" aria-hidden="true">
-                {STEP_MARKS[step.status]}
-              </span>
-              {step.text}
-            </p>
-          ))}
-        </div>
-      ) : null}
-    </div>
+    <ToolEventRow
+      by="agent"
+      verb={strings.plan}
+      target={now?.text ?? ''}
+      theirs
+      status={now === undefined ? 'completed' : 'in_progress'}
+      fold={
+        entry.steps.length === 0
+          ? undefined
+          : {
+              label: filled(strings.planSteps, String(entry.steps.length)),
+              lines: entry.steps.map((step, index) => (
+                <p className="tool-body" data-status={step.status} key={index}>
+                  <StateWord tone={TONE_OF[step.status]}>
+                    {strings.toolStatus[step.status]}
+                  </StateWord>{' '}
+                  <span data-verbatim>{step.text}</span>
+                </p>
+              )),
+            }
+      }
+      hook={{ plan: '' }}
+      strings={strings}
+    />
   );
 }
 
@@ -692,7 +825,7 @@ function Permission({
   strings: SidebarStrings;
 }) {
   return (
-    <div className="permission">
+    <div className="permission" data-block="permission">
       <p className="eyebrow">{strings.permission}</p>
       <p className="permission-title">{prompt.title}</p>
       <div className="permission-options">

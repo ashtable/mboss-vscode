@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { fakeWebview } from '../../test/doubles/webview.js';
 import type { AgentPanel, PanelState } from '../acp/agent.js';
 import type { ToolCallStatus, ToolKind } from '../acp/connection.js';
+import { evidenceRowId } from '../acp/evidenceRow.js';
 import {
-  evidenceRowId,
   foldUpdates,
   personEdit,
   said,

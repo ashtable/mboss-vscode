@@ -95,8 +95,6 @@ export type ToolEntry = {
    *  the title named no one thing. */
   target: string;
 
-  detail?: string;
-
   /** `applied` is the extension's own: it did the
    *  thing rather than asked for it. */
   status: ToolCallStatus | 'applied';
@@ -147,29 +145,6 @@ export type ToolEntry = {
 /** One line of a summary: mBoss's words, then the
  *  value the run recorded, where the line has one. */
 export type ToolLine = { text: string; recorded?: string };
-
-const EVIDENCE = 'evidence:';
-
-/**
- * The id of the row mBoss writes about a run it
- * read for the agent.
- *
- * Spelled once, here, because two sides read it:
- * whoever writes the row, and whoever draws it and
- * needs to know which run it is about without
- * parsing the words.
- */
-export function evidenceRowId(workflowId: string): string {
-  return `${EVIDENCE}${workflowId}`;
-}
-
-/** The run a row is about, where it is the row
- *  mBoss wrote about one. */
-export function evidenceRunOf(entry: ToolEntry): string | undefined {
-  return entry.by === 'person' && entry.id.startsWith(EVIDENCE)
-    ? entry.id.slice(EVIDENCE.length)
-    : undefined;
-}
 
 /**
  * One file, as the agent left it.

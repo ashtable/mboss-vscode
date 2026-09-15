@@ -74,6 +74,12 @@ type Fitting = {
    *  able to say what they pressed. */
   busy?: boolean;
 
+  /** Whether what it folds away is showing, for a
+   *  Button that opens something under it. The
+   *  label stays the same either way: the state is
+   *  said as a state, not as a second control. */
+  expanded?: boolean;
+
   onClick?: () => void;
 
   ref?: Ref<HTMLButtonElement>;
@@ -100,6 +106,7 @@ export function Button({
   disabled,
   reason,
   busy,
+  expanded,
   onClick,
   ref,
   hook,
@@ -132,6 +139,7 @@ export function Button({
       aria-disabled={refusing ? true : undefined}
       aria-describedby={refusing ? named : undefined}
       aria-busy={busy === true ? true : undefined}
+      aria-expanded={expanded}
       aria-label={label}
       title={label}
       onClick={refusing ? undefined : onClick}

@@ -1,8 +1,9 @@
 import type { Disposable } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
+import { evidenceRowId } from '../acp/evidenceRow.js';
 import type { PromptAbout } from '../acp/prompt.js';
-import { evidenceRowId, type ToolEntry } from '../acp/transcript.js';
+import type { ToolEntry } from '../acp/transcript.js';
 import type { LibManifest, WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import type { Trust } from '../trust.js';

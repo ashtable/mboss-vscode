@@ -85,8 +85,9 @@ typed against `WebviewName` in `src/webview/entry.ts`.
 - `.tsx` means webview-side React, nothing else. `.ts` is host or isomorphic.
   No host `.ts` imports a `.tsx`.
 - A webview may value-import only browser-safe modules: `src/core/rules.ts`,
-  `src/webview/{client,fill,protocol}.ts`, `src/webview/mount.tsx`,
-  `src/runs/queries.ts` (+ `rows.ts`) and the pure `src/canvas/**/*.ts`
+  `src/webview/{client,fill,ids,protocol}.ts`, `src/webview/mount.tsx`,
+  `src/runs/queries.ts` (+ `rows.ts`), `src/acp/evidenceRow.ts`,
+  `src/sidebar/{markdown,naming}.ts` and the pure `src/canvas/**/*.ts`
   modules. It must never value-import
   `vscode`, `@mboss/core`, `src/messages.ts`, `src/webview/host.ts`, a `node:`
   builtin or `process.env`. Enforcement is the browser esbuild call failing to

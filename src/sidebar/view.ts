@@ -7,10 +7,9 @@ import {
 } from 'vscode';
 
 import type { AgentPanel, PanelState } from '../acp/agent.js';
-import type { ToolKind } from '../acp/connection.js';
 import { stripIndent } from '../acp/diff.js';
+import { evidenceRunOf } from '../acp/evidenceRow.js';
 import {
-  evidenceRunOf,
   fileStateOf,
   type MessageEntry,
   type ToolEntry,
@@ -29,6 +28,8 @@ import type {
   SidebarStrings,
 } from '../webview/protocol.js';
 
+import { parseInline } from './markdown.js';
+import { namedByFile } from './naming.js';
 import { agentFailure, sidebarHeading, sidebarWords } from './words.js';
 
 /**
@@ -175,28 +176,6 @@ export function sidebarInit(
   };
 }
 
-/**
- * The kinds of call a person reads by the file
- * they touched.
- *
- * Each is something done to a file, so "Edit
- * lib/a.ts" says all of it. Any other kind —
- * thinking, switching mode, whatever else an agent
- * does — is not about a file even when it names
- * one, and the agent's own title says it better.
- */
-const FILE_TOOL_KINDS = [
-  'read',
-  'edit',
-  'delete',
-  'move',
-  'search',
-  'execute',
-  'fetch',
-] as const satisfies readonly ToolKind[];
-
-type FileToolKind = (typeof FILE_TOOL_KINDS)[number];
-
 /** One entry, with what drawing it needs. Nothing
  *  here writes back into the panel's own entries. */
 function shown(
@@ -271,7 +250,7 @@ function toolNamed(
 ): { verb: string; target: string } {
   const [first] = tool.paths;
 
-  if (tool.by === 'person' || first === undefined || !namesFile(tool.kind)) {
+  if (first === undefined || !namedByFile(tool)) {
     return { verb: tool.verb, target: tool.target };
   }
 
@@ -286,10 +265,6 @@ function toolNamed(
   };
 }
 
-function namesFile(kind: ToolKind): kind is FileToolKind {
-  return (FILE_TOOL_KINDS as readonly ToolKind[]).includes(kind);
-}
-
 /**
  * A thought that is nothing but a bold heading,
  * read as the work it names.
@@ -302,18 +277,23 @@ function namesFile(kind: ToolKind): kind is FileToolKind {
  * caller asks only while the session streams and
  * only of the newest entry: a heading with anything
  * after it, or one the agent has moved on from, is
- * prose.
+ * prose. Read by the reader the panel draws prose
+ * with, so the two never disagree about what bold
+ * is.
  */
 function underWay(
   entry: MessageEntry,
 ): { verb: string; target: string } | undefined {
   if (entry.from !== 'thought') return undefined;
 
-  const heading = /^\*\*([^*\n]+)\*\*$/.exec(entry.text.trim());
+  const [only, ...more] = parseInline(entry.text.trim());
+  const [heading, ...rest] = only?.at === 'paragraph' ? only.runs : [];
 
-  if (heading === null) return undefined;
+  if (more.length > 0 || rest.length > 0 || heading?.at !== 'strong') {
+    return undefined;
+  }
 
-  const words = (heading[1] ?? '').trim().split(/\s+/);
+  const words = heading.text.trim().split(/\s+/);
 
   return { verb: words[0] ?? '', target: words.slice(1).join(' ') };
 }

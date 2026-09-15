@@ -137,7 +137,11 @@ export const sidebarWords = once(() => ({
 
   changedSince: l10n.t('changed since · nothing to undo'),
   showLines: l10n.t('{0} lines · show'),
-  planProgress: l10n.t('Plan · {0}/{1}'),
+
+  // The agent's plan, drawn as a row of work: the
+  // verb, and how many steps are folded under it.
+  plan: l10n.t('Plan'),
+  planSteps: l10n.t('{0} steps · show'),
 }));
 
 /**

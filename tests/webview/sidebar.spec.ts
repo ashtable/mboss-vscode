@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { evidenceRowId } from '../../src/acp/evidenceRow.js';
 import type {
   DiagnosticEntry,
   SessionUpdate,
@@ -7,16 +8,11 @@ import type {
 } from '../../src/acp/transcript.js';
 import { foldUpdates } from '../../src/acp/transcript.js';
 import { filled } from '../../src/webview/fill.js';
+import { shortRunId } from '../../src/webview/ids.js';
 import type { SidebarInit } from '../../src/webview/protocol.js';
 
 import { fileEntry, sidebarEntries, sidebarInit } from './fixtures/sidebar.js';
-import {
-  mount,
-  THEMES,
-  THEMES_ALL,
-  type Harness,
-  type ThemeKind,
-} from './harness.js';
+import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
 import { colourOf, sameColour } from './palette.js';
 import { sidebarWords as strings } from './words.js';
 
@@ -70,6 +66,79 @@ async function openPanel(
   return harness;
 }
 
+/**
+ * One row naming the product and the panel, and the
+ * agent a prompt goes to.
+ *
+ * The product's name is spelled one way, and the
+ * agent's is the lowercase machine name it goes by.
+ * Neither is a label to shout, and the picker is a
+ * quiet control rather than a bordered pill: it is
+ * there to be found, not read first.
+ */
+test.describe('the head of the panel', () => {
+  for (const theme of THEMES_ALL) {
+    test(`says whose panel this is in one row, in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'sidebar', theme);
+      await harness.show(sidebarInit());
+
+      const head = page.locator('[data-agent-head]');
+
+      await expect(head).toHaveCount(1);
+      await expect(head).toContainText(strings.heading);
+
+      const title = head.getByText(strings.heading, { exact: true });
+
+      await expect(title).toHaveCSS('text-transform', 'none');
+      await expect(title).toHaveCSS('font-weight', '600');
+      await expect(title).toHaveCSS('font-size', '13px');
+
+      const picker = head.locator('[data-choose-agent]');
+
+      await expect(picker).toHaveAttribute('data-mono', '');
+      await expect(picker).toHaveText('claude code ▾');
+      await expect(picker).toHaveAccessibleName('claude code');
+
+      // An edge only where a theme draws every
+      // control's.
+      const edge = await picker.evaluate(
+        (element) => getComputedStyle(element).borderTopColor,
+      );
+      const drawn = theme.startsWith('high-contrast')
+        ? colourOf(theme, 'control-edge')
+        : 'rgba(0, 0, 0, 0)';
+
+      expect(sameColour(edge, drawn), `${edge} ≠ ${drawn}`).toBe(true);
+
+      // One row: the title and the picker share a
+      // line.
+      const titleBox = (await title.boundingBox())!;
+      const pickerBox = (await picker.boundingBox())!;
+      const middle = (box: { y: number; height: number }): number =>
+        box.y + box.height / 2;
+
+      expect(Math.abs(middle(titleBox) - middle(pickerBox))).toBeLessThan(2);
+
+      const shouted = await page.evaluate(
+        () =>
+          [...document.querySelectorAll('body *')].filter(
+            (one) =>
+              one instanceof HTMLElement &&
+              ['AGENT', 'MBoss'].includes(one.innerText.trim()),
+          ).length,
+      );
+
+      expect(shouted).toBe(0);
+
+      await harness.show(sidebarInit({ agent: undefined }));
+
+      await expect(picker).toHaveText(`${strings.chooseAgent} ▾`);
+    });
+  }
+});
+
 test.describe('the transcript', () => {
   test('grows a paragraph as the agent keeps talking', async ({ page }) => {
     const harness = await openPanel(page);
@@ -100,6 +169,195 @@ test.describe('the transcript', () => {
     );
     await expect(page.locator('[data-from="agent"]')).toHaveText('Adding one.');
   });
+
+  /**
+   * An agent writes a little markdown whether asked
+   * to or not. A word it leaned on is bold and a
+   * name from the code is set in the machine face,
+   * rather than either arriving with its asterisks
+   * and backticks still round it.
+   */
+  test('renders what the agent wrote as prose', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [
+      said('Fixing **customer-ID** first in `lib/airtableEtl.ts`:\n'),
+      said('- trim it\n- compare it'),
+    ]);
+
+    const prose = page.locator('[data-block="prose"]');
+
+    await expect(prose).toHaveCount(1);
+    await expect(prose.locator('[data-verbatim] strong')).toHaveText(
+      'customer-ID',
+    );
+    await expect(prose.locator('[data-verbatim] code')).toHaveText(
+      'lib/airtableEtl.ts',
+    );
+    await expect(prose.locator('[data-verbatim] li')).toHaveText([
+      'trim it',
+      'compare it',
+    ]);
+    expect(await prose.textContent()).not.toMatch(/[*`]/);
+
+    const face = await prose
+      .locator('code')
+      .evaluate((element) => getComputedStyle(element).fontFamily);
+
+    expect(face).toContain('Spline Sans Mono');
+  });
+
+  /**
+   * What somebody typed is theirs, asterisks and
+   * all: the panel shows what was sent, not a
+   * reading of it.
+   */
+  test('shows a typed prompt exactly as it was sent', async ({ page }) => {
+    const harness = await openPanel(page);
+    const typed = 'make **every** `refund` idempotent';
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          { at: 'message', id: 'user-0', from: 'user', text: typed },
+        ],
+      }),
+    );
+
+    const asked = page.locator('[data-block="user"]');
+
+    await expect(asked).toHaveCount(1);
+    await expect(asked.locator('[data-verbatim]')).toHaveText(typed);
+    await expect(asked.locator('strong, code')).toHaveCount(0);
+  });
+
+  /**
+   * The six kinds of thing a column holds are told
+   * apart by one attribute each, whatever else a
+   * block's markup says about it.
+   */
+  test('marks each block with what kind it is', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        status: 'awaiting-permission',
+        transcript: sidebarEntries([
+          { at: 'message', id: 'user-0', from: 'user', text: 'Fix it.' },
+          { at: 'message', id: 'message-0', from: 'agent', text: 'On it.' },
+          {
+            at: 'tool',
+            id: 'call-1',
+            by: 'agent',
+            kind: 'read',
+            verb: 'Read',
+            target: 'lib/a.ts',
+            status: 'completed',
+            body: [],
+            paths: ['/project/lib/a.ts'],
+          },
+          fileEntry({ id: 'a', path: '/project/lib/a.ts' }),
+          fileEntry({ id: 'b', path: '/project/lib/b.ts' }),
+          {
+            at: 'diagnostic',
+            id: 'codegen:x',
+            source: 'codegen',
+            rows: [{ message: 'Nothing handles it.' }],
+          },
+          {
+            at: 'next',
+            id: 'next-0',
+            about: { workflowId: 'wf_1', nodeId: 'refund' },
+            block: 'Refund',
+            edits: ['a'],
+          },
+        ]),
+        prompt: {
+          toolCallId: 'call-2',
+          title: 'Write lib/a.ts',
+          toolKey: 'write_file',
+          options: [
+            { optionId: 'yes', label: 'Allow once', kind: 'allow_once' },
+          ],
+        },
+      }),
+    );
+
+    const blocks = page.locator('.transcript [data-block]');
+
+    await expect(page.locator('.transcript > li')).toHaveCount(8);
+    await expect(blocks).toHaveCount(8);
+    expect(
+      await blocks.evaluateAll((all) =>
+        all.map((one) => one.getAttribute('data-block')),
+      ),
+    ).toEqual([
+      'user',
+      'prose',
+      'tool',
+      'diff',
+      'diff',
+      'diff',
+      'diagnostic',
+      'prose',
+    ]);
+
+    // The two kinds of message keep the root the
+    // journeys read what was said off.
+    await expect(
+      page.locator('.transcript .said[data-block="user"][data-from="user"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('.transcript .said[data-from="agent"]:not([data-next])'),
+    ).toHaveAttribute('data-block', 'prose');
+
+    await expect(
+      page.locator('.agent-foot [data-block="permission"]'),
+    ).toHaveCount(1);
+  });
+
+  /**
+   * While the agent streams, a thought that is only a
+   * bold title is the work it names, drawn as a row
+   * of work under way rather than as a line of prose
+   * saying the same thing.
+   */
+  test('draws a heading the agent is working under as a running row', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        status: 'streaming',
+        transcript: [
+          {
+            at: 'message',
+            id: 'message-0',
+            from: 'thought',
+            text: '**Validating source and destination uniqueness**',
+            reasoning: {
+              verb: 'Validating',
+              target: 'source and destination uniqueness',
+            },
+          },
+        ],
+      }),
+    );
+
+    const row = page.locator('[data-block="tool"]');
+
+    await expect(row).toHaveCount(1);
+    await expect(row.locator('.tool-verb')).toHaveText('Validating');
+    await expect(row.locator('.tool-target')).toHaveText(
+      'source and destination uniqueness',
+    );
+    await expect(row.locator('.state-word')).toHaveText(
+      strings.toolStatus.in_progress,
+    );
+    await expect(row.locator('.state-word')).toHaveAttribute('data-pulse', '');
+    await expect(page.locator('.said[data-from="thought"]')).toHaveCount(0);
+  });
 });
 
 /**
@@ -113,6 +371,38 @@ test.describe('the transcript', () => {
  */
 const PERSON = 'rgb(83, 103, 255)';
 const AGENT = 'rgb(149, 103, 255)';
+
+/** The row mBoss writes about a run it read for
+ *  the agent, as the host sends it: the run by its
+ *  short id, and what it read folded under it. */
+function evidenceOf(run: string, lines: ToolEntry['lines']): ToolEntry {
+  return {
+    at: 'tool',
+    id: evidenceRowId(run),
+    by: 'person',
+    kind: 'read',
+    verb: 'Read',
+    target: filled(strings.evidenceTarget, shortRunId(run)),
+    status: 'applied',
+    body: [],
+    lines,
+    paths: [],
+    action: { label: 'Open run', posts: 'openRun', workflowId: run },
+  };
+}
+
+/** A row mBoss wrote when it applied a proposal. */
+const applyRow: ToolEntry = {
+  at: 'tool',
+  id: 'apply-1',
+  by: 'person',
+  kind: 'edit',
+  verb: 'Apply proposal',
+  target: 'booking',
+  status: 'applied',
+  body: [],
+  paths: [],
+};
 
 test.describe('a tool call', () => {
   const call: SessionUpdate = {
@@ -133,16 +423,93 @@ test.describe('a tool call', () => {
     await expect(card).toHaveAttribute('data-kind', 'edit');
     await expect(card).toHaveAttribute('data-status', 'pending');
     await expect(card.locator('.tool-verb')).toHaveText('Write');
+    await expect(card.locator('.tool-verb')).toHaveCSS('font-weight', '600');
     await expect(card.locator('.tool-target')).toHaveText('lib/twilioChat.ts');
-    await expect(card.locator('.tool-mark')).not.toBeEmpty();
+
+    const face = await card
+      .locator('.tool-target')
+      .evaluate((element) => getComputedStyle(element).fontFamily);
+
+    expect(face).toContain('Spline Sans Mono');
+  });
+
+  /** What was done is a word; a glyph beside it
+   *  would be a second, vaguer way of saying it. */
+  test('draws no glyph beside the verb', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [call]);
+
+    const line = page.locator('[data-tool-call="call-1"] .tool-line');
+
+    await expect(line).toHaveCount(1);
+    await expect(page.locator('.tool-mark')).toHaveCount(0);
+    expect(
+      await line.evaluate((element) =>
+        element.firstElementChild?.matches('.tool-verb'),
+      ),
+    ).toBe(true);
+  });
+
+  /**
+   * A column of calls is scanned down its left
+   * edge, so each stays one line: a long target
+   * gives up its end rather than pushing the state
+   * word onto a line of its own, and so does a
+   * title that is a whole sentence, which is all
+   * verb and no target.
+   */
+  test('keeps a call to one line however long its name', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 600 });
+
+    const harness = await openPanel(page);
+    const card = page.locator('[data-tool-call="call-1"]');
+
+    const oneLine = async (clipped: string): Promise<void> => {
+      const line = card.locator('.tool-line');
+      const cut = card.locator(clipped);
+
+      await expect(line).toHaveCount(1);
+      await expect(cut).toHaveCount(1);
+      await expect(cut).toHaveCSS('text-overflow', 'ellipsis');
+      expect(
+        await cut.evaluate(
+          (element) => element.scrollWidth > element.clientWidth,
+        ),
+      ).toBe(true);
+
+      const row = (await line.boundingBox())!;
+      const edge = (await card.boundingBox())!;
+      const word = (await card.locator('.state-word').boundingBox())!;
+
+      expect(row.height).toBeLessThanOrEqual(31);
+      expect(word.y).toBeGreaterThanOrEqual(row.y);
+      expect(word.y + word.height).toBeLessThanOrEqual(row.y + row.height);
+      expect(word.x + word.width).toBeLessThanOrEqual(edge.x + edge.width);
+    };
+
+    await showing(harness, [
+      { ...call, title: `Write lib/${'deeply-nested-'.repeat(16)}file.ts` },
+    ]);
+    await oneLine('.tool-target');
+
+    // A verb as short as a verb keeps all of itself.
+    expect(
+      await card
+        .locator('.tool-verb')
+        .evaluate((element) => element.scrollWidth <= element.clientWidth),
+    ).toBe(true);
+
+    await showing(harness, [
+      { ...call, title: `Check ${'every booking in the flow '.repeat(8)}` },
+    ]);
+    await oneLine('.tool-verb');
   });
 
   /**
    * Every entry the fold produces is the agent's;
    * a row the extension notes for itself carries
-   * `person` and none of the protocol's four status
-   * words, because its rail and verb — an "applied"
-   * row's own — already say what happened.
+   * `person`.
    *
    * The colours are checked as the browser resolves
    * them, not as class names. Two rows in one column
@@ -163,30 +530,106 @@ test.describe('a tool call', () => {
     await expect(asked).toHaveCSS('border-left-width', '3px');
     await expect(asked).toHaveCSS('border-left-color', AGENT);
 
-    await harness.show(
-      sidebarInit({
-        transcript: [
-          {
-            at: 'tool',
-            id: 'apply-1',
-            by: 'person',
-            kind: 'edit',
-            verb: 'Apply proposal',
-            target: 'booking',
-            status: 'applied',
-            body: [],
-            paths: [],
-          },
-        ],
-      }),
-    );
+    await harness.show(sidebarInit({ transcript: [applyRow] }));
 
     const applied = page.locator('[data-tool-call="apply-1"]');
 
     await expect(applied).toHaveAttribute('data-by', 'person');
-    await expect(applied.locator('.tool-status')).toHaveCount(0);
     await expect(applied).toHaveCSS('border-left-width', '3px');
     await expect(applied).toHaveCSS('border-left-color', PERSON);
+  });
+
+  /**
+   * A row mBoss wrote did the thing rather than ask
+   * for it, which to a reader is simply done — said
+   * in the same quiet word a finished call gets.
+   * One that went wrong still says so.
+   */
+  test("says a person's row is done, in the quiet word", async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          applyRow,
+          { ...applyRow, id: 'apply-2', status: 'failed' },
+        ],
+      }),
+    );
+
+    const done = page.locator('[data-tool-call="apply-1"] .state-word');
+    const failed = page.locator('[data-tool-call="apply-2"] .state-word');
+
+    await expect(done).toHaveText(strings.toolStatus.applied);
+    await expect(failed).toHaveText(strings.toolStatus.failed);
+    await expect(done).not.toHaveAttribute('data-pulse');
+
+    for (const [word, role] of [
+      [done, 'ink-muted'],
+      [failed, 'fail'],
+    ] as const) {
+      const ink = await word.evaluate(
+        (element) => getComputedStyle(element).color,
+      );
+      const expected = colourOf('light', role);
+
+      expect(sameColour(ink, expected), `${ink} ≠ ${expected}`).toBe(true);
+    }
+  });
+
+  /**
+   * How a call is going, in one word and one tone
+   * each: still moving is the one that pulses, and
+   * waiting its turn is the quietest.
+   */
+  test('says how a call went in one word, in its own tone', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+    const statuses = [
+      ['pending', 'ink-faint'],
+      ['in_progress', 'ok'],
+      ['completed', 'ink-muted'],
+      ['failed', 'fail'],
+    ] as const;
+
+    await harness.show(
+      sidebarInit({
+        transcript: statuses.map(([status]) => ({
+          at: 'tool',
+          id: status,
+          by: 'agent',
+          kind: 'other',
+          verb: 'Call',
+          target: status,
+          status,
+          body: [],
+          paths: [],
+        })),
+      }),
+    );
+
+    await expect(page.locator('.tool .state-word')).toHaveCount(4);
+
+    for (const [status, role] of statuses) {
+      const word = page.locator(`[data-tool-call="${status}"] .state-word`);
+
+      await expect(word).toHaveText(strings.toolStatus[status]);
+      if (status === 'in_progress') {
+        await expect(word).toHaveAttribute('data-pulse', '');
+      } else {
+        await expect(word).not.toHaveAttribute('data-pulse');
+      }
+
+      const ink = await word.evaluate(
+        (element) => getComputedStyle(element).color,
+      );
+      const expected = colourOf('light', role);
+
+      const why = `${status}: ${ink} ≠ ${expected}`;
+
+      expect(sameColour(ink, expected), why).toBe(true);
+    }
   });
 
   /**
@@ -243,6 +686,71 @@ test.describe('a tool call', () => {
   });
 
   /**
+   * codex titles every write "Editing files". The
+   * host names such a call by what it did and the
+   * file it did it to, and the panel draws that name
+   * as mBoss's words; a title an agent wrote for a
+   * call that names no file stays the agent's own.
+   */
+  test('never names a row by the word files', async ({ page }) => {
+    const harness = await openPanel(page);
+    const folded = foldUpdates(
+      [],
+      [
+        {
+          sessionUpdate: 'tool_call',
+          toolCallId: 'call-1',
+          title: 'Editing files',
+          kind: 'edit',
+          status: 'completed',
+          content: [
+            {
+              type: 'diff',
+              path: '/project/lib/airtableEtl.test.ts',
+              oldText: 'a\n',
+              newText: 'b\n',
+            },
+          ],
+        },
+      ],
+    );
+
+    await harness.show(
+      sidebarInit({
+        transcript: sidebarEntries(folded).map((entry) =>
+          entry.at === 'tool'
+            ? {
+                ...entry,
+                verb: strings.toolVerbs.edit,
+                target: 'lib/airtableEtl.test.ts',
+              }
+            : entry,
+        ),
+      }),
+    );
+
+    const targets = page.locator('.tool-target');
+
+    await expect(targets).toHaveCount(1);
+    expect(await targets.allTextContents()).not.toContain('files');
+    await expect(targets).toHaveText('lib/airtableEtl.test.ts');
+    await expect(targets).not.toHaveAttribute('data-verbatim');
+
+    await showing(harness, [
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-2',
+        title: 'workflow.apply_spec dryRun',
+        kind: 'other',
+        status: 'completed',
+      },
+    ]);
+
+    await expect(targets).toHaveText('dryRun');
+    await expect(targets).toHaveAttribute('data-verbatim', '');
+  });
+
+  /**
    * The interesting part of a finished call is
    * usually whatever it printed, but not on
    * screen by default — a person asks for it.
@@ -262,16 +770,51 @@ test.describe('a tool call', () => {
     ]);
 
     const card = page.locator('[data-tool-call="call-1"]');
+    const toggle = card.locator('[data-tool-body-toggle]');
 
     await expect(card.locator('.tool-body')).toHaveCount(0);
-    await expect(card.locator('.tool-body-toggle')).toHaveText(
-      '2 lines · show',
-    );
+    await expect(toggle).toHaveText(filled(strings.showLines, '2'));
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
-    await card.locator('.tool-body-toggle').click();
+    await toggle.click();
 
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(card.locator('.tool-body')).toHaveCount(2);
     await expect(card.locator('.tool-body').first()).toHaveText('line one');
+
+    // What the call printed is the agent's own.
+    await expect(card.locator('.tool-body > [data-verbatim]')).toHaveCount(2);
+  });
+
+  /** The fold is a control a keyboard works, and it
+   *  says which way it is folded. */
+  test('folds and unfolds from the keyboard', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [
+      {
+        ...call,
+        status: 'completed',
+        content: [
+          { type: 'content', content: { type: 'text', text: 'line one' } },
+        ],
+      },
+    ]);
+
+    const card = page.locator('[data-tool-call="call-1"]');
+    const toggle = card.locator('[data-tool-body-toggle]');
+
+    await expect(toggle).toHaveCount(1);
+
+    await toggle.press('Enter');
+
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(card.locator('.tool-body')).toHaveCount(1);
+
+    await toggle.press('Space');
+
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(card.locator('.tool-body')).toHaveCount(0);
   });
 
   /**
@@ -307,9 +850,144 @@ test.describe('a tool call', () => {
     await expect(card.locator('.tool-verb')).toHaveText('Read');
     await expect(card.locator('.tool-body')).toHaveCount(0);
 
-    await card.locator('.tool-body-toggle').click();
+    await card.locator('[data-tool-body-toggle]').click();
 
     await expect(card.locator('.tool-body')).toHaveCount(2);
+  });
+
+  /**
+   * mBoss's words around a value a run recorded are
+   * mBoss's; the value is the run's, and can quote
+   * anything — a whole run id included. So the value
+   * is set apart from the words in front of it, and
+   * only the value.
+   */
+  test("keeps a recorded value apart inside an evidence row's body", async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+    const run = '0190c8f2-5b5e-7a4c-9c3e-6c8d1b2f4a10';
+    const recorded =
+      'Awaited 7089cd29-5b5e-4a4c-9c3e-6c8d1b2f4a10 was cancelled';
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          evidenceOf(run, [
+            { text: 'error · ', recorded },
+            { text: 'status · done' },
+          ]),
+        ],
+      }),
+    );
+
+    const card = page.locator(`[data-tool-call="${evidenceRowId(run)}"]`);
+    const toggle = card.locator('[data-tool-body-toggle]');
+
+    await expect(toggle).toHaveText(filled(strings.showLines, '2'));
+
+    await toggle.click();
+
+    const lines = card.locator('.tool-body');
+    const values = card.locator('.tool-body [data-verbatim]');
+
+    await expect(lines).toHaveCount(2);
+    await expect(values).toHaveCount(1);
+    await expect(values).toHaveText(recorded);
+    expect(
+      await lines.first().evaluate((line) => {
+        const words = line.cloneNode(true) as HTMLElement;
+
+        words
+          .querySelectorAll('[data-verbatim]')
+          .forEach((one) => one.remove());
+
+        return words.textContent;
+      }),
+    ).toBe('error · ');
+    await expect(card.locator('[data-verbatim]')).toHaveCount(1);
+  });
+
+  /**
+   * The column names a run the way every other panel
+   * does, by the few characters of it a person can
+   * scan, and keeps the whole id on the name for
+   * whoever needs it. The words mBoss sends the agent
+   * still carry the whole id; this is only the
+   * column's copy.
+   */
+  test('names an Ask-agent run by its short id', async ({ page }) => {
+    const harness = await openPanel(page);
+    const run = '7089cd29-5b5e-4a4c-9c3e-6c8d1b2f4a10';
+    const refused = '5d1e2f3a-9c3e-4a4c-8b5e-6c8d1b2f4a10';
+    const short = shortRunId(run);
+    const echo =
+      `Run \`${short}\` of \`refund_order\` recorded no failure; DBOS ` +
+      'has it as done.';
+    const uuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-/i;
+
+    await harness.show(
+      sidebarInit({
+        transcript: [
+          evidenceOf(run, [{ text: 'status · done' }]),
+          {
+            at: 'message',
+            id: 'user-0',
+            from: 'user',
+            text: echo,
+            about: {
+              workflowId: run,
+              nodeId: 'refund_payment',
+              block: 'Refund payment',
+              shown: echo,
+            },
+          },
+          {
+            ...evidenceOf(refused, [
+              { text: 'refused · refund_order at 14:03:07.412' },
+            ]),
+            action: undefined,
+          },
+        ],
+      }),
+    );
+
+    const row = page.locator(`[data-tool-call="${evidenceRowId(run)}"]`);
+    const named = row.locator('.tool-target [data-short-run]');
+
+    await expect(named).toHaveCount(1);
+    await expect(named).toHaveText(short);
+    await expect(named).toHaveAttribute('data-short-run', run);
+    await expect(named).toHaveAttribute('title', run);
+    await expect(row.locator('.tool-target')).toHaveText(
+      filled(strings.evidenceTarget, short),
+    );
+    expect(await row.locator('.tool-target').textContent()).not.toMatch(uuid);
+
+    // The question, in the column's copy: the run by
+    // its short id and in the word every panel says,
+    // with the names from the code set as code.
+    const asked = page.locator('[data-block="user"]');
+
+    await expect(asked).toContainText(short);
+    await expect(asked.locator('code').first()).toHaveText(short);
+    expect(await asked.textContent()).not.toMatch(uuid);
+    expect(await asked.textContent()).not.toContain('SUCCESS');
+
+    await row.locator('[data-tool-body-toggle]').click();
+    await expect(row.locator('.tool-body')).toHaveText(['status · done']);
+
+    const refusal = page.locator(
+      `[data-tool-call="${evidenceRowId(refused)}"]`,
+    );
+
+    await refusal.locator('[data-tool-body-toggle]').click();
+
+    const when = refusal.locator('.tool-body');
+
+    await expect(when).toHaveCount(1);
+    await expect(when).toHaveText(/\d{2}:\d{2}:\d{2}\.\d{3}/);
+    await expect(when).not.toHaveText(/AM|PM/);
   });
 
   /**
@@ -437,43 +1115,65 @@ test.describe('a tool call', () => {
   });
 });
 
+/**
+ * The plan is a row of work like any other: what
+ * the agent is on now, and whether it is still
+ * going. The steps are there for whoever asks.
+ */
 test.describe('the plan', () => {
-  test('collapses behind its own progress, expanding on click', async ({
+  const plan = (
+    ...statuses: ('pending' | 'in_progress' | 'completed')[]
+  ): SessionUpdate => ({
+    sessionUpdate: 'plan',
+    entries: ['Read the workflow', 'Scaffold handlers', 'Regenerate'].map(
+      (content, index) => ({
+        content,
+        priority: 'medium',
+        status: statuses[index] ?? 'pending',
+      }),
+    ),
+  });
+
+  test('draws the plan as a row of work, its steps behind a toggle', async ({
     page,
   }) => {
     const harness = await openPanel(page);
 
-    await showing(harness, [
-      {
-        sessionUpdate: 'plan',
-        entries: [
-          {
-            content: 'Read the workflow',
-            priority: 'high',
-            status: 'completed',
-          },
-          {
-            content: 'Scaffold handlers',
-            priority: 'medium',
-            status: 'in_progress',
-          },
-          { content: 'Regenerate', priority: 'low', status: 'pending' },
-        ],
-      },
-    ]);
+    await showing(harness, [plan('completed', 'in_progress', 'pending')]);
 
-    const toggle = page.locator('.plan-toggle');
+    const row = page.locator('[data-plan]');
+    const toggle = row.locator('[data-tool-body-toggle]');
 
-    await expect(toggle).toHaveText('Plan · 1/3');
-    await expect(page.locator('.step')).toHaveCount(0);
+    await expect(row).toHaveCount(1);
+    await expect(row).toHaveAttribute('data-block', 'tool');
+    await expect(row.locator('.tool-verb')).toHaveText(strings.plan);
+    await expect(row.locator('.tool-target')).toHaveText('Scaffold handlers');
+    await expect(row.locator('.tool-line .state-word')).toHaveText(
+      strings.toolStatus.in_progress,
+    );
+    await expect(toggle).toHaveText(filled(strings.planSteps, '3'));
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(row.locator('.tool-body')).toHaveCount(0);
 
     await toggle.click();
 
-    const steps = page.locator('.step');
+    const steps = row.locator('.tool-body');
 
     await expect(steps).toHaveCount(3);
     await expect(steps.nth(0)).toHaveAttribute('data-status', 'completed');
+    await expect(steps.nth(0)).toContainText(strings.toolStatus.completed);
     await expect(steps.nth(1)).toContainText('Scaffold handlers');
+  });
+
+  test('says a plan is done once every step is', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [plan('completed', 'completed', 'completed')]);
+
+    const word = page.locator('[data-plan] .tool-line .state-word');
+
+    await expect(word).toHaveText(strings.toolStatus.completed);
+    await expect(word).not.toHaveAttribute('data-pulse');
   });
 });
 
@@ -515,7 +1215,7 @@ test.describe('after a turn asked about a block', () => {
 
     await expect(next).toHaveCount(1);
     await expect(next).toHaveText(sentence);
-    await expect(page.locator('.plan')).toHaveCount(0);
+    await expect(page.locator('[data-plan]')).toHaveCount(0);
   });
 });
 
@@ -1404,9 +2104,7 @@ test.describe('the composer', () => {
       const edge = await send.evaluate(
         (element) => getComputedStyle(element).borderTopColor,
       );
-      const drawnEdge = theme.startsWith('high-contrast')
-        ? THEMES[theme]['--vscode-contrastBorder']!
-        : 'rgba(0, 0, 0, 0)';
+      const drawnEdge = colourOf(theme, 'control-edge');
 
       expect(sameColour(edge, drawnEdge), `${edge} ≠ ${drawnEdge}`).toBe(true);
 

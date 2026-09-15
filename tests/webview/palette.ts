@@ -80,6 +80,7 @@ export const ROLES = {
   'primary-ground': '--primary-ground',
   'selection-ring': '--selection-ring',
   'state-ink': '--state-ink',
+  'control-edge': '--control-edge',
 } as const;
 
 export type Role = keyof typeof ROLES;
@@ -143,13 +144,14 @@ type Mix = {
 /**
  * Where a role that is neither chrome nor voice gets
  * its colour: a mix, the same colour as another
- * role, the first of these the editor publishes, or
- * nothing at all.
+ * role, the first of these the editor publishes, an
+ * edge declared and left clear, or nothing at all.
  */
 type Source =
   | Mix
   | { readonly as: Role }
   | { readonly published: readonly string[]; readonly or: Role }
+  | 'transparent'
   | 'undeclared';
 
 /** What the `body` block says, which every theme
@@ -178,6 +180,7 @@ const BASE: Partial<Record<Role, Source>> = {
   'primary-ground': { as: 'brand' },
   'selection-ring': { as: 'brand-ring' },
   'state-ink': 'undeclared',
+  'control-edge': 'transparent',
 };
 
 /** What a dark theme re-mixes: quiet text and
@@ -218,6 +221,7 @@ const HIGH_CONTRAST: Partial<Record<Role, Source>> = {
   'ink-muted': { as: 'ink' },
   'ink-faint': { as: 'ink' },
   'edge-done': { as: 'ok' },
+  'control-edge': { published: ['--vscode-contrastBorder'], or: 'ink' },
 };
 
 /** And what the light one re-points on top: state
@@ -309,6 +313,10 @@ function resolve(theme: ThemeKind, role: Role): Rgba | undefined {
 
   if (source === 'undeclared') {
     return undefined;
+  }
+
+  if (source === 'transparent') {
+    return CLEAR;
   }
 
   if ('as' in source) {
