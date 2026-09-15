@@ -269,6 +269,39 @@ export function visible(
   });
 }
 
+/** A field holding a number. */
+export type NumberField = Extract<InspectorField, { control: 'number' }>;
+
+/**
+ * Two number fields that are one property between
+ * them — a count, and the period it is counted
+ * over — so that they can be drawn as one row.
+ *
+ * Found in the form rather than declared in it, so
+ * each half stays a lens of its own that commits on
+ * its own, which is what keeps the limit whole: a
+ * lens writes its half with the other beside it,
+ * and empties both when it is emptied. They are a
+ * pair only where the period follows the count:
+ * anywhere else they are two rows, since a row
+ * drawn out of fields the form keeps apart would
+ * draw them somewhere they are not.
+ */
+export function pairOf(
+  fields: InspectorField[],
+  per: string,
+  sec: string,
+): { per: NumberField; sec: NumberField } | undefined {
+  const at = fields.findIndex((field) => field.id === per);
+  const count = fields[at];
+  const period = fields[at + 1];
+
+  if (count?.control !== 'number' || period?.control !== 'number') return;
+  if (period.id !== sec) return;
+
+  return { per: count, sec: period };
+}
+
 /**
  * Whether a block's takes and produces are drawn as
  * rows of their own.

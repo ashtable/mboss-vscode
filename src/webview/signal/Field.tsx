@@ -91,7 +91,20 @@ export function Input({
   onAbandon?: () => void;
 }) {
   const [typed, setTyped] = useState(value);
+  const [shown, setShown] = useState(value);
   const { changed, commit } = useCommit(value, onCommit);
+
+  // What a field is set to can change while it is
+  // on screen — giving one half of a pair sets the
+  // other — and a field nobody has typed in shows
+  // the change. Otherwise the text it was first
+  // drawn with would pass for text somebody typed,
+  // and leaving the field would give it back as a
+  // value. Text somebody did type is theirs to keep.
+  if (value !== shown) {
+    setShown(value);
+    if (typed === shown) setTyped(value);
+  }
 
   const abandon = (): void => {
     setTyped(value);

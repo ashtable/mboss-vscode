@@ -111,6 +111,68 @@ describe('the row a property is set out in', () => {
   });
 
   /**
+   * A pair is read as the figure it is written as —
+   * a count, a mark, a period — so a mark stands
+   * between the halves. Each half is already named
+   * for what it holds, so the mark is only drawn.
+   */
+  it('sets a mark between the halves of a pair, read out by nobody', () => {
+    const markup = drawn({
+      label: 'ab',
+      controls: [
+        { field: 'cd', control: box },
+        { field: 'ef', control: box },
+      ],
+    });
+
+    expect(markup).toMatch(
+      new RegExp(
+        'data-field="cd"><input[^>]*/></span>' +
+          '<span class="property-joint" aria-hidden="true">/</span>' +
+          '<span class="property-control" data-field="ef">',
+      ),
+    );
+    expect(markup.match(/property-joint/g)).toHaveLength(1);
+  });
+
+  /**
+   * A unit after a pair is what its second half is
+   * counted in, and never the first's: a count of
+   * items is not a number of seconds. So only the
+   * half it follows is described by it, while a
+   * note about the row is about both.
+   */
+  it('describes only the half a unit follows by that unit', () => {
+    const halves = [
+      { field: 'cd', control: box },
+      { field: 'ef', control: box },
+    ];
+    const describedBy = (markup: string) =>
+      [...markup.matchAll(/<input([^>]*)\/>/g)].map(([, attributes]) =>
+        attribute(attributes!, 'aria-describedby'),
+      );
+
+    const bare = drawn({ label: 'ab', controls: halves, unit: 'gh' });
+    const unit = attribute(bare.split('property-unit')[1]!, 'id');
+
+    expect(unit).toBeDefined();
+    expect(describedBy(bare)).toEqual([undefined, unit]);
+
+    const noted = drawn({
+      label: 'ab',
+      controls: halves,
+      unit: 'gh',
+      note: 'ij',
+    });
+    const ids = {
+      unit: attribute(noted.split('property-unit')[1]!, 'id'),
+      note: attribute(noted.split('field-note')[1]!, 'id'),
+    };
+
+    expect(describedBy(noted)).toEqual([ids.note, `${ids.unit} ${ids.note}`]);
+  });
+
+  /**
    * A unit is part of what the value means and not
    * part of what is typed, so it is drawn beside the
    * control rather than inside it, hidden from a

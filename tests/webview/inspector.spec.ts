@@ -1237,6 +1237,62 @@ test.describe('the head of a block in the Inspector', () => {
   });
 });
 
+/**
+ * The colour a field's placeholder is painted in.
+ *
+ * The browser draws a placeholder in an element of
+ * its own inside the field, which the page cannot
+ * reach: asked for the placeholder's style, it
+ * answers with the field's. The DevTools protocol
+ * can reach it, so that is what is asked, of the
+ * one element drawn inside this field.
+ */
+async function placeholderColour(page: Page, field: Locator): Promise<string> {
+  const id = await field.getAttribute('id');
+  expect(id).not.toBeNull();
+
+  const devtools = await page.context().newCDPSession(page);
+  await devtools.send('DOM.enable');
+  await devtools.send('CSS.enable');
+
+  const { root } = await devtools.send('DOM.getDocument', {
+    depth: -1,
+    pierce: true,
+  });
+
+  type Node = typeof root;
+  const within = (node: Node): Node[] => [
+    ...(node.children ?? []),
+    ...(node.shadowRoots ?? []),
+  ];
+  const find = (node: Node, found: (one: Node) => boolean): Node[] => [
+    ...(found(node) ? [node] : []),
+    ...within(node).flatMap((one) => find(one, found)),
+  ];
+
+  const [host] = find(
+    root,
+    (node) =>
+      node.nodeName === 'INPUT' &&
+      (node.attributes ?? []).some(
+        (value, at, all) =>
+          at % 2 === 1 && all[at - 1] === 'id' && value === id,
+      ),
+  );
+  expect(host).toBeDefined();
+
+  const drawn = find(host!, (node) =>
+    (node.attributes ?? []).includes('-webkit-input-placeholder'),
+  );
+  expect(drawn).toHaveLength(1);
+
+  const { computedStyle } = await devtools.send('CSS.getComputedStyleForNode', {
+    nodeId: drawn[0]!.nodeId,
+  });
+
+  return computedStyle.find((one) => one.name === 'color')?.value ?? '';
+}
+
 test.describe('a block in the Inspector', () => {
   /**
    * A pane is usually shorter than a block's form,
@@ -1354,26 +1410,59 @@ test.describe('a block in the Inspector', () => {
    * believing they set the queue's.
    */
   test.describe('a queue block’s two policies', () => {
+    /** The labels over the groups, as a person reads
+     *  them down the face: the one that folds says
+     *  its name after the marker it turns. */
+    function groupLabels(page: Page): Locator {
+      return page.locator('[role="tabpanel"] .section-label');
+    }
+
+    /** A queue registered with a limit on how fast
+     *  it starts items, beside the unhurried one. */
+    const LIMITED = {
+      ...INDEXING,
+      queue: {
+        ...INDEXING.queue,
+        workerConcurrency: 2,
+        rateLimit: { limitPerPeriod: 100, periodSec: 60 },
+      },
+    };
+
+    /** The row a field is set in: its own, or the one
+     *  it shares with the other half of a pair. */
+    function rowOf(page: Page, id: string): Locator {
+      return page.locator(
+        `[data-property][data-field="${id}"], ` +
+          `[data-property]:has(> .value > [data-field="${id}"])`,
+      );
+    }
+
+    /** The same queue at the next revision, as the
+     *  host sends it once an edit has landed. */
+    function revised(config: object) {
+      const next = queueSubject(config);
+      const revision = next.ir.revision + 1;
+
+      return blockInit({ ...next, ir: { ...next.ir, revision }, revision });
+    }
+
     test('come as groups, the last of them folded away', async ({ page }) => {
       await openInspector(page, blockInit(queueSubject(INDEXING)));
 
       // Named, and not folded: a policy is read
       // whole. Only the knobs nobody turns often fold
       // away, behind the one header that is a button.
-      const labels = page.locator('[data-control="section"] > p.section-label');
-      await expect(labels).toHaveText([
+      await expect(groupLabels(page)).toHaveText([
         word(inspectorStrings.fieldsByKind.queue ?? {}, 'function'),
-        word(inspectorStrings.fields, 'retryPolicy') +
-          ` · ${inspectorStrings.configured}`,
         word(inspectorStrings.fields, 'queuePolicy'),
         word(inspectorStrings.fields, 'enqueuePolicy'),
+        word(inspectorStrings.fields, 'retryPolicy') +
+          ` · ${inspectorStrings.configured}`,
+        `${MARK}${word(inspectorStrings.fields, 'advanced')}`,
       ]);
 
       const folding = page.locator('.section-head');
       await expect(folding).toHaveCount(1);
-      await expect(folding).toHaveText(
-        `${MARK}${word(inspectorStrings.fields, 'advanced')}`,
-      );
       expect(
         await folding.evaluate((head) =>
           head.parentElement?.matches('[data-field="advanced"]'),
@@ -1391,6 +1480,285 @@ test.describe('a block in the Inspector', () => {
         page.locator('[data-field="advanced"] .section-head'),
       ).toHaveAttribute('aria-expanded', 'false');
       await expect(page.locator('[data-field="onConflict"]')).toHaveCount(0);
+    });
+
+    /**
+     * In the order the settings take hold: the
+     * function each item runs, what the queue is
+     * registered with, what each item is enqueued
+     * with, and how hard that item's run tries once
+     * it is running. The knobs nobody turns often
+     * come last, and the ways out of the form after
+     * everything it sets.
+     */
+    test('put handler, both policies, retry and advanced in order', async ({
+      page,
+    }) => {
+      await openInspector(page, blockInit(queueSubject(INDEXING)));
+
+      const face = page.locator('[role="tabpanel"]');
+      await expect(face.locator('[data-field="advanced"]')).toHaveCount(1);
+
+      expect(
+        await face
+          .locator('[data-field]')
+          .evaluateAll((fields) =>
+            fields.map((field) => field.getAttribute('data-field')),
+          ),
+      ).toEqual([
+        'function',
+        'handler',
+        // The scan has no such export, so the types
+        // the block declares are drawn.
+        'in',
+        'out',
+        'queuePolicy',
+        'queueName',
+        'globalConcurrency',
+        'workerConcurrency',
+        'rateLimitPer',
+        'rateLimitSec',
+        'partitioning',
+        'enqueuePolicy',
+        'itemsPath',
+        'itemType',
+        'priority',
+        'delaySeconds',
+        'deduplicationPath',
+        'retryPolicy',
+        'retryMaxAttempts',
+        'retryIntervalSeconds',
+        'retryBackoffRate',
+        'advanced',
+      ]);
+
+      await expect(groupLabels(page).first()).toHaveText(
+        word(inspectorStrings.fieldsByKind.queue ?? {}, 'function'),
+      );
+      await expect(
+        page.locator('[data-field="handler"] [data-picker-lib]'),
+      ).toHaveCount(1);
+
+      const actions = face.locator('[data-configure-actions]');
+      await expect(actions.locator('> *')).toHaveCount(2);
+      await expect(actions.locator('> :nth-child(1)')).toHaveAttribute(
+        'data-open-function',
+        '',
+      );
+      await expect(actions.locator('> :nth-child(2)')).toHaveAttribute(
+        'data-ask-block',
+        '',
+      );
+    });
+
+    /**
+     * Said once each group's rows are all drawn,
+     * right after the last of them: which process a
+     * limit holds back, and what DBOS refuses of an
+     * item on a partitioned queue. Neither is a fact
+     * about one row, and neither is a caption for
+     * the label.
+     */
+    test('say after each group what its rows do not', async ({ page }) => {
+      const harness = await openInspector(
+        page,
+        blockInit(queueSubject(INDEXING)),
+      );
+      const hint = (id: string) => page.locator(`[data-group-hint="${id}"]`);
+      const follows = (id: string) =>
+        hint(id).evaluate((said) =>
+          said.previousElementSibling?.querySelector('[data-field]') === null
+            ? said.previousElementSibling?.getAttribute('data-field')
+            : said.previousElementSibling
+                ?.querySelector('[data-field]')
+                ?.getAttribute('data-field'),
+        );
+
+      await expect(hint('queuePolicy')).toHaveText(
+        'global = across processes · worker = per process',
+      );
+      await expect(hint('queuePolicy')).toHaveText(
+        word(inspectorStrings.hints, 'queuePolicy'),
+      );
+      await expect(hint('enqueuePolicy')).toHaveText(
+        word(inspectorStrings.hints, 'enqueuePolicy'),
+      );
+
+      expect(await follows('queuePolicy')).toBe('partitioning');
+      expect(await follows('enqueuePolicy')).toBe('deduplicationPath');
+      await expect(
+        page.locator('[data-control="section"] .field-hint'),
+      ).toHaveCount(0);
+
+      // Partitioned, each group has one more row,
+      // and the sentence follows that one instead.
+      await harness.show(blockInit(queueSubject(PARTITIONED)));
+
+      await expect(page.locator('[data-field="partitionPath"]')).toHaveCount(1);
+      expect(await follows('queuePolicy')).toBe('partitionConcurrency');
+      expect(await follows('enqueuePolicy')).toBe('partitionPath');
+    });
+
+    /**
+     * DBOS will not deduplicate items on a
+     * partitioned queue. The box holding the path
+     * stays a box: emptying it is one of the two ways
+     * out, and a box switched off would take that way
+     * out of reach of the person it is for. What is
+     * wrong is said instead, with both ways out.
+     */
+    test('say what is wrong with deduplication, and leave it editable', async ({
+      page,
+    }) => {
+      const harness = await openInspector(
+        page,
+        blockInit(queueSubject(PARTITIONED, [DEDUPLICATES])),
+      );
+      const path = page.locator('[data-field="deduplicationPath"] input');
+
+      await expect(
+        page.locator('[data-field="partitioning"] select'),
+      ).toHaveValue('on');
+      await expect(path).toBeEnabled();
+      await expect(path).toBeEditable();
+      await expect(path).toHaveValue('documentId');
+      await expect(
+        page.locator('[data-field="deduplicationPath"] .field-note'),
+      ).toHaveText(DEDUPLICATES.message);
+
+      await expect(
+        page.locator('[data-group-hint="enqueuePolicy"]'),
+      ).toHaveText(
+        'partitioned queues cannot deduplicate — with partitioning on, ' +
+          'a deduplication path is an error on the block · ' +
+          'empty this box or turn partitioning off',
+      );
+
+      await path.fill('');
+      await path.press('Enter');
+
+      // Emptied, the path comes off the block and the
+      // queue stays partitioned: the other way out is
+      // left to whoever wants it.
+      const sent = await harness.postedOfType('edit');
+      expect(sent).toHaveLength(1);
+
+      const { config } = sent[0]!.node as {
+        config: { queue: object; enqueue: object };
+      };
+      expect(config.enqueue).not.toHaveProperty('deduplicationPath');
+      expect(config.queue).toMatchObject({ partitionConcurrency: 2 });
+    });
+
+    /**
+     * A limit is a count and the period it is
+     * counted over, read as one figure — "100 / 60
+     * s" — so it is one row. Each box is named for
+     * the half it holds, since the row's label names
+     * both, and the unit is said with the period it
+     * counts rather than with the count.
+     */
+    test('draw a rate limit as one row of two boxes', async ({ page }) => {
+      await openInspector(page, blockInit(queueSubject(LIMITED)));
+
+      const row = rowOf(page, 'rateLimitPer');
+      await expect(row).toHaveCount(1);
+      await expect(row).toHaveAttribute('role', 'group');
+      await expect(row).toHaveAccessibleName(
+        word(inspectorStrings.fields, 'rateLimit'),
+      );
+      await expect(row).toHaveAttribute('data-labels', 'wide');
+      await expect(row.locator(':scope > .property-label')).toHaveText(
+        'rate limit',
+      );
+
+      const count = page.getByRole('textbox', {
+        name: 'rate limit, count',
+        exact: true,
+      });
+      const period = page.getByRole('textbox', {
+        name: 'rate limit, period',
+        exact: true,
+      });
+
+      await expect(
+        row.locator('[data-field="rateLimitPer"] input'),
+      ).toHaveCount(1);
+      await expect(
+        row.locator('[data-field="rateLimitSec"] input'),
+      ).toHaveCount(1);
+      await expect(count).toHaveValue('100');
+      await expect(period).toHaveValue('60');
+      await expect(count).toHaveAttribute('data-mono', '');
+
+      await expect(row.locator('.property-joint')).toHaveText('/');
+      await expect(row.locator('.property-unit')).toHaveText('s');
+      await expect(period).toHaveAccessibleDescription('s');
+      await expect(count).not.toHaveAttribute('aria-describedby', /./);
+
+      const [one, joint, other, unit] = await Promise.all(
+        [
+          count,
+          row.locator('.property-joint'),
+          period,
+          row.locator('.property-unit'),
+        ].map(async (part) => (await part.boundingBox())!),
+      );
+
+      // Read across as it is written, each part close
+      // behind the one before it, on one line.
+      const gaps = [
+        joint!.x - (one!.x + one!.width),
+        other!.x - (joint!.x + joint!.width),
+        unit!.x - (other!.x + other!.width),
+      ];
+
+      for (const gap of gaps) {
+        expect(gap).toBeGreaterThanOrEqual(0);
+        expect(gap).toBeLessThanOrEqual(8);
+      }
+      expect(Math.abs(one!.y - other!.y)).toBeLessThanOrEqual(1);
+      expect(unit!.y).toBeLessThan(other!.y + other!.height);
+
+      await labelBeforeValue(row);
+    });
+
+    /**
+     * A queue with no rate limit says so in the box a
+     * limit starts from, and draws nothing after it:
+     * a mark and a unit around two empty boxes read as
+     * a limit with its figures missing. Typing a count
+     * brings the rest of the row back.
+     */
+    test('say a queue has no rate limit in the box one starts from', async ({
+      page,
+    }) => {
+      await openInspector(page, blockInit(queueSubject(INDEXING)));
+
+      const row = rowOf(page, 'rateLimitPer');
+      const count = row.locator('[data-field="rateLimitPer"] input');
+      const rest = [
+        row.locator('.property-joint'),
+        row.locator('[data-field="rateLimitSec"] input'),
+        row.locator('.property-unit'),
+      ];
+
+      await expect(count).toHaveValue('');
+      await expect(count).toHaveAttribute(
+        'placeholder',
+        word(inspectorStrings.placeholders, 'rateLimitPer'),
+      );
+      await expect(count).toBeVisible();
+      for (const part of rest) {
+        await expect(part).toHaveCount(1);
+        await expect(part).toBeHidden();
+      }
+
+      await count.fill('100');
+
+      for (const part of rest) {
+        await expect(part).toBeVisible();
+      }
     });
 
     test('accept a rate limit on a queue that has none', async ({ page }) => {
@@ -1412,6 +1780,44 @@ test.describe('a block in the Inspector', () => {
           queue: {
             rateLimit: { limitPerPeriod: 100, periodSec: 20 },
           },
+        },
+      });
+    });
+
+    /**
+     * A count given on its own is a whole limit, over
+     * the period a limit starts with, and the box
+     * beside it says that period straight away. So
+     * passing through that box on the way out of the
+     * row leaves the limit as it was given, rather
+     * than reading the box's old emptiness as a
+     * limit taken off.
+     */
+    test('fill in a limit’s other half, and keep it when passed over', async ({
+      page,
+    }) => {
+      const harness = await openInspector(
+        page,
+        blockInit(queueSubject(INDEXING)),
+      );
+      const count = page.locator('[data-field="rateLimitPer"] input');
+      const period = page.locator('[data-field="rateLimitSec"] input');
+
+      await expect(period).toHaveValue('');
+
+      await count.fill('100');
+      await count.press('Tab');
+
+      await expect(period).toBeFocused();
+      await expect(period).toHaveValue('60');
+
+      await period.press('Tab');
+
+      const edits = await harness.postedOfType('edit');
+      expect(edits).toHaveLength(1);
+      expect(edits[0]?.node).toMatchObject({
+        config: {
+          queue: { rateLimit: { limitPerPeriod: 100, periodSec: 60 } },
         },
       });
     });
@@ -1443,18 +1849,13 @@ test.describe('a block in the Inspector', () => {
         },
       });
 
-      const revised = queueSubject({
-        ...partitioned,
-        queue: {
-          ...partitioned.queue,
-          partitionRateLimit: { limitPerPeriod: 30, periodSec: 60 },
-        },
-      });
       await harness.show(
-        blockInit({
-          ...revised,
-          ir: { ...revised.ir, revision: revised.ir.revision + 1 },
-          revision: revised.ir.revision + 1,
+        revised({
+          ...partitioned,
+          queue: {
+            ...partitioned.queue,
+            partitionRateLimit: { limitPerPeriod: 30, periodSec: 60 },
+          },
         }),
       );
 
@@ -1476,23 +1877,6 @@ test.describe('a block in the Inspector', () => {
           },
         },
       });
-    });
-
-    /**
-     * What each group needs saying about it, which
-     * is not a fact about any one field in it: which
-     * process a limit holds back, and which two
-     * settings the app refuses together.
-     */
-    test('say under each header what its fields do not', async ({ page }) => {
-      await openInspector(page, blockInit(queueSubject(INDEXING)));
-
-      await expect(
-        page.locator('[data-field="queuePolicy"] .field-note'),
-      ).toHaveText(word(inspectorStrings.hints, 'queuePolicy'));
-      await expect(
-        page.locator('[data-field="enqueuePolicy"] .field-note'),
-      ).toHaveText(word(inspectorStrings.hints, 'enqueuePolicy'));
     });
 
     /**
@@ -1535,6 +1919,249 @@ test.describe('a block in the Inspector', () => {
     });
 
     /**
+     * Folded, the group is its header and nothing
+     * else: not its rows, and not the sentence about
+     * them, which is read after them once they are
+     * there to be read.
+     */
+    test('keep the advanced knobs out of the page until asked', async ({
+      page,
+    }) => {
+      await openInspector(page, blockInit(queueSubject(INDEXING)));
+
+      const knobs = [
+        'partitionWorkerConcurrency',
+        'partitionRateLimitPer',
+        'partitionRateLimitSec',
+        'minPollingIntervalMs',
+        'onConflict',
+      ];
+      const hint = page.locator('[data-group-hint="advanced"]');
+
+      await expect(page.locator('[data-field="advanced"]')).toHaveCount(1);
+      for (const knob of knobs) {
+        await expect(page.locator(`[data-field="${knob}"]`)).toHaveCount(0);
+      }
+      await expect(hint).toHaveCount(0);
+
+      await page.locator('[data-field="advanced"] .section-head').click();
+
+      for (const knob of knobs) {
+        await expect(page.locator(`[data-field="${knob}"]`)).toHaveCount(1);
+      }
+      await expect(hint).toHaveText(word(inspectorStrings.hints, 'advanced'));
+      expect(
+        await hint.evaluate(
+          (said) =>
+            said.previousElementSibling?.getAttribute('data-field') ?? null,
+        ),
+      ).toBe('onConflict');
+    });
+
+    for (const theme of THEMES_ALL) {
+      /**
+       * An empty priority and an empty delay are
+       * settings nobody gave, and the words for that
+       * stand in the empty box in the editor's
+       * placeholder colour — never in a value's, where
+       * "none" would read as a value somebody typed.
+       */
+      test(`show unset and none as placeholders in ${theme}`, async ({
+        page,
+      }) => {
+        const harness = await openInspector(
+          page,
+          blockInit(queueSubject(INDEXING)),
+          theme,
+        );
+
+        const expected = colourOf(theme, 'input-placeholder');
+        const boxes = {
+          priority: [word(inspectorStrings.placeholders, 'priority'), 'unset'],
+          delaySeconds: [
+            word(inspectorStrings.placeholders, 'delaySeconds'),
+            'none',
+          ],
+        };
+
+        for (const [id, [said, literal]] of Object.entries(boxes)) {
+          const box = page.locator(`[data-field="${id}"] input`);
+
+          await expect(box).toHaveValue('');
+          await expect(box).toHaveAttribute('placeholder', said!);
+          expect(said).toBe(literal);
+
+          const colour = await placeholderColour(page, box);
+          expect(sameColour(colour, expected), `${colour} ≠ ${expected}`).toBe(
+            true,
+          );
+        }
+
+        // A unit counts a number, so it waits for one:
+        // beside the word it would read "none s".
+        const unit = page.locator('[data-field="delaySeconds"] .property-unit');
+
+        await expect(unit).toHaveText('s');
+        await expect(unit).toBeHidden();
+
+        await harness.show(
+          revised({
+            ...INDEXING,
+            enqueue: { ...INDEXING.enqueue, delaySeconds: 10 },
+          }),
+        );
+
+        await expect(
+          page.locator('[data-field="delaySeconds"] input'),
+        ).toHaveValue('10');
+        await expect(unit).toBeVisible();
+      });
+    }
+
+    test('set partitioning in the machine face', async ({ page }) => {
+      await openInspector(page, blockInit(queueSubject(INDEXING)));
+
+      const menu = page.locator('[data-field="partitioning"] select');
+      await expect(menu).toHaveCount(1);
+      await expect(menu).toHaveAttribute('data-mono', '');
+      expect(
+        await menu.evaluate((select) => getComputedStyle(select).fontFamily),
+      ).toContain('Spline Sans Mono');
+      await expect(menu.locator('option')).toHaveText([
+        word(inspectorStrings.options, 'partitioning.off'),
+        word(inspectorStrings.options, 'partitioning.on'),
+      ]);
+    });
+
+    /**
+     * A pane is short, and a queue's form with its
+     * advanced knobs open is the longest one there
+     * is. The form scrolls inside the face, so the
+     * block's name and its two faces stay where they
+     * are however far down somebody has gone — and
+     * stay gone that far when what they committed
+     * comes back as the next revision.
+     */
+    test('scroll the form, never the page or its head', async ({ page }) => {
+      const harness = await mountInspector(page);
+      await page.setViewportSize({ width: 300, height: 360 });
+
+      const partitioned = {
+        ...LIMITED,
+        queue: { ...LIMITED.queue, partitionConcurrency: 2 },
+      };
+      await harness.show(blockInit(queueSubject(partitioned)));
+      await page.locator('[data-field="advanced"] .section-head').click();
+      await expect(page.locator('[data-field="onConflict"]')).toHaveCount(1);
+
+      const face = page.locator('[role="tabpanel"]');
+      const tops = () =>
+        page.evaluate(() => ({
+          header: document
+            .querySelector('[data-inspector-header]')!
+            .getBoundingClientRect().top,
+          tabs: document
+            .querySelector('[role="tablist"]')!
+            .getBoundingClientRect().top,
+        }));
+
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollHeight === window.innerHeight,
+        ),
+      ).toBe(true);
+      expect(
+        await face.evaluate(
+          (scroll) => scroll.scrollHeight > scroll.clientHeight,
+        ),
+      ).toBe(true);
+
+      const before = await tops();
+      await face.evaluate((scroll) => {
+        scroll.scrollTop = scroll.scrollHeight;
+      });
+      const scrolled = await face.evaluate((scroll) => scroll.scrollTop);
+
+      expect(scrolled).toBeGreaterThan(0);
+      expect(await tops()).toEqual(before);
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+      const polling = page.locator('[data-field="minPollingIntervalMs"] input');
+      await polling.fill('500');
+      await polling.press('Enter');
+      expect(await harness.postedOfType('edit')).toHaveLength(1);
+
+      await harness.show(
+        revised({
+          ...partitioned,
+          queue: { ...partitioned.queue, minPollingIntervalMs: 500 },
+        }),
+      );
+      await expect(polling).toHaveValue('500');
+
+      expect(await face.evaluate((scroll) => scroll.scrollTop)).toBe(scrolled);
+      expect(await tops()).toEqual(before);
+    });
+
+    /**
+     * The advanced knobs are short nouns, with the
+     * unit a number is counted in drawn beside the
+     * number, so each fits the queue's label column
+     * on one line and its row is as tall as any row
+     * with one box in it.
+     */
+    test('fit the advanced labels on one line', async ({ page }) => {
+      const partitioned = {
+        ...LIMITED,
+        queue: {
+          ...LIMITED.queue,
+          partitionConcurrency: 2,
+          partitionWorkerConcurrency: 1,
+          partitionRateLimit: { limitPerPeriod: 30, periodSec: 1 },
+          minPollingIntervalMs: 250,
+        },
+      };
+      await openInspector(page, blockInit(queueSubject(partitioned)));
+      await page.locator('[data-field="advanced"] .section-head').click();
+
+      const oneBox = rowOf(page, 'queueName');
+      await expect(oneBox).toHaveCount(1);
+      const height = (await oneBox.boundingBox())!.height;
+
+      const rows = {
+        partitionWorkerConcurrency: 'partition workers',
+        partitionRateLimitPer: 'partition rate limit',
+        minPollingIntervalMs: 'min polling',
+      };
+
+      for (const [id, label] of Object.entries(rows)) {
+        const row = rowOf(page, id);
+        await expect(row).toHaveCount(1);
+
+        const name = row.locator(':scope > .property-label');
+        await expect(name).toHaveText(label);
+        expect(await linesIn(name), label).toBe(1);
+        expect((await row.boundingBox())!.height, label).toBeCloseTo(height, 0);
+      }
+
+      await expect(
+        rowOf(page, 'partitionRateLimitPer').getByRole('textbox', {
+          name: 'partition rate limit, count',
+          exact: true,
+        }),
+      ).toHaveValue('30');
+      await expect(
+        rowOf(page, 'partitionRateLimitPer').getByRole('textbox', {
+          name: 'partition rate limit, period',
+          exact: true,
+        }),
+      ).toHaveValue('1');
+      await expect(
+        page.locator('[data-field="minPollingIntervalMs"] .property-unit'),
+      ).toHaveText('ms');
+    });
+
+    /**
      * Core reports both of these against the block,
      * under one rule, at one severity. Only one of
      * them has a box on this form holding half its
@@ -1558,9 +2185,9 @@ test.describe('a block in the Inspector', () => {
 
     /**
      * And the labels get the room their scopes need.
-     * `worker concurrency / partition` in the column
-     * every other form is set in is four stacked
-     * fragments beside a one-line box.
+     * `worker concurrency` in the column every other
+     * form is set in wraps under itself beside a
+     * one-line box.
      */
     test('are labelled in a column wide enough to read', async ({ page }) => {
       const harness = await openInspector(
@@ -1577,6 +2204,22 @@ test.describe('a block in the Inspector', () => {
       );
 
       expect(await labelTrack(page)).toBe(76);
+    });
+
+    /**
+     * The queue kind ships, so its head is the head
+     * every block has — its name, its kind and where
+     * a run got to — with no tag saying it is still
+     * to come.
+     */
+    test('carry no tag saying the kind is still to come', async ({ page }) => {
+      await openInspector(page, blockInit(queueSubject(INDEXING)));
+      await page.locator('[data-field="advanced"] .section-head').click();
+
+      await expect(page.locator('[data-inspector-kind]')).toHaveText(
+        canvasWords.kinds.queue,
+      );
+      await expect(page.getByText(/^\s*next\s*$/i)).toHaveCount(0);
     });
   });
 
@@ -3913,58 +4556,6 @@ test.describe('a field at rest and in use', () => {
       .evaluate((input) => input.setAttribute('data-probe', ''));
   }
 
-  /**
-   * The colour a field's placeholder is painted in.
-   *
-   * The browser draws a placeholder in an element of
-   * its own inside the field, which the page cannot
-   * reach: asked for the placeholder's style, it
-   * answers with the field's. The DevTools protocol
-   * can reach it, so that is what is asked. The field
-   * is given a placeholder and emptied by hand, since
-   * a step's form draws none, and nothing is told:
-   * the page's own idea of the value is left alone.
-   */
-  async function placeholderColour(
-    page: Page,
-    field: Locator,
-  ): Promise<string> {
-    await field.evaluate((input: HTMLInputElement) => {
-      input.setAttribute('placeholder', '·');
-      input.value = '';
-    });
-
-    const devtools = await page.context().newCDPSession(page);
-    await devtools.send('DOM.enable');
-    await devtools.send('CSS.enable');
-
-    const { root } = await devtools.send('DOM.getDocument', {
-      depth: -1,
-      pierce: true,
-    });
-
-    type Node = typeof root;
-    const drawn: Node[] = [];
-    const walk = (node: Node): void => {
-      if (node.attributes?.includes('-webkit-input-placeholder')) {
-        drawn.push(node);
-      }
-      [...(node.children ?? []), ...(node.shadowRoots ?? [])].forEach(walk);
-    };
-    walk(root);
-
-    // The one field given a placeholder is the one
-    // field that draws the element.
-    expect(drawn).toHaveLength(1);
-
-    const { computedStyle } = await devtools.send(
-      'CSS.getComputedStyleForNode',
-      { nodeId: drawn[0]!.nodeId },
-    );
-
-    return computedStyle.find((one) => one.name === 'color')?.value ?? '';
-  }
-
   /** Which lens the focused control belongs to. */
   function focusedField(page: Page): Promise<string | undefined> {
     return page.evaluate(
@@ -4055,6 +4646,15 @@ test.describe('a field at rest and in use', () => {
       const value = await field.evaluate(
         (input) => getComputedStyle(input).color,
       );
+
+      // A step's form draws no placeholder, so the
+      // field is given one and emptied by hand, and
+      // nothing is told: the page's own idea of the
+      // value is left alone.
+      await field.evaluate((input: HTMLInputElement) => {
+        input.setAttribute('placeholder', '·');
+        input.value = '';
+      });
       const placeholder = await placeholderColour(page, field);
       const expected = colourOf(theme, 'input-placeholder');
 
@@ -4097,8 +4697,13 @@ test.describe('a field at rest and in use', () => {
           await labelBeforeValue(row);
         }
 
+        // Every control somebody can reach: the rest of
+        // a limit nobody set is not drawn until a count
+        // is typed, and has nothing to be called by
+        // until then.
         const controls = await page
           .locator('[data-property] :is(input, select, textarea, button)')
+          .filter({ visible: true })
           .all();
 
         expect(controls.length, block.nodeId).toBeGreaterThan(0);
@@ -4178,9 +4783,13 @@ test.describe('a field at rest and in use', () => {
           .map((section) => section.nextElementSibling)
           .filter((next) => next?.matches('[data-property]') === true)
           .map((row) => width(row!, 'Top')),
+        // A group's last row, or the sentence said
+        // after it.
         afterGroup: sections
           .filter((section) =>
-            section.previousElementSibling?.matches('[data-property]'),
+            section.previousElementSibling?.matches(
+              '[data-property], .field-hint',
+            ),
           )
           .map((section) => width(section, 'Top')),
         hints: [
@@ -4195,10 +4804,10 @@ test.describe('a field at rest and in use', () => {
       new Set(['0px']),
     );
 
-    // The retry policy, the queue's registration and
-    // what each item is enqueued with.
+    // The queue's registration, what each item is
+    // enqueued with, and the retry policy.
     expect(read.firstInGroup).toEqual(['1px', '1px', '1px']);
-    expect(read.afterGroup.length).toBeGreaterThanOrEqual(2);
+    expect(read.afterGroup.length).toBeGreaterThanOrEqual(3);
     expect(new Set(read.afterGroup)).toEqual(new Set(['0px']));
 
     expect(read.hints.length).toBeGreaterThan(0);
@@ -4333,6 +4942,33 @@ test.describe('a field at rest and in use', () => {
    * document says differ, and only what was sent
    * tells the field it has nothing left to send.
    */
+  /**
+   * Until the host has answered, a field holds what
+   * was typed in it as it was typed, even where the
+   * document will write it back differently: the
+   * answer is the next revision, which draws the
+   * field afresh.
+   */
+  test('keeps what was typed in a field until the host answers', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('find_slot')),
+    );
+    const field = attempts(page);
+
+    await field.fill('5.0');
+    await field.press('Enter');
+
+    expect(await harness.postedOfType('edit')).toHaveLength(1);
+    await expect(field).toHaveValue('5.0');
+
+    await harness.show(landed(5));
+
+    await expect(field).toHaveValue('5');
+  });
+
   test('sends one edit for a field left after Enter', async ({ page }) => {
     const harness = await openInspector(
       page,

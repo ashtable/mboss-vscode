@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import { Fragment, useId, type ReactNode } from 'react';
 
 import { FieldHint } from './FieldHint.js';
 import { hooked } from './hook.js';
@@ -89,9 +89,14 @@ export function PropertyRow(props: PropertyRowProps) {
   // says after the control's name: the unit is not
   // in the box, and the note is not on the row's
   // line, so neither is reached by reading the
-  // control alone.
-  const describedBy =
-    [unit === undefined ? '' : ids.unit, note === undefined ? '' : ids.note]
+  // control alone. The unit is drawn after the last
+  // control and is what that one is counted in, so
+  // in a pair it describes that half and no other.
+  const describing = (counted: boolean): string | undefined =>
+    [
+      counted && unit !== undefined ? ids.unit : '',
+      note === undefined ? '' : ids.note,
+    ]
       .filter((id) => id !== '')
       .join(' ') || undefined;
 
@@ -99,13 +104,27 @@ export function PropertyRow(props: PropertyRowProps) {
 
   const held =
     props.controls !== undefined
-      ? props.controls.map(({ field, control }) => (
-          <span key={field} className="property-control" data-field={field}>
-            {control({ id: `${named}${field}`, describedBy })}
-          </span>
+      ? props.controls.map(({ field, control }, at, all) => (
+          <Fragment key={field}>
+            {/* The halves read as one figure, a mark
+                between each two; each is named for
+                what it holds, so the mark is not
+                read out. */}
+            {at === 0 ? null : (
+              <span className="property-joint" aria-hidden="true">
+                /
+              </span>
+            )}
+            <span className="property-control" data-field={field}>
+              {control({
+                id: `${named}${field}`,
+                describedBy: describing(at === all.length - 1),
+              })}
+            </span>
+          </Fragment>
         ))
       : props.control !== undefined
-        ? props.control({ id: ids.control, describedBy })
+        ? props.control({ id: ids.control, describedBy: describing(true) })
         : props.value;
 
   return (

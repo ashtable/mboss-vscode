@@ -573,11 +573,6 @@ describe('a queue block', () => {
       'in',
       'out',
 
-      'retryPolicy',
-      'retryMaxAttempts',
-      'retryIntervalSeconds',
-      'retryBackoffRate',
-
       'queuePolicy',
       'queueName',
       'globalConcurrency',
@@ -592,6 +587,11 @@ describe('a queue block', () => {
       'priority',
       'delaySeconds',
       'deduplicationPath',
+
+      'retryPolicy',
+      'retryMaxAttempts',
+      'retryIntervalSeconds',
+      'retryBackoffRate',
 
       'advanced',
       'partitionWorkerConcurrency',
@@ -631,9 +631,9 @@ describe('a queue block', () => {
       ),
     ).toEqual([
       { id: 'function', control: 'section', folds: false },
-      { id: 'retryPolicy', control: 'section', folds: false },
       { id: 'queuePolicy', control: 'section', folds: false },
       { id: 'enqueuePolicy', control: 'section', folds: false },
+      { id: 'retryPolicy', control: 'section', folds: false },
       { id: 'advanced', control: 'section', folds: true },
     ]);
   });

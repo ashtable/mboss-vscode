@@ -430,25 +430,23 @@ function partitioned(node: Queue): boolean {
  * and a single column of twenty boxes is how
  * somebody sets a per-partition limit believing
  * they set the queue's. So each policy is a group,
- * and the knobs nobody turns often are a third one,
- * folded.
+ * and the knobs nobody turns often are a group of
+ * their own, folded.
  *
- * The function its items run and that function's
- * policy come first, each in the group every block
- * that runs code has. A header owns everything
- * after it as far as the next one, so the order of
- * the headers is the order of the groups.
+ * The groups come in the order the settings take
+ * hold: the function its items run, then what the
+ * queue is registered with, then what each item is
+ * enqueued with, then how hard that item's run tries
+ * — which is decided last, once the item is running.
+ * A header owns everything after it as far as the
+ * next one, so the order of the headers is the
+ * order of the groups.
  */
 function queueFields(node: Queue): Lens<Queue>[] {
   const held = partitioned(node);
 
   return [
     ...runsCode<Queue>(),
-
-    // A queue block starts a run per item, so what
-    // is set here is one item's retry rather than
-    // the whole block's.
-    ...retryFields<Queue>(),
 
     section<Queue>('queuePolicy'),
     text(
@@ -479,6 +477,11 @@ function queueFields(node: Queue): Lens<Queue>[] {
     enqueueCount('delaySeconds'),
     enqueueText('deduplicationPath'),
     ...(held ? [enqueueText('partitionPath')] : []),
+
+    // A queue block starts a run per item, so what
+    // is set here is one item's retry rather than
+    // the whole block's.
+    ...retryFields<Queue>(),
 
     section<Queue>('advanced', { folds: true }),
     queueCount('partitionWorkerConcurrency'),

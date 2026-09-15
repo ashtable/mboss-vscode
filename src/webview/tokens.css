@@ -959,21 +959,42 @@ body.vscode-high-contrast-light {
 
 .property-control {
   display: flex;
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-width: 0;
+}
+
+.property-joint {
+  flex: none;
 }
 
 /* A number counted in a unit is as wide as what is
    typed in it, so the unit reads beside the number
    the way "1 s" is written rather than at the far
-   edge of the row. Never narrower than two figures
-   and the field's own padding, so an emptied field
-   is still something to click. */
-.property > .value:has(> .property-unit) > .field-input {
+   edge of the row. So is each half of a pair, which
+   reads as one figure the same way: "100 / 60 s".
+   Never narrower than two figures and the field's
+   own padding, so an emptied field is still
+   something to click. */
+.property > .value:has(> .property-unit) > .field-input,
+.property-control > .field-input {
   flex: 0 1 auto;
   width: auto;
   min-width: calc(2ch + 2 * var(--space-1-5) + 2px);
   field-sizing: content;
+}
+
+/* A unit counts a number, so it waits for one:
+   beside the word an empty box shows it would read
+   as that word's unit. A pair whose first box is
+   showing that word is a limit nobody set, and
+   draws nothing after the box — a mark and a unit
+   around empty boxes read as a figure gone
+   missing. Typing brings the rest back. */
+.property > .value:has(> .field-input:placeholder-shown) > .property-unit,
+.property
+  > .value:has(> .property-control:first-child > :placeholder-shown)
+  > :not(:first-child) {
+  display: none;
 }
 
 .property-provenance {

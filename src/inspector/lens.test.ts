@@ -9,6 +9,7 @@ import {
 import { configToForm, formToConfig } from './forms.js';
 import {
   apply,
+  pairOf,
   pickerAfter,
   section,
   showsDeclarations,
@@ -294,5 +295,103 @@ describe('whether a block shows the types it declares', () => {
 
     expect(showsDeclarations(queue('Item'), indexItem)).toBe(false);
     expect(showsDeclarations(queue('Page'), indexItem)).toBe(true);
+  });
+});
+
+/**
+ * A limit set as a count and the period it is
+ * counted over.
+ *
+ * The two are one property, so they are drawn in
+ * one row, and they stay two fields: each box is
+ * committed on its own, the way every box is. What
+ * keeps them one limit is that a half is written
+ * with the other beside it — a count with the
+ * period already set, or the period a limit starts
+ * with — and that half a limit is no limit, so
+ * emptying either box takes the whole of it off.
+ */
+describe('a limit written as a pair', () => {
+  const queue = (limits: object = {}): WorkflowNode =>
+    NodeSchema.parse({
+      id: 'index_pages',
+      kind: 'queue',
+      title: 'Index each page',
+      config: {
+        itemsPath: 'pages',
+        queue: { name: 'document-index', ...limits },
+        enqueue: {},
+      },
+    });
+
+  const PAIRS = [
+    ['rateLimitPer', 'rateLimitSec', 'rateLimit'],
+    ['partitionRateLimitPer', 'partitionRateLimitSec', 'partitionRateLimit'],
+  ] as const;
+
+  /** Both halves as the form reads them back. */
+  const read = (node: WorkflowNode, per: string, sec: string) => {
+    const pair = pairOf(configToForm(node).fields, per, sec);
+
+    return pair === undefined ? undefined : [pair.per.value, pair.sec.value];
+  };
+
+  /** One box committed on its own. */
+  const commit = (
+    node: WorkflowNode,
+    id: string,
+    value: number | null,
+  ): WorkflowNode => formToConfig(node, [{ id, control: 'number', value }]);
+
+  it('finds both halves, the count first', () => {
+    const fields = configToForm(
+      queue({ rateLimit: { limitPerPeriod: 100, periodSec: 60 } }),
+    ).fields;
+
+    expect(pairOf(fields, 'rateLimitPer', 'rateLimitSec')).toEqual({
+      per: { id: 'rateLimitPer', control: 'number', value: 100 },
+      sec: { id: 'rateLimitSec', control: 'number', value: 60 },
+    });
+  });
+
+  it('is no pair when either half is missing or out of place', () => {
+    const fields = configToForm(queue()).fields;
+    const without = (id: string) => fields.filter((one) => one.id !== id);
+    const per = fields.findIndex((one) => one.id === 'rateLimitPer');
+
+    expect(per).toBeGreaterThan(-1);
+    expect(
+      pairOf(without('rateLimitSec'), 'rateLimitPer', 'rateLimitSec'),
+    ).toBeUndefined();
+    expect(
+      pairOf(without('rateLimitPer'), 'rateLimitPer', 'rateLimitSec'),
+    ).toBeUndefined();
+    expect(pairOf(fields, 'rateLimitSec', 'rateLimitPer')).toBeUndefined();
+    expect(pairOf(fields, 'rateLimitPer', 'globalConcurrency')).toBeUndefined();
+  });
+
+  it('writes the whole limit from either half', () => {
+    for (const [per, sec, key] of PAIRS) {
+      expect(read(commit(queue(), per, 100), per, sec), key).toEqual([100, 60]);
+      expect(read(commit(queue(), sec, 20), per, sec), key).toEqual([1, 20]);
+
+      const set = queue({ [key]: { limitPerPeriod: 100, periodSec: 20 } });
+
+      expect(read(commit(set, per, 5), per, sec), key).toEqual([5, 20]);
+      expect(read(commit(set, sec, 30), per, sec), key).toEqual([100, 30]);
+    }
+  });
+
+  it('takes the whole limit off when either half is emptied', () => {
+    for (const [per, sec, key] of PAIRS) {
+      const set = queue({ [key]: { limitPerPeriod: 100, periodSec: 20 } });
+
+      for (const emptied of [per, sec]) {
+        const cleared = commit(set, emptied, null);
+
+        expect(read(cleared, per, sec), emptied).toEqual([null, null]);
+        expect(cleared.config, emptied).not.toHaveProperty(`queue.${key}`);
+      }
+    }
   });
 });

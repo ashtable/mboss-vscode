@@ -871,33 +871,43 @@ function inspectorFields(): Record<string, string> {
     maxIterations: l10n.t('max loops'),
     onExhausted: l10n.t('when exhausted'),
 
-    // The three groups a queue block's form is
-    // read in. Two policy models and the knobs
-    // nobody turns often — never one list.
-    queuePolicy: l10n.t('Queue policy · registration'),
-    enqueuePolicy: l10n.t('Enqueue policy · per item'),
-    advanced: l10n.t('Advanced'),
+    // The groups a queue block's form is read in
+    // besides the function and its tries: two policy
+    // models and the knobs nobody turns often — never
+    // one list. Each policy says which of the two
+    // scopes it is.
+    queuePolicy: l10n.t('queue policy · registration'),
+    enqueuePolicy: l10n.t('enqueue policy · per item'),
+    advanced: l10n.t('advanced'),
 
     queueName: l10n.t('queue'),
     // Never a bare "concurrency": three of the four
     // limits below would answer to it.
     globalConcurrency: l10n.t('global concurrency'),
     workerConcurrency: l10n.t('worker concurrency'),
-    rateLimitPer: l10n.t('rate limit'),
-    rateLimitSec: l10n.t('per, in seconds'),
     partitioning: l10n.t('partitioning'),
-    partitionConcurrency: l10n.t('concurrency / partition'),
-    partitionWorkerConcurrency: l10n.t('worker concurrency / partition'),
-    partitionRateLimitPer: l10n.t('rate limit / partition'),
-    partitionRateLimitSec: l10n.t('per, in seconds'),
-    minPollingIntervalMs: l10n.t('min polling interval, in ms'),
+    partitionConcurrency: l10n.t('partition concurrency'),
+    partitionWorkerConcurrency: l10n.t('partition workers'),
+    minPollingIntervalMs: l10n.t('min polling'),
     onConflict: l10n.t('on conflict'),
+
+    // A limit is a count and the period it is
+    // counted over, drawn as one row the first word
+    // names. Each box in it is named for its half,
+    // which is what a screen reader says on reaching
+    // it, since the row's label names both.
+    rateLimit: l10n.t('rate limit'),
+    rateLimitPer: l10n.t('rate limit, count'),
+    rateLimitSec: l10n.t('rate limit, period'),
+    partitionRateLimit: l10n.t('partition rate limit'),
+    partitionRateLimitPer: l10n.t('partition rate limit, count'),
+    partitionRateLimitSec: l10n.t('partition rate limit, period'),
 
     itemsPath: l10n.t('items path'),
     itemType: l10n.t('item type'),
     priority: l10n.t('priority'),
-    delaySeconds: l10n.t('delay, in seconds'),
-    deduplicationPath: l10n.t('deduplication path'),
+    delaySeconds: l10n.t('delay'),
+    deduplicationPath: l10n.t('deduplication'),
     partitionPath: l10n.t('partition path'),
 
     minRounds: l10n.t('min rounds'),
@@ -961,9 +971,17 @@ function inspectorFieldsByKind(): Partial<
  * one short noun and the value stays a number.
  */
 function inspectorUnits(): Record<string, string> {
+  const seconds = l10n.t('s');
+
   return {
-    retryIntervalSeconds: l10n.t('s'),
+    retryIntervalSeconds: seconds,
     retryBackoffRate: l10n.t('×'),
+    delaySeconds: seconds,
+    // Beside a limit's period, which is the half the
+    // row's unit is read with.
+    rateLimitSec: seconds,
+    partitionRateLimitSec: seconds,
+    minPollingIntervalMs: l10n.t('ms'),
   };
 }
 
@@ -978,23 +996,35 @@ function inspectorUnits(): Record<string, string> {
  */
 function inspectorPlaceholders(): Record<string, string> {
   const payloadPath = l10n.t('payload path');
+  const none = l10n.t('none');
 
   return {
     idempotencyKeyPath: payloadPath,
     requesterEmailPath: payloadPath,
+
+    // What an empty box means, which is not a value
+    // anybody gave: no priority — which DBOS takes
+    // ahead of every item that has one — no delay
+    // before an item may start, and no limit, said in
+    // the box a limit is started from.
+    priority: l10n.t('unset'),
+    delaySeconds: none,
+    rateLimitPer: none,
+    partitionRateLimitPer: none,
   };
 }
 
 /**
- * What a group needs saying about it, under its
- * header.
+ * What a group needs saying about it, once its
+ * rows are drawn.
  *
- * Two of the three groups on a queue block are
- * about scopes a person cannot tell apart from the
- * field names alone — which process a limit holds
- * back, and which two settings the app will refuse
- * together. Neither is a fact about one field, so
- * neither is a label.
+ * Two of the groups on a queue block are about
+ * scopes a person cannot tell apart from the field
+ * names alone — which process a limit holds back,
+ * and which two settings DBOS will refuse together.
+ * Neither is a fact about one field, so neither is
+ * a label. The third says what a folded group
+ * holds.
  */
 function inspectorHints(): Record<string, string> {
   return {
@@ -1002,12 +1032,14 @@ function inspectorHints(): Record<string, string> {
 
     // Said rather than enforced: core is where the
     // rule lives, and a form that greyed the box
-    // out would put half of the remedy — dropping
+    // out would put half of the remedy — emptying
     // the path — out of reach of the field holding
-    // it.
+    // it. So the sentence names both ways out.
     enqueuePolicy: l10n.t(
-      'partitioned queues cannot deduplicate — a partition limit and a deduplication path together are an error on the block',
+      'partitioned queues cannot deduplicate — with partitioning on, a deduplication path is an error on the block · empty this box or turn partitioning off',
     ),
+
+    advanced: l10n.t('advanced: partition limits, min polling interval'),
   };
 }
 

@@ -44,9 +44,11 @@ import { fitsFor, signatureOf, type LibFit } from '../canvas/libFunction.js';
 
 import { configToForm, type InspectorField } from './forms.js';
 import {
+  pairOf,
   pickerAfter,
   showsDeclarations,
   visible,
+  type NumberField,
   type PickerEvent,
 } from './lens.js';
 import { fieldNotes } from './notes.js';
@@ -97,6 +99,20 @@ const DECLARED = new Set(['in', 'out']);
 /** The group a block's tries are set in, which says
  *  once that its numbers are configuration. */
 const RETRY_POLICY = 'retryPolicy';
+
+/**
+ * The limits written as a count and the period it
+ * is counted over: each half's lens, and the word
+ * the row they share is called by.
+ */
+const PAIRS = [
+  { per: 'rateLimitPer', sec: 'rateLimitSec', name: 'rateLimit' },
+  {
+    per: 'partitionRateLimitPer',
+    sec: 'partitionRateLimitSec',
+    name: 'partitionRateLimit',
+  },
+] as const;
 
 /**
  * Which control had focus, said so that it can be
@@ -320,12 +336,42 @@ export function ConfigureFace({
 
   // One row can cover every try DBOS made at a step,
   // which is worth saying where the block may make
-  // more than one — once, after the last of the
-  // rows that set how many.
+  // more than one.
   const tries = form.fields.find((field) => field.id === 'retryMaxAttempts');
   const retries =
     tries?.control === 'number' && tries.value !== null && tries.value > 1;
-  const retriesEnd = groupEnd(shown, RETRY_POLICY);
+
+  // What a group needs saying that no one row in it
+  // does is said once its rows are all drawn, after
+  // the last of them; its label only names it. A
+  // folded group draws no rows, and so says nothing
+  // after them either.
+  const ends = new Map(
+    shown
+      .filter((field) => field.control === 'section')
+      .map((field): [number | undefined, string] => [
+        groupEnd(shown, field.id),
+        field.id,
+      ]),
+  );
+
+  const saidAfter = (group: string): ReactNode => {
+    if (folded.has(group)) return null;
+
+    if (group === RETRY_POLICY) {
+      return retries ? (
+        <FieldHint hook={{ 'retry-hint': '' }}>
+          {strings.durationCoversTries}
+        </FieldHint>
+      ) : null;
+    }
+
+    const hint = strings.hints[group];
+
+    return hint === undefined ? null : (
+      <FieldHint hook={{ 'group-hint': group }}>{hint}</FieldHint>
+    );
+  };
 
   // A trigger on a schedule is started by DBOS's
   // scheduler and never by Run. Read off the
@@ -375,7 +421,6 @@ export function ConfigureFace({
           key={field.id}
           id={field.id}
           name={word(field.id)}
-          hint={strings.hints[field.id]}
           open={!folded.has(field.id)}
           onFold={() => fold(field.id)}
         />
@@ -386,7 +431,32 @@ export function ConfigureFace({
           labelId={`${groups}${field.id}`}
           name={word(field.id)}
           mark={field.id === RETRY_POLICY ? strings.configured : undefined}
-          hint={strings.hints[field.id]}
+        />
+      );
+    }
+
+    // A limit's two halves share the row drawn where
+    // its count is, and its period draws nothing of
+    // its own. Two halves the form does not keep
+    // side by side are two rows.
+    const paired = PAIRS.find(
+      (one) => one.per === field.id || one.sec === field.id,
+    );
+    const pair =
+      paired === undefined ? undefined : pairOf(shown, paired.per, paired.sec);
+
+    if (paired !== undefined && pair !== undefined) {
+      return field.id === paired.sec ? null : (
+        <Pair
+          key={field.id}
+          strings={strings}
+          word={word}
+          name={paired.name}
+          pair={pair}
+          labels={labels}
+          notes={[...(notes[pair.per.id] ?? []), ...(notes[pair.sec.id] ?? [])]}
+          readOnly={readOnly}
+          onCommit={onCommit}
         />
       );
     }
@@ -447,17 +517,13 @@ export function ConfigureFace({
           />
         ) : (
           shown.map((field, at) => {
-            const drawn = drawField(field, shown[at - 1]);
+            const ended = ends.get(at);
 
-            return at === retriesEnd && retries ? (
+            return (
               <Fragment key={field.id}>
-                {drawn}
-                <FieldHint hook={{ 'retry-hint': '' }}>
-                  {strings.durationCoversTries}
-                </FieldHint>
+                {drawField(field, shown[at - 1])}
+                {ended === undefined ? null : saidAfter(ended)}
               </Fragment>
-            ) : (
-              drawn
             );
           })
         )}
@@ -925,6 +991,66 @@ function Row({
 }
 
 /**
+ * A limit set as a count and the period it is
+ * counted over, in one row named for the limit.
+ *
+ * Each half stays a field of its own and commits on
+ * its own, since the lens behind either half writes
+ * the whole limit — the other half beside it, or
+ * nothing once either is emptied — so the row only
+ * has to draw two boxes. Each box is named for its
+ * half, because the label beside them names both.
+ */
+function Pair({
+  strings,
+  word,
+  name,
+  pair,
+  labels,
+  notes,
+  readOnly,
+  onCommit,
+}: {
+  strings: InspectorStrings;
+  word: (id: string) => string | undefined;
+
+  /** The id of the word the limit is called by. */
+  name: string;
+
+  pair: { per: NumberField; sec: NumberField };
+  labels: 'wide' | undefined;
+
+  /** What core says about the block that either box
+   *  is a way out of. */
+  notes: string[];
+
+  readOnly: boolean;
+  onCommit: (field: InspectorField) => void;
+}) {
+  return (
+    <PropertyRow
+      label={word(name)}
+      labels={labels}
+      unit={strings.units[pair.sec.id]}
+      note={notes.length === 0 ? undefined : notes.join(' ')}
+      controls={[pair.per, pair.sec].map((half) => ({
+        field: half.id,
+        control: (named: Named) => (
+          <Control
+            strings={strings}
+            field={half}
+            named={named}
+            label={word(half.id)}
+            readOnly={readOnly}
+            onCommit={onCommit}
+          />
+        ),
+      }))}
+    />
+  );
+}
+
+/**
  * A group's label, over the rows it names.
  *
  * Only a name, because a group is read whole. Where
@@ -933,7 +1059,9 @@ function Row({
  * recorded — the label says so once, in a quiet
  * word after it, and the rows say nothing. What the
  * group needs saying that no one row does is said
- * under the label.
+ * after its rows, by the form that draws them; a
+ * group with no rows to follow says it here, under
+ * its label.
  */
 function Group({
   id,
@@ -991,19 +1119,11 @@ function Group({
 function Fold({
   id,
   name,
-  hint,
   open,
   onFold,
 }: {
   id: string;
   name: string | undefined;
-
-  /** What the group needs saying about it that no
-   *  one field in it does. Hidden with the fields
-   *  while the group is folded: a folded group
-   *  shows the way back in and nothing else. */
-  hint: string | undefined;
-
   open: boolean;
   onFold: () => void;
 }) {
@@ -1020,10 +1140,6 @@ function Fold({
         </span>
         {name}
       </button>
-
-      {hint === undefined || !open ? null : (
-        <FieldHint hookClass="field-note">{hint}</FieldHint>
-      )}
     </div>
   );
 }
@@ -1358,12 +1474,18 @@ function Control({
   strings,
   field,
   named,
+  label,
   readOnly,
   onCommit,
 }: {
   strings: InspectorStrings;
   field: InspectorField;
   named: Named;
+
+  /** The control's own name, where no label in its
+   *  row points at it alone. */
+  label?: string;
+
   readOnly: boolean;
   onCommit: (field: InspectorField) => void;
 }) {
@@ -1372,6 +1494,7 @@ function Control({
       return (
         <Select
           {...named}
+          label={label}
           mono
           value={field.value}
           disabled={readOnly}
@@ -1404,8 +1527,10 @@ function Control({
       return (
         <Input
           {...named}
+          label={label}
           mono
           value={field.value === null ? '' : String(field.value)}
+          placeholder={strings.placeholders[field.id]}
           readOnly={readOnly}
           onCommit={(value) =>
             onCommit({
@@ -1420,6 +1545,7 @@ function Control({
       return (
         <Input
           {...named}
+          label={label}
           mono
           value={field.value}
           placeholder={strings.placeholders[field.id]}
@@ -1432,6 +1558,7 @@ function Control({
       return (
         <TextArea
           {...named}
+          label={label}
           mono
           value={field.value}
           readOnly={readOnly}
