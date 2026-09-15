@@ -646,7 +646,11 @@ body.vscode-high-contrast-light {
   color: var(--on-brand);
 }
 
-.btn[data-variant='primary']:hover:not(:disabled, [aria-disabled='true']) {
+.btn[data-variant='primary']:hover:not(
+    :disabled,
+    [aria-disabled='true'],
+    [data-empty]
+  ) {
   border-color: var(--brand-hover);
   background: var(--brand-hover);
 }
@@ -684,8 +688,11 @@ body.vscode-high-contrast-light {
 }
 
 /* Nothing to send yet: the same element and the same
-   type, drawn as a hole. */
+   type, drawn as a hole. Neither the brand's edge
+   nor its hover: round a hole, they read as focus
+   and as something ready to send. */
 .btn[data-empty] {
+  border-color: var(--control-edge);
   background: var(--surface-2);
   color: var(--ink-faint);
 }

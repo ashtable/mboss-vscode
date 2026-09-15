@@ -1,9 +1,8 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
-  type FormEvent,
-  type KeyboardEvent,
   type RefObject,
 } from 'react';
 
@@ -24,6 +23,8 @@ import type {
   SidebarPreview,
   SidebarStrings,
 } from '../webview/protocol.js';
+
+import { Composer } from './Composer.js';
 
 import './sidebar.css';
 
@@ -149,18 +150,7 @@ function Panel(state: SidebarInit) {
   const composer = useRef<HTMLTextAreaElement>(null);
   const log = useRef<HTMLOListElement>(null);
   const rows = transcriptRows(state.transcript);
-
-  // The log follows what arrived last. An agent
-  // writes for minutes at a time, and a panel that
-  // held its position would put every one of those
-  // minutes above the fold — the reader would be
-  // scrolling to keep up with a stream they are
-  // watching happen.
-  useEffect(() => {
-    const element = log.current;
-
-    if (element !== null) element.scrollTop = element.scrollHeight;
-  }, [state.transcript]);
+  const scrolled = useFollow(log, state.transcript);
 
   return (
     <div className="agent">
@@ -178,14 +168,7 @@ function Panel(state: SidebarInit) {
 
       {blocked === undefined ? null : <p className="state">{blocked}</p>}
 
-      {state.failure === undefined ? null : (
-        <div className="failure">
-          <p className="eyebrow">{state.failure.headline}</p>
-          <p className="failure-detail">{state.failure.detail}</p>
-        </div>
-      )}
-
-      <ol className="transcript" ref={log}>
+      <ol className="transcript" ref={log} onScroll={scrolled}>
         {rows.map((row) =>
           row.kind === 'entry' ? (
             <li key={row.entry.id} data-entry={row.entry.id}>
@@ -217,27 +200,104 @@ function Panel(state: SidebarInit) {
         )}
       </ol>
 
-      {state.prompt === undefined ? null : (
-        <Permission prompt={state.prompt} strings={strings} />
-      )}
+      {/* Everything under the log shares one region
+          with a ceiling of its own: a long draft or
+          a tall question scrolls in there, and the
+          log always keeps the rest of the panel. */}
+      <div className="agent-foot">
+        {state.prompt === undefined ? null : (
+          <Permission prompt={state.prompt} strings={strings} />
+        )}
 
-      {state.preview === undefined ? null : (
-        <Proposal
-          preview={state.preview}
-          strings={strings}
-          onRefine={() => composer.current?.focus()}
-        />
-      )}
+        {state.preview === undefined ? null : (
+          <Proposal
+            preview={state.preview}
+            strings={strings}
+            onRefine={() => composer.current?.focus()}
+          />
+        )}
 
-      {blocked === undefined ? (
-        <Composer
-          strings={strings}
-          busy={status === 'streaming'}
-          field={composer}
-        />
-      ) : null}
+        {state.failure === undefined ? null : (
+          <div className="failure">
+            <p className="eyebrow">{state.failure.headline}</p>
+            <p className="failure-detail">{state.failure.detail}</p>
+          </div>
+        )}
+
+        {blocked === undefined ? (
+          <Composer
+            strings={strings}
+            agent={state.agent}
+            status={status}
+            field={composer}
+          />
+        ) : null}
+      </div>
     </div>
   );
+}
+
+/**
+ * Keeps the log on its newest line while somebody is
+ * reading its newest line, and leaves it alone once
+ * they have scrolled back.
+ *
+ * An agent writes for minutes at a time, and a log
+ * that held its position would put every one of
+ * those minutes below the fold. One that always
+ * jumped would pull an earlier line out from under
+ * somebody reading it. So the log follows what
+ * arrives only for a reader already at its end, and
+ * does the same when its own box changes size,
+ * which is what a growing draft does to it.
+ *
+ * Returns what the log calls when it is scrolled.
+ */
+function useFollow(
+  log: RefObject<HTMLOListElement | null>,
+  transcript: readonly SidebarEntry[],
+): () => void {
+  const atEnd = useRef(true);
+
+  const follow = (): void => {
+    const element = log.current;
+
+    if (element !== null && atEnd.current) {
+      element.scrollTop = element.scrollHeight;
+    }
+  };
+
+  // Before paint, so a chunk that arrives is never
+  // drawn once above the fold and then scrolled to.
+  useLayoutEffect(follow, [transcript]);
+
+  useEffect(() => {
+    const element = log.current;
+
+    if (element === null) return;
+
+    const observer = new ResizeObserver(follow);
+
+    observer.observe(element);
+
+    return () => observer.disconnect();
+  }, []);
+
+  // Within a line of the end counts as the end: a
+  // scroll rarely stops on a whole pixel, and
+  // nobody reading the last line means to be told
+  // they have left it.
+  return () => {
+    const element = log.current;
+
+    if (element === null) return;
+
+    const line = Number.parseFloat(getComputedStyle(element).lineHeight);
+    const below =
+      element.scrollHeight - element.scrollTop - element.clientHeight;
+
+    atEnd.current = below <= line;
+  };
 }
 
 /**
@@ -658,61 +718,6 @@ function Permission({
         ))}
       </div>
     </div>
-  );
-}
-
-function Composer({
-  strings,
-  busy,
-  field,
-}: {
-  strings: SidebarStrings;
-  busy: boolean;
-  field: RefObject<HTMLTextAreaElement | null>;
-}) {
-  const [text, setText] = useState('');
-
-  const send = (event: FormEvent): void => {
-    event.preventDefault();
-
-    if (busy || text.trim() === '') return;
-
-    postToHost({ type: 'prompt', text });
-    setText('');
-  };
-
-  // Enter sends and Shift+Enter breaks the line,
-  // which is what every other composer on the
-  // platform does.
-  const onKey = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (event.key !== 'Enter' || event.shiftKey) return;
-
-    event.preventDefault();
-    send(event);
-  };
-
-  return (
-    <form className="composer" onSubmit={send}>
-      <textarea
-        ref={field}
-        rows={2}
-        value={text}
-        placeholder={strings.placeholder}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={onKey}
-      />
-      {busy ? (
-        <button
-          type="button"
-          data-stop
-          onClick={() => postToHost({ type: 'cancel' })}
-        >
-          {strings.stop}
-        </button>
-      ) : (
-        <button type="submit">{strings.send}</button>
-      )}
-    </form>
   );
 }
 

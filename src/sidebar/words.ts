@@ -40,6 +40,15 @@ export const sidebarWords = once(() => ({
   send: l10n.t('Send'),
   stop: l10n.t('Stop'),
   placeholder: l10n.t('Edit the graph, scaffold a lib fn, or ask why…'),
+
+  // The field's own name. The placeholder is an
+  // example of what to write, and it is gone the
+  // moment anything is written.
+  composerLabel: l10n.t('Ask the agent'),
+
+  // Which agent the next prompt goes to, under the
+  // field it is typed into.
+  composerAgent: l10n.t('agent: {0}'),
   newFile: l10n.t('new'),
   permission: l10n.t('Permission needed'),
   always: l10n.t('always'),

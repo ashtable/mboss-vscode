@@ -28,24 +28,28 @@ body {
    composer stays where a person left it. A panel
    that grew with its log would carry the box they
    type into further below the fold with every chunk
-   that arrived. */
+   that arrived. Nothing inside it may make the page
+   itself scroll either: that would carry the head
+   away. The head, the log and the region under it
+   each run to the panel's edges, and each keeps its
+   own padding. */
 .agent {
   box-sizing: border-box;
   height: 100vh;
-  padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  overflow: hidden;
 }
 
 /* — the head — */
 
 .agent-head {
+  flex: none;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
-  padding-bottom: var(--space-2);
+  padding: var(--space-2-5) var(--space-3-5);
   border-bottom: 1px solid var(--hairline);
 }
 
@@ -78,7 +82,9 @@ body {
 }
 
 .state {
+  flex: none;
   margin: 0;
+  padding: var(--space-2-5) var(--space-3-5) 0;
   font-size: var(--text-sm);
   color: var(--ink-muted);
 }
@@ -104,20 +110,46 @@ body {
 
 /* — the conversation — */
 
-/* The one part that scrolls. `min-height: 0` is
-   what lets it: a flex child's floor is its content
+/* The part that scrolls. `min-height: 0` is what
+   lets it: a flex child's floor is its content
    otherwise, and a column of them would push the
-   composer out of the panel rather than scroll. */
+   composer out of the panel rather than scroll. The
+   padding runs down the right edge too, because the
+   editor's scrollbar is drawn over the log rather
+   than beside it. */
 .transcript {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   margin: 0;
-  padding: 0;
+  padding: var(--space-3-5);
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2-5);
+}
+
+/* Everything under the log: a question, a proposal,
+   what went wrong, and the composer. Its ceiling is
+   a share of the view, edge to edge, rather than of
+   what is in it, so the log always keeps the rest;
+   past it, this region scrolls on its own. */
+.agent-foot {
+  box-sizing: border-box;
+  flex: none;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5) var(--space-3-5);
+  border-top: 1px solid var(--hairline);
+}
+
+/* Nothing to say and nowhere to type, before there
+   is an agent: no band at all. */
+.agent-foot:empty {
+  display: none;
 }
 
 .said {
@@ -588,53 +620,78 @@ body {
 
 /* — the composer — */
 
+/* One card holding the field and its row of
+   controls, so the agent a prompt goes to and the
+   way to send it read as part of what is being
+   written. It keeps the widget ground the rest of
+   the panel does not: it is the one thing here
+   somebody writes in. */
 .composer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  border-top: 1px solid var(--hairline);
-  padding-top: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-1);
 }
 
+/* One ring, on the card, drawn inside its edge so
+   the region it sits in cannot clip it. An outline
+   rather than a shadow, because forced colours keep
+   an outline and drop a shadow. */
+.composer:focus-within {
+  outline: 1px solid var(--vscode-focusBorder, var(--brand));
+  outline-offset: -1px;
+}
+
+/* The height is what was typed: at least three
+   lines, so an empty field reads as somewhere to
+   write, and at most a share of the panel, past
+   which the draft scrolls inside itself. Never a
+   grip, which let the field be dragged shut or
+   taller than the panel. The ceiling's floor wins
+   in a short panel, which keeps three lines
+   meaningful there. */
 .composer textarea {
   box-sizing: border-box;
+  display: block;
   width: 100%;
-  resize: vertical;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: var(--vscode-input-background, transparent);
+  margin: 0;
+  field-sizing: content;
+  resize: none;
+  border: none;
+  background: transparent;
   color: var(--vscode-input-foreground, var(--ink));
   font-family: var(--font-body);
   font-size: var(--font-size);
-  padding: var(--space-2);
-  transition: border-color var(--dur-fast) var(--ease-out);
+  /* The nine has no step of its own: it is the
+     inset the field's first line is drawn at. */
+  padding: 9px var(--space-3) var(--space-0-5);
+  line-height: var(--leading-body);
+  min-height: calc(3lh + 9px + var(--space-0-5));
+  max-height: clamp(160px, 40vh, 320px);
+  overflow-y: auto;
 }
 
+.composer textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground, var(--ink-faint));
+}
+
+/* The card draws the ring; a second one inside it
+   would say there were two things to type into. */
 .composer textarea:focus-visible {
-  border-color: var(--brand);
+  outline: none;
 }
 
-.composer button {
-  align-self: flex-end;
-  border: 1px solid var(--brand);
-  border-radius: var(--r-sm);
-  background: var(--brand-tint);
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-4);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
+.composer-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2) var(--space-2) var(--space-3);
 }
 
-.composer button:hover {
-  transform: translateY(var(--lift));
-}
-
-.composer button[data-stop] {
-  border-color: var(--warn);
-  background: var(--warn-tint);
+/* Send, or Stop, at the trailing edge whatever sits
+   before it. */
+.composer-meta > :last-child {
+  margin-inline-start: auto;
 }
 
 /* — a proposal, waiting for an answer — */
@@ -647,7 +704,6 @@ body {
   border-radius: var(--r-md);
   background: var(--brand-tint);
   padding: var(--space-3);
-  margin-bottom: var(--space-3);
 }
 
 .preview-card > .eyebrow {

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import type {
   DiagnosticEntry,
@@ -6,10 +6,18 @@ import type {
   ToolEntry,
 } from '../../src/acp/transcript.js';
 import { foldUpdates } from '../../src/acp/transcript.js';
+import { filled } from '../../src/webview/fill.js';
 import type { SidebarInit } from '../../src/webview/protocol.js';
 
 import { fileEntry, sidebarEntries, sidebarInit } from './fixtures/sidebar.js';
-import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
+import {
+  mount,
+  THEMES,
+  THEMES_ALL,
+  type Harness,
+  type ThemeKind,
+} from './harness.js';
+import { colourOf, sameColour } from './palette.js';
 import { sidebarWords as strings } from './words.js';
 
 /**
@@ -813,6 +821,28 @@ test.describe('a permission request', () => {
   });
 });
 
+/** A draft far longer than the field may grow. */
+const LONG_DRAFT = Array.from(
+  { length: 30 },
+  (_, index) => `step ${index + 1}`,
+).join('\n');
+
+/** One frame, so a scroll or a resize the page
+ *  queued has been delivered. */
+async function aFrame(page: Page): Promise<void> {
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => resolve(0))),
+  );
+}
+
+/** How far the log is from showing its end. */
+function gapBelow(log: Locator): Promise<number> {
+  return log.evaluate(
+    (element) =>
+      element.scrollHeight - element.scrollTop - element.clientHeight,
+  );
+}
+
 /**
  * The panel is a column the height of the view,
  * with the log scrolling inside it.
@@ -879,6 +909,147 @@ test.describe('the shape of the panel', () => {
       0,
     );
   });
+
+  /**
+   * Everything under the log shares one region that
+   * scrolls on its own once it would take more than
+   * its share, so a view too short for the header
+   * and a long draft still never scrolls as a whole
+   * page — which would carry the header away.
+   */
+  for (const height of [600, 200]) {
+    test(`never scrolls the page itself, ${height}px tall`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 420, height });
+
+      const harness = await openPanel(page);
+      await showing(harness, [said('Wiring the booking flow.\n'.repeat(60))]);
+      await page.locator('.composer textarea').fill(LONG_DRAFT);
+      await aFrame(page);
+
+      const view = await page.evaluate(() => ({
+        scrolls: document.documentElement.scrollHeight,
+        tall: window.innerHeight,
+      }));
+
+      expect(view.scrolls).toBe(view.tall);
+
+      // Bounded by its own share of the view, edge
+      // to edge, not merely cut off by the panel's.
+      const foot = page.locator('.agent-foot');
+
+      await expect(foot).toHaveCount(1);
+
+      const box = (await foot.boundingBox())!;
+
+      expect(box.height).toBeLessThanOrEqual(0.6 * view.tall + 1);
+      expect(box.y + box.height).toBeLessThanOrEqual(view.tall + 1);
+    });
+  }
+
+  test('leaves a reader where they were when something arrives', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 420, height: 700 });
+
+    const harness = await openPanel(page);
+    await showing(harness, [said(long)]);
+
+    const log = page.locator('.transcript');
+
+    expect(
+      await log.evaluate(
+        (element) => element.scrollHeight > element.clientHeight,
+      ),
+    ).toBe(true);
+
+    await log.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await aFrame(page);
+
+    await showing(harness, [
+      said(long),
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-9',
+        title: 'Read lib/booking.ts',
+        kind: 'read',
+        status: 'pending',
+      },
+    ]);
+
+    await expect(page.locator('[data-tool-call="call-9"]')).toHaveCount(1);
+    expect(await log.evaluate((element) => element.scrollTop)).toBe(0);
+  });
+
+  /**
+   * A draft that grows takes its height from the
+   * log. Someone reading the newest line keeps
+   * reading it; someone scrolled back to something
+   * earlier keeps that instead.
+   */
+  test('follows as the composer grows for a reader at the bottom', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 420, height: 700 });
+
+    const harness = await openPanel(page);
+    await showing(harness, [said(long)]);
+
+    const log = page.locator('.transcript');
+    const field = page.locator('.composer textarea');
+
+    await expect.poll(() => gapBelow(log)).toBeLessThanOrEqual(1);
+
+    const before = (await field.boundingBox())!.height;
+    await field.fill('and then\n'.repeat(6));
+
+    await expect
+      .poll(async () => (await field.boundingBox())!.height)
+      .toBeGreaterThan(before);
+    await expect.poll(() => gapBelow(log)).toBeLessThanOrEqual(1);
+  });
+
+  test('holds still as the composer grows for a reader scrolled up', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 420, height: 700 });
+
+    const harness = await openPanel(page);
+    await showing(harness, [said(long)]);
+
+    const log = page.locator('.transcript');
+    const field = page.locator('.composer textarea');
+
+    await log.evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await aFrame(page);
+
+    const before = (await field.boundingBox())!.height;
+    await field.fill('and then\n'.repeat(6));
+
+    await expect
+      .poll(async () => (await field.boundingBox())!.height)
+      .toBeGreaterThan(before);
+    await aFrame(page);
+
+    expect(await log.evaluate((element) => element.scrollTop)).toBe(0);
+  });
+
+  /** An overlay scrollbar sits over the log's own
+   *  edge, so the text has to stop short of it. */
+  test('keeps the scrollbar clear of the text', async ({ page }) => {
+    await openPanel(page);
+
+    const padding = await page
+      .locator('.transcript')
+      .evaluate((element) => getComputedStyle(element).paddingRight);
+
+    expect(Number.parseFloat(padding)).toBeGreaterThanOrEqual(12);
+  });
 });
 
 test.describe('the composer', () => {
@@ -922,6 +1093,321 @@ test.describe('the composer', () => {
 
     expect(await harness.postedOfType('cancel')).toEqual([{ type: 'cancel' }]);
   });
+
+  /** A turn stalled on a question is still a turn,
+   *  and it is the one most worth a way out of. */
+  test('offers Stop while the agent waits on a permission', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({
+        status: 'awaiting-permission',
+        prompt: {
+          toolCallId: 'call-1',
+          title: 'Write lib/twilioChat.ts',
+          toolKey: 'write_file',
+          options: [
+            { optionId: 'yes', label: 'Allow once', kind: 'allow_once' },
+          ],
+        },
+      }),
+    );
+
+    await expect(page.locator('.permission')).toBeVisible();
+    await expect(page.locator('.composer [data-stop]')).toBeVisible();
+    await expect(page.locator('.composer button[type="submit"]')).toHaveCount(
+      0,
+    );
+  });
+
+  /**
+   * Somebody on a keyboard who pressed Send is on
+   * the control that stops what they started. Were
+   * Stop a new element, the press would drop them
+   * at the top of the page, a whole log away.
+   */
+  test('keeps focus on the one button when Send becomes Stop', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+
+    await page.locator('.composer textarea').fill('wire the booking flow');
+    await page.locator('.composer button[type="submit"]').focus();
+    await page.keyboard.press('Space');
+
+    expect(await harness.postedOfType('prompt')).toHaveLength(1);
+
+    await harness.show(sidebarInit({ status: 'streaming' }));
+
+    await expect(page.locator('.composer [data-stop]')).toHaveCount(1);
+    expect(
+      await page.evaluate(
+        () => document.activeElement?.matches('[data-stop]') ?? false,
+      ),
+    ).toBe(true);
+  });
+
+  test('puts the agent before Send in one row', async ({ page }) => {
+    const harness = await openPanel(page);
+
+    const field = page.locator('.composer textarea');
+    const agent = page.locator('.composer [data-composer-agent]');
+    const send = page.locator('.composer button[type="submit"]');
+
+    await expect(agent).toHaveCount(1);
+    await expect(send).toHaveCount(1);
+
+    expect(
+      await page
+        .locator('.composer')
+        .evaluate((form) =>
+          [...form.querySelectorAll('button')].map((button) =>
+            button.matches('[data-composer-agent]') ? 'agent' : button.type,
+          ),
+        ),
+    ).toEqual(['agent', 'submit']);
+
+    const under = (await field.boundingBox())!;
+    const left = (await agent.boundingBox())!;
+    const right = (await send.boundingBox())!;
+
+    expect(left.y).toBeGreaterThanOrEqual(under.y + under.height);
+    expect(
+      Math.abs(left.y + left.height / 2 - (right.y + right.height / 2)),
+    ).toBeLessThanOrEqual(1);
+    expect(left.x + left.width).toBeLessThan(right.x);
+
+    await expect(agent).toHaveText(
+      `${filled(strings.composerAgent, 'claude code')} ▾`,
+    );
+    await expect(agent).toHaveAccessibleName(
+      filled(strings.composerAgent, 'claude code'),
+    );
+
+    await agent.click();
+
+    expect(await harness.postedOfType('chooseAgent')).toEqual([
+      { type: 'chooseAgent' },
+    ]);
+  });
+
+  test('names the field and the send', async ({ page }) => {
+    await openPanel(page);
+
+    const send = page.locator('.composer button[type="submit"]');
+
+    await expect(send).toHaveCount(1);
+    await expect(page.locator('.composer textarea')).toHaveAccessibleName(
+      strings.composerLabel,
+    );
+    await expect(send).toHaveAccessibleName(strings.send);
+  });
+
+  test('sends on Enter', async ({ page }) => {
+    const harness = await openPanel(page);
+    const field = page.locator('.composer textarea');
+
+    await field.fill('wire the booking flow');
+    await field.press('Enter');
+
+    expect(await harness.postedOfType('prompt')).toEqual([
+      { type: 'prompt', text: 'wire the booking flow' },
+    ]);
+    await expect(field).toHaveValue('');
+  });
+
+  /**
+   * An input method uses Enter to settle the
+   * character being built. Sending then would send
+   * half a word and throw the rest away.
+   */
+  test('sends nothing while a character is still being composed', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+    const field = page.locator('.composer textarea');
+
+    await field.fill('予約');
+    await field.dispatchEvent('keydown', { key: 'Enter', isComposing: true });
+    await aFrame(page);
+
+    expect(await harness.postedOfType('prompt')).toEqual([]);
+    await expect(field).toHaveValue('予約');
+  });
+
+  test('breaks the line on Shift+Enter', async ({ page }) => {
+    const harness = await openPanel(page);
+    const field = page.locator('.composer textarea');
+
+    await field.fill('wire the booking flow');
+    await field.press('Shift+Enter');
+
+    await expect(field).toHaveValue('wire the booking flow\n');
+    expect(await harness.postedOfType('prompt')).toEqual([]);
+  });
+
+  /**
+   * The field's height is what was typed, never a
+   * handle somebody dragged: at least three lines,
+   * so an empty field reads as a place to write, and
+   * at most a share of the panel, so a long draft
+   * scrolls inside itself and leaves the log room.
+   */
+  for (const height of [600, 300, 1000]) {
+    test(`grows with its text, to a share of a ${height}px panel`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 420, height });
+      await openPanel(page);
+
+      const field = page.locator('.composer textarea');
+
+      await expect(field).toHaveCount(1);
+
+      const empty = await field.evaluate((element) => ({
+        tall: element.clientHeight,
+        line: Number.parseFloat(getComputedStyle(element).lineHeight),
+      }));
+
+      expect(empty.line).toBeGreaterThan(0);
+      expect(empty.tall).toBeGreaterThanOrEqual(3 * empty.line);
+
+      await field.fill(LONG_DRAFT);
+      await aFrame(page);
+
+      const grown = await field.evaluate((element) => ({
+        tall: element.clientHeight,
+        scrolls: element.scrollHeight,
+      }));
+      const ceiling = Math.min(320, Math.max(160, 0.4 * height));
+
+      expect(Math.abs(grown.tall - ceiling)).toBeLessThanOrEqual(1);
+      expect(grown.scrolls).toBeGreaterThan(grown.tall);
+    });
+  }
+
+  for (const theme of THEMES_ALL) {
+    test(`draws the composer in ${theme}`, async ({ page }) => {
+      const harness = await mount(page, 'sidebar', theme);
+      await harness.show(sidebarInit());
+
+      const field = page.locator('.composer textarea');
+      const send = page.locator('.composer button[type="submit"]');
+
+      await expect(send).toHaveCount(1);
+
+      expect(
+        await field.evaluate((element) => {
+          const style = getComputedStyle(element);
+
+          return { resize: style.resize, padding: style.padding };
+        }),
+      ).toEqual({ resize: 'none', padding: '9px 12px 2px' });
+
+      const button = (await send.boundingBox())!;
+
+      expect(button.width).toBeCloseTo(26, 1);
+      expect(button.height).toBeCloseTo(26, 1);
+
+      // Nothing typed yet: a hole where the send
+      // will be, not a button asking to be pressed.
+      const ground = await send.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      );
+      const hole = colourOf(theme, 'surface-2');
+
+      expect(sameColour(ground, hole), `${ground} ≠ ${hole}`).toBe(true);
+
+      // And not the primary's edge, which round a
+      // hole reads as a control that has focus. An
+      // edge only where a theme draws every
+      // control's.
+      const edge = await send.evaluate(
+        (element) => getComputedStyle(element).borderTopColor,
+      );
+      const drawnEdge = theme.startsWith('high-contrast')
+        ? THEMES[theme]['--vscode-contrastBorder']!
+        : 'rgba(0, 0, 0, 0)';
+
+      expect(sameColour(edge, drawnEdge), `${edge} ≠ ${drawnEdge}`).toBe(true);
+
+      // Pointing at it offers nothing to press.
+      await send.hover();
+
+      const hovered = await send.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      );
+
+      expect(sameColour(hovered, hole), `${hovered} ≠ ${hole}`).toBe(true);
+
+      // One ring, on the card: the field is the card,
+      // and a second ring inside the first would say
+      // there were two things to type into.
+      await field.focus();
+
+      const ring = await page.locator('.composer').evaluate((element) => {
+        const style = getComputedStyle(element);
+
+        return {
+          colour: style.outlineColor,
+          style: style.outlineStyle,
+          width: style.outlineWidth,
+          offset: style.outlineOffset,
+        };
+      });
+      const focus = colourOf(theme, 'focus-ring');
+
+      expect(sameColour(ring.colour, focus), `${ring.colour} ≠ ${focus}`).toBe(
+        true,
+      );
+      expect(ring).toMatchObject({
+        style: 'solid',
+        width: '1px',
+        offset: '-1px',
+      });
+      expect(
+        await field.evaluate(
+          (element) => getComputedStyle(element).outlineStyle,
+        ),
+      ).toBe('none');
+    });
+
+    test(`draws Stop in the failure voice in ${theme}`, async ({ page }) => {
+      const harness = await mount(page, 'sidebar', theme);
+      await harness.show(sidebarInit({ status: 'streaming' }));
+
+      const stop = page.locator('.composer [data-stop]');
+
+      await expect(stop).toHaveCount(1);
+
+      const drawn = await stop.evaluate((element) => {
+        const style = getComputedStyle(element);
+
+        return {
+          padding: style.padding,
+          ground: style.backgroundColor,
+          ink: style.color,
+        };
+      });
+
+      // Stopping throws work away, so it is drawn in
+      // the failure tone. Where that tone is too
+      // light to read as text, the ink says it.
+      const tint = colourOf(theme, 'fail-tint');
+      const ink =
+        theme === 'high-contrast-light'
+          ? colourOf(theme, 'ink')
+          : colourOf(theme, 'fail');
+
+      expect(drawn.padding).toBe('4px 12px');
+      expect(sameColour(drawn.ground, tint), `${drawn.ground} ≠ ${tint}`).toBe(
+        true,
+      );
+      expect(sameColour(drawn.ink, ink), `${drawn.ink} ≠ ${ink}`).toBe(true);
+    });
+  }
 });
 
 test.describe('before there is an agent', () => {
