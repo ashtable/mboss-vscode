@@ -612,6 +612,37 @@ describe('a run with nothing picked', () => {
       expect(runOf(onRunTab()).recovery).toBeUndefined();
     });
 
+    /**
+     * The sentence used to say steps "came back
+     * instead of running again", which reads as
+     * though DBOS decided not to execute something.
+     * What happened is narrower, and the gap is an
+     * inference rather than a moment anything wrote
+     * down.
+     */
+    it('says what a recovery cost without claiming code was skipped', () => {
+      const [heading, body] =
+        runOf(
+          onRunTab({
+            run: {
+              ...RUN,
+              recoveryAttempts: 2,
+              createdAt: 0,
+              completedAt: 10_000,
+            },
+            steps: [step(0, 0, 1000), step(1, 1000, 2000), step(2, 8000, 9000)],
+          }),
+        ).recovery ?? [];
+
+      expect(heading).toBe(
+        'Recovered — completed durable operations were not re-executed' +
+          ' · derived',
+      );
+      expect(body).toContain('derived from the widest gap');
+      expect(body).toContain('rather than run again');
+      expect(body).not.toContain('instead of running again');
+    });
+
     /** Dead-lettering writes no error row, so how many
      *  times DBOS restarted it is what there is to say. */
     it('says how many restarts DBOS gave up after', () => {
@@ -737,6 +768,97 @@ describe('a run with nothing picked', () => {
       const said = messages.replayRefused('no such run');
 
       expect(runOf(onRunTab({ note: said })).note).toBe(said);
+    });
+
+    /**
+     * Which of the two controls is on offer is the
+     * status column's answer and nothing else's:
+     * DBOS's own statements leave `SUCCESS` and
+     * `ERROR` alone, cancel is meaningless once a run
+     * has stopped, and resume is meaningless while
+     * one is still going. So the card offers at most
+     * one of them, ever.
+     *
+     * "by you" is this window's own memory of having
+     * asked. Nothing is written down anywhere, and the
+     * card says it only when it is told to.
+     */
+    describe('the two controls over the run', () => {
+      function controls(over: Partial<Run>, view: Partial<SeeView> = {}) {
+        return runOf(onRunTab({ run: { ...RUN, ...over }, ...view })).controls;
+      }
+
+      const IN_FLIGHT = ['PENDING', 'ENQUEUED', 'DELAYED'];
+      const RESUMABLE = ['CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED'];
+      const OVER = ['SUCCESS', 'ERROR'];
+
+      it('offers Cancel while a run is pending, enqueued or delayed', () => {
+        for (const status of IN_FLIGHT) {
+          expect({
+            status,
+            ...controls({ status, completedAt: undefined }),
+          }).toMatchObject({ status, cancel: true });
+        }
+
+        for (const status of [...RESUMABLE, ...OVER]) {
+          expect({ status, ...controls({ status }) }).toMatchObject({
+            status,
+            cancel: false,
+          });
+        }
+      });
+
+      /**
+       * A run DBOS gave up recovering is the other
+       * run resume is for: its statement leaves only
+       * `SUCCESS` and `ERROR` alone, and picking one
+       * of those back up would be offering to restart
+       * a run that is over.
+       */
+      it('offers Resume only on a cancelled or exhausted run', () => {
+        for (const status of RESUMABLE) {
+          expect({ status, ...controls({ status }) }).toMatchObject({
+            status,
+            resume: true,
+          });
+        }
+
+        for (const status of [...IN_FLIGHT, ...OVER]) {
+          expect({ status, ...controls({ status }) }).toMatchObject({
+            status,
+            resume: false,
+          });
+        }
+      });
+
+      it('never offers both', () => {
+        for (const status of [...IN_FLIGHT, ...RESUMABLE, ...OVER]) {
+          const offered = controls({ status });
+
+          expect(offered.cancel && offered.resume).toBe(false);
+        }
+      });
+
+      /**
+       * Window memory, and it says so. Nothing is
+       * persisted: a run this window cancelled is
+       * "by you" until the window closes, and a run
+       * cancelled from a terminal or by somebody else
+       * carries the time alone however it got that
+       * way.
+       */
+      it('says "by you" only when told', () => {
+        const mine = controls({ status: 'CANCELLED' }, { cancelledHere: true });
+        const theirs = controls({ status: 'CANCELLED' });
+
+        expect(mine.cancelledAt).toContain('by you');
+        expect(theirs.cancelledAt).not.toContain('by you');
+        expect(theirs.cancelledAt).toBeTypeOf('string');
+      });
+
+      it('says nothing about a cancellation on a run nobody cancelled', () => {
+        expect(controls({ status: 'ERROR' }).cancelledAt).toBeUndefined();
+      });
     });
   });
 

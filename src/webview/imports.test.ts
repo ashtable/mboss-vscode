@@ -26,11 +26,10 @@ import { REPO_ROOT, sourceFiles } from '../test-support/repo.js';
 /**
  * What the See bundle may take from the canvas.
  *
- * The rail draws the Inspector's own card about a
- * block rather than a second one, for as long as
- * there is a rail. That card lives in the
- * Inspector's directory, not the canvas's, so it
- * is not on this list.
+ * The run graph draws the canvas's own blocks and
+ * wires. What a run recorded about a block is the
+ * Inspector's card, drawn in the Inspector, so
+ * nothing about it is on this list.
  */
 const SEE_MAY_IMPORT = new Set([
   '../canvas/RunNode.js',

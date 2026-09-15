@@ -776,15 +776,13 @@ describe('where a run came from and what came out of it', () => {
 
     await open.open('wf_c9d2f3');
 
-    const tree = open.see().run?.lineage;
-    expect(tree?.workflowId).toBe('wf_c9d2f3');
-    expect(tree?.here).toBe(true);
-    expect(tree?.forks.map((one) => one.workflowId)).toEqual(['wf_fork1']);
+    const lineage = open.reading()?.lineage;
+    expect(lineage?.parent).toBeUndefined();
+    expect(lineage?.forks.map((one) => one.run.workflowId)).toEqual([
+      'wf_fork1',
+    ]);
   });
 
-  /** The tree is drawn from its top, so the run this
-   *  one came out of is the root and this run hangs
-   *  under it. */
   it('loads the run this one was forked from', async () => {
     const db = database();
     db.rows = [
@@ -795,11 +793,10 @@ describe('where a run came from and what came out of it', () => {
     const { open } = page(db);
     await open.open('wf_c9d2f3');
 
-    const tree = open.see().run?.lineage;
-    expect(tree?.workflowId).toBe('wf_parent');
-    expect(tree?.status).toBe('ERROR');
-    expect(tree?.here).toBe(false);
-    expect(tree?.forks.map((one) => one.workflowId)).toEqual(['wf_c9d2f3']);
+    const lineage = open.reading()?.lineage;
+    expect(lineage?.parent?.run.workflowId).toBe('wf_parent');
+    expect(lineage?.parent?.run.status).toBe('ERROR');
+    expect(lineage?.forks).toEqual([]);
   });
 
   it('counts the start step from the last reused row', async () => {
@@ -807,7 +804,7 @@ describe('where a run came from and what came out of it', () => {
 
     await open.open('wf_c9d2f3');
 
-    expect(open.see().run?.lineage?.forks[0]?.startStep).toBe(4);
+    expect(open.reading()?.lineage?.forks[0]?.startStep).toBe(4);
   });
 
   it('names the boundary from rows it already loaded', async () => {
@@ -815,7 +812,7 @@ describe('where a run came from and what came out of it', () => {
 
     await open.open('wf_c9d2f3');
 
-    expect(open.see().run?.lineage?.forks[0]?.from).toBe('replay from Started');
+    expect(open.reading()?.lineage?.forks[0]?.boundary).toBe('Started');
   });
 
   /**
@@ -829,7 +826,9 @@ describe('where a run came from and what came out of it', () => {
 
     await open.open('wf_c9d2f3');
 
-    expect(open.see().run?.lineage?.forks[0]?.from).toBe('replay from step 0');
+    const fork = open.reading()?.lineage?.forks[0];
+    expect(fork?.startStep).toBe(0);
+    expect(fork?.boundary).toBeUndefined();
   });
 
   it('says nothing about a run with no replay either side of it', async () => {
@@ -837,6 +836,6 @@ describe('where a run came from and what came out of it', () => {
 
     await open.open('wf_c9d2f3');
 
-    expect(open.see().run?.lineage).toBeUndefined();
+    expect(open.reading()?.lineage).toBeUndefined();
   });
 });

@@ -678,19 +678,7 @@ export const messages = {
     l10n.t('mBoss › runs › {0} › {1}', workflow, id),
 
   /**
-   * Where a replay took over.
-   *
-   * Named by the block wherever the row at the fork
-   * point still belongs to one, and by DBOS's own
-   * step number otherwise — a workflow edited since
-   * the run has rows naming blocks that are gone,
-   * and the number is the fact that is left.
-   */
-  runReplayFrom: (block: string) => l10n.t('replay from {0}', block),
-  runReplayFromStep: (step: number) => l10n.t('replay from step {0}', step),
-
-  /**
-   * The same fork, from the list.
+   * A fork, from the list.
    *
    * The child line is drawn only for a run already
    * on the page, so neither of these costs a query:
@@ -965,8 +953,8 @@ export const messages = {
     ),
 
   /**
-   * The two lines the run page draws above its
-   * controls.
+   * When a run was cancelled, where this window is
+   * what cancelled it.
    *
    * "by you" is this window's own memory of having
    * asked — no column anywhere records who cancelled
@@ -974,8 +962,6 @@ export const messages = {
    * remembers doing it.
    */
   runCancelledByYou: (at: string) => l10n.t('{0} · by you', at),
-  runLastRecorded: (name: string, step: number) =>
-    l10n.t('{0} · step {1}', name, step),
 
   /**
    * `mBoss: Run Workflow…`'s two questions: which

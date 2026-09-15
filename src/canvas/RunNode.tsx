@@ -10,11 +10,11 @@ import type { CanvasNode } from './graph.js';
  * One block on a run's graph.
  *
  * The same face the canvas draws, with everything
- * about editing taken away: nothing here is
- * dragged, wired, dropped on or deleted. A run page
- * shows what already happened, and a graph that
- * invited an edit would be offering to change a
- * document from a page about a run of it.
+ * about editing taken away: the run graph edits
+ * nothing, and nothing here is dragged, wired,
+ * dropped on or deleted. A block's configuration is
+ * edited in the Inspector, against the document
+ * buffer, where the canvas's own edits land too.
  *
  * The handles stay, because the wires between
  * blocks are drawn between them — a wire with

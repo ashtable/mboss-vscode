@@ -2,7 +2,6 @@ import type { ToolLine } from '../acp/transcript.js';
 import {
   canvasWords,
   durationWords,
-  inspectorWords,
   kindWords,
   sizeWords,
 } from '../canvas/words.js';
@@ -22,7 +21,6 @@ import type {
   SeeChip,
   SeeGraph,
   SeeInit,
-  SeeLineageRun,
   SeeOutage,
   SeeRawRow,
   SeeRun,
@@ -38,7 +36,7 @@ import type {
   RefusedRunEvidence,
   RunEvidence,
 } from './evidence.js';
-import type { Lineage, LineageRun } from './openRun.js';
+import type { Lineage } from './openRun.js';
 import { runWords, seeWords } from './words.js';
 import { decidedArms, groupsOf, type TraceGroup } from './operations.js';
 import { replayRowReason } from './replayZone.js';
@@ -210,10 +208,6 @@ export function seeInit(
     type: 'init',
     view: 'see',
     strings: seeWords(),
-    // The card the rail draws about a block is the
-    // Inspector's, so its words travel with the run
-    // rather than being written a second time here.
-    inspector: inspectorWords(),
     run: view === undefined ? undefined : seeRun(view),
     showing,
   };
@@ -302,12 +296,10 @@ function seeRun(view: SeeView): SeeRun {
     // word rather than asking the steps again.
     word: reading.outcome,
     span: spanOf(run),
-    recovered: recoveredBanner(run, reading),
     chips: drawn.map((step) => chipOf(step, points)),
     timeline: chartOf(reading, drawn),
     raw: steps.map(rawRowOf),
     rail: ledgerOf(run),
-    controls: controlsOf(run, drawn, view.cancelledHere ?? false),
     selectedStep: view.selectedStep,
     note: view.note,
     graph,
@@ -326,73 +318,7 @@ function seeRun(view: SeeView): SeeRun {
     showRaw: view.raw ?? false,
     following: view.following ?? 'quiet',
     input: inputOf(run),
-    lineage: lineageOf(view),
   };
-}
-
-/**
- * The lineage tree, from its top.
- *
- * Drawn from whichever end of a fork the page is
- * showing, so the run it came from is the root when
- * there is one and this run is the root when there
- * is not. The fork point is worded onto the run
- * below it, which is the run that started there.
- */
-function lineageOf(view: SeeView): SeeLineageRun | undefined {
-  const found = view.lineage;
-  if (found === undefined) return undefined;
-
-  const here: SeeLineageRun = {
-    ...lineageRunOf(view.run),
-    startStep: found.parent?.startStep,
-    from: found.parent === undefined ? undefined : replayFrom(found.parent),
-    here: true,
-    forks: found.forks.map((fork) => ({
-      ...lineageRunOf(fork.run),
-      startStep: fork.startStep,
-      from: replayFrom(fork),
-      here: false,
-      forks: [],
-    })),
-  };
-
-  if (found.parent === undefined) return here;
-
-  return {
-    ...lineageRunOf(found.parent.run),
-    // Nothing was read about what the parent itself
-    // came out of, so the top of the tree says
-    // nothing about it rather than guessing.
-    startStep: undefined,
-    from: undefined,
-    here: false,
-    forks: [here],
-  };
-}
-
-/**
- * One run of the tree, in the words a row draws.
- *
- * The word is asked with the evidence this read
- * has, which is no recorded name for the other run
- * — so nothing here can say it is parked, and it
- * says so.
- */
-function lineageRunOf(
-  run: Run,
-): Pick<SeeLineageRun, 'workflowId' | 'status' | 'word'> {
-  return {
-    workflowId: run.workflowId,
-    status: run.status,
-    word: wordOf(run, false),
-  };
-}
-
-function replayFrom(entry: LineageRun): string {
-  return entry.boundary === undefined
-    ? messages.runReplayFromStep(entry.startStep)
-    : messages.runReplayFrom(entry.boundary);
 }
 
 /**
@@ -790,54 +716,22 @@ function spanOf(run: Run): string {
 }
 
 /**
- * The banner over a run DBOS picked back up.
+ * What a recovery cost, as the Inspector's card
+ * about a whole run lists it: sentence by sentence,
+ * each marked derived, because every one of them is
+ * worked out from the rows rather than read off one.
  *
  * Two forms, because there are two things that can
  * honestly be said. When the steps leave a hole
- * wide enough to place, the sentence names what
- * that cost and how many steps came back instead
- * of running. When they do not, the count is all
- * there is — `recovery_attempts` is a number, and
- * no column anywhere holds the moment a process
- * died.
- */
-function recoveredBanner(run: Run, reading: Reading): SeeRun['recovered'] {
-  if (!hasRecovered(run)) return undefined;
-
-  const heading = messages.runRecoveredHeading();
-  const outage = reading.outage;
-
-  if (outage === undefined) {
-    return {
-      heading,
-      body: messages.runRecoveredUnplaced(),
-      figures: undefined,
-    };
-  }
-
-  const restored = reading.steps.filter((step) => step.restored).length;
-
-  return {
-    heading,
-    body: messages.runRecoveredBody(),
-    figures: {
-      down: messages.runRecoveredDown(lasted(outage.to - outage.from)),
-      reused: messages.runRecoveredReused(restored),
-    },
-  };
-}
-
-/**
- * What a recovery cost, as the Inspector's card
- * about a whole run lists it: the run page's
- * banner, sentence by sentence, each marked derived.
- *
- * The banner's own sentences rather than a second
- * wording, so the two surfaces cannot tell one run
- * two ways. A run DBOS gave up on says that instead:
- * it never finished, so there is no "reused rather
- * than run again" to report, and how many restarts
- * it took is the part worth reading.
+ * wide enough to place, the sentences name what
+ * that cost and how many operations were reused
+ * rather than run again. When they do not, the
+ * count is all there is — `recovery_attempts` is a
+ * number, and no column anywhere holds the moment a
+ * process died. A run DBOS gave up on says neither:
+ * it never finished, so there is nothing reused to
+ * report, and how many restarts it took is the part
+ * worth reading.
  */
 export function recoverySentences(
   run: Run,
@@ -849,17 +743,24 @@ export function recoverySentences(
     ];
   }
 
-  const banner = recoveredBanner(run, reading);
-  if (banner === undefined) return undefined;
+  if (!hasRecovered(run)) return undefined;
 
-  const figures =
-    banner.figures === undefined
-      ? []
-      : [banner.figures.down, banner.figures.reused];
+  const heading = messages.runRecoveredHeading();
+  const outage = reading.outage;
 
-  return [banner.heading, banner.body, ...figures].map(
-    messages.runLevelDerived,
-  );
+  const said =
+    outage === undefined
+      ? [heading, messages.runRecoveredUnplaced()]
+      : [
+          heading,
+          messages.runRecoveredBody(),
+          messages.runRecoveredDown(lasted(outage.to - outage.from)),
+          messages.runRecoveredReused(
+            reading.steps.filter((step) => step.restored).length,
+          ),
+        ];
+
+  return said.map(messages.runLevelDerived);
 }
 
 /**
@@ -1077,9 +978,20 @@ export function ledgerOf(
  * it was cancelled and whether it gave up — the
  * Inspector's card about a whole run.
  *
- * The same status rule as the run page's rail
- * below. The moment is the fine one every recorded
- * time on the card is written in.
+ * Both answers come off the status column and
+ * nothing else, because that is the column DBOS's
+ * own statements are conditioned on: cancel and
+ * resume both end in `status NOT IN
+ * ('SUCCESS','ERROR')`. Offering either where the
+ * statement would change nothing is offering a
+ * button that does nothing and says so afterwards.
+ * Never both, and the two sets cannot overlap: a run
+ * is either still going or it has stopped.
+ *
+ * `completed_at` is what cancelling writes, so it is
+ * the moment shown, in the fine form every recorded
+ * time on the card is written in. "by you" is this
+ * window's memory and nothing else.
  */
 export function runControlsOf(
   run: Pick<Run, 'status' | 'createdAt' | 'completedAt'>,
@@ -1098,57 +1010,6 @@ export function runControlsOf(
           : at,
     gaveUp: run.status === GAVE_UP,
   };
-}
-
-/**
- * Which of the two controls the run is open to, and
- * what it already carries.
- *
- * Both answers come off the status column and
- * nothing else, because that is the column DBOS's
- * own statements are conditioned on: cancel and
- * resume both end in `status NOT IN
- * ('SUCCESS','ERROR')`. Offering either where the
- * statement would change nothing is offering a
- * button that does nothing and says so afterwards.
- *
- * Never both, and the two sets cannot overlap: a run
- * is either still going or it has stopped.
- */
-function controlsOf(
-  run: Run,
-  drawn: readonly Operation[],
-  cancelledHere: boolean,
-): SeeRun['controls'] {
-  const last = drawn.at(-1);
-
-  return {
-    cancel: IN_FLIGHT.has(run.status),
-    resume: RESUMABLE.has(run.status),
-    cancelled: cancelledAt(run, cancelledHere),
-    lastRecorded:
-      last === undefined
-        ? undefined
-        : messages.runLastRecorded(last.name, last.functionId),
-  };
-}
-
-/**
- * When the run was cancelled, and whether this
- * window is what did it.
- *
- * `completed_at` is what cancelling writes, so it is
- * the moment to show. A cancelled run with no
- * completion recorded is a row this extension did
- * not write and cannot date, and it says the plain
- * status instead of guessing at a time.
- */
-function cancelledAt(run: Run, cancelledHere: boolean): string | undefined {
-  if (run.status !== 'CANCELLED') return undefined;
-
-  const at = precise(run.completedAt ?? run.createdAt);
-
-  return cancelledHere ? messages.runCancelledByYou(at) : at;
 }
 
 /** How long something took, said in the host's

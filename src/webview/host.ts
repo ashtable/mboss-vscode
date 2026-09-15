@@ -373,7 +373,8 @@ const RunFilterPicked = z.object({
 const RunRefresh = z.object({ type: z.literal('runRefresh') });
 
 /** Somebody opened a run — from a row of the list,
- *  or from an id in the run page's lineage tree. */
+ *  or from the id of the run an item started, on
+ *  the run page. */
 const RunSelect = z.object({
   type: z.literal('runSelect'),
   workflowId: z.string(),
@@ -464,7 +465,7 @@ const OpenRun = z.object({
  */
 const OpenProduction = z.object({ type: z.literal('openProduction') });
 
-/** Somebody picked the step the rail describes. */
+/** Somebody picked a step on the run page. */
 const StepSelect = z.object({
   type: z.literal('stepSelect'),
   functionId: z.number().int(),
@@ -523,9 +524,8 @@ const ReplayRun = z.object({
  * none of them is necessarily showing the run:
  * Running Now names the run this window is
  * watching, a session row names one this window
- * started, the run page names the one it has open,
- * and the Inspector's card names the run a canvas
- * follows or the run tab shows.
+ * started, and the Inspector's card names the run a
+ * canvas follows or the run tab shows.
  *
  * `cancelRun` rather than `cancel`, which is the
  * side bar's own kind for stopping an agent's turn.
@@ -689,23 +689,18 @@ const SCHEMAS = {
     CancelRun,
     ResumeRun,
   ]),
+  // The run tab draws the run and nothing about it:
+  // the ways into a block's code and the ways on
+  // from a run are the Inspector's to offer.
   see: z.discriminatedUnion('type', [
     Ready,
     StepSelect,
     RunSelect,
-    OpenFunction,
-    OpenErrorLocation,
-    OpenOutput,
-    AskAgent,
-    ReplayFrom,
-    InspectQueue,
     SeeShow,
     SeeNode,
     SeeRaw,
     SeeRefresh,
     OpenWorkflow,
-    CancelRun,
-    ResumeRun,
   ]),
   // Everything a block's two faces offer: its
   // edits, the ways into its code and its recorded

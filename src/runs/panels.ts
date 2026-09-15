@@ -20,14 +20,14 @@ import { runsWords, seeWords } from './words.js';
  *
  * The start wins over everything, because a card
  * that asks for it asks for no point the run
- * recorded. A row wins over a block: the page has
- * both once somebody has clicked a trace row, and
- * the row is the more exact of the two. The schema
- * has already refused a message naming none of the
- * three, and this says so rather than inventing a
- * block id nothing has. Shared with the Inspector,
- * which sends the same message and means the same
- * point by it.
+ * recorded. A row wins over a block: a block picked
+ * on the run tab can come with the trace row
+ * somebody clicked, and the row is the more exact
+ * of the two. The schema has already refused a
+ * message naming none of the three, and this says
+ * so rather than inventing a block id nothing has.
+ * The Inspector is what sends it, and the store's
+ * pick is what it answers with.
  */
 export function pointIn(said: {
   nodeId?: string;
@@ -231,33 +231,12 @@ export class SeePanel {
           this.store.selectStep(message.functionId);
         }
 
-        if (message.type === 'replayFrom') {
-          const point = pointIn(message);
-
-          if (point !== undefined) {
-            void this.store.replay(message.workflowId, point);
-          }
-        }
-
-        // An id in the lineage tree. The same verb
-        // the list's rows use, because it is the
+        // The id of the run an item started. The same
+        // verb the list's rows use, because it is the
         // same thing to have asked for — this panel
         // is already the one that would show it.
         if (message.type === 'runSelect') {
           void this.store.select(message.workflowId);
-        }
-
-        // Whatever the rail had selected travels
-        // with it: a question asked with a row in
-        // front of somebody is a question about that
-        // row.
-        if (message.type === 'askAgent') void this.store.askAgent(message);
-
-        // The run travels with the block here too:
-        // a card may be drawing a run the extension
-        // has since moved past.
-        if (message.type === 'inspectQueue') {
-          void this.store.inspectQueue(message.workflowId, message.nodeId);
         }
 
         if (message.type === 'seeNode') this.store.selectNode(message.nodeId);
@@ -267,53 +246,6 @@ export class SeePanel {
 
         if (message.type === 'openWorkflow') {
           void this.store.openWorkflow(message.workflowId);
-        }
-
-        // The run travels with the click here too:
-        // this panel may be drawing a run the
-        // extension has since moved past.
-        if (message.type === 'cancelRun') {
-          void this.store.cancel(message.workflowId);
-        }
-
-        if (message.type === 'resumeRun') {
-          void this.store.resume(message.workflowId);
-        }
-
-        // The block travels and the run does not: a
-        // page draws exactly one run, and which one
-        // that is has already been read here.
-        if (message.type === 'openFunction') {
-          const shown = this.store.detail();
-
-          if (shown !== undefined) {
-            void this.store.openFunction(shown.run.workflowId, message.nodeId);
-          }
-        }
-
-        // The row is the whole address here. The
-        // block travels for the canvas, which holds
-        // a run and draws a card per block; this
-        // page draws one run, and a row id names one
-        // of its rows on its own.
-        if (message.type === 'openErrorLocation') {
-          const shown = this.store.detail();
-
-          if (shown !== undefined) {
-            void this.store.openErrorLocation(
-              shown.run.workflowId,
-              message.functionId,
-            );
-          }
-        }
-
-        // The run travels on this one: the card that
-        // draws a recorded value is the canvas's
-        // component and it names the run it read.
-        // The store checks that against the run it
-        // is showing.
-        if (message.type === 'openOutput') {
-          void this.store.openOutput(message.workflowId, message.functionId);
         }
       },
     });

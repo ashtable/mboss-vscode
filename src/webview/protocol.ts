@@ -609,26 +609,16 @@ export type RunsStrings = ReturnType<typeof runsWords>;
  * One run, in as much detail as the ledger holds.
  *
  * Its own editor tab rather than a section of the
- * list: the Gantt, the raw table and the rail are
- * a page, and the list is 300px wide.
+ * list: the graph, the Gantt and the raw table are
+ * a page, and the list is 300px wide. What the run
+ * recorded about a block, or about the whole run,
+ * is the Inspector's, so none of its words travel
+ * here.
  */
 export type SeeInit = {
   type: 'init';
   view: 'see';
   strings: SeeStrings;
-
-  /**
-   * The Inspector's words, because the rail draws
-   * the Inspector's own card about whichever block
-   * is selected.
-   *
-   * A second bag rather than the card's words folded
-   * into this view's: the card is one component and
-   * two surfaces draw it, and a copy of its words
-   * per surface is how two surfaces come to word one
-   * card differently.
-   */
-  inspector: InspectorStrings;
 
   run: SeeRun | undefined;
 
@@ -656,29 +646,6 @@ export type SeeRun = {
   /** `started 14:02:11 · finished 14:02:19` */
   span: string;
 
-  /** The banner over a run DBOS picked back up. */
-  recovered:
-    | {
-        heading: string;
-
-        body: string;
-
-        /**
-         * How long nothing ran, and how many durable
-         * operations came back — each its own line
-         * so the page can mark it derived beside the
-         * figure rather than burying it in a
-         * paragraph.
-         *
-         * Absent where the steps are timed too
-         * closely together to place the gap at all,
-         * which is what the other form of the body
-         * is about.
-         */
-        figures: { down: string; reused: string } | undefined;
-      }
-    | undefined;
-
   chips: SeeChip[];
 
   timeline: SeeTimeline;
@@ -686,42 +653,11 @@ export type SeeRun = {
   /** `dbos.operation_outputs`, as a table. */
   raw: SeeRawRow[];
 
-  /** `dbos.workflow_status`, as the rail draws it. */
+  /** `dbos.workflow_status`, row by row. */
   rail: { label: string; value: string }[];
 
-  /**
-   * The two controls, and what a run already
-   * carrying one of them says.
-   *
-   * Never both: cancel is meaningless once a run has
-   * stopped and resume is meaningless while one is
-   * still going, so the status column answers each
-   * of them and the answers cannot both be yes.
-   */
-  controls: {
-    cancel: boolean;
-
-    resume: boolean;
-
-    /**
-     * `10:58:22`, or `10:58:22 · by you` where this
-     * window is what asked.
-     *
-     * "by you" is window memory and nothing else —
-     * no column records who cancelled a run — so it
-     * goes when the window closes and is never
-     * claimed for a run cancelled anywhere else.
-     */
-    cancelled: string | undefined;
-
-    /** `charge_card · step 3`: how far the run got,
-     *  which is where resuming would carry on
-     *  from. */
-    lastRecorded: string | undefined;
-  };
-
-  /** Which step the replay button would fork
-   *  from. */
+  /** The step a person picked, which the strip and
+   *  the chart mark. */
   selectedStep: number | undefined;
 
   /** What the last replay did, or would not do. */
@@ -773,56 +709,6 @@ export type SeeRun = {
 
   /** What the run was started with, as recorded. */
   input: { text: string; cut: boolean } | undefined;
-
-  /**
-   * The lineage tree, from its top: the run this one
-   * was replayed from where there is one, this run
-   * otherwise.
-   *
-   * Absent where nothing was replayed either side of
-   * it, which is most runs. A tree rather than the
-   * two columns it is read from, because the page
-   * draws one picture whichever end of the fork it
-   * is showing.
-   */
-  lineage: SeeLineageRun | undefined;
-};
-
-/**
- * One run in the lineage tree.
- *
- * A replay forks a new execution and the run it came
- * from stays exactly where it was, so this is a tree
- * of runs that all still exist rather than a history
- * of one that changed.
- */
-export type SeeLineageRun = {
-  workflowId: string;
-
-  /** DBOS's own word, passed through as everywhere
-   *  else; `word` is what it is drawn by. */
-  status: string;
-
-  word: RunWord;
-
-  /**
-   * The first step this run ran for itself, and
-   * `replay from Refund payment` — or
-   * `replay from step 4` where the row at that step
-   * names no block the saved document still has.
-   *
-   * Both absent at the top of the tree, which
-   * nothing here is known to have come out of.
-   */
-  startStep: number | undefined;
-
-  from: string | undefined;
-
-  /** Whether this is the run the page is showing. */
-  here: boolean;
-
-  /** The runs replayed from it. */
-  forks: SeeLineageRun[];
 };
 
 /**

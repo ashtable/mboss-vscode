@@ -162,23 +162,12 @@ export const seeWords = once(() => ({
   hatched: l10n.t('hatched = process down'),
   restored: l10n.t('restored'),
   raw: l10n.t('dbos.operation_outputs'),
-  status: l10n.t('dbos.workflow_status'),
-  ledger: l10n.t(
-    'The recovery ledger — your workflow is just rows in Postgres.',
-  ),
   columns: {
     stepId: l10n.t('step'),
     fn: l10n.t('function'),
     output: l10n.t('output'),
     committedAt: l10n.t('committed'),
   },
-
-  // The glyph is fixed, and it is the mark that
-  // says this is a repeat rather than a new run.
-  // "from here" rather than "from this step",
-  // because a person picks a block on the graph as
-  // often as a row in the trace.
-  replay: l10n.t('↺ Replay From Here'),
 
   /** The two views of one run. */
   tabs: {
@@ -202,29 +191,15 @@ export const seeWords = once(() => ({
     quiet: l10n.t('quiet · refresh to check'),
   },
 
-  recoveredTag: messages.runsRecoveredTag(),
-
   /**
    * On a row a replay carried over from the run it
    * came from.
    *
-   * The glyph is fixed and is part of the word: it
-   * is the same mark Replay wears, and what it says
-   * here is that the row is the earlier run's,
+   * The glyph is fixed and is part of the word: what
+   * it says is that the row is the earlier run's,
    * copied rather than run a second time.
    */
   recorded: l10n.t('↺ recorded'),
-
-  /**
-   * Under the lineage tree.
-   *
-   * The whole point of drawing the tree: a replay
-   * forks a second execution and the run it came
-   * from stays exactly where it was, so neither of
-   * them is a version of the other and both are
-   * still there to be read.
-   */
-  bothRemain: l10n.t('both remain in dbos.workflow_status'),
 
   /** Said on anything the page worked out rather
    *  than read off a row. */
@@ -245,43 +220,6 @@ export const seeWords = once(() => ({
   // work itself did is on the other run's page, and
   // the id is the only way the ledger gives there.
   childRun: l10n.t('open the run this item started'),
-
-  /** What the run was started with, and where that
-   *  came from. */
-  workflowInput: l10n.t('WORKFLOW INPUT'),
-  asRecorded: l10n.t('as recorded'),
-
-  /**
-   * The two controls over the run on the page, and
-   * the two things the page can already say about
-   * one.
-   *
-   * "Cancel run" rather than "Cancel", because the
-   * rail also carries Replay and Edit workflow and a
-   * bare verb among them names nothing. The labels
-   * are sentence case and the rail sets them in
-   * small caps, so a language whose caps mean
-   * something else is not handed shouting.
-   */
-  cancel: l10n.t('Cancel run'),
-  resume: l10n.t('Resume'),
-  lastRecorded: l10n.t('last recorded'),
-  cancelledAt: l10n.t('cancelled'),
-
-  /**
-   * What resuming a run actually does.
-   *
-   * The point worth making is the durable one: a
-   * resumed run reads its recorded history back
-   * rather than running those operations again. The
-   * second sentence is said only over a run DBOS
-   * gave up on, because that is the only run whose
-   * give-up count starts over.
-   */
-  resumeHint: l10n.t(
-    'Resume continues from the recorded history · completed durable operations are not re-executed',
-  ),
-  resumeResetsAttempts: l10n.t('recovery_attempts starts again from 0'),
 
   /** The way back to Build. It opens the document
    *  and projects nothing onto it: the canvas keeps

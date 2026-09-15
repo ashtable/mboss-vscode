@@ -350,6 +350,42 @@ describe('one run in detail', () => {
     expect(init.view).toBe('see');
   });
 
+  /**
+   * What a run recorded about a block or about the
+   * whole run is the Inspector's to say, so the run
+   * page is sent none of the words it says it in and
+   * none of what it would say.
+   */
+  it('carries nothing the Inspector says about a run', () => {
+    const inspectors = [
+      'status',
+      'ledger',
+      'workflowInput',
+      'asRecorded',
+      'cancel',
+      'resume',
+      'cancelledAt',
+      'lastRecorded',
+      'resumeHint',
+      'resumeResetsAttempts',
+      'bothRemain',
+      'recoveredTag',
+      'replay',
+    ];
+
+    expect(Object.keys(init).sort()).toEqual(
+      ['run', 'showing', 'strings', 'type', 'view'].sort(),
+    );
+    expect(
+      Object.keys(init.strings).filter((word) => inspectors.includes(word)),
+    ).toEqual([]);
+    expect(
+      Object.keys(run ?? {}).filter((field) =>
+        ['recovered', 'controls', 'lineage'].includes(field),
+      ),
+    ).toEqual([]);
+  });
+
   it('says what it is and how long it took', () => {
     expect(run?.headline).toBe('SUCCESS · 10.0 s total');
     expect(run?.breadcrumb).toBe('mBoss › runs › groom_booking › wf_c9d2f3');
@@ -513,56 +549,6 @@ describe('one run in detail', () => {
   });
 
   /**
-   * Two derived numbers, each its own line so the
-   * page can mark it derived beside the figure. A
-   * number buried in a paragraph wears no chip, and
-   * a derived number a person reads as a recorded
-   * one is the whole failure mode of a flight
-   * recorder.
-   */
-  it('says what the crash cost, out of what the ledger holds', () => {
-    expect(run?.recovered?.heading).toBe(
-      'Recovered — completed durable operations were not re-executed',
-    );
-    expect(run?.recovered?.figures?.down).toContain('6.0 s');
-    expect(run?.recovered?.figures?.reused).toContain('2 durable operations');
-    expect(run?.recovered?.body).not.toContain('6.0 s');
-  });
-
-  /**
-   * `recovery_attempts` is a count and no column
-   * holds the moment a process died, so a run whose
-   * steps run straight into each other has a crash
-   * that cannot be placed — and says so rather than
-   * drawing a band somewhere plausible.
-   */
-  it('admits when it cannot say where the crash was', () => {
-    const unplaced = seeInit({
-      run: RUN,
-      steps: [step(0, 0, 1000), step(1, 1000, 2000)],
-      selectedStep: undefined,
-      note: undefined,
-    });
-
-    expect(unplaced.run?.timeline.outage).toBeUndefined();
-    expect(unplaced.run?.recovered?.body).toContain('too closely together');
-
-    // Nothing to place is nothing to chip.
-    expect(unplaced.run?.recovered?.figures).toBeUndefined();
-  });
-
-  it('draws no banner over a run that never crashed', () => {
-    const quiet = seeInit({
-      run: { ...RUN, recoveryAttempts: 1 },
-      steps: STEPS,
-      selectedStep: undefined,
-      note: undefined,
-    });
-
-    expect(quiet.run?.recovered).toBeUndefined();
-  });
-
-  /**
    * The raw panel is a picture of the table, so it
    * shows the bytes the column holds — and no
    * attempts column, because DBOS records no
@@ -605,172 +591,6 @@ describe('one run in detail', () => {
 
     expect(empty.run).toBeUndefined();
     expect(empty.strings.nothingSelected).toBeTypeOf('string');
-  });
-
-  /**
-   * The rail is composed of both, so both have to
-   * survive the trip: the controls decide which of
-   * the two buttons is offered, and the lineage is
-   * the tree drawn above them.
-   */
-  it('carries the controls and the lineage in seeInit', () => {
-    const stopped = seeInit({
-      run: { ...RUN, status: 'CANCELLED' },
-      steps: STEPS,
-      selectedStep: undefined,
-      note: undefined,
-      cancelledHere: true,
-      lineage: {
-        parent: undefined,
-        forks: [
-          {
-            run: { ...RUN, workflowId: 'wf_fork1' },
-            startStep: 1,
-            boundary: 'Find a slot',
-          },
-        ],
-      },
-    });
-
-    expect(stopped.run?.controls).toMatchObject({
-      cancel: false,
-      resume: true,
-      lastRecorded: messages.runLastRecorded('step_2', 2),
-    });
-    expect(stopped.run?.controls.cancelled).toContain('by you');
-    expect(stopped.run?.lineage?.here).toBe(true);
-    expect(stopped.run?.lineage?.forks.map((one) => one.workflowId)).toEqual([
-      'wf_fork1',
-    ]);
-  });
-
-  /**
-   * The card the rail draws about a block is the
-   * Inspector's own component, and a webview
-   * resolves no word of its own — so the Inspector's
-   * bag rides on the run page's init too.
-   */
-  it("carries the words the run page's evidence card reads", () => {
-    expect(init.inspector.runStates.failed).toBeTypeOf('string');
-    expect(init.inspector.kinds.step).toBeTypeOf('string');
-  });
-});
-
-/**
- * The two controls a person has over a run.
- *
- * Which of them is on offer is the status column's
- * answer and nothing else's: DBOS's own statements
- * leave `SUCCESS` and `ERROR` alone, cancel is
- * meaningless once a run has stopped, and resume is
- * meaningless while one is still going. So the page
- * offers at most one of them, ever.
- *
- * "by you" is this window's own memory of having
- * asked. Nothing is written down anywhere, and the
- * page says it only when it is told to.
- */
-describe('the two controls over one run', () => {
-  function controls(
-    over: Partial<Run>,
-    view: Partial<SeeView> = {},
-  ): SeeRun['controls'] {
-    const shown = seeInit({
-      run: { ...RUN, ...over },
-      steps: STEPS,
-      selectedStep: undefined,
-      note: undefined,
-      ...view,
-    });
-
-    // Every case here builds a run, so the page is
-    // never the empty one.
-    return shown.run?.controls as SeeRun['controls'];
-  }
-
-  const IN_FLIGHT = ['PENDING', 'ENQUEUED', 'DELAYED'];
-  const RESUMABLE = ['CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED'];
-  const OVER = ['SUCCESS', 'ERROR'];
-
-  it('offers Cancel while a run is pending, enqueued or delayed', () => {
-    for (const status of IN_FLIGHT) {
-      expect({
-        status,
-        ...controls({ status, completedAt: undefined }),
-      }).toMatchObject({ status, cancel: true });
-    }
-
-    for (const status of [...RESUMABLE, ...OVER]) {
-      expect({ status, ...controls({ status }) }).toMatchObject({
-        status,
-        cancel: false,
-      });
-    }
-  });
-
-  /**
-   * A run DBOS gave up recovering is the other run
-   * resume is for: its statement leaves only
-   * `SUCCESS` and `ERROR` alone, and picking one of
-   * those back up would be offering to restart a
-   * run that is over.
-   */
-  it('offers Resume only on a cancelled or exhausted run', () => {
-    for (const status of RESUMABLE) {
-      expect({ status, ...controls({ status }) }).toMatchObject({
-        status,
-        resume: true,
-      });
-    }
-
-    for (const status of [...IN_FLIGHT, ...OVER]) {
-      expect({ status, ...controls({ status }) }).toMatchObject({
-        status,
-        resume: false,
-      });
-    }
-  });
-
-  it('never offers both', () => {
-    for (const status of [...IN_FLIGHT, ...RESUMABLE, ...OVER]) {
-      const offered = controls({ status });
-
-      expect(offered.cancel && offered.resume).toBe(false);
-    }
-  });
-
-  /**
-   * Window memory, and it says so. Nothing is
-   * persisted: a run this window cancelled is
-   * "by you" until the window closes, and a run
-   * cancelled from a terminal or by somebody else
-   * carries the time alone however it got that way.
-   */
-  it('says "by you" only when told', () => {
-    const mine = controls({ status: 'CANCELLED' }, { cancelledHere: true });
-    const theirs = controls({ status: 'CANCELLED' });
-
-    expect(mine.cancelled).toContain('by you');
-    expect(theirs.cancelled).not.toContain('by you');
-    expect(theirs.cancelled).toBeTypeOf('string');
-  });
-
-  it('says nothing about a cancellation on a run nobody cancelled', () => {
-    expect(controls({ status: 'ERROR' }).cancelled).toBeUndefined();
-  });
-
-  /**
-   * What the run got as far as, so somebody deciding
-   * whether to pick it back up can see where it
-   * would carry on from.
-   */
-  it('names the last durable operation the run recorded', () => {
-    expect(controls({ status: 'CANCELLED' }).lastRecorded).toBe(
-      'step_2 · step 2',
-    );
-    expect(
-      controls({ status: 'CANCELLED' }, { steps: [] }).lastRecorded,
-    ).toBeUndefined();
   });
 });
 
@@ -1265,29 +1085,6 @@ describe('one run, as the run page draws it', () => {
       ],
     });
     expect(broken.groups.map((group) => group.open)).toEqual([false, true]);
-  });
-
-  /**
-   * The banner used to say steps "came back instead
-   * of running again", which reads as though DBOS
-   * decided not to execute something. What happened
-   * is narrower, and the gap is an inference rather
-   * than a moment anything wrote down.
-   */
-  it('says what a recovery cost without claiming code was skipped', () => {
-    const shown = seeInit({
-      run: { ...RUN, recoveryAttempts: 2 },
-      steps: STEPS,
-      selectedStep: undefined,
-      note: undefined,
-    }).run;
-
-    expect(shown?.recovered?.heading).toBe(
-      'Recovered — completed durable operations were not re-executed',
-    );
-    expect(shown?.recovered?.body).toContain('derived from the widest gap');
-    expect(shown?.recovered?.body).toContain('rather than run again');
-    expect(shown?.recovered?.body).not.toContain('instead of running again');
   });
 });
 

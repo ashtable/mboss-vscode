@@ -1,10 +1,19 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { handlerFit, withDecisionCases } from '../../src/core/rules.js';
+import {
+  handlerFit,
+  withDecisionCases,
+  type WorkflowIR,
+} from '../../src/core/rules.js';
 import { INLINE_LIMIT } from '../../src/runs/rows.js';
 import { filled } from '../../src/webview/fill.js';
 import { shortRunId } from '../../src/webview/ids.js';
-import type { BlockSubject, RunLevel } from '../../src/webview/protocol.js';
+import type {
+  BlockSubject,
+  InspectorInit,
+  RunLevel,
+  ShownRun,
+} from '../../src/webview/protocol.js';
 
 import {
   DEDUPLICATES,
@@ -34,10 +43,15 @@ import {
 } from './fixtures/canvas.js';
 import {
   FORK_ID,
+  GRAPH,
   PARENT_ID,
+  QUEUED,
+  QUEUED_GRAPH,
+  QUEUE_READ,
   RUN_ID,
   RUN_LINEAGE,
   runLevel,
+  seeRun,
 } from './fixtures/runs.js';
 import { THEMES_ALL } from './harness.js';
 import { labelBeforeValue } from './labels.js';
@@ -190,9 +204,9 @@ test.describe('a run with nothing picked', () => {
     return page.locator('[data-evidence="run"]');
   }
 
-  /** What the run page's banner says about a run
-   *  DBOS picked back up, as the host words it for
-   *  the card: every sentence worked out. */
+  /** What the card says about a run DBOS picked
+   *  back up, as the host words it: every sentence
+   *  worked out. */
   const RECOVERED = [
     'Recovered — completed durable operations were not re-executed · derived',
     'DBOS picked this run back up. Both figures are derived from the ' +
@@ -2051,6 +2065,156 @@ test.describe('a block in the Inspector', () => {
 
       expect(await harness.postedOfType('openRun')).toEqual([
         { type: 'openRun', workflowId: 'wf_child_1' },
+      ]);
+    });
+  });
+
+  /**
+   * A block somebody picked on the run tab, drawn
+   * against the run the tab is showing.
+   *
+   * The card is the one a canvas block gets, so what
+   * a run recorded about a block reads the same
+   * wherever somebody picked it, and every way on
+   * from it names the tab's run.
+   */
+  test.describe('a block picked on the run tab', () => {
+    /** The run tab's pick, on Run evidence: the
+     *  block, the document it is in, the run and the
+     *  row somebody picked, where they picked one. */
+    function picked(
+      nodeId: string,
+      document: WorkflowIR,
+      run: ShownRun | undefined,
+      functionId?: number,
+    ): InspectorInit {
+      return blockInit({
+        ...blockSubject(nodeId, {}, 'evidence', document),
+        source: 'run',
+        run,
+        functionId,
+      });
+    }
+
+    test('shows what the run recorded about the block that is picked', async ({
+      page,
+    }) => {
+      await openInspector(
+        page,
+        picked('find_slot', GRAPH.ir, seeRun().live, 1),
+      );
+
+      const card = page.locator('[data-evidence="block"]');
+
+      await expect(card).toHaveCount(1);
+      await expect(card.locator('.evidence-title')).toHaveText('Find a slot');
+      await expect(card.locator('.run-status')).toContainText(
+        inspectorStrings.runStates.failed,
+      );
+    });
+
+    /**
+     * A queue block gets its card of its own, drawn
+     * from the counts and from the one read a pick
+     * costs. An item's run opens on the run tab,
+     * because the Inspector is not a run page that
+     * could show it in place.
+     */
+    test('shows a queue block’s card, and opens an item’s run', async ({
+      page,
+    }) => {
+      const harness = await openInspector(
+        page,
+        picked('index_pages', QUEUED_GRAPH.ir, {
+          ...QUEUED,
+          queueEvidence: { index_pages: QUEUE_READ },
+        }),
+      );
+
+      const card = page.locator('[data-evidence="queue"]');
+
+      await expect(card).toHaveCount(1);
+      await expect(
+        card.locator('[data-evidence-field="queued"] .value'),
+      ).toHaveText('42');
+      await expect(
+        card.locator('[data-evidence-field="observedStarts"] .value'),
+      ).toHaveText('74 in the last 60 s');
+
+      await card.locator('[data-queue-item="wf_child_9f21"]').click();
+
+      expect(await harness.postedOfType('openRun')).toEqual([
+        { type: 'openRun', workflowId: 'wf_child_9f21' },
+      ]);
+      expect(await harness.postedOfType('runSelect')).toEqual([]);
+      expect(await harness.postedOfType('inspectQueue')).toEqual([
+        {
+          type: 'inspectQueue',
+          workflowId: 'wf_c9d2f3',
+          nodeId: 'index_pages',
+        },
+      ]);
+    });
+
+    /** The code the block runs and the agent, reached
+     *  from the card whichever surface the block was
+     *  picked on. */
+    test('reaches the code and the agent from a block picked there', async ({
+      page,
+    }) => {
+      const harness = await openInspector(
+        page,
+        picked('find_slot', GRAPH.ir, seeRun().live, 1),
+      );
+
+      await page.locator('[data-evidence-action="openFunction"]').click();
+      await page.locator('[data-evidence-action="askAgent"]').click();
+
+      expect(await harness.postedOfType('openFunction')).toEqual([
+        { type: 'openFunction', nodeId: 'find_slot' },
+      ]);
+      expect(await harness.postedOfType('askAgent')).toEqual([
+        { type: 'askAgent', workflowId: 'wf_c9d2f3', nodeId: 'find_slot' },
+      ]);
+    });
+
+    /** A replay of the run the tab is showing, from
+     *  the block the card is about. */
+    test('replays the tab’s run from the block that is picked', async ({
+      page,
+    }) => {
+      const harness = await openInspector(
+        page,
+        picked('find_slot', GRAPH.ir, seeRun().live),
+      );
+
+      await page.locator('[data-evidence-action="replayFrom"]').click();
+
+      expect(await harness.postedOfType('replayFrom')).toEqual([
+        { type: 'replayFrom', workflowId: 'wf_c9d2f3', nodeId: 'find_slot' },
+      ]);
+    });
+
+    /**
+     * One way to replay, whether a node or a row of
+     * it was picked. The block travels and the row
+     * does not: which of a block's rows a replay
+     * starts from is decided where the run's rows
+     * are.
+     */
+    test('offers one replay for a row picked on the tab', async ({ page }) => {
+      const harness = await openInspector(
+        page,
+        picked('find_slot', GRAPH.ir, seeRun().live, 1),
+      );
+
+      const replay = page.locator('[data-evidence-action="replayFrom"]');
+
+      await expect(replay).toHaveCount(1);
+      await replay.click();
+
+      expect(await harness.postedOfType('replayFrom')).toEqual([
+        { type: 'replayFrom', workflowId: 'wf_c9d2f3', nodeId: 'find_slot' },
       ]);
     });
   });

@@ -5,9 +5,9 @@
  *
  * The page's argument is that durability is rows,
  * so it is laid out as a document that quotes its
- * own sources: a banner, a strip of steps, a chart,
- * and then the two tables the whole thing was read
- * out of, named in the face code is read in.
+ * own sources: the graph, a strip of steps, a chart,
+ * and then the table the whole thing was read out
+ * of, named in the face code is read in.
  *
  * The one place boldness is spent is the hatched
  * band. Everything else is flat rectangles on
@@ -30,22 +30,16 @@ body {
   );
 }
 
+/* One column: the run, and nothing beside it. What
+   a run recorded about a block or about the whole
+   run is the Inspector's, in the side bar. */
 .see {
   box-sizing: border-box;
   min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 22rem;
-  gap: var(--space-8);
+  grid-template-columns: minmax(0, 1fr);
   padding: var(--space-6);
   align-items: start;
-}
-
-/* One column once the rail has nowhere to go. */
-@media (width < 60rem) {
-  .see {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-6);
-  }
 }
 
 .see-main {
@@ -83,33 +77,6 @@ body {
    not a bug anybody has to read. */
 .see-head > .title[data-severity='cancelled'] {
   color: var(--ink-muted);
-}
-
-/* — the banner — */
-
-.recovered {
-  background: var(--warn-tint);
-}
-
-.recovered > .eyebrow {
-  color: var(--warn);
-  margin-bottom: var(--space-2);
-}
-
-/* The two numbers, above the sentence that says
-   where they came from — each carrying its own
-   derived chip. */
-.recovered-figures {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-2);
-}
-
-.recovered-body {
-  margin: 0;
-  max-width: 62ch;
 }
 
 /* — the step strip — */
@@ -343,94 +310,6 @@ body {
   color: color-mix(in srgb, var(--ink) 75%, transparent);
 }
 
-/* — the rail — */
-
-.rail {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-  position: sticky;
-  top: var(--space-6);
-}
-
-.rail .eyebrow {
-  color: var(--brand);
-  margin-bottom: var(--space-3);
-}
-
-.ledger {
-  margin: 0;
-}
-
-.ledger > div {
-  display: grid;
-  grid-template-columns: 11rem minmax(0, 1fr);
-  gap: var(--space-2);
-  padding: var(--space-1) 0;
-  border-top: 1px solid var(--hairline);
-  font-size: var(--text-sm);
-}
-
-.ledger dt {
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
-  overflow-wrap: anywhere;
-}
-
-.ledger dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.ledger-note {
-  margin: var(--space-3) 0 0;
-  font-size: var(--text-xs);
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
-}
-
-.replay-note {
-  margin: 0;
-  font-size: var(--text-sm);
-  border-left: 2px solid var(--brand);
-  padding-left: var(--space-2);
-}
-
-/* How far the run got, and the one control left
-   over it. A column rather than the ledger's
-   label/value grid: a recorded name and a clock are
-   each as long as they are, and a rail somebody
-   narrowed has no second column to give them. */
-.controls {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-.controls > .btn {
-  align-self: start;
-}
-
-.control-line {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  font-size: var(--text-sm);
-  overflow-wrap: anywhere;
-}
-
-.control-name {
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: var(--label-tracking);
-  color: var(--ink-muted);
-}
-
-/* The page's one action wears the shared button.
-   The rule that used to live here was the other
-   half of a shape two views spelled twice. */
-.btn:disabled {
-  opacity: 0.5;
-}
-
 /* — the two views of one run — */
 
 /* Both panes in one grid cell, so the one not being
@@ -469,6 +348,18 @@ body {
 
 .run-flow .node {
   cursor: pointer;
+}
+
+/* The revision the graph draws and the way back to
+   its document, on one line in the graph's corner
+   and clear of its edges. Where they sit is this
+   sheet's; how the hint and the Button look is
+   their own. */
+.graph-corner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-6);
 }
 
 /* — the trace — */
@@ -606,14 +497,4 @@ body {
 .trace-child:focus-visible {
   outline: 2px solid var(--vscode-focusBorder, var(--brand));
   outline-offset: -2px;
-}
-
-/* What the run was started with, cut like a cell. */
-.raw-input {
-  margin: var(--space-1) 0 0;
-  max-height: 12em;
-  overflow: auto;
-  font-size: var(--text-sm);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }

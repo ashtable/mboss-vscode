@@ -47,6 +47,41 @@ const TOKENS = 'src/webview/tokens.css';
 /** Where the components every view draws live. */
 const SIGNAL = 'src/webview/signal/';
 
+/** The components every view draws, by the class
+ *  their own rules are written against. */
+const SHARED_CLASSES = [
+  'btn',
+  'tab',
+  'state-word',
+  'lib-fn',
+  'section-label',
+  'field-hint',
+  'callout',
+  'empty-state',
+];
+
+/** One of them as a whole class, so `.tab` is not
+ *  `.tab-pane`. */
+const SHARED = new RegExp(`\\.(?:${SHARED_CLASSES.join('|')})(?![\\w-])`);
+
+/** What a view's sheet may say about a shared
+ *  component: where it sits, and nothing else. */
+const PLACING = [
+  /^margin(?:-[\w-]+)?$/,
+  /^(?:order|align-self|justify-self)$/,
+  /^flex(?:-grow|-shrink|-basis)?$/,
+  /^grid-(?:area|column|row)(?:-start|-end)?$/,
+];
+
+/** The files a card belongs in: the two things that
+ *  float over the canvas, and the gallery's
+ *  pattern tiles. */
+const CARDS = [
+  'src/canvas/Canvas.tsx',
+  'src/canvas/connect/QuickAdd.tsx',
+  'src/gallery/index.tsx',
+];
+
 /** A name written into the markup rather than handed
  *  to it. */
 const NAMED_BY_HAND = /\b(?:title|aria-label|placeholder|label|alt)=['"]/;
@@ -157,6 +192,66 @@ function isBody(selector: string): boolean {
 
 function reads(value: string): string[] {
   return [...value.matchAll(READS)].flatMap((found) => found[1] ?? []);
+}
+
+/** Each selector in a list, split only where the
+ *  comma is the list's own and not an argument's. */
+function selectorsOf(list: string): string[] {
+  const selectors: string[] = [];
+  let depth = 0;
+  let one = '';
+
+  for (const letter of list) {
+    if (letter === '(') depth += 1;
+    if (letter === ')') depth -= 1;
+
+    if (letter === ',' && depth === 0) {
+      selectors.push(one.trim());
+      one = '';
+    } else {
+      one += letter;
+    }
+  }
+
+  return [...selectors, one.trim()];
+}
+
+/**
+ * The compound a selector styles: the last one,
+ * with what an attribute or a pseudo-class is asked
+ * about taken out first — `.row:has(> .btn)` styles
+ * the row, not the Button.
+ */
+function subjectOf(selector: string): string {
+  let bare = selector.replace(/\[[^\]]*\]/g, '');
+
+  while (/\([^()]*\)/.test(bare)) bare = bare.replace(/\([^()]*\)/g, '');
+
+  const compounds = bare.trim().split(/[\s>+~]+/);
+
+  return compounds.at(-1) ?? '';
+}
+
+/** Every class one file writes into a `className`,
+ *  word by word, whether the value is a string or
+ *  an expression choosing between strings. */
+function classNamesOf(tsx: string): string[] {
+  const names: string[] = [];
+  const opens = /className=/g;
+
+  for (let found = opens.exec(tsx); found !== null; found = opens.exec(tsx)) {
+    const at = found.index + found[0].length;
+    const value =
+      tsx[at] === '{'
+        ? tsx.slice(at, closes(tsx, at) + 1)
+        : (/^(['"])[^'"]*\1/.exec(tsx.slice(at))?.[0] ?? '');
+
+    for (const literal of value.matchAll(/(['"`])([^'"`]*)\1/g)) {
+      names.push(...(literal[2] ?? '').split(/\s+/).filter(Boolean));
+    }
+  }
+
+  return names;
 }
 
 /** One file with what it says about itself taken
@@ -466,6 +561,51 @@ describe('the stylesheets this extension ships', () => {
     });
 
     expect(written).toEqual([]);
+  });
+
+  /**
+   * A shared component looks the same wherever it is
+   * drawn. A view's own sheet may say where one sits
+   * — a margin, an order, its place in a row or a
+   * grid — and nothing about how it looks: a Button
+   * that is a different button on one surface is two
+   * buttons to learn, and the rule that would make
+   * it one is written where every view reads it.
+   */
+  it('restyle no shared component in a view’s own sheet', () => {
+    const placed = rules
+      .filter((rule) => rule.sheet !== TOKENS)
+      .flatMap((rule) =>
+        selectorsOf(rule.selector)
+          .filter((one) => SHARED.test(subjectOf(one)))
+          .map((selector) => ({ ...rule, selector })),
+      );
+
+    expect(placed.length).toBeGreaterThan(0);
+    expect(
+      placed.flatMap((rule) =>
+        declarationsOf(rule.body)
+          .filter(({ name }) => !PLACING.some((one) => one.test(name)))
+          .map(({ name }) => `${rule.sheet} ${rule.selector} ${name}`),
+      ),
+    ).toEqual([]);
+  });
+
+  /**
+   * A card floats. What floats over the canvas — the
+   * quick add, a wiring refusal — and the gallery's
+   * pattern tiles are cards; a panel and the sections
+   * in it are not, because a box drawn inside a panel
+   * is chrome between somebody and what they came to
+   * read.
+   */
+  it('draw a card only where a card belongs', () => {
+    const carding = components
+      .filter((file) => classNamesOf(withoutNotes(file.text)).includes('card'))
+      .map((file) => file.name);
+
+    expect(carding.filter((name) => CARDS.includes(name))).not.toEqual([]);
+    expect(carding.filter((name) => !CARDS.includes(name))).toEqual([]);
   });
 
   /**

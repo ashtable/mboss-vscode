@@ -8,13 +8,12 @@ import type {
   RunLineage,
   SeeGraph,
   SeeInit,
-  SeeLineageRun,
   SeeRun,
   TraceGroupView,
 } from '../../../src/webview/protocol.js';
 
 import { mount, type Harness, type ThemeKind } from '../harness.js';
-import { canvasWords, inspectorWords, seeWords } from '../words.js';
+import { canvasWords, seeWords } from '../words.js';
 
 /**
  * One run, as the host would send it to the run tab.
@@ -48,18 +47,6 @@ export function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     headline: 'SUCCESS · 8.2 s total',
     word: 'done',
     span: 'started 14:02:11 · finished 14:02:19',
-    recovered: {
-      heading: 'Recovered — completed durable operations were not re-executed',
-      body:
-        'DBOS picked this run back up. Both figures are derived from the ' +
-        'widest gap between recorded operations — the durable operations ' +
-        'that finished before that gap were reused from ' +
-        'dbos.operation_outputs rather than run again.',
-      figures: {
-        down: 'nothing ran for about 2.9 s',
-        reused: '2 durable operations reused',
-      },
-    },
     chips: STEP_NAMES.map((name, index) => ({
       functionId: index,
       name,
@@ -103,12 +90,6 @@ export function seeRun(over: Partial<SeeRun> = {}): SeeRun {
       { label: 'recovery_attempts', value: '2' },
       { label: 'executor_id', value: 'local-dev' },
     ],
-    controls: {
-      cancel: false,
-      resume: false,
-      cancelled: undefined,
-      lastRecorded: 'book_appointment · step 2',
-    },
     selectedStep: 2,
     note: undefined,
     graph: undefined,
@@ -136,7 +117,6 @@ export function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     showRaw: false,
     following: 'quiet',
     input: undefined,
-    lineage: undefined,
     ...over,
   };
 }
@@ -152,7 +132,6 @@ export function seeInit(
     type: 'init',
     view: 'see',
     strings: seeWords,
-    inspector: inspectorWords,
     run,
     showing,
   };
@@ -167,7 +146,6 @@ export function seeNothing(): SeeInit {
     type: 'init',
     view: 'see',
     strings: seeWords,
-    inspector: inspectorWords,
     run: undefined,
     showing: 'graph',
   };
@@ -187,9 +165,6 @@ export async function showRun(
 /** The warn colour, as the light theme resolves it.
  *  Recovery is drawn in it wherever it is drawn. */
 export const WARN = 'rgb(233, 162, 59)';
-
-/** The tint of it a whole surface is washed in. */
-export const WARN_TINT = 'color(srgb 0.966078 0.935451 0.89102)';
 
 /** The blocks the graph fixture draws, laid out
  *  the way core would lay them out. */
@@ -447,7 +422,7 @@ export const QUEUED = liveRun({
 });
 
 /** What one read of the whole queue answered with,
- *  for the card the rail draws about that block. */
+ *  for the Inspector's card about that block. */
 export const QUEUE_READ: QueueEvidence = {
   window: {
     queued: 42,
@@ -628,31 +603,6 @@ export const REPLAYED: TraceGroupView[] = GROUPS.map((group, at) => ({
     reused: at === 0 && index === 0,
   })),
 }));
-
-/**
- * A run that came out of another, drawn from the top
- * of the tree: the run that failed, the fork point,
- * and the replay under it.
- */
-export const LINEAGE: SeeLineageRun = {
-  workflowId: 'wf_a1b4e7',
-  status: 'ERROR',
-  word: 'failed',
-  startStep: undefined,
-  from: undefined,
-  here: false,
-  forks: [
-    {
-      workflowId: 'wf_c9d2f3',
-      status: 'SUCCESS',
-      word: 'done',
-      startStep: 3,
-      from: 'replay from Refund payment',
-      here: true,
-      forks: [],
-    },
-  ],
-};
 
 /** The run the Inspector's card about a whole run is
  *  drawn from, and the runs either side of a replay

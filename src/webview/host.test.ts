@@ -107,13 +107,11 @@ describe('a mounted webview', () => {
     const heard: Heard<'see'>[] = [];
     const { frame } = mounted({ heard: (message) => heard.push(message) });
 
-    frame.send({ type: 'replayFrom', workflowId: 'wf_c9d2f3', functionId: 3 });
+    frame.send({ type: 'stepSelect', functionId: 3 });
     frame.send({ type: 'stackUp' });
     frame.send('nonsense');
 
-    expect(heard).toEqual([
-      { type: 'replayFrom', workflowId: 'wf_c9d2f3', functionId: 3 },
-    ]);
+    expect(heard).toEqual([{ type: 'stepSelect', functionId: 3 }]);
   });
 });
 
@@ -153,9 +151,9 @@ describe('what each view may say', () => {
 
     select: ['canvas'],
     inspectorMode: ['inspector'],
-    openFunction: ['inspector', 'see'],
-    openErrorLocation: ['inspector', 'see'],
-    openOutput: ['inspector', 'see'],
+    openFunction: ['inspector'],
+    openErrorLocation: ['inspector'],
+    openOutput: ['inspector'],
     connect: ['canvas'],
     addNode: ['canvas'],
     move: ['canvas'],
@@ -186,25 +184,24 @@ describe('what each view may say', () => {
     selectWorkflow: ['runs'],
     runWorkflow: ['runs'],
     rerun: ['runs'],
-    askAgent: ['runs', 'see', 'inspector'],
+    askAgent: ['runs', 'inspector'],
     openRun: ['runs', 'canvas', 'sidebar', 'inspector'],
     openProduction: ['runs'],
     replayRun: ['runs'],
 
     // Distinct from `cancel`, which is the side
     // bar's own kind for stopping an agent's turn.
-    cancelRun: ['runs', 'see', 'inspector'],
-    resumeRun: ['runs', 'see', 'inspector'],
+    cancelRun: ['runs', 'inspector'],
+    resumeRun: ['runs', 'inspector'],
     openInput: ['inspector'],
 
     stepSelect: ['see'],
-    replayFrom: ['inspector', 'see', 'sidebar'],
+    replayFrom: ['inspector', 'sidebar'],
 
-    // The Inspector, and the run page's rail
-    // while it still draws the Inspector's card:
-    // either can be showing a queue block when
-    // somebody opens it.
-    inspectQueue: ['inspector', 'see'],
+    // The Inspector alone draws the card that reads
+    // a queue block, from whichever surface picked
+    // the block.
+    inspectQueue: ['inspector'],
     seeShow: ['see'],
     seeNode: ['see'],
     seeRaw: ['see'],
