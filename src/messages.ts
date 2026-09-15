@@ -1266,12 +1266,15 @@ export const messages = {
    *
    * Lower case, the way each project spells its
    * own name — this is a list of other people's
-   * products, not a list of headings.
+   * products, not a list of headings. The name
+   * alone, with no "cli": how each one is started
+   * is the picker's detail line, and the panel's
+   * header names the agent rather than its binary.
    */
   agents: (): Record<AgentId, string> => ({
     'claude-code': l10n.t('claude code'),
-    codex: l10n.t('codex cli'),
-    gemini: l10n.t('gemini cli'),
+    codex: l10n.t('codex'),
+    gemini: l10n.t('gemini'),
     custom: l10n.t('custom'),
   }),
 

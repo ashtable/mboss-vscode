@@ -6,12 +6,26 @@ import {
   type WebviewViewProvider,
 } from 'vscode';
 
-import type { AgentPanel } from '../acp/agent.js';
+import type { AgentPanel, PanelState } from '../acp/agent.js';
+import type { ToolKind } from '../acp/connection.js';
+import { stripIndent } from '../acp/diff.js';
+import {
+  fileStateOf,
+  type MessageEntry,
+  type ToolEntry,
+  type TranscriptEntry,
+} from '../acp/transcript.js';
 import { messages } from '../messages.js';
+import { displayPath } from '../paths.js';
 import type { PreviewStore } from '../preview/store.js';
 import { appliedCard, proposalCard } from '../preview/view.js';
+import { filled } from '../webview/fill.js';
 import { mountWebview } from '../webview/host.js';
-import type { SidebarInit } from '../webview/protocol.js';
+import type {
+  SidebarEntry,
+  SidebarInit,
+  SidebarStrings,
+} from '../webview/protocol.js';
 
 import { agentFailure, sidebarHeading, sidebarWords } from './words.js';
 
@@ -100,21 +114,35 @@ export class AgentSidebarView implements WebviewViewProvider {
   }
 }
 
+/**
+ * The panel's whole picture, with every name and
+ * state it draws worked out.
+ *
+ * Worked out here rather than in the view because
+ * the answers need what only the host has: the
+ * project a path is relative to, and the whole
+ * conversation, where a file's edit and the call
+ * that wrote it are separate entries.
+ */
 export function sidebarInit(
   panel: AgentPanel,
   preview: PreviewStore,
 ): SidebarInit {
   const state = panel.state();
   const card = preview.card();
+  const strings = sidebarWords();
+  const newest = state.transcript.length - 1;
 
   return {
     type: 'init',
     view: 'sidebar',
-    strings: sidebarWords(),
+    strings,
     agent:
       state.agent === undefined ? undefined : messages.agents()[state.agent],
     status: state.status,
-    transcript: state.transcript,
+    transcript: state.transcript.map((entry, at) =>
+      shown(entry, at === newest, state, strings),
+    ),
     prompt: state.prompt,
     failure:
       state.failure === undefined ? undefined : agentFailure(state.failure),
@@ -125,4 +153,122 @@ export function sidebarInit(
           ? proposalCard(card.model)
           : appliedCard(card),
   };
+}
+
+/**
+ * The kinds of call a person reads by the file
+ * they touched.
+ *
+ * Each is something done to a file, so "Edit
+ * lib/a.ts" says all of it. Any other kind —
+ * thinking, switching mode, whatever else an agent
+ * does — is not about a file even when it names
+ * one, and the agent's own title says it better.
+ */
+const FILE_TOOL_KINDS = [
+  'read',
+  'edit',
+  'delete',
+  'move',
+  'search',
+  'execute',
+  'fetch',
+] as const satisfies readonly ToolKind[];
+
+type FileToolKind = (typeof FILE_TOOL_KINDS)[number];
+
+/** One entry, with what drawing it needs. Nothing
+ *  here writes back into the panel's own entries. */
+function shown(
+  entry: TranscriptEntry,
+  newest: boolean,
+  state: PanelState,
+  strings: SidebarStrings,
+): SidebarEntry {
+  switch (entry.at) {
+    case 'tool':
+      return { ...entry, ...toolNamed(entry, state.project, strings) };
+
+    case 'file':
+      return {
+        ...entry,
+        shownPath: displayPath(entry.path, state.project),
+        state: fileStateOf(entry, state.transcript),
+        lines: stripIndent(entry.lines),
+      };
+
+    case 'message': {
+      const reasoning =
+        newest && state.status === 'streaming' ? underWay(entry) : undefined;
+
+      return reasoning === undefined ? entry : { ...entry, reasoning };
+    }
+
+    default:
+      return entry;
+  }
+}
+
+/**
+ * What a tool row says it did, and to what.
+ *
+ * A row mBoss wrote keeps the words it was written
+ * with. An agent's call that touched a file is
+ * named by its kind and that file, whatever the
+ * agent titled it — codex titles every write
+ * "Editing files". Anything else keeps the title
+ * the fold split.
+ */
+function toolNamed(
+  tool: ToolEntry,
+  project: string | undefined,
+  strings: SidebarStrings,
+): { verb: string; target: string } {
+  const [first] = tool.paths;
+
+  if (tool.by === 'person' || first === undefined || !namesFile(tool.kind)) {
+    return { verb: tool.verb, target: tool.target };
+  }
+
+  const path = displayPath(first, project);
+
+  return {
+    verb: strings.toolVerbs[tool.kind],
+    target:
+      tool.paths.length > 1
+        ? filled(strings.toolFiles, path, String(tool.paths.length))
+        : path,
+  };
+}
+
+function namesFile(kind: ToolKind): kind is FileToolKind {
+  return (FILE_TOOL_KINDS as readonly ToolKind[]).includes(kind);
+}
+
+/**
+ * A thought that is nothing but a bold heading,
+ * read as the work it names.
+ *
+ * Agents open a stretch of reasoning by titling it
+ * — "**Validating source and destination
+ * uniqueness**" — and until more arrives that
+ * title is all there is to show. Its first word is
+ * what is being done and the rest is what to. The
+ * caller asks only while the session streams and
+ * only of the newest entry: a heading with anything
+ * after it, or one the agent has moved on from, is
+ * prose.
+ */
+function underWay(
+  entry: MessageEntry,
+): { verb: string; target: string } | undefined {
+  if (entry.from !== 'thought') return undefined;
+
+  const heading = /^\*\*([^*\n]+)\*\*$/.exec(entry.text.trim());
+
+  if (heading === null) return undefined;
+
+  const words = (heading[1] ?? '').trim().split(/\s+/);
+
+  return { verb: words[0] ?? '', target: words.slice(1).join(' ') };
 }

@@ -20,10 +20,16 @@ export type FileStat = {
   isNew: boolean;
 };
 
-/** One row of a diff. `skip` stands for the lines
- *  nobody touched, and its text is how many. */
+/**
+ * One row of a diff.
+ *
+ * Only lines that are drawn. The stretches nobody
+ * touched get no row standing in for them: where
+ * two hunks meet, the line numbers jump, and that
+ * already says how far.
+ */
 export type DiffLine = {
-  kind: 'add' | 'del' | 'ctx' | 'skip';
+  kind: 'add' | 'del' | 'ctx';
 
   text: string;
 
@@ -124,11 +130,10 @@ function commonLength(before: string[], after: string[]): number {
  * Counting is not enough once a person is being
  * asked to keep or undo an edit: what they are
  * agreeing to is these lines. Stretches nobody
- * touched collapse to one `skip` row, keeping two
- * lines either side of every change — a panel a
- * few hundred pixels wide cannot show a whole file,
- * and the untouched part is not what is being
- * asked about.
+ * touched are left out, keeping two lines either
+ * side of every change — a panel a few hundred
+ * pixels wide cannot show a whole file, and the
+ * untouched part is not what is being asked about.
  */
 export function lineDiff(
   oldText: string | null | undefined,
@@ -139,6 +144,49 @@ export function lineDiff(
   const aligned = alignment(before, after);
 
   return aligned === undefined ? [] : collapsed(aligned);
+}
+
+/**
+ * The lines, without the indentation all of them
+ * share.
+ *
+ * A hunk from inside a method starts eight or ten
+ * columns in, which in a narrow panel is half the
+ * card before any code. That shared margin says
+ * nothing about the change, so it goes, and the
+ * lines keep only how they sit against each other.
+ *
+ * What is shared is a string, not a width: a tab
+ * and four spaces line up in one editor and not in
+ * the next, so neither stands for the other. A
+ * blank line has no indentation to share and would
+ * otherwise take the margin to nothing, so it is
+ * left out of the reckoning and drawn empty.
+ */
+export function stripIndent(lines: readonly DiffLine[]): DiffLine[] {
+  const margin = lines
+    .filter((line) => line.text.trim() !== '')
+    .map((line) =>
+      line.text.slice(0, line.text.length - line.text.trimStart().length),
+    )
+    .reduce<string | undefined>(
+      (shared, indent) =>
+        shared === undefined ? indent : commonStart(shared, indent),
+      undefined,
+    );
+
+  return lines.map((line) => ({
+    ...line,
+    text: line.text.trim() === '' ? '' : line.text.slice(margin?.length ?? 0),
+  }));
+}
+
+function commonStart(one: string, other: string): string {
+  let at = 0;
+
+  while (at < one.length && one[at] === other[at]) at += 1;
+
+  return one.slice(0, at);
 }
 
 /** Lines around a change that stay, either side. */
@@ -223,8 +271,8 @@ function alignment(before: string[], after: string[]): DiffLine[] | undefined {
   return lines;
 }
 
-/** The rows worth drawing, with one row standing
- *  for each run of the ones that are not. */
+/** The rows near enough to a change to be worth
+ *  drawing. */
 function collapsed(lines: DiffLine[]): DiffLine[] {
   const near = lines.map(() => false);
 
@@ -237,30 +285,7 @@ function collapsed(lines: DiffLine[]): DiffLine[] {
     for (let index = from; index <= to; index += 1) near[index] = true;
   });
 
-  const kept: DiffLine[] = [];
-  let skipped = 0;
-
-  const standIn = (): void => {
-    if (skipped === 0) return;
-
-    kept.push({ kind: 'skip', text: String(skipped) });
-    skipped = 0;
-  };
-
-  for (const [at, line] of lines.entries()) {
-    if (near[at] === true) {
-      standIn();
-      kept.push(line);
-
-      continue;
-    }
-
-    skipped += 1;
-  }
-
-  standIn();
-
-  return kept;
+  return lines.filter((_, at) => near[at]);
 }
 
 /** A file's lines, with the trailing newline not

@@ -124,6 +124,7 @@ describe('what the agent did', () => {
         kind: 'edit',
         status: 'completed',
         body: [],
+        paths: [],
       },
     ]);
   });
@@ -193,6 +194,133 @@ describe('what the agent did', () => {
   });
 
   /**
+   * What an agent titles a call is its own business:
+   * codex calls every write "Editing files". The
+   * file is on the update anyway, as the diff the
+   * call carries, so the row keeps where it came
+   * from rather than what the title guessed at.
+   */
+  it('names the file an edit touched, whatever its title said', () => {
+    const tool = fold({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'call-1',
+      title: 'Editing files',
+      kind: 'edit',
+      status: 'completed',
+      content: [
+        {
+          type: 'diff',
+          path: '/project/lib/airtableEtl.test.ts',
+          oldText: "srcCustomerId: 'C-100',\n",
+          newText: "srcCustomerId: '  C-100  ',\n",
+        },
+      ],
+    })[0] as ToolEntry;
+
+    expect(tool.paths).toEqual(['/project/lib/airtableEtl.test.ts']);
+    expect([tool.verb, tool.target]).toEqual(['Editing', 'files']);
+  });
+
+  /**
+   * A read carries no diff; the files it looked at
+   * come as locations. A diff and a location can
+   * name the same file, which is still one file.
+   */
+  it('names the files a call reports touching', () => {
+    const paths = (update: SessionUpdate): string[] =>
+      (fold(update)[0] as ToolEntry).paths;
+
+    expect(
+      paths({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-1',
+        title: 'Read two files',
+        kind: 'read',
+        locations: [
+          { path: '/project/a.ts' },
+          { path: '/project/b.ts', line: 3 },
+        ],
+      }),
+    ).toEqual(['/project/a.ts', '/project/b.ts']);
+
+    expect(
+      paths({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-1',
+        title: 'Edit b.ts',
+        kind: 'edit',
+        content: [{ type: 'diff', path: '/project/b.ts', newText: 'b\n' }],
+        locations: [{ path: '/project/a.ts' }, { path: '/project/b.ts' }],
+      }),
+    ).toEqual(['/project/b.ts', '/project/a.ts']);
+  });
+
+  it("keeps a call's files when an update only moves its status", () => {
+    const tool = fold(
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-1',
+        title: 'Editing files',
+        kind: 'edit',
+        content: [{ type: 'diff', path: '/project/a.ts', newText: 'a\n' }],
+      },
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call-1',
+        status: 'completed',
+      },
+    )[0] as ToolEntry;
+
+    expect(tool.paths).toEqual(['/project/a.ts']);
+  });
+
+  /**
+   * An update that names another file adds to the
+   * call's files rather than replacing them: the
+   * edit to the first file is still in the column,
+   * and a row counting one file above two edits
+   * would be miscounting.
+   */
+  it('keeps every file a call has named, in the order it named them', () => {
+    const entries = fold(
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-1',
+        title: 'Editing files',
+        kind: 'edit',
+        content: [{ type: 'diff', path: '/project/a.ts', newText: 'a\n' }],
+      },
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call-1',
+        content: [{ type: 'diff', path: '/project/b.ts', newText: 'b\n' }],
+      },
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call-1',
+        content: [{ type: 'diff', path: '/project/a.ts', newText: 'A\n' }],
+      },
+    );
+
+    expect((entries[0] as ToolEntry).paths).toEqual([
+      '/project/a.ts',
+      '/project/b.ts',
+    ]);
+    expect(entries.filter((entry) => entry.at === 'file')).toHaveLength(2);
+  });
+
+  it('names no file for a call that reported none', () => {
+    const tool = fold({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'call-1',
+      title: 'workflow.apply_spec dryRun',
+      kind: 'other',
+    })[0] as ToolEntry;
+
+    expect(tool.paths).toEqual([]);
+  });
+
+  /**
    * What a call printed — a command's output, most
    * often. It is the one thing a row would show
    * less of than the card it replaces, so it is
@@ -257,6 +385,11 @@ describe('what happened to a file', () => {
     expect(files[1]?.isNew).toBe(false);
     expect(files.map((file) => file.decision)).toEqual(['pending', 'pending']);
     expect(files.map((file) => file.by)).toEqual(['agent', 'agent']);
+
+    expect((fold(edits)[0] as ToolEntry).paths).toEqual([
+      '/project/lib/twilioChat.ts',
+      '/project/.mboss/workflows/groom.workflow.json',
+    ]);
   });
 
   /**
@@ -429,6 +562,7 @@ describe('what the extension writes itself', () => {
       target: 'groom',
       status: 'applied',
       body: [],
+      paths: [],
     });
   });
 });

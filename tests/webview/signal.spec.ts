@@ -38,6 +38,7 @@ function running(): ToolEntry {
     target: 'lib/twilioChat.ts',
     status: 'in_progress',
     body: [],
+    paths: ['/project/lib/twilioChat.ts'],
   };
 }
 

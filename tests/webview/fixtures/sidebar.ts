@@ -1,5 +1,13 @@
-import type { FileEditEntry } from '../../../src/acp/transcript.js';
-import type { SidebarInit } from '../../../src/webview/protocol.js';
+import type {
+  FileDecision,
+  FileEditEntry,
+  FileState,
+  TranscriptEntry,
+} from '../../../src/acp/transcript.js';
+import type {
+  SidebarEntry,
+  SidebarInit,
+} from '../../../src/webview/protocol.js';
 
 import { sidebarWords } from '../words.js';
 
@@ -34,10 +42,37 @@ export function sidebarInit(over: Partial<SidebarInit> = {}): SidebarInit {
   };
 }
 
+/** A file edit as the panel is sent it. */
+type ShownFile = Extract<SidebarEntry, { at: 'file' }>;
+
+/**
+ * Entries the fold wrote, with what the host would
+ * add for drawing them.
+ *
+ * The host works those fields out where it can
+ * import `vscode` and `node:path`, which a page
+ * cannot, so a spec is handed plain defaults
+ * instead: a file is shown by the path it already
+ * has, and stands where its decision alone says.
+ * The working-out itself is proved beside the host.
+ * A case about a shown path or a state sets that
+ * field, and a field an entry already carries is
+ * kept.
+ */
+export function sidebarEntries(
+  entries: readonly (TranscriptEntry | SidebarEntry)[],
+): SidebarEntry[] {
+  return entries.map((entry) =>
+    entry.at === 'file' ? shownFile(entry) : entry,
+  );
+}
+
 /** A pending file edit, ready to be overridden for
- *  one thing at a time. */
-export function fileEntry(over: Partial<FileEditEntry> = {}): FileEditEntry {
-  return {
+ *  one thing at a time. An overridden path moves
+ *  the shown path with it; an overridden state or
+ *  shown path is kept as given. */
+export function fileEntry(over: Partial<ShownFile> = {}): ShownFile {
+  return shownFile({
     at: 'file',
     id: 'call-1:/project/lib/twilioChat.ts',
     toolCallId: 'call-1',
@@ -51,5 +86,16 @@ export function fileEntry(over: Partial<FileEditEntry> = {}): FileEditEntry {
     newText: 'new\n',
     decision: 'pending',
     ...over,
-  };
+  });
+}
+
+const STATE_OF: Record<FileDecision, FileState> = {
+  pending: 'proposed',
+  kept: 'applied',
+  undone: 'undone',
+  'changed-since': 'changed',
+};
+
+function shownFile(edit: FileEditEntry | ShownFile): ShownFile {
+  return { shownPath: edit.path, state: STATE_OF[edit.decision], ...edit };
 }

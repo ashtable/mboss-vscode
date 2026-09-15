@@ -226,6 +226,7 @@ describe('one turn', () => {
       target: 'booking',
       status: 'applied',
       body: [],
+      paths: [],
     });
 
     expect(
@@ -308,6 +309,22 @@ describe('before there is anything to talk to', () => {
     await driven.panel.send({ text: 'wire it' });
 
     expect(driven.panel.state().status).toBe('no-project');
+  });
+
+  /**
+   * The panel names a file by its place in the
+   * project, and the folder can close under a
+   * session, so it is asked for every picture.
+   */
+  it('says which folder the session runs in, as the window has it now', () => {
+    let folder: string | undefined = '/project';
+    const driven = drive({ project: () => folder });
+
+    expect(driven.panel.state().project).toBe('/project');
+
+    folder = undefined;
+
+    expect(driven.panel.state().project).toBeUndefined();
   });
 });
 

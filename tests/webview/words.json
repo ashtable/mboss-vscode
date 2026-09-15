@@ -333,7 +333,7 @@
     }
   },
   "sidebarWords": {
-    "heading": "Agent",
+    "heading": "mBoss — Agent",
     "chooseAgent": "choose",
     "notTrusted": "Trust this folder to run a coding agent in it.",
     "noProject": "Open a folder to run a coding agent in it.",
@@ -354,7 +354,25 @@
       "pending": "queued",
       "in_progress": "running",
       "completed": "done",
-      "failed": "failed"
+      "failed": "failed",
+      "applied": "done"
+    },
+    "toolVerbs": {
+      "read": "Read",
+      "edit": "Edit",
+      "delete": "Delete",
+      "move": "Move",
+      "search": "Search",
+      "execute": "Run",
+      "fetch": "Fetch"
+    },
+    "toolFiles": "{0} · {1} files",
+    "fileStates": {
+      "proposed": "proposed",
+      "applied": "applied",
+      "failed": "failed",
+      "undone": "undone",
+      "changed": "changed"
     },
     "keepEdit": "Keep",
     "undoEdit": "Undo",

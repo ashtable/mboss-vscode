@@ -431,6 +431,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
     kind: 'read',
     verb: messages.runEvidenceVerb(),
     target: messages.runEvidenceTarget(workflowId),
+    paths: [],
     ...over,
   });
 

@@ -1,7 +1,8 @@
 import { l10n } from 'vscode';
 
-import type { ToolCallStatus } from '../acp/connection.js';
+import type { ToolCallStatus, ToolKind } from '../acp/connection.js';
 import type { Failure } from '../acp/session.js';
+import type { FileState } from '../acp/transcript.js';
 import { once } from '../once.js';
 
 /**
@@ -20,8 +21,11 @@ import { once } from '../once.js';
  * host's own table and the panel borrows them.
  */
 
+/** The panel's one heading, which is also the
+ *  frame's title: the product, then what this
+ *  panel of it is. */
 export function sidebarHeading(): string {
-  return l10n.t('Agent');
+  return l10n.t('mBoss — Agent');
 }
 
 export const sidebarWords = once(() => ({
@@ -50,12 +54,45 @@ export const sidebarWords = once(() => ({
   refine: l10n.t('Refine'),
   undo: l10n.t('Undo'),
 
+  // A row the extension wrote is `applied`: it did
+  // the thing rather than asked for it, which to a
+  // reader is simply done. The same word as a call
+  // that completed, so it is translated once.
   toolStatus: {
     pending: l10n.t('queued'),
     in_progress: l10n.t('running'),
     completed: l10n.t('done'),
     failed: l10n.t('failed'),
-  } satisfies Record<ToolCallStatus, string>,
+    applied: l10n.t('done'),
+  } satisfies Record<ToolCallStatus | 'applied', string>,
+
+  // What a call that touched a file did, named by
+  // its kind rather than by the agent's title.
+  // Running a command is what `execute` is. Only
+  // the kinds that are about a file have one, and
+  // the host reading a verb for each of those is
+  // what fails to compile if one goes missing.
+  toolVerbs: {
+    read: l10n.t('Read'),
+    edit: l10n.t('Edit'),
+    delete: l10n.t('Delete'),
+    move: l10n.t('Move'),
+    search: l10n.t('Search'),
+    execute: l10n.t('Run'),
+    fetch: l10n.t('Fetch'),
+  } satisfies Partial<Record<ToolKind, string>>,
+
+  // The first file a call touched, and how many
+  // it touched in all.
+  toolFiles: l10n.t('{0} · {1} files'),
+
+  fileStates: {
+    proposed: l10n.t('proposed'),
+    applied: l10n.t('applied'),
+    failed: l10n.t('failed'),
+    undone: l10n.t('undone'),
+    changed: l10n.t('changed'),
+  } satisfies Record<FileState, string>,
 
   keepEdit: l10n.t('Keep'),
   undoEdit: l10n.t('Undo'),

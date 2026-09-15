@@ -1,5 +1,11 @@
 import type { PanelStatus } from '../acp/agent.js';
-import type { PermissionPrompt, TranscriptEntry } from '../acp/transcript.js';
+import type {
+  FileEditEntry,
+  FileState,
+  MessageEntry,
+  PermissionPrompt,
+  TranscriptEntry,
+} from '../acp/transcript.js';
 import type { canvasWords, inspectorWords } from '../canvas/words.js';
 import type { galleryWords } from '../gallery/words.js';
 import type {
@@ -278,7 +284,7 @@ export type SidebarInit = {
 
   status: PanelStatus;
 
-  transcript: TranscriptEntry[];
+  transcript: SidebarEntry[];
 
   /** What the agent is waiting to be told. */
   prompt: PermissionPrompt | undefined;
@@ -291,6 +297,32 @@ export type SidebarInit = {
    *  an agent's proposal, if anything. */
   preview: SidebarPreview | undefined;
 };
+
+/**
+ * One entry in the conversation, with what the
+ * host worked out for drawing it.
+ *
+ * The fold records what the agent sent; what a
+ * person reads needs more than one entry can say
+ * alone. A file is named by its place in the
+ * project, which needs `node:path`; whether its
+ * edit went through is its call's to say, and the
+ * call is another entry. So the host works each
+ * out and the view only draws it.
+ *
+ * A tool row's `verb` and `target`, and a file's
+ * `lines`, are the fold's own fields rewritten
+ * rather than new ones beside them, so the view
+ * reads one name whichever wrote it. A file always
+ * carries where it is shown and where it stands,
+ * because every drawing of one reads both; a
+ * thought carries `reasoning` only while it is
+ * work under way.
+ */
+export type SidebarEntry =
+  | Exclude<TranscriptEntry, MessageEntry | FileEditEntry>
+  | (MessageEntry & { reasoning?: { verb: string; target: string } })
+  | (FileEditEntry & { shownPath: string; state: FileState });
 
 /**
  * The card over the composer, in one of the three

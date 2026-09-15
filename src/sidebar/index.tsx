@@ -509,17 +509,9 @@ function FileEdit({
   );
 }
 
-/** One line of a diff, or the stand-in for a run of
- *  lines nobody touched. */
+/** One line of a diff. Where two hunks meet, the
+ *  line numbers jump. */
 function DiffLineRow({ line }: { line: DiffLine }) {
-  if (line.kind === 'skip') {
-    return (
-      <p className="diff-line" data-kind="skip">
-        ⋯ {line.text}
-      </p>
-    );
-  }
-
   return (
     <p className="diff-line" data-kind={line.kind}>
       <span className="gutter">{line.oldNo ?? ''}</span>

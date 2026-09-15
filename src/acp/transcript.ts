@@ -94,6 +94,19 @@ export type ToolEntry = {
   body: string[];
 
   /**
+   * Every file the call said it touched, absolute,
+   * in the order it named them.
+   *
+   * Read off the update rather than the title: an
+   * agent titles a call however it likes — codex
+   * calls every write "Editing files" — while the
+   * diffs and locations it sends name the files
+   * themselves. Empty for a call that named none,
+   * and for every row the extension writes.
+   */
+  paths: string[];
+
+  /**
    * The one place this row leads, where it leads
    * anywhere.
    *
@@ -161,6 +174,42 @@ export type FileEditEntry = {
  * edit.
  */
 export type FileDecision = 'pending' | 'kept' | 'undone' | 'changed-since';
+
+/** Where one file's edit stands, in the one word
+ *  the panel says about it. */
+export type FileState =
+  'proposed' | 'applied' | 'failed' | 'undone' | 'changed';
+
+/**
+ * Where one file's edit stands.
+ *
+ * A person's decision, once there is one, is the
+ * answer. Until then it is the call's to say: the
+ * agent wrote the file when its call completed,
+ * and had not yet while the call was still going.
+ * Worked out here, beside the fold that writes
+ * both entries, because the file and its call are
+ * separate entries and only the whole conversation
+ * holds the two together.
+ */
+export function fileStateOf(
+  edit: FileEditEntry,
+  entries: readonly TranscriptEntry[],
+): FileState {
+  if (edit.decision === 'kept') return 'applied';
+  if (edit.decision === 'undone') return 'undone';
+  if (edit.decision === 'changed-since') return 'changed';
+
+  const call = entries.find(
+    (entry) => entry.at === 'tool' && entry.id === edit.toolCallId,
+  );
+  const status = call?.at === 'tool' ? call.status : undefined;
+
+  if (status === 'completed') return 'applied';
+  if (status === 'failed') return 'failed';
+
+  return 'proposed';
+}
 
 /** Something that went wrong, and the one thing to
  *  do about it. */
@@ -282,6 +331,7 @@ export function personEdit(edit: {
     target: edit.target,
     status: 'applied',
     body: [],
+    paths: [],
   };
 }
 
@@ -381,6 +431,7 @@ function withToolCall(
     ...named,
     status: update.status ?? existing?.status ?? 'pending',
     body: update.content === undefined ? (existing?.body ?? []) : [],
+    paths: pathsOf(existing?.paths ?? [], update),
   };
 
   let conversation: TranscriptEntry[] =
@@ -400,6 +451,31 @@ function withToolCall(
   }
 
   return conversation;
+}
+
+/**
+ * The files a call has named so far.
+ *
+ * Added to rather than replaced: an update that
+ * sends a second file's diff leaves the first
+ * file's edit standing in the column, so the call
+ * still touched both. A diff comes before a
+ * location, because a diff is the call's own
+ * record of writing the file.
+ */
+function pathsOf(
+  named: readonly string[],
+  update: Extract<
+    SessionUpdate,
+    { sessionUpdate: 'tool_call' | 'tool_call_update' }
+  >,
+): string[] {
+  const diffs = (update.content ?? []).flatMap((item) =>
+    item.type === 'diff' ? [item.path] : [],
+  );
+  const located = (update.locations ?? []).map((location) => location.path);
+
+  return [...new Set([...named, ...diffs, ...located])];
 }
 
 /**

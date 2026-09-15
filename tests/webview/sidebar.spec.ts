@@ -8,7 +8,7 @@ import type {
 import { foldUpdates } from '../../src/acp/transcript.js';
 import type { SidebarInit } from '../../src/webview/protocol.js';
 
-import { fileEntry, sidebarInit } from './fixtures/sidebar.js';
+import { fileEntry, sidebarEntries, sidebarInit } from './fixtures/sidebar.js';
 import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
 import { sidebarWords as strings } from './words.js';
 
@@ -44,7 +44,10 @@ async function showing(
   over: Partial<SidebarInit> = {},
 ): Promise<void> {
   await harness.show(
-    sidebarInit({ transcript: foldUpdates([], updates), ...over }),
+    sidebarInit({
+      transcript: sidebarEntries(foldUpdates([], updates)),
+      ...over,
+    }),
   );
 }
 
@@ -164,6 +167,7 @@ test.describe('a tool call', () => {
             target: 'booking',
             status: 'applied',
             body: [],
+            paths: [],
           },
         ],
       }),
@@ -280,6 +284,7 @@ test.describe('a tool call', () => {
     target: 'run wf_c9d2f3 · mBoss run evidence',
     status: 'applied',
     body: ['ERROR · recovered ×1 · v0.4.1', '3 of 3 operations carried'],
+    paths: [],
     action: { label: 'Open run', posts: 'openRun', workflowId: 'wf_c9d2f3' },
   };
 
@@ -560,7 +565,6 @@ test.describe('a file edit, decided or not', () => {
               { kind: 'ctx', text: 'unchanged', oldNo: 1, newNo: 1 },
               { kind: 'del', text: 'old line', oldNo: 2 },
               { kind: 'add', text: 'new line', newNo: 2 },
-              { kind: 'skip', text: '3' },
             ],
           }),
         ],
@@ -569,7 +573,7 @@ test.describe('a file edit, decided or not', () => {
 
     const lines = page.locator('.diff-line');
 
-    await expect(lines).toHaveCount(4);
+    await expect(lines).toHaveCount(3);
 
     await expect(lines.nth(1)).toHaveAttribute('data-kind', 'del');
     await expect(lines.nth(1).locator('.sign')).toHaveText('−');
@@ -578,8 +582,6 @@ test.describe('a file edit, decided or not', () => {
     await expect(lines.nth(2)).toHaveAttribute('data-kind', 'add');
     await expect(lines.nth(2).locator('.sign')).toHaveText('+');
     await expect(lines.nth(2).locator('.gutter').nth(1)).toHaveText('2');
-
-    await expect(lines.nth(3)).toHaveText('⋯ 3');
   });
 
   test('offers Keep and Undo while nothing is decided', async ({ page }) => {

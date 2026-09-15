@@ -74,6 +74,14 @@ export type PanelState = {
   prompt: PermissionPrompt | undefined;
 
   failure: Failure | undefined;
+
+  /**
+   * Where the session runs, so a file the agent
+   * names can be drawn by its place in the project.
+   * The panel's host is the one thing that knows,
+   * and it is private to this module.
+   */
+  project: string | undefined;
 };
 
 /**
@@ -379,6 +387,7 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
         prompt:
           session.at === 'awaitingPermission' ? session.prompt : undefined,
         failure: session.at === 'failed' ? session.failure : undefined,
+        project: host.project(),
       };
     },
 

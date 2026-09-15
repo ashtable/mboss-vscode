@@ -362,12 +362,6 @@ body {
   color: var(--fail);
 }
 
-.diff-line[data-kind='skip'] {
-  display: block;
-  padding: 2px var(--space-2);
-  color: var(--ink-faint);
-}
-
 .file-actions {
   margin: var(--space-2) 0 0;
   display: flex;
