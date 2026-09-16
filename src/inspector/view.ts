@@ -9,7 +9,11 @@ import {
 } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
-import type { CanvasCode, CanvasSession } from '../canvas/editor.js';
+import type {
+  CanvasCode,
+  CanvasSession,
+  SubjectInputs,
+} from '../canvas/editor.js';
 import type { CanvasSessions } from '../canvas/sessions.js';
 import { inspectorWords } from '../canvas/words.js';
 import { manifestFor, projectOf, workflowDocument } from '../core/index.js';
@@ -469,21 +473,21 @@ export class InspectorView implements WebviewViewProvider {
     }
 
     const { project, path, canvas } = found;
-    const proposedBy = this.preview.forWorkflow(
-      project,
-      reading.run.name,
-    )?.proposedBy;
 
+    // A canvas holding the document already knows
+    // who is proposing against it; the store is
+    // asked only where no canvas is.
     const document: RunDocument =
       canvas !== undefined
-        ? { at: 'canvas', canvas: canvas.subjectInputs(), proposedBy }
+        ? canvasDocument(canvas.subjectInputs())
         : {
             at: 'buffer',
             file: basename(path),
             path,
             text: this.host.documentText(path),
             manifest: this.manifestOf(project),
-            proposedBy,
+            proposedBy: this.preview.forWorkflow(project, reading.run.name)
+              ?.proposedBy,
           };
 
     return {
@@ -903,4 +907,10 @@ export class InspectorView implements WebviewViewProvider {
 
     view.show(true);
   }
+}
+
+/** The document as the canvas open on it holds it,
+ *  the proposer included. */
+function canvasDocument(canvas: SubjectInputs): RunDocument {
+  return { at: 'canvas', canvas, proposedBy: canvas.proposedBy };
 }

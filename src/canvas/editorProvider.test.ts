@@ -1042,6 +1042,7 @@ describe('selecting a node', () => {
       mode: 'configure',
       run: undefined,
       decided: {},
+      proposedBy: undefined,
     });
     expect(init.diagnostics.length).toBeGreaterThan(0);
   });
@@ -1425,6 +1426,18 @@ describe('a proposal about the document on screen', () => {
    * face it would pick is about a document that is
    * not the file.
    */
+  /** The one fact behind the absent revision, said
+   *  by the session that holds the draft rather than
+   *  asked of the store again by whoever draws it. */
+  it('says who proposed what is drawn', async () => {
+    const path = await openProposed();
+
+    expect(canvasOn(path).subjectInputs()).toMatchObject({
+      revision: undefined,
+      proposedBy: 'claude code',
+    });
+  });
+
   it('neither selects nor picks a face through the canvas', async () => {
     const runs = runsSaying();
     const path = await openProposed(runs);

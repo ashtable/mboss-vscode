@@ -79,6 +79,7 @@ function canvas(over: Partial<SubjectInputs> = {}): SubjectInputs {
     mode: 'configure',
     run: undefined,
     decided: {},
+    proposedBy: undefined,
     ...over,
   };
 }

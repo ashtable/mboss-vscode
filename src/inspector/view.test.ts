@@ -83,6 +83,7 @@ function session(
     mode: 'configure',
     run: undefined,
     decided: {},
+    proposedBy: undefined,
     ...over,
   };
   const verb =
@@ -802,6 +803,29 @@ describe('what a run-tab subject says, and where it goes', () => {
       ['select', 'find_slot'],
       ['edit', edit],
     ]);
+  });
+
+  /**
+   * A canvas holding the document knows who is
+   * proposing against it, and the pane takes the
+   * proposer from there rather than asking the
+   * store again: one fact, one owner.
+   */
+  it('takes a proposal against the document from the canvas open on it', () => {
+    const pane = onRunTab();
+    const open = session('groom_booking.workflow.json', {
+      revision: undefined,
+      proposedBy: 'claude code',
+    });
+    pane.sessions.register(PATH, open.canvas, { active: false });
+
+    expect(pane.subjects().at(-1)).toMatchObject({
+      at: 'block',
+      block: {
+        revision: undefined,
+        proposal: messages.previewHeadline('claude code'),
+      },
+    });
   });
 
   it('edits through the canvas already open on the document', async () => {

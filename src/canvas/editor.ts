@@ -186,6 +186,11 @@ export type SubjectInputs = {
   mode: InspectorMode;
   run: ShownRun | undefined;
   decided: CanvasInit['decided'];
+
+  /** Who proposed what is drawn in the document's
+   *  place, while something is: the one fact behind
+   *  an absent revision that a pane has to say. */
+  proposedBy: string | undefined;
 };
 
 export class WorkflowCanvasEditor implements CustomTextEditorProvider {
@@ -559,6 +564,7 @@ export class CanvasSession {
       mode: this.mode(),
       run: this.run,
       decided: this.decided(),
+      proposedBy: this.live?.proposedBy,
     };
   }
 
