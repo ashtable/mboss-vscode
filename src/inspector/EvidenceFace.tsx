@@ -146,7 +146,7 @@ export function evidenceStatus({
     return runState === undefined ? undefined : (
       <StatusLine
         state={runState}
-        word={strings.runStates[runState]}
+        word={strings.runOutcomes[runState]}
         derived={strings.triggerDerived}
       />
     );
@@ -156,7 +156,7 @@ export function evidenceStatus({
     return (
       <StatusLine
         state={row.state}
-        word={strings.runStates[row.state]}
+        word={strings.runOutcomes[row.state]}
         detail={
           <span data-function-id={row.functionId}>{`#${row.functionId}`}</span>
         }
@@ -167,7 +167,7 @@ export function evidenceStatus({
   return runState === undefined ? undefined : (
     <StatusLine
       state={runState}
-      word={strings.runStates[runState]}
+      word={strings.runOutcomes[runState]}
       derived={strings.runningDerived}
     />
   );
@@ -576,7 +576,7 @@ function Parts({
           value={
             <StatusLine
               state={row.state}
-              word={strings.runStates[row.state]}
+              word={strings.runOutcomes[row.state]}
               detail={`#${row.functionId}`}
             />
           }

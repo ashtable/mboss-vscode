@@ -12,7 +12,7 @@ import {
 import type { StepState } from '../runs/reading.js';
 import type { LiveRun, LiveStep, QueueCounts } from '../runs/watch.js';
 import { filled } from '../webview/fill.js';
-import { inFlight } from '../webview/states.js';
+import { inFlight, type StepWord } from '../webview/states.js';
 import { fine } from '../webview/time.js';
 
 /**
@@ -44,9 +44,11 @@ export type NodeState = 'dormant' | 'selected' | 'proposed' | RunState;
  * What a run says about a block: the three states
  * the ledger records, and the one it only implies.
  *
- * Written as the watcher's own three plus one so
- * that a state the ledger gains cannot be missed
- * here.
+ * The step's own word, so that the board and the
+ * Inspector's card say a block's state in one
+ * vocabulary and look it up in one bag; a state the
+ * ledger gains still cannot be missed here, since
+ * `StepWord` is the run's words cut down to a step's.
  *
  * The parked one is `waiting` and stays `waiting`.
  * It means the run stopped on somebody who has not
@@ -56,7 +58,7 @@ export type NodeState = 'dormant' | 'selected' | 'proposed' | RunState;
  * separate fact, and it belongs to the run rather
  * than to any one block.
  */
-export type RunState = StepState | 'running';
+export type RunState = StepWord;
 
 /** What is happening along a wire. Same story: a
  *  wire is structure until a run is going through

@@ -10,11 +10,9 @@ import {
   inFlight,
   runWord,
   settled,
-  stepWord,
   type GlyphState,
   type RunEvidence,
   type RunWord,
-  type StepWord,
 } from './states.js';
 
 /**
@@ -64,13 +62,6 @@ const EVERY_WORD: readonly RunWord[] = [
   'failed',
   'gaveUp',
   'cancelled',
-];
-
-const EVERY_STEP: readonly StepWord[] = [
-  'done',
-  'failed',
-  'waiting',
-  'running',
 ];
 
 describe('the word a run is said in', () => {
@@ -284,34 +275,6 @@ describe('the glyph a state wears', () => {
     for (const state of EVERY_STATE) {
       expect(glyphOf(state).tone).toMatch(/^--/);
       expect(glyphOf(state).mark).not.toBe('');
-    }
-  });
-});
-
-describe('the word a step is said in', () => {
-  it('says what the row it was read from says', () => {
-    expect(EVERY_STEP).not.toHaveLength(0);
-
-    for (const state of EVERY_STEP) {
-      expect(stepWord({ state })).toBe(state);
-    }
-  });
-
-  /** "gave up" is a word about a whole run: a step
-   *  that ran out of retries failed, and a run
-   *  nothing restarts any more writes no error row
-   *  of its own for a step to carry. */
-  it('never says a word that is only about a whole run', () => {
-    const said = EVERY_STEP.map((state) => stepWord({ state }));
-
-    expect(said).not.toContain('gaveUp');
-    expect(said).not.toContain('queued');
-    expect(said).not.toContain('cancelled');
-  });
-
-  it('wears the glyph the run around it would wear', () => {
-    for (const state of EVERY_STEP) {
-      expect(glyphStateOf(stepWord({ state }))).toBe(state);
     }
   });
 });

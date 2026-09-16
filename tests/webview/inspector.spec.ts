@@ -3329,7 +3329,7 @@ test.describe('a block in the Inspector', () => {
       );
 
       await expect(status(page)).toHaveCount(1);
-      expect(await said(page)).toBe(inspectorStrings.runStates.done);
+      expect(await said(page)).toBe(inspectorStrings.runOutcomes.done);
       await expect(status(page)).toHaveAttribute('data-run-state', 'done');
       await expect(status(page)).toHaveAttribute('data-provenance', 'derived');
       await expect(status(page)).toHaveAccessibleDescription(
@@ -6663,7 +6663,7 @@ test.describe('a trigger block', () => {
     await expect(status).toHaveAttribute('data-run-state', 'done');
     await expect(status).toHaveAttribute('data-provenance', 'derived');
     await expect(status.locator('.status-glyph')).toHaveText('✓');
-    await expect(status).toHaveText(`✓${inspectorStrings.runStates.done}`);
+    await expect(status).toHaveText(`✓${inspectorStrings.runOutcomes.done}`);
     await expect(status).toHaveAccessibleDescription(/derived/);
   });
 

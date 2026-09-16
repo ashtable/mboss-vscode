@@ -111,12 +111,6 @@
     },
     "derived": "derived",
     "configured": "configured",
-    "runStates": {
-      "done": "done",
-      "failed": "failed",
-      "waiting": "waiting",
-      "running": "running"
-    },
     "runningDerived": "derived from the rows either side",
     "triggerDerived": "derived from the run’s workflow_status row",
     "started": "started",

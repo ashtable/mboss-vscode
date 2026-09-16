@@ -72,6 +72,35 @@ import type { RunOrigin } from './testRun.js';
 export type ReplayPick =
   { nodeId: string } | { functionId: number } | { from: 'start' };
 
+/**
+ * Where a replay would start, as the message names
+ * it.
+ *
+ * The start wins over everything, because a card
+ * that asks for it asks for no point the run
+ * recorded. A row wins over a block: a block picked
+ * on the run tab can come with the trace row
+ * somebody clicked, and the row is the more exact
+ * of the two. The schema has already refused a
+ * message naming none of the three, and this says
+ * so rather than inventing a block id nothing has.
+ * The Inspector is what sends it, and the store's
+ * pick is what it answers with.
+ */
+export function pointIn(said: {
+  nodeId?: string;
+  functionId?: number;
+  from?: 'start';
+}): ReplayPick | undefined {
+  if (said.from === 'start') return { from: 'start' };
+
+  if (said.functionId !== undefined) {
+    return { functionId: said.functionId };
+  }
+
+  return said.nodeId === undefined ? undefined : { nodeId: said.nodeId };
+}
+
 /** What the running app is, against the folder
  *  somebody is editing. */
 export type ReplayStack = Freshness | { at: 'down' };

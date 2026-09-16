@@ -410,17 +410,6 @@ export const inspectorWords = once(() => ({
   derived: canvasWords().derived,
   configured: l10n.t('configured'),
 
-  // Where the ledger got to with the block. The
-  // first three are states a row carries; the fourth
-  // is worked out from the rows either side of it,
-  // which is why it is the one whose line says so.
-  runStates: {
-    done: l10n.t('done'),
-    failed: l10n.t('failed'),
-    waiting: l10n.t('waiting'),
-    running: l10n.t('running'),
-  } satisfies Record<string, string>,
-
   // What a state line with no room for a word says
   // about itself, to a pointer and a screen reader:
   // a block the run has written nothing for is

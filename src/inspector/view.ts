@@ -21,7 +21,7 @@ import type { LibManifest, WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
 import type { PreviewStore } from '../preview/store.js';
 import type { AskAgent } from '../runs/evidence.js';
-import { pointIn } from '../runs/panels.js';
+import { pointIn } from '../runs/replayZone.js';
 import type { InspectedRun, ReplayPick } from '../runs/store.js';
 import type { SeeView } from '../runs/view.js';
 import { needsTopic, projectWorkflows } from '../runs/workflows.js';

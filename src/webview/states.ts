@@ -91,7 +91,11 @@ export type RunWord =
  * own, so that a run word a step may not take
  * cannot be spelled here by accident, and so that a
  * step and the run around it are looked up in one
- * bag of words.
+ * bag of words. A step's word is decided where its
+ * row is read, on the host, with `running` added by
+ * the board between two rows; nothing crosses on
+ * the browser side, which is why there is no
+ * function beside `runWord` for it.
  */
 export type StepWord = Extract<
   RunWord,
@@ -140,12 +144,6 @@ export type RunEvidence = {
    */
   parked: boolean;
 };
-
-/** A step as whoever draws one holds it: what its
- *  row says, or the `running` worked out between
- *  two rows, since the ledger writes a step only
- *  once it has finished. */
-export type StepReading = { state: StepWord };
 
 /**
  * DBOS's own words, each held to the set the
@@ -218,20 +216,6 @@ export function runWord(run: RunEvidence): RunWord {
   return (run.recoveryAttempts ?? FIRST_DISPATCH) > FIRST_DISPATCH
     ? 'recovering'
     : 'running';
-}
-
-/**
- * The word a step is said in.
- *
- * A step takes four of the run's words and none of
- * its own, and every surface goes through here so
- * that stays true. "gave up" in particular is about
- * a whole run: a step whose retries ran out failed,
- * and a run nothing restarts any more writes no
- * error row for a step to carry.
- */
-export function stepWord(step: StepReading): StepWord {
-  return step.state;
 }
 
 /**
