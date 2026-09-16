@@ -799,7 +799,21 @@ describe('what a run-tab subject says, and where it goes', () => {
   function onRunTab(options: Parameters<typeof mounted>[0] = {}) {
     const pane = mounted(options);
 
-    pane.tab.reading = seeView({ selectedNode: 'find_slot', selectedStep: 3 });
+    pane.tab.reading = seeView({
+      selectedNode: 'find_slot',
+      selectedStep: 3,
+      steps: [
+        {
+          functionId: 3,
+          name: 'find_slot',
+          startedAt: 1000,
+          completedAt: 1200,
+          output: '{}',
+          error: undefined,
+          childWorkflowId: undefined,
+        },
+      ],
+    });
     pane.focus.report({ at: 'run' });
 
     return pane;
@@ -826,7 +840,11 @@ describe('what a run-tab subject says, and where it goes', () => {
         nodeId: 'find_slot',
         face: 'evidence',
         revision: ir.revision,
-        functionId: 3,
+        evidence: {
+          workflowId: 'wf_1',
+          picked: true,
+          drawn: { functionId: 3 },
+        },
       },
     });
   });

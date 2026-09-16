@@ -51,7 +51,6 @@ const SEE_MAY_IMPORT = new Set([
  * slow to open as one.
  */
 const INSPECTOR_MAY_IMPORT = new Set([
-  '../canvas/graph.js',
   '../canvas/libFunction.js',
   '../canvas/icons.js',
 ]);
@@ -65,6 +64,7 @@ const INSPECTOR_MAY_IMPORT = new Set([
 const INSPECTOR_HOST = new Set([
   'view.ts',
   'subject.ts',
+  'blockEvidence.ts',
   'focus.ts',
   'host.ts',
   'surface.ts',

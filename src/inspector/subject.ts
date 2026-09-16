@@ -13,12 +13,14 @@ import { shortRunId } from '../webview/ids.js';
 import type {
   BlockSubject,
   InspectorInit,
+  InspectorStrings,
   InspectorSubject,
   RunInputView,
   RunLevel,
 } from '../webview/protocol.js';
 import { glyphStateOf, runWord, type RunWord } from '../webview/states.js';
 
+import { blockEvidenceOf } from './blockEvidence.js';
 import type { BlockInputs } from './surface.js';
 
 /**
@@ -100,15 +102,20 @@ export type Focused =
  * none about the run it is showing.
  */
 export function inspectorInit(focused: Focused): InspectorInit {
+  const strings = inspectorWords();
+
   return {
     type: 'init',
     view: 'inspector',
-    strings: inspectorWords(),
-    subject: subjectOf(focused),
+    strings,
+    subject: subjectOf(focused, strings),
   };
 }
 
-function subjectOf(focused: Focused): InspectorSubject {
+function subjectOf(
+  focused: Focused,
+  strings: InspectorStrings,
+): InspectorSubject {
   if (focused.at === 'none') return { at: 'none', file: undefined };
 
   if (focused.at === 'run') {
@@ -120,7 +127,7 @@ function subjectOf(focused: Focused): InspectorSubject {
 
     if (block === undefined) return { at: 'none', file: undefined };
 
-    return subjectAbout(block, focused.runsPanel);
+    return subjectAbout(block, focused.runsPanel, strings);
   }
 
   const { canvas } = focused;
@@ -132,7 +139,7 @@ function subjectOf(focused: Focused): InspectorSubject {
     };
   }
 
-  return subjectAbout(canvas, focused.runsPanel);
+  return subjectAbout(canvas, focused.runsPanel, strings);
 }
 
 /**
@@ -145,8 +152,9 @@ function subjectOf(focused: Focused): InspectorSubject {
 function subjectAbout(
   inputs: BlockInputs,
   runsPanel: RunsPanel,
+  strings: InspectorStrings,
 ): InspectorSubject {
-  const block = blockOf(inputs, runsPanel);
+  const block = blockOf(inputs, runsPanel, strings);
 
   return block === undefined
     ? { at: 'none', file: inputs.file }
@@ -286,10 +294,18 @@ function wordOf(run: LiveRun): RunWord {
  * longer has — which only the run tab can pick,
  * since its rows outlive the document — has nothing
  * left to configure, so it stays on Run evidence.
+ *
+ * What the run recorded about the block is finished
+ * here too, from the run the surface follows, the
+ * document it draws the block from and the arms it
+ * decided, so the pane draws an answer rather than
+ * working one out from a run and a document that
+ * may not be the surface's.
  */
 function blockOf(
   inputs: BlockInputs,
   runsPanel: RunsPanel,
+  strings: InspectorStrings,
 ): BlockSubject | undefined {
   if (!inputs.read.ok || inputs.selected === undefined) return undefined;
 
@@ -310,9 +326,19 @@ function blockOf(
     diagnostics: inputs.diagnostics,
     paletteLabels: paletteLabels(),
     kindWords: kindWords(),
-    run: inputs.run,
-    functionId: inputs.functionId,
-    decided: inputs.decided,
+    evidence:
+      inputs.run === undefined
+        ? undefined
+        : blockEvidenceOf(
+            {
+              run: inputs.run,
+              document: ir,
+              nodeId,
+              decided: inputs.decided,
+              functionId: inputs.functionId,
+            },
+            strings,
+          ),
     runInput: runInputOf(ir, nodeId, inputs.path, runsPanel),
     proposal:
       inputs.proposedBy === undefined

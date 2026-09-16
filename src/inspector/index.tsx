@@ -1,6 +1,5 @@
 import { useEffect, useRef } from 'react';
 
-import { runStateOf } from '../canvas/graph.js';
 import { postToHost } from '../webview/client.js';
 import { mountView } from '../webview/mount.js';
 import type {
@@ -88,9 +87,10 @@ function InspectorPanel({ strings, subject }: InspectorInit) {
  * what the host sent about it rather than from a
  * canvas around it.
  *
- * What a run did to the block is asked of the
- * board's own rule, so the card here and the block
- * on the graph cannot disagree.
+ * What a run did to the block came finished with
+ * it, asked on the host of the board's own rule, so
+ * the card here and the block on the graph cannot
+ * disagree.
  */
 function Block({
   strings,
@@ -114,18 +114,7 @@ function Block({
       mode={block.face}
       revision={block.revision}
       proposal={block.proposal}
-      run={block.run}
-      functionId={block.functionId}
-      runState={
-        node === undefined
-          ? undefined
-          : runStateOf(
-              block.ir,
-              block.run,
-              node.id,
-              new Map(Object.entries(block.decided)),
-            )
-      }
+      evidence={block.evidence}
       lib={block.manifest?.functions}
       misfits={strings.misfits}
       kindWords={block.kindWords}

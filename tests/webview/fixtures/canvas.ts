@@ -24,6 +24,7 @@ import type {
   LiveStep,
   QueueCounts,
 } from '../../../src/runs/watch.js';
+import { blockEvidenceOf } from '../../../src/inspector/blockEvidence.js';
 import { liveStep } from '../../../src/test-support/runs.js';
 import type {
   BlockSubject,
@@ -189,9 +190,7 @@ export function blockSubject(
     diagnostics: validateWorkflow(document, { manifest }),
     paletteLabels,
     kindWords: canvasWords.kinds,
-    run: undefined,
-    functionId: undefined,
-    decided: {},
+    evidence: undefined,
     // The host carries the Runs view's side on a
     // trigger and on nothing else: here, an empty
     // box, set to this workflow, saved as it reads.
@@ -208,6 +207,38 @@ export function blockSubject(
           }
         : undefined,
     proposal: undefined,
+  };
+}
+
+/**
+ * The same block on a surface that follows a run:
+ * what the run recorded about the block, finished
+ * the way the host finishes it, over the document
+ * the block is drawn from. The row picked with it
+ * is the run tab's to give.
+ *
+ * The host's own projection rather than a copy of
+ * it: what these specs pin is what a person sees
+ * of an answer, and the answer's rules are pinned
+ * where they are made.
+ */
+export function following(
+  block: BlockSubject,
+  run: ShownRun,
+  functionId?: number,
+): BlockSubject {
+  return {
+    ...block,
+    evidence: blockEvidenceOf(
+      {
+        run,
+        document: block.ir,
+        nodeId: block.nodeId,
+        decided: {},
+        functionId,
+      },
+      inspectorWords,
+    ),
   };
 }
 

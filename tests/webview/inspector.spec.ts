@@ -38,6 +38,7 @@ import {
   blockInit,
   blockSubject,
   everyKind,
+  following,
   inspectorInit,
   ir,
   labelTrack,
@@ -2361,7 +2362,7 @@ test.describe('a block in the Inspector', () => {
     ).toBe(false);
 
     await harness.show(
-      blockInit({ ...blockSubject('find_slot'), run: runOf(IN_FLIGHT) }),
+      blockInit(following(blockSubject('find_slot'), runOf(IN_FLIGHT))),
     );
 
     await expect(page.locator('[data-inspector-tab]')).toHaveCount(2);
@@ -2378,12 +2379,11 @@ test.describe('a block in the Inspector', () => {
   test('offers Configure on the run tab while the block is there', async ({
     page,
   }) => {
-    const onRunTab = (nodeId: string): BlockSubject => ({
-      ...blockSubject('find_slot', {}, 'evidence'),
-      source: 'run',
-      nodeId,
-      run: runOf(IN_FLIGHT),
-    });
+    const onRunTab = (nodeId: string): BlockSubject =>
+      following(
+        { ...blockSubject('find_slot', {}, 'evidence'), source: 'run', nodeId },
+        runOf(IN_FLIGHT),
+      );
     const configure = page.locator('button[data-inspector-tab="configure"]');
     const reason = page.locator('[data-not-in-workflow]');
     const heading = page.locator('[data-inspector-header] .inspector-title');
@@ -2422,16 +2422,15 @@ test.describe('a block in the Inspector', () => {
     const face = page.locator('[role="tabpanel"]');
 
     await harness.show(
-      blockInit({ ...blockSubject('find_slot'), run: runOf(IN_FLIGHT) }),
+      blockInit(following(blockSubject('find_slot'), runOf(IN_FLIGHT))),
     );
 
     await expect(face.locator('[data-field]').first()).toBeVisible();
 
     await harness.show(
-      blockInit({
-        ...blockSubject('find_slot', {}, 'evidence'),
-        run: runOf(IN_FLIGHT),
-      }),
+      blockInit(
+        following(blockSubject('find_slot', {}, 'evidence'), runOf(IN_FLIGHT)),
+      ),
     );
 
     await expect(
@@ -2451,10 +2450,9 @@ test.describe('a block in the Inspector', () => {
     page,
   }) => {
     const harness = await mountInspector(page);
-    const shown = blockInit({
-      ...blockSubject('find_slot', {}, 'evidence'),
-      run: runOf(IN_FLIGHT),
-    });
+    const shown = blockInit(
+      following(blockSubject('find_slot', {}, 'evidence'), runOf(IN_FLIGHT)),
+    );
 
     await harness.show(shown);
 
@@ -2504,14 +2502,18 @@ test.describe('a block in the Inspector', () => {
     function onEvidence(
       nodeId: string,
       run: ShownRun,
-      over: Partial<BlockSubject> = {},
+      over: { source?: BlockSubject['source']; functionId?: number } = {},
       document: WorkflowIR = ir,
     ): InspectorInit {
-      return blockInit({
-        ...blockSubject(nodeId, {}, 'evidence', document),
-        run,
-        ...over,
-      });
+      const { functionId, ...rest } = over;
+
+      return blockInit(
+        following(
+          { ...blockSubject(nodeId, {}, 'evidence', document), ...rest },
+          run,
+          functionId,
+        ),
+      );
     }
 
     /** The ways on, in the order they are drawn. */
@@ -2665,12 +2667,16 @@ test.describe('a block in the Inspector', () => {
       page,
     }) => {
       const waiting = (answered: boolean) =>
-        blockInit({
-          ...blockSubject('let_it_wait', {}, 'evidence', TIMER_THEN_ANSWER),
-          run: timerThenAnswerRun({ attributed: true, answered }),
-          manifest: undefined,
-          diagnostics: [],
-        });
+        blockInit(
+          following(
+            {
+              ...blockSubject('let_it_wait', {}, 'evidence', TIMER_THEN_ANSWER),
+              manifest: undefined,
+              diagnostics: [],
+            },
+            timerThenAnswerRun({ attributed: true, answered }),
+          ),
+        );
       const header = page.locator('[data-inspector-header]');
 
       const harness = await openInspector(page, waiting(false));
@@ -3423,18 +3429,20 @@ test.describe('a block in the Inspector', () => {
       );
 
       await harness.show(
-        blockInit({
-          ...blockSubject(
-            'loop',
-            { config: { minRounds: 1, maxRounds: 5, body: ['step'] } },
-            'evidence',
-            everyKind,
+        blockInit(
+          following(
+            blockSubject(
+              'loop',
+              { config: { minRounds: 1, maxRounds: 5, body: ['step'] } },
+              'evidence',
+              everyKind,
+            ),
+            recording([
+              liveStep({ name: 'step.r1', nodeId: 'step', functionId: 0 }),
+              liveStep({ name: 'step.r2', nodeId: 'step', functionId: 1 }),
+            ]),
           ),
-          run: recording([
-            liveStep({ name: 'step.r1', nodeId: 'step', functionId: 0 }),
-            liveStep({ name: 'step.r2', nodeId: 'step', functionId: 1 }),
-          ]),
-        }),
+        ),
       );
 
       await expect(fact('rounds')).toHaveText(
@@ -3527,10 +3535,12 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
-        }),
+        blockInit(
+          following(
+            queueCard(),
+            queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
+          ),
+        ),
       );
 
       await expect(page.locator('[data-evidence="queue"]')).toHaveCount(1);
@@ -3550,10 +3560,12 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
-        }),
+        blockInit(
+          following(
+            queueCard(),
+            queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
+          ),
+        ),
       );
 
       const expected = [
@@ -3595,13 +3607,15 @@ test.describe('a block in the Inspector', () => {
     test('keeps a figure whole, with its word after it', async ({ page }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun(
-            { active: 3, queued: 12, delayed: 4, failed: 1 },
-            queueEvidence(),
+        blockInit(
+          following(
+            queueCard(),
+            queuedRun(
+              { active: 3, queued: 12, delayed: 4, failed: 1 },
+              queueEvidence(),
+            ),
           ),
-        }),
+        ),
       );
 
       const laidOut = (field: string) =>
@@ -3649,10 +3663,7 @@ test.describe('a block in the Inspector', () => {
       }) => {
         await openInspector(
           page,
-          blockInit({
-            ...queueCard(),
-            run: queuedRun({ active: 3 }),
-          }),
+          blockInit(following(queueCard(), queuedRun({ active: 3 }))),
           theme,
         );
 
@@ -3696,10 +3707,7 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun({ active: 3 }),
-        }),
+        blockInit(following(queueCard(), queuedRun({ active: 3 }))),
       );
 
       await expect(
@@ -3713,10 +3721,7 @@ test.describe('a block in the Inspector', () => {
     test('asks for that read when the card is shown', async ({ page }) => {
       const harness = await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun({ active: 3 }),
-        }),
+        blockInit(following(queueCard(), queuedRun({ active: 3 }))),
       );
 
       expect(await harness.postedOfType('inspectQueue')).toEqual([
@@ -3729,10 +3734,12 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun({ active: 3, failed: 1 }, queueEvidence()),
-        }),
+        blockInit(
+          following(
+            queueCard(),
+            queuedRun({ active: 3, failed: 1 }, queueEvidence()),
+          ),
+        ),
       );
 
       const derived = `· ${inspectorStrings.derived}`;
@@ -3774,10 +3781,9 @@ test.describe('a block in the Inspector', () => {
     test('never draws a rate as a budget being spent', async ({ page }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun({ active: 3 }, queueEvidence()),
-        }),
+        blockInit(
+          following(queueCard(), queuedRun({ active: 3 }, queueEvidence())),
+        ),
       );
 
       const said =
@@ -3792,21 +3798,23 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun(
-            { active: 3 },
-            queueEvidence({
-              registered: {
+        blockInit(
+          following(
+            queueCard(),
+            queuedRun(
+              { active: 3 },
+              queueEvidence({
                 registered: {
-                  name: 'document-index',
-                  globalConcurrency: 4,
-                  minPollingIntervalMs: 1000,
+                  registered: {
+                    name: 'document-index',
+                    globalConcurrency: 4,
+                    minPollingIntervalMs: 1000,
+                  },
                 },
-              },
-            }),
+              }),
+            ),
           ),
-        }),
+        ),
       );
 
       await expect(reading(page, 'registered').locator('.value')).toHaveText(
@@ -3829,10 +3837,9 @@ test.describe('a block in the Inspector', () => {
     test('names an item by its key, or by its short id', async ({ page }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun({ active: 3 }, queueEvidence()),
-        }),
+        blockInit(
+          following(queueCard(), queuedRun({ active: 3 }, queueEvidence())),
+        ),
       );
 
       const keyed = page.locator('[data-queue-item="wf_child_1"]');
@@ -3871,22 +3878,24 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun(
-            { active: 3 },
-            queueEvidence({
-              recent: [
-                {
-                  workflowId: 'wf_child_1',
-                  label: 'tenant_acme_corporation_eu_west_2',
-                  status: 'SUCCESS',
-                  completedAt: RECORDED_AT,
-                },
-              ],
-            }),
+        blockInit(
+          following(
+            queueCard(),
+            queuedRun(
+              { active: 3 },
+              queueEvidence({
+                recent: [
+                  {
+                    workflowId: 'wf_child_1',
+                    label: 'tenant_acme_corporation_eu_west_2',
+                    status: 'SUCCESS',
+                    completedAt: RECORDED_AT,
+                  },
+                ],
+              }),
+            ),
           ),
-        }),
+        ),
       );
 
       const line = page.locator('[data-evidence-field="recentWork"] li');
@@ -3924,33 +3933,39 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun(
-            { active: 3 },
-            queueEvidence({
-              recent: [
-                { workflowId: 'wf_child_1', label: 'doc_1', status: 'PENDING' },
-                {
-                  workflowId: 'wf_child_2',
-                  status: 'SUCCESS',
-                  completedAt: RECORDED_AT,
-                },
-                {
-                  workflowId: 'wf_child_3',
-                  label: 'doc_3',
-                  status: 'ENQUEUED',
-                },
-                {
-                  workflowId: 'wf_child_4',
-                  label: 'doc_4',
-                  status: 'ERROR',
-                  completedAt: RECORDED_AT,
-                },
-              ],
-            }),
+        blockInit(
+          following(
+            queueCard(),
+            queuedRun(
+              { active: 3 },
+              queueEvidence({
+                recent: [
+                  {
+                    workflowId: 'wf_child_1',
+                    label: 'doc_1',
+                    status: 'PENDING',
+                  },
+                  {
+                    workflowId: 'wf_child_2',
+                    status: 'SUCCESS',
+                    completedAt: RECORDED_AT,
+                  },
+                  {
+                    workflowId: 'wf_child_3',
+                    label: 'doc_3',
+                    status: 'ENQUEUED',
+                  },
+                  {
+                    workflowId: 'wf_child_4',
+                    label: 'doc_4',
+                    status: 'ERROR',
+                    completedAt: RECORDED_AT,
+                  },
+                ],
+              }),
+            ),
           ),
-        }),
+        ),
       );
 
       const words = inspectorStrings.runOutcomes;
@@ -3993,10 +4008,9 @@ test.describe('a block in the Inspector', () => {
     test('opens the run an item started', async ({ page }) => {
       const harness = await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun({ active: 3 }, queueEvidence()),
-        }),
+        blockInit(
+          following(queueCard(), queuedRun({ active: 3 }, queueEvidence())),
+        ),
       );
 
       await page.locator('[data-queue-item="wf_child_1"]').click();
@@ -4012,10 +4026,9 @@ test.describe('a block in the Inspector', () => {
     test('says last whose figures these are', async ({ page }) => {
       await openInspector(
         page,
-        blockInit({
-          ...queueCard(),
-          run: queuedRun({ active: 3 }, queueEvidence()),
-        }),
+        blockInit(
+          following(queueCard(), queuedRun({ active: 3 }, queueEvidence())),
+        ),
       );
 
       const local = page.locator(
@@ -4050,12 +4063,14 @@ test.describe('a block in the Inspector', () => {
       run: ShownRun | undefined,
       functionId?: number,
     ): InspectorInit {
-      return blockInit({
+      const block: BlockSubject = {
         ...blockSubject(nodeId, {}, 'evidence', document),
         source: 'run',
-        run,
-        functionId,
-      });
+      };
+
+      return blockInit(
+        run === undefined ? block : following(block, run, functionId),
+      );
     }
 
     test('shows what the run recorded about the block that is picked', async ({
@@ -4450,10 +4465,12 @@ test.describe('the groups a block is set in', () => {
     ).toHaveCount(0);
 
     await harness.show(
-      blockInit({
-        ...apiCallSubject({}, 'evidence'),
-        run: recording([{ ...DONE, name: 'api_call', nodeId: 'api_call' }]),
-      }),
+      blockInit(
+        following(
+          apiCallSubject({}, 'evidence'),
+          recording([{ ...DONE, name: 'api_call', nodeId: 'api_call' }]),
+        ),
+      ),
     );
     await expect(
       page.locator('[data-evidence-field="retry"] [data-evidence-policy]'),
@@ -4553,13 +4570,17 @@ test.describe('the groups a block is set in', () => {
   }) => {
     await openInspector(
       page,
-      blockInit({
-        ...blockSubject('find_slot'),
-        source: 'run',
-        revision: undefined,
-        proposal: 'Preview — proposed by Claude · not applied yet',
-        run: runOf(IN_FLIGHT),
-      }),
+      blockInit(
+        following(
+          {
+            ...blockSubject('find_slot'),
+            source: 'run',
+            revision: undefined,
+            proposal: 'Preview — proposed by Claude · not applied yet',
+          },
+          runOf(IN_FLIGHT),
+        ),
+      ),
     );
 
     const actions = page.locator('[data-configure-actions]');
@@ -5164,20 +5185,19 @@ test.describe('a field at rest and in use', () => {
   }) => {
     const harness = await openInspector(
       page,
-      blockInit({ ...blockSubject('find_slot'), run: runOf(IN_FLIGHT) }),
+      blockInit(following(blockSubject('find_slot'), runOf(IN_FLIGHT))),
     );
 
     await attempts(page).focus();
     await harness.show(
-      blockInit({
-        ...blockSubject('find_slot', {}, 'evidence'),
-        run: runOf(IN_FLIGHT),
-      }),
+      blockInit(
+        following(blockSubject('find_slot', {}, 'evidence'), runOf(IN_FLIGHT)),
+      ),
     );
     await expect(page.locator('[data-property] input')).toHaveCount(0);
 
     await harness.show(
-      blockInit({ ...blockSubject('find_slot'), run: runOf(IN_FLIGHT) }),
+      blockInit(following(blockSubject('find_slot'), runOf(IN_FLIGHT))),
     );
 
     await expect(attempts(page)).toHaveCount(1);
@@ -5851,13 +5871,12 @@ test.describe('a block under a proposal, seen from the run tab', () => {
   const HEADLINE = 'Preview — proposed by Claude · not applied yet';
 
   function proposed(block: BlockSubject): InspectorInit {
-    return blockInit({
-      ...block,
-      source: 'run',
-      revision: undefined,
-      proposal: HEADLINE,
-      run: runOf(IN_FLIGHT),
-    });
+    return blockInit(
+      following(
+        { ...block, source: 'run', revision: undefined, proposal: HEADLINE },
+        runOf(IN_FLIGHT),
+      ),
+    );
   }
 
   test('keeps the block, and says why it cannot be edited', async ({
@@ -6567,15 +6586,17 @@ test.describe('a trigger block', () => {
     await openInspector(
       page,
       blockInit(
-        triggerSubject(
-          MANUAL,
-          { text: '{"bookingId":7}' },
-          {
-            source: 'run',
-            revision: undefined,
-            proposal: 'Preview — proposed by Claude · not applied yet',
-            run: runOf(IN_FLIGHT),
-          },
+        following(
+          triggerSubject(
+            MANUAL,
+            { text: '{"bookingId":7}' },
+            {
+              source: 'run',
+              revision: undefined,
+              proposal: 'Preview — proposed by Claude · not applied yet',
+            },
+          ),
+          runOf(IN_FLIGHT),
         ),
       ),
     );
@@ -6651,7 +6672,7 @@ test.describe('a trigger block', () => {
   }) => {
     await openInspector(
       page,
-      blockInit(triggerSubject(EVENT, {}, { run: runOf(IN_FLIGHT) })),
+      blockInit(following(triggerSubject(EVENT), runOf(IN_FLIGHT))),
     );
 
     await expect(page.locator('[data-field="mode"]')).toHaveCount(1);

@@ -1,19 +1,16 @@
 import type { ReactNode } from 'react';
 
 import { DEFAULT_RETRY } from '../core/rules.js';
-import type {
-  LibFunction,
-  NodeKind,
-  QueuePolicy,
-  Retry,
-} from '../core/rules.js';
+import type { LibFunction, NodeKind, Retry } from '../core/rules.js';
 import type { StepError } from '../runs/rows.js';
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
 import type {
   BlockAbout,
+  BlockEvidence,
+  BlockState,
+  EvidenceRow,
   InspectorStrings,
-  ShownRun,
 } from '../webview/protocol.js';
 import { Button } from '../webview/signal/Button.js';
 import { Callout } from '../webview/signal/Callout.js';
@@ -23,10 +20,8 @@ import { PropertyRow } from '../webview/signal/PropertyRow.js';
 import { SectionLabel } from '../webview/signal/SectionLabel.js';
 import { StatusLine } from '../webview/signal/StatusGlyph.js';
 import { duration, fine } from '../webview/time.js';
-import type { RunState } from '../canvas/graph.js';
 import { signatureOf } from '../canvas/libFunction.js';
 
-import { outputOf, type BlockEvidence, type EvidenceRow } from './evidence.js';
 import { QueueCard } from './QueueCard.js';
 import { Recorded } from './Value.js';
 
@@ -75,18 +70,6 @@ export type EvidenceBlock = {
    *  gives one rather than leaving the defaults. */
   retry: Retry | undefined;
 
-  /**
-   * The blocks it encloses, where it is a loop: a
-   * row records the round it ran in, not which loop
-   * counted it, so only the document can say which
-   * rows are this loop's.
-   */
-  body: readonly string[] | undefined;
-
-  /** The queue it fills, where it is a queue block,
-   *  which only the document names. */
-  queue: QueuePolicy | undefined;
-
   /** Whether it is a wait on the clock, whose row's
    *  completion is when it wakes. */
   onClock: boolean;
@@ -115,60 +98,40 @@ const RETRIES: ReadonlySet<NodeKind> = new Set<NodeKind>([
 ]);
 
 /**
- * Where the block got to, for the head of the pane:
- * nothing where the run says nothing about it.
+ * Where the block got to, for the head of the pane,
+ * as the host worked it out.
  *
- * The drawn row's state and number where there is a
- * row. A trigger writes none — the run existing is
- * the evidence it fired — and a block the run may
- * be at has written none yet; both states are worked
- * out rather than read, and the line says so where a
- * pointer and a screen reader find it. A queue
- * block's state is its children's, and they are
- * seldom all at one: its card says where each got
- * to, and one word here would be a summary nothing
- * recorded.
+ * A state read off a row says the row's number;
+ * one that was worked out — a trigger fired because
+ * the run exists, a block with no row yet is where
+ * the run may be — says so, where a pointer and a
+ * screen reader find it.
  */
-export function evidenceStatus({
-  strings,
-  block,
-  row,
-  runState,
-}: {
-  strings: InspectorStrings;
-  block: EvidenceBlock;
-  row: EvidenceRow | undefined;
-  runState: RunState | undefined;
-}): ReactNode {
-  if (block.kind === 'queue') return undefined;
+export function evidenceStatus(
+  strings: InspectorStrings,
+  state: BlockState,
+): ReactNode {
+  const word = strings.runOutcomes[state.word];
 
-  if (block.kind === 'trigger') {
-    return runState === undefined ? undefined : (
-      <StatusLine
-        state={runState}
-        word={strings.runOutcomes[runState]}
-        derived={strings.triggerDerived}
-      />
-    );
-  }
-
-  if (row !== undefined) {
-    return (
-      <StatusLine
-        state={row.state}
-        word={strings.runOutcomes[row.state]}
-        detail={
-          <span data-function-id={row.functionId}>{`#${row.functionId}`}</span>
-        }
-      />
-    );
-  }
-
-  return runState === undefined ? undefined : (
+  return state.read === 'row' ? (
     <StatusLine
-      state={runState}
-      word={strings.runOutcomes[runState]}
-      derived={strings.runningDerived}
+      state={state.word}
+      word={word}
+      detail={
+        <span data-function-id={state.functionId}>
+          {`#${state.functionId}`}
+        </span>
+      }
+    />
+  ) : (
+    <StatusLine
+      state={state.word}
+      word={word}
+      derived={
+        state.derived === 'trigger'
+          ? strings.triggerDerived
+          : strings.runningDerived
+      }
     />
   );
 }
@@ -177,18 +140,17 @@ export function evidenceStatus({
  * What one run recorded about the block, and the
  * ways on from it.
  *
- * Reads the run its surface is already drawing
- * rather than asking for one of its own: a face
- * about a different run from the graph beside it
- * would be two answers to one question.
+ * Draws what the host finished about the run its
+ * surface is already drawing, rather than reading a
+ * run of its own: a face about a different run from
+ * the graph beside it would be two answers to one
+ * question.
  */
 export function EvidenceFace({
   strings,
   about,
-  run,
   block,
-  found,
-  picked,
+  evidence,
   lib,
   onShowRun,
 }: {
@@ -198,19 +160,10 @@ export function EvidenceFace({
    *  so each lands where the block is. */
   about: BlockAbout;
 
-  /** The run the block's surface is drawing itself
-   *  against, which is the only run this face
-   *  reads. */
-  run: ShownRun;
-
   block: EvidenceBlock;
 
-  /** What that run recorded about the block. */
-  found: BlockEvidence;
-
-  /** Whether the drawn row is one somebody picked,
-   *  rather than the block's headline. */
-  picked: boolean;
+  /** What the run recorded about the block. */
+  evidence: BlockEvidence;
 
   /** What the project's code-behind offers, which is
    *  where the function's signature is read. */
@@ -264,27 +217,20 @@ export function EvidenceFace({
   // the type makes this branch necessary, so the
   // browser spec that asks for the queue's card is
   // what holds it.
-  if (block.kind === 'queue' && block.queue !== undefined) {
+  if (evidence.queue !== undefined) {
     return (
       <QueueCard
         strings={strings}
-        run={run}
+        evidence={evidence.queue}
+        workflowId={evidence.workflowId}
         nodeId={block.id}
         handler={handler}
-        queue={block.queue}
       />
     );
   }
 
-  const row = found.drawn;
-
-  // A wait on the clock records its wake-up time as
-  // what it returned, and the face already says that
-  // time as when it wakes.
-  const output =
-    row === undefined || block.onClock
-      ? undefined
-      : outputOf(row, strings.sizes);
+  const row = evidence.drawn;
+  const { output } = evidence;
 
   return (
     <section className="evidence-face" data-evidence="block">
@@ -294,14 +240,14 @@ export function EvidenceFace({
         <Failure strings={strings} error={row.error} />
       )}
 
-      {found.waitingSince === undefined ? null : (
+      {evidence.waitingSince === undefined ? null : (
         <FieldHint hook={{ 'evidence-field': 'waiting' }}>
-          {filled(strings.waitingSince, fine(found.waitingSince))}
+          {filled(strings.waitingSince, fine(evidence.waitingSince))}
         </FieldHint>
       )}
 
       {row === undefined ? (
-        <Nothing strings={strings} block={block} rounds={found.rounds} />
+        <Nothing strings={strings} block={block} rounds={evidence.rounds} />
       ) : (
         <Timing strings={strings} row={row} onClock={block.onClock} />
       )}
@@ -322,8 +268,8 @@ export function EvidenceFace({
         </Worked>
       ) : null}
 
-      {found.rows.length < 2 ? null : (
-        <Parts strings={strings} rows={found.rows} />
+      {evidence.rows.length < 2 ? null : (
+        <Parts strings={strings} rows={evidence.rows} />
       )}
 
       <Policy strings={strings} block={block} />
@@ -342,7 +288,7 @@ export function EvidenceFace({
             onOpen={() =>
               postToHost({
                 type: 'openOutput',
-                workflowId: run.workflowId,
+                workflowId: evidence.workflowId,
                 functionId: row.functionId,
                 about,
               })
@@ -360,10 +306,10 @@ export function EvidenceFace({
         <Actions
           strings={strings}
           about={about}
-          run={run}
+          workflowId={evidence.workflowId}
           block={block}
           row={row}
-          picked={picked}
+          picked={evidence.picked}
         />
       )}
 
@@ -644,14 +590,18 @@ function Policy({
 function Actions({
   strings,
   about,
-  run,
+  workflowId,
   block,
   row,
   picked,
 }: {
   strings: InspectorStrings;
   about: BlockAbout;
-  run: ShownRun;
+
+  /** The run the row is of, which the two ways on
+   *  that start something carry. */
+  workflowId: string;
+
   block: EvidenceBlock;
   row: EvidenceRow;
   picked: boolean;
@@ -686,7 +636,7 @@ function Actions({
           onClick={() =>
             postToHost({
               type: 'replayFrom',
-              workflowId: run.workflowId,
+              workflowId,
               nodeId: block.id,
               ...at,
             })
@@ -722,7 +672,7 @@ function Actions({
           onClick={() =>
             postToHost({
               type: 'askAgent',
-              workflowId: run.workflowId,
+              workflowId,
               nodeId: block.id,
               ...at,
             })

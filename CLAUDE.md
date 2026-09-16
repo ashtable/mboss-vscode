@@ -292,7 +292,10 @@ none of that.
   drawn in the Inspector pane (`src/inspector/`): `subject.ts` builds a
   `BlockSubject` from what a **surface** holds (`inspector/surface.ts`:
   `BlockSurface`, the one interface a canvas session and the run tab's
-  adapter in `inspector/runTab.ts` both answer), and `InspectorView`
+  adapter in `inspector/runTab.ts` both answer), `inspector/blockEvidence.ts`
+  finishes what the run a surface follows recorded about the block — its
+  rows, the row drawn, where it got to by the board's own rule — so the
+  pane draws an answer rather than deriving one, and `InspectorView`
   routes what the pane says — a face, an edit, the ways into a block's code
   — to the surface the `about` every one of those carries names (the
   surface a block was picked on, its document and its id) rather than to

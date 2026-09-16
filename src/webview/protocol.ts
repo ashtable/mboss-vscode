@@ -18,16 +18,17 @@ import type {
   WorkflowIR,
 } from '../core/rules.js';
 import type { RunFilter } from '../runs/queries.js';
-import type { RunCounts } from '../runs/rows.js';
+import type { StepState } from '../runs/reading.js';
+import type { RunCounts, StepError } from '../runs/rows.js';
 import type { ServiceHealth, StackAction } from '../runs/stack.js';
-import type { QueueEvidence } from '../runs/queueEvidence.js';
+import type { QueueEvidence, QueueItem } from '../runs/queueEvidence.js';
 import type { SessionVia } from '../runs/sessionLog.js';
 import type { LiveOutcome, LiveRun } from '../runs/watch.js';
 import type { runsWords, seeWords } from '../runs/words.js';
 import type { WorkflowTrigger } from '../runs/workflows.js';
 import type { sidebarWords } from '../sidebar/words.js';
 
-import type { GlyphState, RunWord } from './states.js';
+import type { GlyphState, RunWord, StepWord } from './states.js';
 
 /**
  * What the host and a webview say to each other.
@@ -993,13 +994,10 @@ export type BlockSubject = {
 
   kindWords: Record<NodeKind, string>;
 
-  run: ShownRun | undefined;
-
-  /** The row a run-tab selection picked; the
-   *  block's headline row when absent. */
-  functionId: number | undefined;
-
-  decided: Record<string, string>;
+  /** What the run the surface follows recorded
+   *  about the block; nothing where it follows
+   *  none. */
+  evidence: BlockEvidence | undefined;
 
   /** Only on a trigger block. */
   runInput: RunInputView | undefined;
@@ -1029,6 +1027,174 @@ export type BlockSubject = {
  * heard.
  */
 export type BlockAbout = Pick<BlockSubject, 'source' | 'path' | 'nodeId'>;
+
+/**
+ * What one run recorded about one block, finished
+ * for the pane the way the card about a whole run
+ * is.
+ *
+ * Present with no rows whenever a run is followed —
+ * a trigger writes none, and a block the run has
+ * not reached has written none yet — and absent
+ * only where no run is. Times stay epoch numbers:
+ * turning one into a clock is the reader's locale's
+ * business and belongs where the card is drawn.
+ */
+export type BlockEvidence = {
+  /** The run the rows are of, which every way on
+   *  from the face names. */
+  workflowId: string;
+
+  /** Its rows, in the order DBOS numbered them. */
+  rows: EvidenceRow[];
+
+  /**
+   * The one row the face draws in full: the row
+   * somebody picked, where it is one of this
+   * block's, and the block's headline otherwise —
+   * its latest failure, else its latest row. A pick
+   * that is another block's row is not an answer
+   * about this block, so it falls back to the
+   * headline rather than to nothing.
+   */
+  drawn: EvidenceRow | undefined;
+
+  /** Whether the drawn row is one somebody picked,
+   *  rather than the headline. */
+  picked: boolean;
+
+  /** Where the block got to, for the head of the
+   *  pane. Nothing where the run says nothing about
+   *  it, and nothing for a queue block: its state is
+   *  its children's, seldom all at one. */
+  state: BlockState | undefined;
+
+  /**
+   * When the run parked here, where it is parked
+   * here now: the moment the registration landed.
+   * A time and never a count, because nothing is
+   * still reading a run that parked.
+   */
+  waitingSince: number | undefined;
+
+  /** How many times round this run went inside the
+   *  block, where it is a loop and went round at
+   *  all. */
+  rounds: number | undefined;
+
+  /** What the drawn row returned, as the face draws
+   *  it: nothing where it returned nothing, or where
+   *  the block is a wait on the clock, whose row's
+   *  value is the time it wakes. */
+  output: RecordedValue | undefined;
+
+  /** A queue block's card, whose readings are
+   *  counted rather than recorded. */
+  queue: QueueCardEvidence | undefined;
+};
+
+/**
+ * Where a block got to: read off its drawn row, or
+ * worked out — a trigger fired because the run
+ * exists, and a block with no row yet is where the
+ * run may be — which the line says, so a pointer
+ * and a screen reader find it.
+ */
+export type BlockState =
+  | { word: StepWord; read: 'row'; functionId: number }
+  | { word: StepWord; read: 'derived'; derived: 'trigger' | 'running' };
+
+/** One row the ledger holds for a block. */
+export type EvidenceRow = {
+  /** DBOS's own numbering, which is the order the
+   *  rows ran in. */
+  functionId: number;
+
+  /** The name the ledger recorded, whole. */
+  name: string;
+
+  /** Which part of the block this row is — `[2]`,
+   *  `.r3`, `.register` — or nothing where the block
+   *  wrote a single row. */
+  part: string | undefined;
+
+  state: StepState;
+
+  startedAt: number | undefined;
+
+  completedAt: number | undefined;
+
+  /** How long it took, where the SDK timed both
+   *  ends. */
+  durationMs: number | undefined;
+
+  /** What it returned, as far as the reading kept
+   *  it. */
+  output: string | undefined;
+
+  /** The same value with the serializer's wrapper
+   *  off, which is the form a person reads. */
+  shown: string | undefined;
+
+  /** How big the stored value was before any cut. */
+  bytes: number;
+
+  /** Whether the step returned nothing at all, which
+   *  is not the same as returning `null`. */
+  absent: boolean;
+
+  error: StepError | undefined;
+
+  /** Whether the output came back from Postgres
+   *  rather than from running the code again. */
+  restored: boolean;
+
+  /** Whether the row was carried over from the run
+   *  this one was replayed from. */
+  reused: boolean;
+
+  /** Whether the SDK wrote the row for itself under
+   *  the block, rather than the block writing it. */
+  sdk: boolean;
+};
+
+/** Which reading a row on a queue block's card is,
+ *  which is also the word it is drawn under. */
+export type QueueRowId = keyof InspectorStrings['queueRows'];
+
+/**
+ * One reading on a queue block's card.
+ *
+ * A shape of its own rather than an `EvidenceRow`:
+ * those are the ledger's rows for a block, keyed by
+ * the number DBOS gave each of them. A queue
+ * block's counts are none of that — no row anywhere
+ * holds them.
+ */
+export type QueueRow = {
+  id: QueueRowId;
+
+  label: string;
+
+  value: string;
+
+  /** Whether the panel worked the figure out or
+   *  found it in the document. Every reading on the
+   *  card says which, because half of them are the
+   *  run and half of them are what somebody wrote. */
+  provenance: 'derived' | 'configured';
+};
+
+/**
+ * A queue block's card: every reading on it, in the
+ * order drawn, and the items the block started,
+ * newest first, where the whole queue was read.
+ */
+export type QueueCardEvidence = {
+  rows: QueueRow[];
+
+  recent: QueueItem[];
+};
 
 /**
  * The Runs panel's input, as a trigger's card shows

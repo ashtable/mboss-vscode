@@ -135,12 +135,7 @@ describe('a block selected on a canvas', () => {
         at: 'canvas',
         startRefusal: OFFERED,
         runsPanel: NOT_ASKED,
-        canvas: canvas({
-          selected: 'find_slot',
-          manifest,
-          diagnostics,
-          decided: { slot_open: 'yes' },
-        }),
+        canvas: canvas({ selected: 'find_slot', manifest, diagnostics }),
       }).subject,
     ).toEqual({
       at: 'block',
@@ -157,16 +152,17 @@ describe('a block selected on a canvas', () => {
         diagnostics,
         paletteLabels: paletteLabels(),
         kindWords: kindWords(),
-        run: undefined,
-        functionId: undefined,
-        decided: { slot_open: 'yes' },
+        evidence: undefined,
         runInput: undefined,
         proposal: undefined,
       },
     });
   });
 
-  it('carries the face the canvas holds, and its run', () => {
+  /** What the run recorded about the block comes
+   *  finished with it; the rules are pinned where
+   *  it is finished. */
+  it('carries the face the canvas holds, and what its run recorded', () => {
     const run = liveRun({ workflow: 'groom_booking' });
 
     expect(
@@ -176,7 +172,13 @@ describe('a block selected on a canvas', () => {
         runsPanel: NOT_ASKED,
         canvas: canvas({ selected: 'find_slot', face: 'evidence', run }),
       }).subject,
-    ).toMatchObject({ at: 'block', block: { face: 'evidence', run } });
+    ).toMatchObject({
+      at: 'block',
+      block: {
+        face: 'evidence',
+        evidence: { workflowId: run.workflowId, rows: [] },
+      },
+    });
   });
 
   /**
@@ -313,7 +315,6 @@ describe('a block picked on the run tab', () => {
       ),
     ) as LibManifest;
     const diagnostics = validateWorkflow(document, { manifest });
-    const tab = runTabOf(reading({ selectedStep: 3 }), NOW);
 
     expect(
       subject(reading({ selectedStep: 3 }), {
@@ -337,9 +338,7 @@ describe('a block picked on the run tab', () => {
         diagnostics,
         paletteLabels: paletteLabels(),
         kindWords: kindWords(),
-        run: tab.inspected,
-        functionId: 3,
-        decided: tab.decided,
+        evidence: expect.objectContaining({ workflowId: 'wf_1', rows: [] }),
         runInput: undefined,
         proposal: undefined,
       },
@@ -401,12 +400,24 @@ describe('a block picked on the run tab', () => {
     });
   });
 
-  it('names the row that was picked, and no other', () => {
-    expect(subject(reading({ selectedStep: 3 }))).toMatchObject({
-      block: { functionId: 3 },
+  it('draws the row that was picked, and says so', () => {
+    const steps: Step[] = [
+      {
+        functionId: 3,
+        name: 'find_slot',
+        startedAt: 1000,
+        completedAt: 1200,
+        output: '{}',
+        error: undefined,
+        childWorkflowId: undefined,
+      },
+    ];
+
+    expect(subject(reading({ steps, selectedStep: 3 }))).toMatchObject({
+      block: { evidence: { picked: true, drawn: { functionId: 3 } } },
     });
-    expect(subject(reading())).toMatchObject({
-      block: { functionId: undefined },
+    expect(subject(reading({ steps }))).toMatchObject({
+      block: { evidence: { picked: false, drawn: { functionId: 3 } } },
     });
   });
 

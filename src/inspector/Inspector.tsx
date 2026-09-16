@@ -11,15 +11,14 @@ import type {
 import { postToHost } from '../webview/client.js';
 import type {
   BlockAbout,
+  BlockEvidence,
   BlockSubject,
   InspectorMode,
   InspectorStrings,
   RunInputView,
-  ShownRun,
 } from '../webview/protocol.js';
 import { FieldHint } from '../webview/signal/FieldHint.js';
 import { TabPanel, Tabs } from '../webview/signal/Tabs.js';
-import type { RunState } from '../canvas/graph.js';
 
 import { ConfigureFace, TitleField, type Held } from './ConfigureFace.js';
 import {
@@ -28,7 +27,6 @@ import {
   type EvidenceBlock,
 } from './EvidenceFace.js';
 import { InspectorHeader } from './Header.js';
-import { evidenceOf } from './evidence.js';
 import {
   foldedGroups,
   formToConfig,
@@ -115,21 +113,12 @@ export type InspectorProps = {
    *  agent's proposal is the reason. */
   proposal: string | undefined;
 
-  /** The run the block's canvas is drawing
-   *  itself against, which is what the second face
-   *  reads. Nothing being followed is what that face
-   *  has nothing to say about. */
-  run: ShownRun | undefined;
-
-  /** The row somebody picked on the run tab, where
-   *  they picked one. */
-  functionId: number | undefined;
-
-  /** What that run says about the selected block, as
-   *  the graph says it — asked there rather than
-   *  worked out again here, so the card and the
-   *  block cannot disagree. */
-  runState: RunState | undefined;
+  /** What the run the block's surface follows
+   *  recorded about it, finished on the host, which
+   *  is what the second face draws and the head
+   *  says the state from. Nothing being followed is
+   *  what that face has nothing to say about. */
+  evidence: BlockEvidence | undefined;
 
   /** What the project's code-behind offers, which
    *  is what the picker offers. */
@@ -183,9 +172,7 @@ export function Inspector({
   mode,
   revision,
   proposal,
-  run,
-  functionId,
-  runState,
+  evidence,
   lib,
   misfits,
   kindWords,
@@ -300,16 +287,7 @@ export function Inspector({
   const title = plan?.name;
 
   const node = selected?.node;
-  const evidence = evidenceBlockOf(nodeId, node);
-
-  // What the run recorded about the block, read once
-  // for the head and the face, so both draw one row.
-  const found =
-    run === undefined
-      ? undefined
-      : evidenceOf(run, nodeId, evidence.body, functionId);
-  const picked =
-    found?.drawn !== undefined && found.drawn.functionId === functionId;
+  const identity = evidenceBlockOf(nodeId, node);
 
   return (
     <>
@@ -340,14 +318,9 @@ export function Inspector({
         // Where the block got to is the same answer on
         // either face, so the head carries it.
         status={
-          found === undefined
+          evidence?.state === undefined
             ? undefined
-            : evidenceStatus({
-                strings,
-                block: evidence,
-                row: found.drawn,
-                runState,
-              })
+            : evidenceStatus(strings, evidence.state)
         }
       />
 
@@ -355,7 +328,7 @@ export function Inspector({
         strings={strings}
         about={about}
         mode={mode}
-        run={run}
+        followed={evidence !== undefined}
         inWorkflow={selected !== undefined}
       />
 
@@ -411,14 +384,12 @@ export function Inspector({
               onOpenRunInput={() => postToHost({ type: 'openRunInput' })}
             />
           )
-        ) : run === undefined || found === undefined ? null : (
+        ) : evidence === undefined ? null : (
           <EvidenceFace
             strings={strings}
             about={about}
-            run={run}
-            block={evidence}
-            found={found}
-            picked={picked}
+            block={identity}
+            evidence={evidence}
             lib={lib}
             onShowRun={onShowRun}
           />
@@ -446,18 +417,21 @@ function Faces({
   strings,
   about,
   mode,
-  run,
+  followed,
   inWorkflow,
 }: {
   strings: InspectorStrings;
   about: BlockAbout;
   mode: InspectorMode;
-  run: ShownRun | undefined;
+
+  /** Whether the block's surface follows a run. */
+  followed: boolean;
+
   inWorkflow: boolean;
 }) {
   const refused = {
     configure: !inWorkflow,
-    evidence: run === undefined,
+    evidence: !followed,
   };
 
   return (
@@ -523,8 +497,6 @@ function evidenceBlockOf(
       kind: undefined,
       handler: undefined,
       retry: undefined,
-      body: undefined,
-      queue: undefined,
       onClock: false,
     };
   }
@@ -534,8 +506,6 @@ function evidenceBlockOf(
     kind: node.kind,
     handler: node.handler?.export,
     retry: node.retry,
-    body: node.kind === 'loop' ? node.config.body : undefined,
-    queue: node.kind === 'queue' ? node.config.queue : undefined,
     onClock: node.kind === 'durableWait' && node.config.source.kind === 'timer',
   };
 }
