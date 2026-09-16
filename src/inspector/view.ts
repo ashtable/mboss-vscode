@@ -31,7 +31,8 @@ import { mountWebview, type Heard, type Mount } from '../webview/host.js';
 import type {
   InspectorInit,
   InspectorMode,
-  RunsInit,
+  RunByHand,
+  RunInputView,
 } from '../webview/protocol.js';
 
 import type { InspectorFocus } from './focus.js';
@@ -108,10 +109,10 @@ export type InspectorRuns = {
   /** Opens what a run was started with, whole. */
   openInput(workflowId: string): Promise<void>;
 
-  /** What the Runs view draws, of which a trigger's
-   *  card reads the input box, the workflow it is
-   *  set to and why its last start was refused. */
-  list(): Pick<RunsInit, 'testRun'>;
+  /** The Runs view's input box: what it holds, the
+   *  workflow it is set to and why its last start
+   *  was refused, which a trigger's card shows. */
+  runInput(): Pick<RunByHand, 'input' | 'selected' | 'problem'>;
 
   /** Starts a run of that workflow with what the
    *  Runs view's input box holds. */
@@ -414,26 +415,40 @@ export class InspectorView implements WebviewViewProvider {
   /**
    * The Runs view about one document, for a
    * trigger's card: the input box as the store holds
-   * it, and the saved workflows of the project the
-   * runs are read from, read off disk as the Runs
-   * view reads them. A document outside that project
-   * is none of them, and no run from here can start
-   * it.
+   * it, and this document among the saved workflows
+   * of the project the runs are read from, found by
+   * where its file is — a name is what a document
+   * says about itself, and two files can say the
+   * same one. A document outside that project is
+   * none of them, and no run from here can start it;
+   * a saved event trigger that names no topic is
+   * left out of them too, which is the one of the
+   * two worth saying.
    *
    * Trust is asked as the pane is drawn rather than
    * held, the way every other door on to a run asks
    * it: a window trusted mid-session draws the pane
    * again, and the card offers the run it now can.
    */
-  private runsPanel(path: string): ReturnType<RunsPanel> {
+  private runsPanel(path: string): RunInputView {
     const project = this.runs.project();
+    const box = this.runs.runInput();
+    const saved =
+      project === undefined
+        ? undefined
+        : projectWorkflows(project).find((one) => one.path === path);
 
     return {
-      testRun: this.runs.list().testRun,
-      workflows: project === undefined ? [] : projectWorkflows(project),
+      text: box.input,
+      selectedWorkflow: box.selected,
+      saved:
+        saved === undefined
+          ? undefined
+          : { name: saved.name, mode: saved.trigger.mode },
       needsTopic: needsTopic(path),
       unsaved: this.host.unsaved(path),
       trusted: this.trust.isTrusted(),
+      problem: box.problem,
     };
   }
 

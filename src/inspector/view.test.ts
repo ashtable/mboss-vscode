@@ -17,7 +17,7 @@ import { emitter } from '../emitter.js';
 import { messages } from '../messages.js';
 import { runTabOf, type SeeView } from '../runs/view.js';
 import { makeProject } from '../test-support/project.js';
-import { liveRun } from '../test-support/runs.js';
+import { liveRun, project, savedWorkflow } from '../test-support/runs.js';
 import type { InspectorInit } from '../webview/protocol.js';
 
 import { inspectorFocus } from './focus.js';
@@ -207,14 +207,10 @@ function mounted(
     cancel: async (workflowId) => void asked.push(['cancel', workflowId]),
     resume: async (workflowId) => void asked.push(['resume', workflowId]),
     openInput: async (workflowId) => void asked.push(['openInput', workflowId]),
-    list: () => ({
-      testRun: {
-        workflows: [],
-        selected: 'groom_booking',
-        input: tab.input,
-        hint: undefined,
-        problem: undefined,
-      },
+    runInput: () => ({
+      input: tab.input,
+      selected: 'groom_booking',
+      problem: undefined,
     }),
     runTrigger: async (...args) => void asked.push(['runTrigger', ...args]),
     openRunInput: async (...args) => void asked.push(['openRunInput', ...args]),
@@ -1159,6 +1155,92 @@ describe('a trigger block and the Runs input', () => {
       });
     });
   }
+
+  /**
+   * Which saved workflow is this document's is found
+   * by where its file is: a name is what a document
+   * says about itself, and two files can say the same
+   * one. A file the saved list leaves out is not one
+   * a run can start — never saved, or saved with an
+   * event trigger that names no topic, which is the
+   * one of the two worth saying.
+   */
+  describe('what the Runs view answers about the trigger’s document', () => {
+    /** The pane about the trigger selected on a
+     *  canvas over a file in a real project. */
+    function inProject(dir: string, options: { trusted?: boolean } = {}) {
+      const pane = mounted({ project: dir, ...options });
+      const path = join(
+        dir,
+        '.mboss',
+        'workflows',
+        'groom_booking.workflow.json',
+      );
+      const canvas = session('groom_booking.workflow.json', {
+        path,
+        selected: 'booking_requested',
+      });
+
+      pane.sessions.register(path, canvas.canvas, { active: true });
+      pane.focus.report({ at: 'canvas', session: canvas.canvas });
+
+      const subject = pane.subjects().at(-1);
+
+      return subject?.at === 'block' ? subject.block.runInput : undefined;
+    }
+
+    it('finds this document among the saved workflows by its file', () => {
+      const dir = project({ workflows: ['groom_booking', 'expense_claim'] });
+
+      expect(inProject(dir)).toMatchObject({
+        saved: { name: 'groom_booking', mode: 'manual' },
+        needsTopic: false,
+        selectedWorkflow: 'groom_booking',
+      });
+    });
+
+    it('names no saved workflow for a file that was never saved', () => {
+      const dir = project({ workflows: [] });
+      writeFileSync(
+        join(dir, '.mboss', 'workflows', 'groom_booking_copy.workflow.json'),
+        savedWorkflow('groom_booking', { mode: 'manual' }),
+        'utf8',
+      );
+
+      expect(inProject(dir)).toMatchObject({
+        saved: undefined,
+        needsTopic: false,
+      });
+    });
+
+    it('says a saved event trigger with no topic needs one', () => {
+      const dir = project({ workflows: [] });
+      writeFileSync(
+        join(dir, '.mboss', 'workflows', 'groom_booking.workflow.json'),
+        savedWorkflow('groom_booking', { mode: 'event', topic: '' }),
+        'utf8',
+      );
+
+      expect(inProject(dir)).toMatchObject({
+        saved: undefined,
+        needsTopic: true,
+      });
+    });
+
+    /** A run executes the project's own code, which
+     *  is the decision trust exists to make, so the
+     *  card is told whether this window has been
+     *  trusted rather than offering a start that
+     *  would go nowhere. */
+    it('says whether this window may start a run at all', () => {
+      const dir = project({ workflows: ['groom_booking'] });
+
+      expect(inProject(dir)).toMatchObject({ trusted: false });
+      expect(inProject(dir, { trusted: true })).toMatchObject({
+        trusted: true,
+      });
+    });
+  });
 
   /** Any other block shows nothing of the Runs view,
    *  so a keystroke there is no reason to draw it. */

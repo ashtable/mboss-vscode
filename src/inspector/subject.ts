@@ -11,13 +11,11 @@ import {
   type RunTab,
 } from '../runs/view.js';
 import type { LiveRun } from '../runs/watch.js';
-import type { ProjectWorkflow } from '../runs/workflows.js';
 import { shortRunId } from '../webview/ids.js';
 import type {
   BlockSubject,
   InspectorInit,
   InspectorSubject,
-  RunByHand,
   RunInputView,
   RunLevel,
 } from '../webview/protocol.js';
@@ -51,27 +49,16 @@ export type StartRefusal = (
 
 /**
  * The Runs view, as a trigger block shows it, about
- * the document at a path.
- *
- * Its input box, the workflow it is set to and why
- * its last start was refused; the workflows its
- * project has saved that a run can start; whether
- * the file at that path is left out of them only
- * for want of a topic; whether the editor holds
- * changes to it nobody has saved; and whether this
- * window may run the project's code at all.
+ * the document at a path: the card's own view of it,
+ * whole.
  *
  * A question rather than an answer, because the
  * saved workflows are read off disk, and only a
- * trigger block asks it.
+ * trigger block asks it. Which saved workflow is
+ * this document's is the answerer's to find, by
+ * where the file is; the card asks and shows.
  */
-export type RunsPanel = (path: string) => {
-  testRun: Pick<RunByHand, 'input' | 'selected' | 'problem'>;
-  workflows: readonly ProjectWorkflow[];
-  needsTopic: boolean;
-  unsaved: boolean;
-  trusted: boolean;
-};
+export type RunsPanel = (path: string) => RunInputView;
 
 /**
  * The surface last in front, with what it holds.
@@ -422,17 +409,12 @@ function blockOnRunTab(
 }
 
 /**
- * What a trigger's card shows of the Runs view,
- * and nothing for any other block.
+ * What a trigger's card shows of the Runs view, and
+ * nothing for any other block.
  *
- * The run a card starts is of the workflow saved on
- * disk, so this document is found among the saved
- * workflows by where its file is: a name is what a
- * document says about itself, and two files can say
- * the same one. A file with no entry there is not
- * one a run can start — never saved, or saved with
- * an event trigger that names no topic, which is
- * the one of the two worth saying.
+ * Asked only for a trigger, since the answer reads
+ * the saved workflows off disk and every other block
+ * shows nothing of the Runs view.
  */
 function runInputOf(
   ir: WorkflowIR,
@@ -441,23 +423,8 @@ function runInputOf(
   runsPanel: RunsPanel,
 ): RunInputView | undefined {
   const node = ir.nodes.find((one) => one.id === nodeId);
-  if (node?.kind !== 'trigger') return undefined;
 
-  const panel = runsPanel(path);
-  const saved = panel.workflows.find((one) => one.path === path);
-
-  return {
-    text: panel.testRun.input,
-    selectedWorkflow: panel.testRun.selected,
-    saved:
-      saved === undefined
-        ? undefined
-        : { name: saved.name, mode: saved.trigger.mode },
-    needsTopic: saved === undefined && panel.needsTopic,
-    unsaved: panel.unsaved,
-    trusted: panel.trusted,
-    problem: panel.testRun.problem,
-  };
+  return node?.kind === 'trigger' ? runsPanel(path) : undefined;
 }
 
 /** What a form is drawn from, read out of the

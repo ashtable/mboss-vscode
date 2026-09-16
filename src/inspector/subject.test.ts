@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,9 +15,9 @@ import {
 import { messages } from '../messages.js';
 import type { Run, Step } from '../runs/rows.js';
 import { type SeeView, runTabOf } from '../runs/view.js';
-import { needsTopic, projectWorkflows } from '../runs/workflows.js';
-import { liveRun, project, savedWorkflow } from '../test-support/runs.js';
+import { liveRun, project } from '../test-support/runs.js';
 import { shortRunId } from '../webview/ids.js';
+import type { RunInputView } from '../webview/protocol.js';
 import { fine } from '../webview/time.js';
 
 import {
@@ -467,27 +467,25 @@ describe('a block picked on the run tab', () => {
 describe('what a trigger block knows of the Runs input', () => {
   const PROBLEM = { detail: 'The app is not up.', rebuildToRun: false };
 
-  /** The Runs panel over a real project, with every
-   *  path it was asked about written down. */
-  function panel(
-    dir: string,
-    over: { unsaved?: boolean; trusted?: boolean } = {},
-  ) {
+  /** What the Runs view answers about this document,
+   *  whatever it is asked, with every path it was
+   *  asked about written down. */
+  const ANSWER: RunInputView = {
+    text: '{"n":1}',
+    selectedWorkflow: 'expense_claim',
+    saved: { name: 'groom_booking', mode: 'manual' },
+    needsTopic: false,
+    unsaved: false,
+    trusted: true,
+    problem: PROBLEM,
+  };
+
+  function panel() {
     const asked: string[] = [];
     const answer: RunsPanel = (path) => {
       asked.push(path);
 
-      return {
-        testRun: {
-          input: '{"n":1}',
-          selected: 'expense_claim',
-          problem: PROBLEM,
-        },
-        workflows: projectWorkflows(dir),
-        needsTopic: needsTopic(path),
-        unsaved: over.unsaved ?? false,
-        trusted: over.trusted ?? true,
-      };
+      return ANSWER;
     };
 
     return { asked, answer };
@@ -556,113 +554,26 @@ describe('what a trigger block knows of the Runs input', () => {
 
   for (const [surface, about] of SURFACES) {
     describe(`picked on ${surface}`, () => {
-      it('carries the Runs input and its saved workflow, by file', () => {
-        const dir = project({ workflows: ['groom_booking', 'expense_claim'] });
-        const runs = panel(dir);
+      it('carries what the Runs view answers about this file, asked once', () => {
+        const dir = project({ workflows: ['groom_booking'] });
+        const runs = panel();
 
         expect(about(dir, runs.answer, 'booking_requested')).toMatchObject({
           at: 'block',
-          block: {
-            nodeId: 'booking_requested',
-            runInput: {
-              text: '{"n":1}',
-              selectedWorkflow: 'expense_claim',
-              saved: { name: 'groom_booking', mode: 'manual' },
-              needsTopic: false,
-              unsaved: false,
-              problem: PROBLEM,
-            },
-          },
+          block: { nodeId: 'booking_requested', runInput: ANSWER },
         });
         expect(runs.asked).toEqual([fileIn(dir, 'groom_booking')]);
       });
 
       it('carries nothing of the Runs panel on any other block', () => {
         const dir = project({ workflows: ['groom_booking'] });
-        const runs = panel(dir);
+        const runs = panel();
 
         expect(about(dir, runs.answer, 'find_slot')).toMatchObject({
           at: 'block',
           block: { nodeId: 'find_slot', runInput: undefined },
         });
         expect(runs.asked).toEqual([]);
-      });
-
-      /**
-       * A document of the same name in another file
-       * is another workflow, and the one on screen has
-       * never been saved.
-       */
-      it('names no saved workflow for a file that was never saved', () => {
-        const dir = project({ workflows: [] });
-        writeFileSync(
-          fileIn(dir, 'groom_booking_copy'),
-          savedWorkflow('groom_booking', { mode: 'manual' }),
-          'utf8',
-        );
-
-        expect(projectWorkflows(dir).map((one) => one.name)).toEqual([
-          'groom_booking',
-        ]);
-        expect(
-          about(dir, panel(dir).answer, 'booking_requested'),
-        ).toMatchObject({
-          block: { runInput: { saved: undefined, needsTopic: false } },
-        });
-      });
-
-      it('says a saved event trigger with no topic needs one', () => {
-        const dir = project({ workflows: [] });
-        writeFileSync(
-          fileIn(dir, 'groom_booking'),
-          savedWorkflow('groom_booking', { mode: 'event', topic: '' }),
-          'utf8',
-        );
-
-        expect(
-          about(dir, panel(dir).answer, 'booking_requested'),
-        ).toMatchObject({
-          block: { runInput: { saved: undefined, needsTopic: true } },
-        });
-      });
-
-      /**
-       * A run executes the project's own code, which
-       * is the decision trust exists to make, so the
-       * card is told whether this window has been
-       * trusted rather than offering a start that
-       * would go nowhere.
-       */
-      it('says whether this window may start a run at all', () => {
-        const dir = project({ workflows: ['groom_booking'] });
-
-        expect(
-          about(
-            dir,
-            panel(dir, { trusted: false }).answer,
-            'booking_requested',
-          ),
-        ).toMatchObject({ block: { runInput: { trusted: false } } });
-        expect(
-          about(dir, panel(dir).answer, 'booking_requested'),
-        ).toMatchObject({ block: { runInput: { trusted: true } } });
-      });
-
-      /** A run starts the saved file, so changes
-       *  nobody has saved are not what it would run. */
-      it('says whether the document has unsaved changes', () => {
-        const dir = project({ workflows: ['groom_booking'] });
-
-        expect(
-          about(dir, panel(dir, { unsaved: true }).answer, 'booking_requested'),
-        ).toMatchObject({ block: { runInput: { unsaved: true } } });
-        expect(
-          about(
-            dir,
-            panel(dir, { unsaved: false }).answer,
-            'booking_requested',
-          ),
-        ).toMatchObject({ block: { runInput: { unsaved: false } } });
       });
     });
   }

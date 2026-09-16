@@ -251,7 +251,11 @@ export function activate(context: ExtensionContext): void {
       cancel: (workflowId) => runs.cancel(workflowId),
       resume: (workflowId) => runs.resume(workflowId),
       openInput: (workflowId) => runs.openInput(workflowId),
-      list: () => runs.list(),
+      runInput: () => {
+        const { input, selected, problem } = runs.list().testRun;
+
+        return { input, selected, problem };
+      },
       runTrigger: (workflow) => runs.runTrigger(workflow),
       openRunInput: () => runs.openRunInput(),
       onChanged: (listener) => runs.onChanged(listener),
