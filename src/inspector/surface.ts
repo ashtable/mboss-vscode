@@ -1,11 +1,19 @@
-import type { EditMessage } from '../canvas/edits.js';
 import type { LibManifest } from '../core/rules.js';
+import type { Heard } from '../webview/host.js';
 import type {
   CanvasDocument,
   CanvasInit,
   InspectorMode,
   ShownRun,
 } from '../webview/protocol.js';
+
+/** An edit made in the pane about a block, saying
+ *  which block: the surface it was picked on, the
+ *  document it is in and its id. */
+export type BlockEdit = Extract<
+  Heard<'inspector'>,
+  { type: 'edit' | 'assign' }
+>;
 
 /**
  * A block picked on a surface, as the Inspector
@@ -41,7 +49,7 @@ export type BlockSurface = {
 
   /** An edit to that block: the gates, the question
    *  and the write are the surface's to arrange. */
-  edit(message: EditMessage): Promise<void>;
+  edit(message: BlockEdit): Promise<void>;
 
   /** The code a block runs, in a tab of its own. */
   openFunction(nodeId: string): Promise<void>;

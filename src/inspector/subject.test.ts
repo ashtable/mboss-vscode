@@ -19,12 +19,7 @@ import { shortRunId } from '../webview/ids.js';
 import type { RunInputView } from '../webview/protocol.js';
 import { fine } from '../webview/time.js';
 
-import {
-  inspectorInit,
-  type RunDocument,
-  type RunsPanel,
-  type StartRefusal,
-} from './subject.js';
+import { inspectorInit, type RunsPanel, type StartRefusal } from './subject.js';
 import type { BlockInputs } from './surface.js';
 
 /**
@@ -115,7 +110,7 @@ describe('what the Inspector is about', () => {
       inspectorInit({
         at: 'run',
         tab: undefined,
-        document: undefined,
+        block: undefined,
         startRefusal: OFFERED,
         runsPanel: NOT_ASKED,
       }).subject,
@@ -263,32 +258,46 @@ describe('a block picked on the run tab', () => {
     };
   }
 
-  /** The document with no canvas open on it. */
-  function buffer(over: Partial<RunDocument> = {}): RunDocument {
+  /**
+   * What the run tab's surface answers for the block
+   * picked on it: drawn from the document as the
+   * editor holds it, at revision 7, over the run as
+   * the store projected it.
+   */
+  function picked(view: SeeView, over: Partial<BlockInputs> = {}): BlockInputs {
+    const tab = runTabOf(view, NOW);
+
     return {
-      at: 'buffer',
+      source: 'run',
       file: 'groom_booking.workflow.json',
       path: '/work/grooming/.mboss/workflows/groom_booking.workflow.json',
-      text: JSON.stringify(at(7)),
+      workflow: 'groom_booking',
+      read: { ok: true, ir: at(7) },
+      revision: 7,
       manifest: undefined,
+      diagnostics: [],
+      selected: tab.picked.nodeId,
+      face: tab.picked.face ?? 'evidence',
+      run: tab.inspected,
+      decided: tab.decided,
       proposedBy: undefined,
+      functionId: tab.picked.functionId,
       ...over,
-    } as RunDocument;
+    };
   }
 
-  /** What the pane is about, with that in front: the
-   *  tab as the store projects it, at one moment. */
-  function subject(view: SeeView, document: RunDocument = buffer()) {
+  /** What the pane is about, with that in front. */
+  function subject(view: SeeView, over: Partial<BlockInputs> = {}) {
     return inspectorInit({
       at: 'run',
       tab: runTabOf(view, NOW),
-      document,
+      block: picked(view, over),
       startRefusal: OFFERED,
       runsPanel: NOT_ASKED,
     }).subject;
   }
 
-  it('is that block, drawn from the document and the run', () => {
+  it('is that block, drawn from what the surface holds', () => {
     // A document with a wire missing, so what the
     // rules find in it is something.
     const document = { ...at(8), edges: ir.edges.slice(1) };
@@ -303,14 +312,16 @@ describe('a block picked on the run tab', () => {
         'utf8',
       ),
     ) as LibManifest;
-
+    const diagnostics = validateWorkflow(document, { manifest });
     const tab = runTabOf(reading({ selectedStep: 3 }), NOW);
 
     expect(
-      subject(
-        reading({ selectedStep: 3 }),
-        buffer({ text: JSON.stringify(document), manifest }),
-      ),
+      subject(reading({ selectedStep: 3 }), {
+        read: { ok: true, ir: document },
+        revision: 8,
+        manifest,
+        diagnostics,
+      }),
     ).toEqual({
       at: 'block',
       block: {
@@ -323,7 +334,7 @@ describe('a block picked on the run tab', () => {
         nodeId: 'find_slot',
         face: 'evidence',
         manifest,
-        diagnostics: validateWorkflow(document, { manifest }),
+        diagnostics,
         paletteLabels: paletteLabels(),
         kindWords: kindWords(),
         run: tab.inspected,
@@ -333,37 +344,7 @@ describe('a block picked on the run tab', () => {
         proposal: undefined,
       },
     });
-    expect(validateWorkflow(document, {})).not.toEqual([]);
-  });
-
-  it('reads the canvas open on the document, not the copy the run read', () => {
-    const open: RunDocument = {
-      at: 'canvas',
-      canvas: canvas({
-        path: '/work/other/.mboss/workflows/groom_booking.workflow.json',
-        read: { ok: true, ir: at(9) },
-        revision: 9,
-      }),
-      proposedBy: undefined,
-    };
-
-    expect(subject(reading(), open)).toMatchObject({
-      at: 'block',
-      block: {
-        path: '/work/other/.mboss/workflows/groom_booking.workflow.json',
-        revision: 9,
-        ir: { revision: 9 },
-      },
-    });
-  });
-
-  it('reads the document where no canvas has it open', () => {
-    expect(
-      subject(reading(), buffer({ text: JSON.stringify(at(8)) })),
-    ).toMatchObject({
-      at: 'block',
-      block: { revision: 8, ir: { revision: 8 } },
-    });
+    expect(diagnostics).not.toEqual([]);
   });
 
   /**
@@ -373,9 +354,7 @@ describe('a block picked on the run tab', () => {
    * canvas shows over one.
    */
   it('holds the revision back while a proposal waits, and says whose', () => {
-    expect(
-      subject(reading(), buffer({ proposedBy: 'claude code' })),
-    ).toMatchObject({
+    expect(subject(reading(), { proposedBy: 'claude code' })).toMatchObject({
       at: 'block',
       block: {
         revision: undefined,
@@ -383,11 +362,7 @@ describe('a block picked on the run tab', () => {
       },
     });
     expect(
-      subject(reading(), {
-        at: 'canvas',
-        canvas: canvas({ revision: undefined }),
-        proposedBy: 'codex',
-      }),
+      subject(reading(), { revision: undefined, proposedBy: 'codex' }),
     ).toMatchObject({
       at: 'block',
       block: {
@@ -401,11 +376,12 @@ describe('a block picked on the run tab', () => {
     });
   });
 
-  it('opens on Run evidence, and on Configure once somebody picks it', () => {
+  /** The face is the surface's answer: what the run
+   *  recorded until somebody picks Configure, which
+   *  the run tab keeps for as long as the block is
+   *  the same. */
+  it('shows the face the surface answers', () => {
     expect(subject(reading())).toMatchObject({
-      block: { face: 'evidence' },
-    });
-    expect(subject(reading({ selectedStep: 2 }))).toMatchObject({
       block: { face: 'evidence' },
     });
     expect(subject(reading({ face: 'configure' }))).toMatchObject({
@@ -435,18 +411,36 @@ describe('a block picked on the run tab', () => {
   });
 
   it('is about nothing but the file where the document does not read', () => {
-    expect(subject(reading(), buffer({ text: '{ not json' }))).toEqual({
-      at: 'none',
-      file: 'groom_booking.workflow.json',
-    });
-    expect(subject(reading(), buffer({ text: undefined }))).toEqual({
+    expect(
+      subject(reading(), { read: { ok: false, detail: 'not JSON' } }),
+    ).toEqual({
       at: 'none',
       file: 'groom_booking.workflow.json',
     });
   });
 
+  it('is about nothing at all where no project holds the document', () => {
+    expect(
+      inspectorInit({
+        at: 'run',
+        tab: runTabOf(reading(), NOW),
+        block: undefined,
+        startRefusal: OFFERED,
+        runsPanel: NOT_ASKED,
+      }).subject,
+    ).toEqual({ at: 'none', file: undefined });
+  });
+
   it('is about the whole run while no block is picked', () => {
-    expect(subject(reading({ selectedNode: undefined }))).toMatchObject({
+    expect(
+      inspectorInit({
+        at: 'run',
+        tab: runTabOf(reading({ selectedNode: undefined }), NOW),
+        block: undefined,
+        startRefusal: OFFERED,
+        runsPanel: NOT_ASKED,
+      }).subject,
+    ).toMatchObject({
       at: 'run',
       run: { source: 'run', workflowId: 'wf_1' },
     });
@@ -507,42 +501,52 @@ describe('what a trigger block knows of the Runs input', () => {
     }).subject;
   }
 
-  /** The run tab with a block picked, drawn from the
-   *  document with no canvas open on it. */
+  /** The run tab with a block picked, as its surface
+   *  answers it over the document in that project. */
   function onRunTab(dir: string, runs: RunsPanel, selectedNode: string) {
+    const tab = runTabOf(
+      {
+        run: {
+          workflowId: 'wf_1',
+          name: 'groom_booking',
+          status: 'SUCCESS',
+          recoveryAttempts: 0,
+          executorId: 'local-dev',
+          applicationVersion: 'v0.1.0',
+          createdAt: 1000,
+          startedAt: 1000,
+          completedAt: 9000,
+          error: undefined,
+          forkedFrom: undefined,
+          wasForkedFrom: false,
+        },
+        steps: [],
+        selectedStep: undefined,
+        note: undefined,
+        ir,
+        selectedNode,
+      },
+      NOW,
+    );
+
     return inspectorInit({
       at: 'run',
-      tab: runTabOf(
-        {
-          run: {
-            workflowId: 'wf_1',
-            name: 'groom_booking',
-            status: 'SUCCESS',
-            recoveryAttempts: 0,
-            executorId: 'local-dev',
-            applicationVersion: 'v0.1.0',
-            createdAt: 1000,
-            startedAt: 1000,
-            completedAt: 9000,
-            error: undefined,
-            forkedFrom: undefined,
-            wasForkedFrom: false,
-          },
-          steps: [],
-          selectedStep: undefined,
-          note: undefined,
-          ir,
-          selectedNode,
-        },
-        NOW,
-      ),
-      document: {
-        at: 'buffer',
+      tab,
+      block: {
+        source: 'run',
         file: 'groom_booking.workflow.json',
         path: fileIn(dir, 'groom_booking'),
-        text: JSON.stringify(ir),
+        workflow: 'groom_booking',
+        read: { ok: true, ir },
+        revision: ir.revision,
         manifest: undefined,
+        diagnostics: [],
+        selected: selectedNode,
+        face: 'evidence',
+        run: tab.inspected,
+        decided: tab.decided,
         proposedBy: undefined,
+        functionId: undefined,
       },
       startRefusal: OFFERED,
       runsPanel: runs,
@@ -641,7 +645,7 @@ describe('a run with nothing picked', () => {
         },
         NOW,
       ),
-      document: undefined,
+      block: undefined,
       startRefusal,
       runsPanel: NOT_ASKED,
     }).subject;

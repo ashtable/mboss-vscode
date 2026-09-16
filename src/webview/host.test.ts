@@ -294,7 +294,11 @@ describe('what each view may say', () => {
     runWorkflow: { workflow: 'groom_booking' },
     rerun: { workflowId: 'wf_c9d2f3' },
     askAgent: { workflowId: 'wf_c9d2f3' },
-    askAboutBlock: { workflow: 'groom_booking', nodeId: 'find_slot' },
+    askAboutBlock: {
+      workflow: 'groom_booking',
+      nodeId: 'find_slot',
+      about: ABOUT,
+    },
     openRun: { workflowId: 'wf_c9d2f3' },
     openProduction: {},
     replayRun: { workflowId: 'wf_c9d2f3' },
@@ -303,7 +307,7 @@ describe('what each view may say', () => {
     openInput: { workflowId: 'wf_c9d2f3' },
     runTrigger: { workflow: 'groom_booking' },
     openRunInput: {},
-    inspectRun: {},
+    inspectRun: { about: ABOUT },
 
     stepSelect: { functionId: 2 },
     replayFrom: { workflowId: 'wf_c9d2f3', functionId: 2 },
@@ -385,6 +389,8 @@ describe('what each view may say', () => {
       'openFunction',
       'openErrorLocation',
       'openOutput',
+      'askAboutBlock',
+      'inspectRun',
     ];
 
     /** That kind's message, saying nothing about

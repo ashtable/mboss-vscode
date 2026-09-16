@@ -517,6 +517,7 @@ const AskAboutBlock = z.object({
   type: z.literal('askAboutBlock'),
   workflow: z.string(),
   nodeId: z.string(),
+  about: About,
 });
 
 /** Somebody opened a run in the flight recorder:
@@ -635,13 +636,14 @@ const OpenInput = z.object({
  * run instead.
  *
  * A trigger writes no row, so there is nothing of
- * its own to show; what it started is. It names
- * nothing: the run is whichever one the surface in
- * front is drawing, and showing it is letting go of
- * the block picked on that surface.
+ * its own to show; what it started is. It names the
+ * block it was asked from, like every message about
+ * one: showing the run is letting go of that block
+ * on the surface it was picked on.
  */
 const InspectRun = z.object({
   type: z.literal('inspectRun'),
+  about: About,
 });
 
 /**

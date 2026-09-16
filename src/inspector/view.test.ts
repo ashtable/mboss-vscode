@@ -18,10 +18,11 @@ import { messages } from '../messages.js';
 import { runTabOf, type SeeView } from '../runs/view.js';
 import { makeProject } from '../test-support/project.js';
 import { liveRun, project, savedWorkflow } from '../test-support/runs.js';
-import type { InspectorInit } from '../webview/protocol.js';
+import type { InspectorInit, InspectorMode } from '../webview/protocol.js';
 
 import { inspectorFocus } from './focus.js';
 import type { BlockInputs } from './surface.js';
+import { runTabSurface } from './runTab.js';
 import { InspectorView, type InspectorRuns } from './view.js';
 
 /**
@@ -188,25 +189,29 @@ function mounted(
   const moves = emitter();
   const typing = emitter();
 
-  const runs: InspectorRuns = {
+  // The runs as the run tab's surface reads them,
+  // and as the pane reads them beside it: two slices
+  // of one store, every verb written down in order.
+  const tabRuns = {
     detail: () => tab.reading,
-    tab: (now) =>
+    tab: (now: number) =>
       tab.reading === undefined ? undefined : runTabOf(tab.reading, now),
     project: () => options.project ?? PROJECT,
-    chooseFace: (mode) => void asked.push(['chooseFace', mode]),
-    selectNode: (nodeId) => void asked.push(['selectNode', nodeId]),
+    chooseFace: (mode: InspectorMode) => void asked.push(['chooseFace', mode]),
+    selectNode: (nodeId: string | null) =>
+      void asked.push(['selectNode', nodeId]),
+    onChanged: moves.on,
+  };
+
+  const runs: InspectorRuns = {
+    detail: tabRuns.detail,
+    project: tabRuns.project,
     openRun: async (workflowId) => void asked.push(['openRun', workflowId]),
     replay: async (workflowId, picked) =>
       void asked.push(['replay', workflowId, picked]),
     askAgent: async (ask) => void asked.push(['askAgent', ask]),
     inspectQueue: async (workflowId, nodeId) =>
       void asked.push(['inspectQueue', workflowId, nodeId]),
-    openFunction: async (workflowId, nodeId) =>
-      void asked.push(['openFunction', workflowId, nodeId]),
-    openErrorLocation: async (workflowId, functionId) =>
-      void asked.push(['openErrorLocation', workflowId, functionId]),
-    openOutput: async (workflowId, functionId) =>
-      void asked.push(['openOutput', workflowId, functionId]),
     cancel: async (workflowId) => void asked.push(['cancel', workflowId]),
     resume: async (workflowId) => void asked.push(['resume', workflowId]),
     openInput: async (workflowId) => void asked.push(['openInput', workflowId]),
@@ -255,16 +260,32 @@ function mounted(
     unsaved: (path: string) => dirty.has(path),
   };
 
+  // Where a block's code and a recorded value are
+  // opened from the run tab, written down too.
+  const opener = {
+    openFile: async (path: string, at?: { line: number; column?: number }) =>
+      void asked.push(['openFile', path, at]),
+    showText: async (content: string, language: string) =>
+      void asked.push(['showText', content, language]),
+    info: (message: string) => void asked.push(['info', message]),
+  };
+
   const documents = emitter<TextDocument>();
   const proposals = new Map<string, string>();
   const proposing = emitter();
   const generated = emitter<string>();
   const trust = fakeTrust(options.trusted ?? false);
 
-  const view = new InspectorView(
-    extensionUri,
-    { onDocumentChanged: documents.on },
-    {
+  const runTab = runTabSurface({
+    runs: tabRuns,
+    sessions,
+    editor: {
+      openCanvas: host.openCanvas,
+      documentText: host.documentText,
+      onDocumentChanged: documents.on,
+    },
+    opener,
+    preview: {
       forWorkflow: (_project, workflow) => {
         const by = proposals.get(workflow);
 
@@ -272,12 +293,18 @@ function mounted(
       },
       onChanged: proposing.on,
     },
+    trust,
+    code: { onGenerated: generated.on },
+  });
+
+  const view = new InspectorView(
+    extensionUri,
     runs,
     trust,
     agent,
-    { onGenerated: generated.on },
     sessions,
     focus,
+    runTab,
     host,
     options.showing ?? (() => true),
   );
@@ -311,6 +338,7 @@ function mounted(
     proposed: () => proposing.fire(),
     trust,
     generated: (project: string) => generated.fire(project),
+    runTab,
   };
 }
 
@@ -552,12 +580,13 @@ describe('what a canvas subject says, and where it goes', () => {
    * answer lands somewhere somebody is looking.
    */
   it('asks the agent about a block in one sentence, after showing the agent', async () => {
-    const { frame, agent, asked } = about();
+    const { frame, agent, asked, block } = about();
 
     frame.send({
       type: 'askAboutBlock',
       workflow: 'groom_booking',
       nodeId: 'find_slot',
+      about: block,
     });
     await until(() => agent.told.length === 1);
 
@@ -577,19 +606,23 @@ describe('what a canvas subject says, and where it goes', () => {
   });
 
   /** A question can only be put in words drawn off
-   *  the block the pane is showing. */
-  it('asks nothing about a block the pane is not showing', async () => {
-    const { frame, agent, asked } = about();
+   *  the block the surface it names is showing: not
+   *  another block on it, and not a document no
+   *  canvas has open. */
+  it('asks nothing about a block the surface is not showing', async () => {
+    const { frame, agent, asked, canvas } = about();
 
     frame.send({
       type: 'askAboutBlock',
       workflow: 'groom_booking',
       nodeId: 'book_appointment',
+      about: blockOn('canvas', canvas.inputs.path, 'book_appointment'),
     });
     frame.send({
       type: 'askAboutBlock',
       workflow: 'refund_approval',
       nodeId: 'find_slot',
+      about: blockOn('canvas', workflowDocument(PROJECT, 'refund_approval')),
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
 
@@ -939,38 +972,59 @@ describe('what a run-tab subject says, and where it goes', () => {
     expect(asked).toEqual([['chooseFace', 'configure']]);
   });
 
-  it('opens the block’s function from the run it recorded', () => {
-    const { frame, asked } = onRunTab();
+  /**
+   * The ways into a block's code and its recorded
+   * values are the run tab's own surface's, over the
+   * rows the tab holds; which document the block is
+   * looked up in, and where a value is opened, are
+   * that surface's to answer and are pinned there.
+   */
+  it('opens a recorded output off the rows the tab holds', () => {
+    const pane = onRunTab();
 
-    frame.send({ type: 'openFunction', nodeId: 'find_slot', about: picked });
-
-    expect(asked).toEqual([['openFunction', 'wf_1', 'find_slot']]);
-  });
-
-  it('opens the line a failure came from, by the row', () => {
-    const { frame, asked } = onRunTab();
-
-    frame.send({
-      type: 'openErrorLocation',
-      nodeId: 'find_slot',
-      functionId: 3,
-      about: picked,
+    pane.tab.reading = seeView({
+      selectedNode: 'find_slot',
+      selectedStep: 3,
+      steps: [
+        {
+          functionId: 3,
+          name: 'find_slot',
+          startedAt: 1000,
+          completedAt: 1200,
+          output: '{"slot":1}',
+          error: undefined,
+          childWorkflowId: undefined,
+        },
+      ],
     });
-
-    expect(asked).toEqual([['openErrorLocation', 'wf_1', 3]]);
-  });
-
-  it('opens a recorded output from the run tab’s run', () => {
-    const { frame, asked } = onRunTab();
-
-    frame.send({
+    pane.frame.send({
       type: 'openOutput',
       workflowId: 'wf_1',
       functionId: 3,
       about: picked,
     });
 
-    expect(asked).toEqual([['openOutput', 'wf_1', 3]]);
+    expect(pane.asked).toEqual([['showText', '{"slot":1}', 'json']]);
+  });
+
+  /** A tab that has moved on to a run of another
+   *  workflow no longer holds the document a message
+   *  names, and gets nothing. */
+  it('drops a message about a document the tab has moved past', () => {
+    const pane = onRunTab();
+
+    pane.tab.reading = seeView({
+      run: { ...seeView().run, name: 'refund_approval' },
+      selectedNode: 'find_slot',
+    });
+    pane.frame.send({
+      type: 'inspectorMode',
+      mode: 'configure',
+      about: picked,
+    });
+    pane.frame.send({ ...edit, view: 'inspector' });
+
+    expect(pane.asked).toEqual([]);
   });
 
   it('asks the agent about a block in one sentence, after showing the agent', async () => {
@@ -980,6 +1034,7 @@ describe('what a run-tab subject says, and where it goes', () => {
       type: 'askAboutBlock',
       workflow: 'groom_booking',
       nodeId: 'find_slot',
+      about: picked,
     });
     await until(() => agent.told.length === 1);
 
@@ -1043,7 +1098,10 @@ describe('the whole run, shown again from a trigger', () => {
 
     pane.sessions.register(canvas.inputs.path, canvas.canvas, { active: true });
     pane.focus.report({ at: 'canvas', session: canvas.canvas });
-    pane.frame.send({ type: 'inspectRun' });
+    pane.frame.send({
+      type: 'inspectRun',
+      about: blockOn('canvas', canvas.inputs.path, 'booking_requested'),
+    });
 
     expect(canvas.did).toEqual([['select', null]]);
     expect(pane.asked).toEqual([]);
@@ -1058,7 +1116,10 @@ describe('the whole run, shown again from a trigger', () => {
 
     pane.tab.reading = seeView({ selectedNode: 'booking_requested' });
     pane.focus.report({ at: 'run' });
-    pane.frame.send({ type: 'inspectRun' });
+    pane.frame.send({
+      type: 'inspectRun',
+      about: blockOn('run', PATH, 'booking_requested'),
+    });
 
     expect(pane.asked).toEqual([['selectNode', null]]);
   });

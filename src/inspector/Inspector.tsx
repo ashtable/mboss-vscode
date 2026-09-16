@@ -396,6 +396,7 @@ export function Inspector({
                   type: 'askAboutBlock',
                   workflow,
                   nodeId: selected.node.id,
+                  about,
                 })
               }
               onRunTrigger={(name) =>

@@ -93,3 +93,22 @@ copy of the ledger's words, and they disagreed about a status none of them
 had heard of: one ticked it as done, two said it was still going.
 
 `src/webview/states.ts:runWord`
+
+## The Inspector
+
+### surface
+
+A thing a block is picked on, and the Inspector is about: a canvas, or the
+run tab. Each answers the same questions about the block picked on it and
+takes the same verbs — a face, a selection, an edit, the ways into its code
+and its recorded values — from what it holds: a canvas from its own session,
+the run tab from the store's reading of the run and the document as the
+editor holds it. The pane routes every message about a block to the surface
+the message names, never to whatever is in front when it arrives.
+
+The Runs list is not one: nothing is picked on it. The word is used more
+loosely elsewhere in the code ("the two surfaces a run history has", "three
+surfaces ask for it"); this is the sense the Inspector means, and the one a
+glossary entry was owed for.
+
+`src/inspector/surface.ts:BlockSurface`

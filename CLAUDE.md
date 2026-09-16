@@ -290,11 +290,14 @@ none of that.
   against which revision (absent over an unreadable file or a live proposal),
   and `CanvasInit.selected` is an id the graph marks. The block itself is
   drawn in the Inspector pane (`src/inspector/`): `subject.ts` builds a
-  `BlockSubject` from `session.block()`, and `InspectorView`
+  `BlockSubject` from what a **surface** holds (`inspector/surface.ts`:
+  `BlockSurface`, the one interface a canvas session and the run tab's
+  adapter in `inspector/runTab.ts` both answer), and `InspectorView`
   routes what the pane says — a face, an edit, the ways into a block's code
-  — by the `about` every one of those carries (the surface a block was
-  picked on, its document and its id) rather than by whatever is in front
-  when it arrives, and everything about a run to the runs store.
+  — to the surface the `about` every one of those carries names (the
+  surface a block was picked on, its document and its id) rather than to
+  whatever is in front when it arrives, and everything about a run to the
+  runs store.
   A block picked on the run tab is drawn from the document as it is being
   worked on (the canvas open on it, else the editor's buffer), never the
   copy the run page read off disk; an edit to it goes through the canvas on

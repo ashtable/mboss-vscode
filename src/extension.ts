@@ -14,6 +14,7 @@ import { galleryHost } from './gallery/host.js';
 import { GalleryPanel } from './gallery/panel.js';
 import { inspectorFocus } from './inspector/focus.js';
 import { inspectorHost } from './inspector/host.js';
+import { runTabSurface } from './inspector/runTab.js';
 import { InspectorView } from './inspector/view.js';
 import { previewStore } from './preview/store.js';
 import { openDatabase, openManagement } from './runs/db.js';
@@ -224,30 +225,46 @@ export function activate(context: ExtensionContext): void {
     { openRun, replayFrom },
   );
   const runsView = new RunsListView(context.extensionUri, runs, see);
-  const inspectorView = new InspectorView(
-    context.extensionUri,
-    api,
-    preview,
-    {
+  const inspectorEditor = inspectorHost();
+
+  // The run tab as a surface a block is picked on,
+  // put together once here because it composes the
+  // store, the registry, the editor and the preview
+  // store, and the Inspector routes to it as it
+  // routes to a canvas.
+  const runTab = runTabSurface({
+    runs: {
       detail: () => runs.detail(),
       tab: (now) => runs.tab(now),
-      replayStartRefusal: (workflow, document) =>
-        runs.replayStartRefusal(workflow, document),
       // The project the store reads its runs from.
       project: () => runsEditor.projects()[0],
       chooseFace: (mode) => runs.chooseFace(mode),
       selectNode: (nodeId) => runs.selectNode(nodeId),
+      onChanged: (listener) => runs.onChanged(listener),
+    },
+    sessions,
+    editor: {
+      openCanvas: inspectorEditor.openCanvas,
+      documentText: inspectorEditor.documentText,
+      onDocumentChanged: (listener) => api.onDocumentChanged(listener),
+    },
+    opener: api,
+    preview,
+    trust,
+    code: watchers,
+  });
+  const inspectorView = new InspectorView(
+    context.extensionUri,
+    {
+      detail: () => runs.detail(),
+      replayStartRefusal: (workflow, document) =>
+        runs.replayStartRefusal(workflow, document),
+      project: () => runsEditor.projects()[0],
       openRun,
       replay: (workflowId, picked) => runs.replay(workflowId, picked),
       askAgent: (ask) => runs.askAgent(ask),
       inspectQueue: (workflowId, nodeId) =>
         runs.inspectQueue(workflowId, nodeId),
-      openFunction: (workflowId, nodeId) =>
-        runs.openFunction(workflowId, nodeId),
-      openErrorLocation: (workflowId, functionId) =>
-        runs.openErrorLocation(workflowId, functionId),
-      openOutput: (workflowId, functionId) =>
-        runs.openOutput(workflowId, functionId),
       cancel: (workflowId) => runs.cancel(workflowId),
       resume: (workflowId) => runs.resume(workflowId),
       openInput: (workflowId) => runs.openInput(workflowId),
@@ -263,10 +280,10 @@ export function activate(context: ExtensionContext): void {
     },
     trust,
     panel,
-    watchers,
     sessions,
     focus,
-    inspectorHost(),
+    runTab,
+    inspectorEditor,
     // Whether the container the Inspector sits in is
     // on screen, told by the two panes beside it.
     () => agentView.visible() || runsView.visible(),
@@ -287,6 +304,7 @@ export function activate(context: ExtensionContext): void {
     AgentSidebarView.register(agentView),
     RunsListView.register(runsView),
     InspectorView.register(inspectorView),
+    { dispose: () => runTab.dispose() },
     { dispose: () => see.dispose() },
     { dispose: () => gallery.dispose() },
     { dispose: () => panel.dispose() },

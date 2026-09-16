@@ -55,7 +55,14 @@ function InspectorPanel({ strings, subject }: InspectorInit) {
           block={subject.block}
           onShowRun={() => {
             askedForRun.current = true;
-            postToHost({ type: 'inspectRun' });
+            postToHost({
+              type: 'inspectRun',
+              about: {
+                source: subject.block.source,
+                path: subject.block.path,
+                nodeId: subject.block.nodeId,
+              },
+            });
           }}
         />
       ) : (

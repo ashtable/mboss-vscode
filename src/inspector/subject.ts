@@ -1,6 +1,5 @@
 import { inspectorWords, kindWords, paletteLabels } from '../canvas/words.js';
-import { checkWorkflow, readWorkflow } from '../core/index.js';
-import type { Diagnostic, LibManifest, WorkflowIR } from '../core/rules.js';
+import type { WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
 import {
   ledgerOf,
@@ -28,7 +27,7 @@ import type { BlockInputs } from './surface.js';
  *
  * Pure, and handed the surfaces' answers rather
  * than the surfaces: a canvas session and the run
- * page are editor objects, and every rule about
+ * tab are editor objects, and every rule about
  * which of them wins, and what an empty pane still
  * says, is easier to read — and to test — as a
  * function of plain data.
@@ -64,12 +63,13 @@ export type RunsPanel = (path: string) => RunInputView;
 /**
  * The surface last in front, with what it holds.
  *
- * A canvas answers with its session's inputs. The
- * run tab answers with the run it is showing as the
+ * A canvas answers with what its session holds,
+ * whether or not a block is selected on it. The run
+ * tab answers with the run it is showing as the
  * store projected it, at one moment, for the card
  * and the block alike — nothing until a read of one
- * lands — and, once a block is picked on it, with
- * the document the run was a run of.
+ * lands — and with the block picked on it drawn
+ * from the document as the editor holds it.
  */
 export type Focused =
   | { at: 'none' }
@@ -82,46 +82,9 @@ export type Focused =
   | {
       at: 'run';
       tab: RunTab | undefined;
-      document: RunDocument | undefined;
+      block: BlockInputs | undefined;
       startRefusal: StartRefusal;
       runsPanel: RunsPanel;
-    };
-
-/**
- * The document behind a run tab, read where an edit
- * made from the Inspector would land.
- *
- * The canvas open on it, when there is one: its
- * revision is the one its gate checks an edit
- * against. Otherwise the document itself, as the
- * editor holds it, with the project's code-behind
- * read beside it. Never the copy the run page read
- * off disk when the run was opened — an edit lands
- * in the buffer, and a form drawn from that copy
- * would be refused as stale after the first one.
- */
-export type RunDocument =
-  | {
-      at: 'canvas';
-      canvas: BlockInputs;
-
-      /** Who proposed what is waiting on the document,
-       *  when something is. */
-      proposedBy: string | undefined;
-    }
-  | {
-      at: 'buffer';
-      file: string;
-
-      /** Where the file is, which is how the saved
-       *  workflows know it. */
-      path: string;
-
-      /** Absent where the file cannot be read at all. */
-      text: string | undefined;
-
-      manifest: LibManifest | undefined;
-      proposedBy: string | undefined;
     };
 
 /**
@@ -149,11 +112,15 @@ function subjectOf(focused: Focused): InspectorSubject {
   if (focused.at === 'none') return { at: 'none', file: undefined };
 
   if (focused.at === 'run') {
-    const { tab } = focused;
+    const { tab, block } = focused;
 
-    return tab !== undefined && tab.picked.nodeId === undefined
-      ? { at: 'run', run: runOnRunTab(tab, focused.startRefusal) }
-      : blockOnRunTab(focused);
+    if (tab !== undefined && tab.picked.nodeId === undefined) {
+      return { at: 'run', run: runOnRunTab(tab, focused.startRefusal) };
+    }
+
+    if (block === undefined) return { at: 'none', file: undefined };
+
+    return subjectAbout(block, focused.runsPanel);
   }
 
   const { canvas } = focused;
@@ -165,10 +132,24 @@ function subjectOf(focused: Focused): InspectorSubject {
     };
   }
 
-  const block = blockOnCanvas(canvas, focused.runsPanel);
+  return subjectAbout(canvas, focused.runsPanel);
+}
+
+/**
+ * The block a surface holds, or the file it is
+ * waiting on where there is no block to draw: a
+ * document that will not read has no block to draw
+ * a form from, and a canvas with nothing selected
+ * has none picked.
+ */
+function subjectAbout(
+  inputs: BlockInputs,
+  runsPanel: RunsPanel,
+): InspectorSubject {
+  const block = blockOf(inputs, runsPanel);
 
   return block === undefined
-    ? { at: 'none', file: canvas.file }
+    ? { at: 'none', file: inputs.file }
     : { at: 'block', block };
 }
 
@@ -286,125 +267,57 @@ function wordOf(run: LiveRun): RunWord {
 }
 
 /**
- * The block selected on a canvas, as the canvas
- * holds it.
+ * The block picked on a surface, as the surface
+ * holds it, or nothing where there is no block to
+ * draw: nothing picked, or a document that will not
+ * read.
  *
- * Every field is the canvas's own answer, so the
- * pane and the board cannot disagree: the face is
- * the one the canvas keeps for the run it follows
- * (Configure with none, Run evidence with one, a
- * person's pick for as long as it is the same run),
- * and the revision is absent wherever the canvas
- * may not be edited.
- *
- * A canvas that is following a run with nothing
- * selected has no block to be about, so the pane
- * waits on its file like any other.
+ * Every field is the surface's own answer, so the
+ * pane and the surface cannot disagree: the face is
+ * the one the surface keeps for the run it is
+ * drawing, and the revision is absent wherever the
+ * surface may not be edited. Two rules are the
+ * pane's, and the same on either surface. A
+ * proposal waiting on the document holds every edit
+ * back, and the sentence the canvas shows over one
+ * says why; a canvas lets go of its selection when
+ * one arrives, so in practice only the run tab has
+ * one to explain. And a block the document no
+ * longer has — which only the run tab can pick,
+ * since its rows outlive the document — has nothing
+ * left to configure, so it stays on Run evidence.
  */
-function blockOnCanvas(
-  canvas: BlockInputs,
+function blockOf(
+  inputs: BlockInputs,
   runsPanel: RunsPanel,
 ): BlockSubject | undefined {
-  if (!canvas.read.ok || canvas.selected === undefined) return undefined;
+  if (!inputs.read.ok || inputs.selected === undefined) return undefined;
+
+  const { ir } = inputs.read;
+  const nodeId = inputs.selected;
+  const there = ir.nodes.some((node) => node.id === nodeId);
 
   return {
-    source: 'canvas',
-    file: canvas.file,
-    path: canvas.path,
-    workflow: canvas.workflow,
-    ir: canvas.read.ir,
-    revision: canvas.revision,
-    nodeId: canvas.selected,
-    face: canvas.face,
-    manifest: canvas.manifest,
-    diagnostics: canvas.diagnostics,
+    source: inputs.source,
+    file: inputs.file,
+    path: inputs.path,
+    workflow: inputs.workflow,
+    ir,
+    revision: inputs.proposedBy === undefined ? inputs.revision : undefined,
+    nodeId,
+    face: there ? inputs.face : 'evidence',
+    manifest: inputs.manifest,
+    diagnostics: inputs.diagnostics,
     paletteLabels: paletteLabels(),
     kindWords: kindWords(),
-    run: canvas.run,
-
-    functionId: canvas.functionId,
-    decided: canvas.decided,
-    runInput: runInputOf(
-      canvas.read.ir,
-      canvas.selected,
-      canvas.path,
-      runsPanel,
-    ),
-
-    // A proposal arriving takes a canvas's selection
-    // away, so there is never one to explain here.
-    proposal: undefined,
-  };
-}
-
-/**
- * The block picked on the run tab, or nothing where
- * no run or document is there to draw one from.
- *
- * What the run recorded is the run tab's: its run,
- * the row picked, the ways its decided blocks went.
- * What the block is set to do is the document's, as
- * it is now. A proposal waiting on the document
- * holds every edit back, and the sentence the canvas
- * shows over one says why.
- *
- * The face is Run evidence until somebody picks
- * Configure — a block picked on a run is picked to
- * see what the run recorded — and stays Run
- * evidence for a block the document no longer has,
- * which has nothing left to configure.
- *
- * A document that will not read has no block to
- * draw a form from, so the pane names the file it is
- * waiting on, as it does for a canvas.
- */
-function blockOnRunTab(
-  focused: Extract<Focused, { at: 'run' }>,
-): InspectorSubject {
-  const { tab, document } = focused;
-  const nodeId = tab?.picked.nodeId;
-
-  if (tab === undefined || nodeId === undefined || document === undefined) {
-    return { at: 'none', file: undefined };
-  }
-
-  const drawn = drawnFrom(document);
-
-  if (drawn === undefined) {
-    return {
-      at: 'none',
-      file: document.at === 'canvas' ? document.canvas.file : document.file,
-    };
-  }
-
-  const there = drawn.ir.nodes.some((node) => node.id === nodeId);
-  const proposedBy = document.proposedBy;
-  const path = document.at === 'canvas' ? document.canvas.path : document.path;
-
-  return {
-    at: 'block',
-    block: {
-      source: 'run',
-      file: drawn.file,
-      path,
-      workflow: tab.name,
-      ir: drawn.ir,
-      revision: proposedBy === undefined ? drawn.revision : undefined,
-      nodeId,
-      face: there ? (tab.picked.face ?? 'evidence') : 'evidence',
-      manifest: drawn.manifest,
-      diagnostics: drawn.diagnostics,
-      paletteLabels: paletteLabels(),
-      kindWords: kindWords(),
-      run: tab.inspected,
-      functionId: tab.picked.functionId,
-      decided: tab.decided,
-      runInput: runInputOf(drawn.ir, nodeId, path, focused.runsPanel),
-      proposal:
-        proposedBy === undefined
-          ? undefined
-          : messages.previewHeadline(proposedBy),
-    },
+    run: inputs.run,
+    functionId: inputs.functionId,
+    decided: inputs.decided,
+    runInput: runInputOf(ir, nodeId, inputs.path, runsPanel),
+    proposal:
+      inputs.proposedBy === undefined
+        ? undefined
+        : messages.previewHeadline(inputs.proposedBy),
   };
 }
 
@@ -425,42 +338,4 @@ function runInputOf(
   const node = ir.nodes.find((one) => one.id === nodeId);
 
   return node?.kind === 'trigger' ? runsPanel(path) : undefined;
-}
-
-/** What a form is drawn from, read out of the
- *  document; nothing where it does not read. */
-type Drawn = {
-  file: string;
-  ir: WorkflowIR;
-  revision: number | undefined;
-  manifest: LibManifest | undefined;
-  diagnostics: Diagnostic[];
-};
-
-function drawnFrom(document: RunDocument): Drawn | undefined {
-  if (document.at === 'canvas') {
-    const { canvas } = document;
-
-    return canvas.read.ok
-      ? {
-          file: canvas.file,
-          ir: canvas.read.ir,
-          revision: canvas.revision,
-          manifest: canvas.manifest,
-          diagnostics: canvas.diagnostics,
-        }
-      : undefined;
-  }
-
-  const read =
-    document.text === undefined ? undefined : readWorkflow(document.text);
-  if (read === undefined || !read.ok) return undefined;
-
-  return {
-    file: document.file,
-    ir: read.ir,
-    revision: read.ir.revision,
-    manifest: document.manifest,
-    diagnostics: checkWorkflow(read.ir, document.manifest),
-  };
 }

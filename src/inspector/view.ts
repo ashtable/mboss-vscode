@@ -1,4 +1,4 @@
-import { basename, dirname, relative } from 'node:path';
+import { dirname, relative } from 'node:path';
 
 import {
   window,
@@ -9,37 +9,34 @@ import {
 } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
-import type { CanvasCode, CanvasSession } from '../canvas/editor.js';
+import type { CanvasSession } from '../canvas/editor.js';
 import type { CanvasSessions } from '../canvas/sessions.js';
 import { inspectorWords } from '../canvas/words.js';
-import { manifestFor, projectOf, workflowDocument } from '../core/index.js';
-import type { LibManifest, WorkflowIR } from '../core/rules.js';
+import { projectOf } from '../core/index.js';
+import type { WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
-import type { PreviewStore } from '../preview/store.js';
 import type { AskAgent } from '../runs/evidence.js';
-import { pointIn } from '../runs/replayZone.js';
-import type { ReplayPick } from '../runs/store.js';
-import type { RunTab, SeeView } from '../runs/view.js';
+import { pointIn, type ReplayPick } from '../runs/replayZone.js';
+import type { SeeView } from '../runs/view.js';
 import { needsTopic, projectWorkflows } from '../runs/workflows.js';
 import type { Trust } from '../trust.js';
-import type { VsCodeApi } from '../vscodeApi.js';
 import { mountWebview, type Heard, type Mount } from '../webview/host.js';
 import type {
+  BlockAbout,
   InspectorInit,
-  InspectorMode,
   RunByHand,
   RunInputView,
 } from '../webview/protocol.js';
 
 import type { InspectorFocus } from './focus.js';
-import type { BlockInputs } from './surface.js';
+import type { RunTabSurface } from './runTab.js';
 import {
   inspectorInit,
   type Focused,
-  type RunDocument,
   type RunsPanel,
   type StartRefusal,
 } from './subject.js';
+import type { BlockSurface } from './surface.js';
 
 /**
  * What the Inspector reads of the runs, and asks of
@@ -50,19 +47,14 @@ import {
  * rows are in the store rather than on any canvas,
  * so these go to the store whichever surface the
  * block came from — and so does everything the card
- * about a whole run offers. A block picked on the
- * run tab is the store's too: which one, which
- * face, and the ways into its code and its recorded
- * values.
+ * about a whole run offers. What a block picked on
+ * the run tab is drawn from, and the verbs about
+ * it, are the run tab's own surface's.
  */
 export type InspectorRuns = {
   /** The run the run tab is showing, as it was read:
    *  which run, and what is picked on it. */
   detail(): SeeView | undefined;
-
-  /** That run as the pane reads it, projected once
-   *  at the moment the pane passed. */
-  tab(now: number): RunTab | undefined;
 
   /** Why a run of that workflow could not be
    *  replayed from its start; nothing where it
@@ -73,16 +65,8 @@ export type InspectorRuns = {
   ): string | undefined;
 
   /** The project the runs are read from, which is
-   *  where the run's document is. */
+   *  where a saved workflow is. */
   project(): string | undefined;
-
-  /** The face somebody picked for the block picked
-   *  on the run tab. */
-  chooseFace(mode: InspectorMode): void;
-
-  /** Picks a block on the run tab, or lets go of
-   *  the one picked, which leaves the whole run. */
-  selectNode(nodeId: string | null): void;
 
   /** Reads the run and puts the run tab in front. */
   openRun(workflowId: string): Promise<void>;
@@ -92,12 +76,6 @@ export type InspectorRuns = {
   askAgent(ask: AskAgent): Promise<void>;
 
   inspectQueue(workflowId: string, nodeId: string): Promise<void>;
-
-  openFunction(workflowId: string, nodeId: string): Promise<void>;
-
-  openErrorLocation(workflowId: string, functionId: number): Promise<void>;
-
-  openOutput(workflowId: string, functionId: number): Promise<void>;
 
   cancel(workflowId: string): Promise<void>;
 
@@ -156,16 +134,6 @@ export type InspectorHost = {
   unsaved(path: string): boolean;
 };
 
-/** The document a run the tab is showing was a run
- *  of, the run's id, and the canvas open on it if
- *  one is. */
-type RunTabDocument = {
-  project: string;
-  path: string;
-  workflowId: string;
-  canvas: CanvasSession | undefined;
-};
-
 /** What a block picked on a surface can ask about
  *  that block. */
 type AboutBlock = Extract<
@@ -186,32 +154,28 @@ type AboutBlock = Extract<
  *
  * It owns nothing it draws. Which surface it is
  * about is the focus holder's answer, and what that
- * surface holds is the canvas's or the run store's,
- * so the pane is resolved again every time it is
- * hidden and shown without losing anything.
+ * surface holds is the surface's — a canvas's
+ * session, or the run tab's own surface over the
+ * store and the editor — so the pane is resolved
+ * again every time it is hidden and shown without
+ * losing anything.
  *
- * It repaints when focus moves and when what it is
- * about moves: the canvas in front, or — for a
- * block picked on the run tab — the run, the
- * document the block is drawn from, a proposal
- * waiting on that document and the project's code.
- * A tick on a surface somebody is not looking at is
- * left alone: repainting for it would reset
- * whatever the person is doing in the pane for a
- * change the pane does not show.
+ * It repaints when focus moves and when the surface
+ * it is about moves. A tick on a surface somebody
+ * is not looking at is left alone: repainting for
+ * it would reset whatever the person is doing in
+ * the pane for a change the pane does not show.
  *
- * What the pane says goes where the thing it is
- * about lives, and each message about a block says
- * which block that is: a face, an edit and the ways
- * into a block's code go to the canvas the block
- * was picked on, or for the run tab to the runs
- * store and, for an edit, to the canvas open on the
- * run's document — one opened beside the run tab
- * when there is none, so the edit lands the way
- * every other edit does. Not to whatever is in
+ * What the pane says goes to the surface it names.
+ * Each message about a block says which block that
+ * is — the surface it was picked on, its document
+ * and its id — and the host sends it to the canvas
+ * open on that document, or to the run tab where
+ * its run is a run of it. Not to whatever is in
  * front when the message arrives: a field commits
  * as focus leaves the pane, and the same click can
- * bring another surface forward first.
+ * bring another surface forward first. Everything
+ * about a run goes to the runs store.
  *
  * And it puts itself in front of somebody when a
  * selection lands on a block, or the run tab shows
@@ -255,49 +219,26 @@ export class InspectorView implements WebviewViewProvider {
     functionId?: number;
   } = {};
 
-  /**
-   * The code-behind of each project a run-tab block
-   * has been drawn from, read once and read again
-   * when it can have changed.
-   *
-   * Read here only where no canvas has the document
-   * open: a canvas scans its own. A scan type-checks
-   * every file in `lib/`, far too slow to repeat on
-   * every tick of a run.
-   */
-  private readonly manifests = new Map<string, LibManifest | undefined>();
-
   private readonly following: Disposable[];
 
   constructor(
     private readonly extensionUri: Uri,
-    private readonly api: Pick<VsCodeApi, 'onDocumentChanged'>,
-    private readonly preview: Pick<PreviewStore, 'forWorkflow' | 'onChanged'>,
     private readonly runs: InspectorRuns,
     private readonly trust: Trust,
     private readonly agent: Agent,
-    private readonly code: CanvasCode,
     private readonly sessions: CanvasSessions,
     private readonly focus: InspectorFocus,
+    private readonly runTab: RunTabSurface,
     private readonly host: InspectorHost,
     private readonly mbossShowing: () => boolean,
   ) {
     // Followed from the start rather than while the
     // pane is mounted: a pane that is not on screen
     // is exactly the one a selection has to bring
-    // forward, and code read before it was hidden is
-    // code it must not draw once it is shown again.
+    // forward.
     this.following = [
       sessions.onChanged((moved) => this.canvasMoved(moved)),
       runs.onChanged(() => this.runTabMoved()),
-      trust.onGranted(() => {
-        this.manifests.clear();
-        this.repaintRunTab();
-      }),
-      code.onGenerated((project) => {
-        this.manifests.delete(project);
-        this.repaintRunTab();
-      }),
     ];
   }
 
@@ -331,40 +272,39 @@ export class InspectorView implements WebviewViewProvider {
       heard: (message) => this.heard(message),
       follows: [
         (repaint) => this.focus.onChanged(repaint),
+
+        // The canvas in front moving, and no other.
         (repaint) =>
           this.sessions.onChanged((moved) => {
             const holder = this.focus.holder();
-            const about =
-              holder?.at === 'canvas'
-                ? holder.session
-                : this.runDocument()?.canvas;
 
-            if (moved === about) repaint();
+            if (holder?.at === 'canvas' && moved === holder.session) repaint();
           }),
-        // A trigger's card shows which workflow the
-        // Runs view is set to and why its last start
-        // was refused, on whichever surface it was
-        // picked; any other block on a canvas shows
-        // nothing the runs say.
+
+        // The run tab moving in any of the ways a
+        // block picked on it is drawn from, while it
+        // is in front.
+        (repaint) =>
+          this.runTab.onChanged(() => {
+            if (this.focus.holder()?.at === 'run') repaint();
+          }),
+
+        // A trigger's card on a canvas shows which
+        // workflow the Runs view is set to and why
+        // its last start was refused; any other block
+        // on a canvas shows nothing the runs say.
         (repaint) =>
           this.runs.onChanged(() => {
-            if (this.focus.holder()?.at === 'run' || this.drewTrigger) {
+            if (this.focus.holder()?.at === 'canvas' && this.drewTrigger) {
               repaint();
             }
           }),
+
         // A keystroke in the Runs view, which only a
         // trigger's card shows.
         (repaint) =>
           this.runs.onInputChanged(() => {
             if (this.drewTrigger) repaint();
-          }),
-        (repaint) =>
-          this.api.onDocumentChanged((document) => {
-            if (document.uri.fsPath === this.runDocument()?.path) repaint();
-          }),
-        (repaint) =>
-          this.preview.onChanged(() => {
-            if (this.focus.holder()?.at === 'run') repaint();
           }),
       ],
     });
@@ -390,6 +330,8 @@ export class InspectorView implements WebviewViewProvider {
     return init;
   }
 
+  /** What the surface in front holds, at this
+   *  moment: one clock for the whole pane. */
   private focused(): Focused {
     const holder = this.focus.holder();
 
@@ -406,7 +348,12 @@ export class InspectorView implements WebviewViewProvider {
           startRefusal,
           runsPanel,
         }
-      : this.onRunTab(startRefusal, runsPanel);
+      : {
+          at: 'run',
+          ...this.runTab.holds(Date.now()),
+          startRefusal,
+          runsPanel,
+        };
   }
 
   /**
@@ -450,96 +397,19 @@ export class InspectorView implements WebviewViewProvider {
   }
 
   /**
-   * What the run tab holds, projected once at this
-   * moment for the card and the block alike, and —
-   * once a block is picked on it — the document the
-   * block is drawn from.
-   */
-  private onRunTab(startRefusal: StartRefusal, runsPanel: RunsPanel): Focused {
-    const tab = this.runs.tab(Date.now());
-    const found = this.runDocument();
-
-    if (tab === undefined || found === undefined) {
-      return { at: 'run', tab, document: undefined, startRefusal, runsPanel };
-    }
-
-    const { project, path, canvas } = found;
-
-    // A canvas holding the document already knows
-    // who is proposing against it; the store is
-    // asked only where no canvas is.
-    const document: RunDocument =
-      canvas !== undefined
-        ? canvasDocument(canvas.block())
-        : {
-            at: 'buffer',
-            file: basename(path),
-            path,
-            text: this.host.documentText(path),
-            manifest: this.manifestOf(project),
-            proposedBy: this.preview.forWorkflow(project, tab.name)?.proposedBy,
-          };
-
-    return { at: 'run', tab, document, startRefusal, runsPanel };
-  }
-
-  /**
-   * Where the document behind a block picked on the
-   * run tab is, and the canvas open on it if one
-   * is. Nothing while the run tab is not in front or
-   * has no block picked.
-   */
-  private runDocument(): RunTabDocument | undefined {
-    const reading = this.runs.detail();
-
-    return this.focus.holder()?.at === 'run' &&
-      reading?.selectedNode !== undefined
-      ? this.runTabDocument()
-      : undefined;
-  }
-
-  /**
-   * The same, whatever is in front and whatever is
-   * picked: the document the run the tab is showing
-   * was a run of.
+   * The surface a message names, if it still holds
+   * that document: the canvas open on it, or the run
+   * tab where its run is a run of it.
    *
-   * What a message from the pane is about is the
-   * host's answer rather than the frame's, so a path
-   * a message names is compared with this and never
-   * followed.
+   * Nothing where the canvas has closed with its
+   * tab, or the tab has moved on to a run of another
+   * workflow: what the message was made against is
+   * not what either holds now.
    */
-  private runTabDocument(): RunTabDocument | undefined {
-    const reading = this.runs.detail();
-    const project = this.runs.project();
+  private surfaceFor(about: BlockAbout): BlockSurface | undefined {
+    if (about.source === 'canvas') return this.sessions.forPath(about.path);
 
-    if (reading === undefined || project === undefined) return undefined;
-
-    const path = workflowDocument(project, reading.run.name);
-
-    return {
-      project,
-      path,
-      workflowId: reading.run.workflowId,
-      canvas: this.sessions.forPath(path),
-    };
-  }
-
-  /** What the project's code-behind offers, where it
-   *  may be read. */
-  private manifestOf(project: string): LibManifest | undefined {
-    if (!this.trust.isTrusted()) return undefined;
-
-    if (!this.manifests.has(project)) {
-      this.manifests.set(project, manifestFor(project));
-    }
-
-    return this.manifests.get(project);
-  }
-
-  /** Draws a run-tab subject again, for a change
-   *  only the run tab's block reads. */
-  private repaintRunTab(): void {
-    if (this.focus.holder()?.at === 'run') this.mounted?.repaint();
+    return this.runTab.path() === about.path ? this.runTab : undefined;
   }
 
   private heard(message: Heard<'inspector'>): void {
@@ -589,15 +459,17 @@ export class InspectorView implements WebviewViewProvider {
 
         return;
 
-      // About the block the pane is showing, from
-      // whichever surface it was picked on.
       case 'askAboutBlock':
-        void this.askAboutBlock(message.workflow, message.nodeId);
+        void this.askAboutBlock(message.about);
 
         return;
 
+      // Shows the run a trigger started, by letting go
+      // of the block on the surface it was picked on:
+      // with nothing picked, that surface is about its
+      // run, and it says so itself.
       case 'inspectRun':
-        this.showWholeRun();
+        this.surfaceFor(message.about)?.select(null);
 
         return;
 
@@ -615,199 +487,82 @@ export class InspectorView implements WebviewViewProvider {
         return;
     }
 
-    // The rest is about a block, and each of those
-    // says which: the surface it was picked on and
-    // the document it is in. Sent there rather than
-    // to whatever is in front now — a field commits
-    // as focus leaves the pane, and the click that
-    // took focus can bring another surface forward
-    // first.
-    if (message.about.source === 'canvas') {
-      const canvas = this.sessions.forPath(message.about.path);
-
-      // A document nobody has open any more: its
-      // session went with its tab, and there is
-      // nothing left to edit through.
-      if (canvas !== undefined) this.heardOnCanvas(canvas, message);
-
-      return;
-    }
-
-    this.heardOnRunTab(message);
+    this.heardAboutBlock(message);
   }
 
-  /** A block picked on a canvas: every verb is the
-   *  canvas's own, and the canvas says when it moved,
-   *  so nothing here draws the pane again itself. */
-  private heardOnCanvas(canvas: CanvasSession, message: AboutBlock): void {
+  /**
+   * A message about a block, sent to the surface it
+   * names. Every verb is the surface's own, and a
+   * surface says when it moved, so nothing here
+   * draws the pane again itself.
+   */
+  private heardAboutBlock(message: AboutBlock): void {
+    const surface = this.surfaceFor(message.about);
+    if (surface === undefined) return;
+
     switch (message.type) {
       case 'inspectorMode':
-        canvas.chooseFace(message.mode);
+        surface.chooseFace(message.mode);
 
         return;
 
       case 'edit':
       case 'assign':
-        void canvas.edit(message);
+        void surface.edit(message);
 
         return;
 
       case 'openFunction':
-        void canvas.openFunction(message.nodeId);
+        void surface.openFunction(message.nodeId);
 
         return;
 
       case 'openErrorLocation':
-        void canvas.openErrorLocation(message.nodeId, message.functionId);
+        void surface.openErrorLocation(message.nodeId, message.functionId);
 
         return;
 
       case 'openOutput':
-        void canvas.openOutput(message.workflowId, message.functionId);
+        void surface.openOutput(message.workflowId, message.functionId);
 
         return;
     }
-  }
-
-  /**
-   * A block picked on the run tab. The run is the
-   * store's, so everything but an edit goes there,
-   * addressed by the run the tab is showing — and a
-   * face picked there is a change to the store,
-   * which draws the pane again by itself.
-   *
-   * Nothing where the tab has moved on to a run of
-   * another workflow: the rows the message was made
-   * against are not the rows the store holds now.
-   */
-  private heardOnRunTab(message: AboutBlock): void {
-    const found = this.runTabDocument();
-    if (found === undefined || found.path !== message.about.path) return;
-
-    const { workflowId } = found;
-
-    switch (message.type) {
-      case 'inspectorMode':
-        this.runs.chooseFace(message.mode);
-
-        return;
-
-      case 'edit':
-      case 'assign':
-        void this.editFromRunTab(found, message);
-
-        return;
-
-      case 'openFunction':
-        void this.runs.openFunction(workflowId, message.nodeId);
-
-        return;
-
-      case 'openErrorLocation':
-        void this.runs.openErrorLocation(workflowId, message.functionId);
-
-        return;
-
-      case 'openOutput':
-        void this.runs.openOutput(message.workflowId, message.functionId);
-
-        return;
-    }
-  }
-
-  /**
-   * An edit to a block picked on the run tab, made
-   * through the canvas on its document.
-   *
-   * Through a canvas rather than written here,
-   * because the canvas is where the revision gate,
-   * the questions an edit can ask and the write all
-   * live. With none open, one is opened beside the
-   * run tab without taking focus from it, and the
-   * edit waits for it to register. The block the
-   * edit was made about is selected on it first, so
-   * the canvas shows the block the edit lands on
-   * whether or not the edit writes anything.
-   */
-  private async editFromRunTab(
-    found: RunTabDocument,
-    message: Extract<AboutBlock, { type: 'edit' | 'assign' }>,
-  ): Promise<void> {
-    let canvas = found.canvas;
-
-    if (canvas === undefined) {
-      await this.host.openCanvas(found.path, {
-        beside: true,
-        preserveFocus: true,
-      });
-      canvas = await this.sessions.whenOpen(found.path);
-    }
-
-    canvas.select(message.about.nodeId);
-    await canvas.edit(message);
-  }
-
-  /**
-   * Shows the run a trigger started, by letting go
-   * of the block picked on the surface in front:
-   * with nothing picked, that surface is about its
-   * run.
-   *
-   * A canvas lets go of its selection and says so,
-   * which is what draws it — on the board and in
-   * this pane. The run tab's selection is the
-   * store's, and the store draws both views when it
-   * changes.
-   */
-  private showWholeRun(): void {
-    const holder = this.focus.holder();
-
-    if (holder?.at === 'canvas') holder.session.select(null);
-
-    if (holder?.at === 'run') this.runs.selectNode(null);
   }
 
   /**
    * Asks the agent about a block as it is set.
    *
-   * In words read off the block the pane is drawing,
-   * so the name is the one on screen and the file is
-   * the document that block is in; a question about
-   * any other block is not one this pane put, and
-   * is not asked. The side bar comes into view
-   * first, as it does for a question about a run,
-   * so the answer lands where somebody is looking.
+   * In words read off the block as the surface it
+   * was picked on holds it, so the name is the one
+   * on screen and the file is the document that
+   * block is in; a question about a block that
+   * surface no longer shows is not one this pane
+   * put, and is not asked. The side bar comes into
+   * view first, as it does for a question about a
+   * run, so the answer lands where somebody is
+   * looking.
    */
-  private async askAboutBlock(workflow: string, nodeId: string): Promise<void> {
-    const { subject } = inspectorInit(this.focused());
-    const path = this.documentPath();
+  private async askAboutBlock(about: BlockAbout): Promise<void> {
+    const inputs = this.surfaceFor(about)?.block(Date.now());
 
-    if (subject.at !== 'block' || path === undefined) return;
+    if (inputs === undefined || !inputs.read.ok) return;
+    if (inputs.selected !== about.nodeId) return;
 
-    const { block } = subject;
-    if (block.workflow !== workflow || block.nodeId !== nodeId) return;
-
-    const node = block.ir.nodes.find((one) => one.id === nodeId);
+    const node = inputs.read.ir.nodes.find((one) => one.id === about.nodeId);
     if (node === undefined) return;
 
     // Said from the project, the way the side bar
     // names every other file.
-    const project = projectOf(path) ?? dirname(path);
+    const project = projectOf(inputs.path) ?? dirname(inputs.path);
 
     await this.host.revealAgent();
     await this.agent.send({
-      text: messages.askAboutBlock(node.title, nodeId, relative(project, path)),
+      text: messages.askAboutBlock(
+        node.title,
+        about.nodeId,
+        relative(project, inputs.path),
+      ),
     });
-  }
-
-  /** The document the block in the pane is drawn
-   *  from, on either surface. */
-  private documentPath(): string | undefined {
-    const holder = this.focus.holder();
-
-    return holder?.at === 'canvas'
-      ? holder.session.block().path
-      : this.runDocument()?.path;
   }
 
   /**
@@ -879,10 +634,4 @@ export class InspectorView implements WebviewViewProvider {
 
     view.show(true);
   }
-}
-
-/** The document as the canvas open on it holds it,
- *  the proposer included. */
-function canvasDocument(canvas: BlockInputs): RunDocument {
-  return { at: 'canvas', canvas, proposedBy: canvas.proposedBy };
 }

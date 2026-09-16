@@ -3323,10 +3323,8 @@ test.describe('a block in the Inspector', () => {
     test('says a trigger writes no row, and shows the run', async ({
       page,
     }) => {
-      const harness = await openInspector(
-        page,
-        onEvidence('booking_requested', runOf(IN_FLIGHT)),
-      );
+      const init = onEvidence('booking_requested', runOf(IN_FLIGHT));
+      const harness = await openInspector(page, init);
 
       await expect(status(page)).toHaveCount(1);
       expect(await said(page)).toBe(inspectorStrings.runOutcomes.done);
@@ -3350,7 +3348,7 @@ test.describe('a block in the Inspector', () => {
       await show.click();
 
       expect(await harness.postedOfType('inspectRun')).toEqual([
-        { type: 'inspectRun' },
+        { type: 'inspectRun', about: about(init) },
       ]);
 
       await harness.show(inspectorInit({ at: 'run', run: runLevel() }));
@@ -4517,6 +4515,7 @@ test.describe('the groups a block is set in', () => {
           type: 'askAboutBlock',
           workflow: 'groom_booking',
           nodeId: 'find_slot',
+          about: about(shown),
         },
       ]);
     });
@@ -6381,16 +6380,14 @@ test.describe('a trigger block', () => {
   test('starts its workflow with the Runs input, and nothing else', async ({
     page,
   }) => {
-    const harness = await openInspector(
-      page,
-      blockInit(
-        triggerSubject(MANUAL, {
-          text: '{"bookingId":7}',
-          selectedWorkflow: 'booking_intake',
-          saved: { name: 'booking_intake', mode: 'manual' },
-        }),
-      ),
+    const init = blockInit(
+      triggerSubject(MANUAL, {
+        text: '{"bookingId":7}',
+        selectedWorkflow: 'booking_intake',
+        saved: { name: 'booking_intake', mode: 'manual' },
+      }),
     );
+    const harness = await openInspector(page, init);
 
     await expect(actions(page).locator(':scope > *')).toHaveCount(2);
 
@@ -6422,6 +6419,7 @@ test.describe('a trigger block', () => {
         type: 'askAboutBlock',
         workflow: 'groom_booking',
         nodeId: 'booking_requested',
+        about: about(init),
       },
     ]);
   });

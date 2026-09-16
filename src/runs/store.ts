@@ -7,7 +7,6 @@ import { compileInputs, manifestFor } from '../core/index.js';
 import type { WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import { messages } from '../messages.js';
-import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { Trust } from '../trust.js';
 import type {
   InspectorMode,
@@ -35,7 +34,6 @@ import {
   type ReplayQuestion,
 } from './replayZone.js';
 import {
-  stepError,
   toRun,
   toStep,
   type OperationOutputRow,
@@ -372,41 +370,6 @@ export type RunsStore = Disposable & {
    * one, is answered here.
    */
   openWorkflow(workflowId: string): Promise<void>;
-
-  /**
-   * Opens the code the block runs, out of the
-   * document the run was a run of.
-   *
-   * By run id and block id, which is what the page
-   * has: a block is a name in a document, and which
-   * document that is comes from what the run
-   * recorded. Nothing is repainted — a file opening
-   * in a tab says everything there is to say.
-   */
-  openFunction(workflowId: string, nodeId: string): Promise<void>;
-
-  /**
-   * Opens the line the run recorded a failure at.
-   *
-   * By run id and row, because the page draws one
-   * run and a row id addresses one of its rows on
-   * its own — the block the panel names is what
-   * decides which card carries the door, not which
-   * row this reads. Nothing is repainted: a file
-   * opening says everything there is to say.
-   */
-  openErrorLocation(workflowId: string, functionId: number): Promise<void>;
-
-  /**
-   * Opens the whole of what one row recorded.
-   *
-   * Every surface that draws a value cuts it — the
-   * card to what a column can hold, the raw table to
-   * what a cell can — so the only place the bytes
-   * exist whole is the row the page already read,
-   * and this is the way to it.
-   */
-  openOutput(workflowId: string, functionId: number): Promise<void>;
 
   /**
    * Opens the whole of what a run was started with.
@@ -948,101 +911,6 @@ export function runsStore(deps: RunsDeps): RunsStore {
       }
 
       await deps.host.openCanvas(saved.path);
-    },
-
-    /**
-     * The block is looked up in the document as it
-     * is saved now rather than in the drawing the
-     * page was laid out from: somebody following a
-     * block to its code wants the function it runs
-     * today, and a block the document no longer has
-     * has no code to go to.
-     *
-     * Both this and the canvas end up in the same
-     * place, because where a function lives is the
-     * code-behind's answer and there is one of
-     * those per project.
-     */
-    openFunction: async (workflowId, nodeId) => {
-      const dir = project();
-      if (dir === undefined) return;
-
-      // Reading the code-behind type-checks every
-      // file in it and caches what it found inside
-      // the project, so it is asked here as well as
-      // at the ledger rather than left to the read
-      // that happens to come first.
-      if (!deps.trust.isTrusted()) return;
-
-      const found = await history.runOf(workflowId);
-      if (found === undefined) return;
-
-      const document = savedDocument(dir, found.name);
-      const node = document?.nodes.find((one) => one.id === nodeId);
-      if (node === undefined) return;
-
-      // Asked only once there is a block to open,
-      // because the answer costs a type-check of
-      // every file in the project.
-      const manifest = manifestFor(dir);
-      if (manifest === undefined) return;
-
-      const unknown = await openHandler(deps.host, dir, manifest, node);
-
-      if (unknown !== undefined) {
-        deps.host.say(messages.openFunctionUnknown(unknown));
-      }
-    },
-
-    /**
-     * Read off the rows the page is already
-     * holding, rather than out of the ledger again:
-     * the frame is part of what the run recorded,
-     * and it arrived with everything else the card
-     * is drawn from.
-     *
-     * The run id is a guard rather than a lookup. A
-     * panel that has moved on names a run this
-     * store is no longer showing, and the right
-     * answer there is nothing at all.
-     */
-    openErrorLocation: async (workflowId, functionId) => {
-      const dir = project();
-      if (dir === undefined) return;
-
-      const shown = openRun.reading();
-      if (shown === undefined || shown.run.workflowId !== workflowId) return;
-
-      const row = shown.steps.find((one) => one.functionId === functionId);
-      const frame = stepError(row?.failure)?.frame;
-
-      const gone = await openSourceFrame(deps.host, dir, frame);
-
-      if (gone !== undefined) {
-        deps.host.say(messages.errorLocationGone(gone));
-      }
-    },
-
-    /**
-     * Off the rows the page is already holding, for
-     * the same reason: the value arrived with
-     * everything else the card is drawn from, and
-     * asking the database again for a column already
-     * in hand is how one page comes to show two
-     * answers.
-     *
-     * A row the ledger recorded no value for has
-     * nothing to open, and opening an empty tab over
-     * it would say there was something there.
-     */
-    openOutput: async (workflowId, functionId) => {
-      const shown = openRun.reading();
-      if (shown === undefined || shown.run.workflowId !== workflowId) return;
-
-      const row = shown.steps.find((one) => one.functionId === functionId);
-      if (row?.output === undefined) return;
-
-      await deps.host.showText(row.output, 'json');
     },
 
     // Untitled, and JSON however it was stored: the

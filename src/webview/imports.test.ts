@@ -68,6 +68,7 @@ const INSPECTOR_HOST = new Set([
   'focus.ts',
   'host.ts',
   'surface.ts',
+  'runTab.ts',
 ]);
 
 const CANVAS_IMPORT = /from\s+'(\.\.\/canvas\/[^']+)'/g;

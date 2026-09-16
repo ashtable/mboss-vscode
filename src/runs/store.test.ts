@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -7,13 +7,12 @@ import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { WorkflowIRSchema } from '../core/rules.js';
 import { messages } from '../messages.js';
-import { makeProject, writeWorkflow } from '../test-support/project.js';
+import { writeWorkflow } from '../test-support/project.js';
 import {
   database,
   echoing,
   management,
   host,
-  LEDGER_URL,
   liveRun,
   project,
   runner,
@@ -660,8 +659,6 @@ async function exercise(store: RunsStore): Promise<void> {
   await store.setFilter('failed');
   await store.select('wf_c9d2f3');
   await store.openWorkflow('wf_c9d2f3');
-  await store.openFunction('wf_c9d2f3', 'find_slot');
-  await store.openOutput('wf_c9d2f3', 0);
   store.setInput('{}');
   await store.runWorkflow('groom_booking');
   await store.runTrigger('groom_booking');
@@ -857,238 +854,6 @@ describe('a run id somebody wanted', () => {
  * panel. The code-behind is what knows where that
  * function is.
  */
-describe('the way to the code a block runs', () => {
-  /** A project with a workflow the ledger's run is
-   *  a run of, and the `.env` the ledger is read
-   *  through. */
-  async function readable(over: { lib?: 'lib' } = {}): Promise<string> {
-    const dir = await makeProject(over);
-
-    writeWorkflow(dir, 'groom_booking');
-    writeFileSync(join(dir, '.env'), `DATABASE_URL=${LEDGER_URL}\n`, 'utf8');
-
-    return dir;
-  }
-
-  /** A host that writes down every file it was
-   *  asked to open and everything it was told to
-   *  say. */
-  type Watched = {
-    opened: { path: string; at?: { line: number; column?: number } }[];
-    shown: { content: string; language: string }[];
-    said: string[];
-    host: RunsHost;
-  };
-
-  function watching(dir: string): Watched {
-    const opened: { path: string; at?: { line: number; column?: number } }[] =
-      [];
-    const shown: { content: string; language: string }[] = [];
-    const said: string[] = [];
-
-    return {
-      opened,
-      shown,
-      said,
-      host: host({
-        projects: () => [dir],
-        say: (message) => void said.push(message),
-        openFile: async (path, at) => void opened.push({ path, at }),
-        showText: async (content, language) =>
-          void shown.push({ content, language }),
-      }),
-    };
-  }
-
-  it("opens a block's function through the run's saved document", async () => {
-    const dir = await readable({ lib: 'lib' });
-    const watched = watching(dir);
-    const store = runsStore(deps({ host: watched.host }));
-
-    await store.openFunction('wf_c9d2f3', 'find_slot');
-
-    expect(watched.opened).toEqual([
-      { path: join(dir, 'lib', 'findSlot.ts'), at: { line: 6 } },
-    ]);
-    expect(watched.said).toEqual([]);
-  });
-
-  /**
-   * A workflow drawn before its code exists is the
-   * ordinary state of one, and agents write these
-   * documents too — so a block naming a function
-   * the scan never found says which name that was
-   * rather than opening nothing.
-   */
-  /**
-   * Reading the code-behind type-checks every file
-   * in a project and writes the manifest it found
-   * inside it, so it is one of the seams a window
-   * nobody has trusted may not reach — asked here
-   * rather than left to the ledger read that happens
-   * to come first.
-   */
-  it('scans nothing in a window nobody has trusted', async () => {
-    const dir = await readable({ lib: 'lib' });
-    const watched = watching(dir);
-    const store = runsStore(
-      deps({ host: watched.host, trust: fakeTrust(false) }),
-    );
-
-    await store.openFunction('wf_c9d2f3', 'find_slot');
-
-    expect(watched.opened).toEqual([]);
-    expect(existsSync(join(dir, '.mboss', 'manifest.json'))).toBe(false);
-  });
-
-  it('says which function the code-behind has not got', async () => {
-    const dir = await readable();
-    const watched = watching(dir);
-    const store = runsStore(deps({ host: watched.host }));
-
-    await store.openFunction('wf_c9d2f3', 'find_slot');
-
-    expect(watched.opened).toEqual([]);
-    expect(watched.said).toEqual([messages.openFunctionUnknown('findSlot')]);
-  });
-
-  /**
-   * The other way in: not the function the block
-   * names, but the line the run recorded a failure
-   * at. The frame comes off the stack the container
-   * wrote, so the file it names is a claim about the
-   * image rather than about this workspace.
-   */
-  describe('the line a failure came from', () => {
-    /** The page, showing a run whose one row failed
-     *  on a line the container recorded. */
-    async function showing(
-      file: string,
-    ): Promise<{ dir: string; store: RunsStore; watched: Watched }> {
-      const dir = await readable({ lib: 'lib' });
-      const watched = watching(dir);
-      const ledger = database();
-
-      ledger.steps = [
-        {
-          ...STEP_ROW,
-          function_id: 4,
-          function_name: 'find_slot',
-          error: JSON.stringify({
-            json: {
-              name: 'SlotTaken',
-              message: 'no slot left',
-              stack:
-                'SlotTaken: no slot left\n' +
-                `    at findSlot (/app/${file}:6:9)`,
-            },
-            __dbos_serializer: 'superjson',
-          }),
-        },
-      ];
-
-      const store = runsStore(
-        deps({ host: watched.host, open: async () => ledger }),
-      );
-
-      await store.select('wf_c9d2f3');
-
-      return { dir, store, watched };
-    }
-
-    it('opens the file the failure came from', async () => {
-      const { dir, store, watched } = await showing('lib/findSlot.ts');
-
-      await store.openErrorLocation('wf_c9d2f3', 4);
-
-      expect(watched.opened).toEqual([
-        { path: join(dir, 'lib', 'findSlot.ts'), at: { line: 6, column: 9 } },
-      ]);
-      expect(watched.said).toEqual([]);
-    });
-
-    it('says the file the failure named is gone', async () => {
-      const { store, watched } = await showing('lib/rescheduleSlot.ts');
-
-      await store.openErrorLocation('wf_c9d2f3', 4);
-
-      expect(watched.opened).toEqual([]);
-      expect(watched.said).toEqual([
-        messages.errorLocationGone('lib/rescheduleSlot.ts'),
-      ]);
-    });
-
-    /** A page that has moved on names a run this
-     *  store is not showing, and gets nothing. */
-    it('opens nothing for a run it is not showing', async () => {
-      const { store, watched } = await showing('lib/findSlot.ts');
-
-      await store.openErrorLocation('wf_somebody_else', 4);
-
-      expect(watched.opened).toEqual([]);
-      expect(watched.said).toEqual([]);
-    });
-  });
-
-  /**
-   * The third way out of a card, and the one that
-   * goes nowhere near a file: what a step returned,
-   * whole.
-   *
-   * The card draws as much of it as a column can
-   * hold and the raw table as much as a cell can, so
-   * the only place the untruncated bytes exist is
-   * the row the page already read.
-   */
-  describe('the whole of a value the run recorded', () => {
-    const WHOLE = `{"slot":"${'x'.repeat(4000)}"}`;
-
-    /** The page, showing a run whose one row
-     *  returned more than either surface draws. */
-    async function showing(): Promise<{ store: RunsStore; watched: Watched }> {
-      const dir = await readable();
-      const watched = watching(dir);
-      const ledger = database();
-
-      ledger.steps = [{ ...STEP_ROW, function_id: 4, output: WHOLE }];
-
-      const store = runsStore(
-        deps({ host: watched.host, open: async () => ledger }),
-      );
-
-      await store.select('wf_c9d2f3');
-
-      return { store, watched };
-    }
-
-    it('opens the stored value as JSON', async () => {
-      const { store, watched } = await showing();
-
-      await store.openOutput('wf_c9d2f3', 4);
-
-      expect(watched.shown).toEqual([{ content: WHOLE, language: 'json' }]);
-    });
-
-    it('opens nothing for a run it is not showing', async () => {
-      const { store, watched } = await showing();
-
-      await store.openOutput('wf_somebody_else', 4);
-
-      expect(watched.shown).toEqual([]);
-    });
-
-    /** A step DBOS recorded no value for has nothing
-     *  to open, and says so by doing nothing. */
-    it('opens nothing for a row that returned nothing', async () => {
-      const { store, watched } = await showing();
-
-      await store.openOutput('wf_c9d2f3', 9);
-
-      expect(watched.shown).toEqual([]);
-    });
-  });
-});
-
 /**
  * The whole of what a run was started with.
  *
