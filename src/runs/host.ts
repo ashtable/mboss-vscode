@@ -1,17 +1,9 @@
-import {
-  commands,
-  env,
-  Position,
-  Range,
-  Uri,
-  ViewColumn,
-  window,
-  workspace,
-} from 'vscode';
+import { commands, env, Uri, ViewColumn, window, workspace } from 'vscode';
 
 import { WorkflowCanvasEditor } from '../canvas/editor.js';
 import { isProject } from '../core/index.js';
 import { AgentSidebarView } from '../sidebar/view.js';
+import type { VsCodeApi } from '../vscodeApi.js';
 
 import type { RunsHost } from './store.js';
 
@@ -32,14 +24,21 @@ import type { RunsHost } from './store.js';
  * agent is not the editor — it is handed to the
  * store beside this, the way `Trust` is.
  */
-export function runsHost(): RunsHost {
+export function runsHost(
+  api: Pick<VsCodeApi, 'openFile' | 'showText' | 'say'>,
+): RunsHost {
   return {
     projects: () =>
       (workspace.workspaceFolders ?? [])
         .map((folder) => folder.uri.fsPath)
         .filter(isProject),
 
-    say: (message) => void window.showInformationMessage(message),
+    // The three verbs the general seam already has,
+    // borrowed rather than written again: the narrow
+    // type is this bag's, the implementation is one.
+    say: api.say,
+    openFile: api.openFile,
+    showText: api.showText,
 
     copy: (text) => Promise.resolve(env.clipboard.writeText(text)),
 
@@ -57,34 +56,6 @@ export function runsHost(): RunsHost {
         WorkflowCanvasEditor.viewType,
         ViewColumn.Beside,
       )),
-
-    // Over rather than beside: the code a block runs
-    // is where somebody is going to be for a while,
-    // and a run page is what they came from rather
-    // than something to read it against. Lines and
-    // columns are 1-based everywhere but in VS
-    // Code's own positions, and that is turned
-    // around here.
-    openFile: async (path, at) => {
-      const document = await workspace.openTextDocument(path);
-      const caret = new Position(
-        at === undefined ? 0 : Math.max(0, at.line - 1),
-        at?.column === undefined ? 0 : Math.max(0, at.column - 1),
-      );
-
-      await window.showTextDocument(document, {
-        selection: new Range(caret, caret),
-        preview: false,
-      });
-    },
-
-    // Untitled, so the copy of what a run recorded
-    // has nowhere to be saved back to.
-    showText: async (content, language) => {
-      const document = await workspace.openTextDocument({ content, language });
-
-      await window.showTextDocument(document, { preview: false });
-    },
 
     // Trimmed here, at the seam where the raw
     // setting is read, so that everything downstream

@@ -55,7 +55,7 @@ export function commandHandlers(
       await api.run('mboss.runs.focus');
     },
     'mboss.generateCode': async () => {
-      api.info(said(await generateCode()));
+      api.say(said(await generateCode()));
     },
     // The one that reveals rather than describes.
     'mboss.openAgentSidebar': async () => {

@@ -52,7 +52,7 @@ function recorder(): VsCodeApi & { shown: string[]; ran: string[] } {
   return {
     shown,
     ran,
-    info: (message) => void shown.push(message),
+    say: (message) => void shown.push(message),
     run: async (command) => void ran.push(command),
     pick: async () => undefined,
     replaceDocument: async () => true,

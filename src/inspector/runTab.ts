@@ -12,7 +12,6 @@ import {
 } from '../core/index.js';
 import type { LibManifest } from '../core/rules.js';
 import { emitter } from '../emitter.js';
-import { messages } from '../messages.js';
 import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { PreviewStore } from '../preview/store.js';
 import { stepError } from '../runs/rows.js';
@@ -92,7 +91,7 @@ export type RunTabDeps = {
   /** Where a block's code and a recorded value are
    *  opened, and where a sentence about them is
    *  said. */
-  opener: Pick<VsCodeApi, 'openFile' | 'showText' | 'info'>;
+  opener: Pick<VsCodeApi, 'openFile' | 'showText' | 'say'>;
 
   preview: Pick<PreviewStore, 'forWorkflow' | 'onChanged'>;
   trust: Trust;
@@ -373,16 +372,7 @@ export function runTabSurface(deps: RunTabDeps): RunTabSurface {
       const node = document.read.ir.nodes.find((one) => one.id === nodeId);
       if (node === undefined) return;
 
-      const unknown = await openHandler(
-        deps.opener,
-        found.project,
-        document.manifest,
-        node,
-      );
-
-      if (unknown !== undefined) {
-        deps.opener.info(messages.openFunctionUnknown(unknown));
-      }
+      await openHandler(deps.opener, found.project, document.manifest, node);
     },
 
     /**
@@ -404,11 +394,7 @@ export function runTabSurface(deps: RunTabDeps): RunTabSurface {
       const row = reading.steps.find((one) => one.functionId === functionId);
       const frame = stepError(row?.failure)?.frame;
 
-      const gone = await openSourceFrame(deps.opener, found.project, frame);
-
-      if (gone !== undefined) {
-        deps.opener.info(messages.errorLocationGone(gone));
-      }
+      await openSourceFrame(deps.opener, found.project, frame);
     },
 
     /**

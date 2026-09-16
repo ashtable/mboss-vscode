@@ -810,11 +810,7 @@ export class CanvasSession {
     if (project === undefined || node === undefined) return;
     if (this.manifest === undefined) return;
 
-    const unknown = await openHandler(this.api, project, this.manifest, node);
-
-    if (unknown !== undefined) {
-      this.api.info(messages.openFunctionUnknown(unknown));
-    }
+    await openHandler(this.api, project, this.manifest, node);
   }
 
   /**
@@ -836,11 +832,7 @@ export class CanvasSession {
       (one) => one.nodeId === nodeId && one.functionId === functionId,
     );
 
-    const gone = await openSourceFrame(this.api, project, row?.error?.frame);
-
-    if (gone !== undefined) {
-      this.api.info(messages.errorLocationGone(gone));
-    }
+    await openSourceFrame(this.api, project, row?.error?.frame);
   }
 
   /** The node by that id, if the document on screen
@@ -960,7 +952,7 @@ export class CanvasSession {
     if (!this.read.ok) return undefined;
     if (baseRevision === this.read.ir.revision) return this.read.ir;
 
-    this.api.info(messages.canvasEditStale());
+    this.api.say(messages.canvasEditStale());
 
     return undefined;
   }
@@ -1010,7 +1002,7 @@ export class CanvasSession {
     if (outcome.at === 'nothing') return;
 
     if (outcome.at === 'refused') {
-      this.api.info(refusalOf(outcome));
+      this.api.say(refusalOf(outcome));
 
       return;
     }

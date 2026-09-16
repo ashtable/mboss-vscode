@@ -267,7 +267,7 @@ function mounted(
       void asked.push(['openFile', path, at]),
     showText: async (content: string, language: string) =>
       void asked.push(['showText', content, language]),
-    info: (message: string) => void asked.push(['info', message]),
+    say: (message: string) => void asked.push(['say', message]),
   };
 
   const documents = emitter<TextDocument>();

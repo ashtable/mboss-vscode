@@ -174,7 +174,7 @@ function surface(options: { project?: string; trusted?: boolean } = {}) {
       openFile: async (path, at) => void asked.push(['openFile', path, at]),
       showText: async (content, language) =>
         void asked.push(['showText', content, language]),
-      info: (message) => void asked.push(['info', message]),
+      say: (message) => void asked.push(['say', message]),
     },
     preview: {
       forWorkflow: (_project, workflow) => {
@@ -494,7 +494,7 @@ describe('the way to what a block picked on the run tab runs and recorded', () =
     await pane.surface.openFunction('find_slot');
 
     expect(pane.asked).toEqual([
-      ['info', messages.openFunctionUnknown('findSlot')],
+      ['say', messages.openFunctionUnknown('findSlot')],
     ]);
   });
 
@@ -548,7 +548,7 @@ describe('the way to what a block picked on the run tab runs and recorded', () =
       await pane.surface.openErrorLocation('find_slot', 4);
 
       expect(pane.asked).toEqual([
-        ['info', messages.errorLocationGone('lib/rescheduleSlot.ts')],
+        ['say', messages.errorLocationGone('lib/rescheduleSlot.ts')],
       ]);
     });
 

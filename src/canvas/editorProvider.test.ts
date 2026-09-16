@@ -127,7 +127,7 @@ function recorder(): Recorded {
       for (const watcher of watchers) watcher(document as never);
     },
     api: {
-      info: (message) => told.push(message),
+      say: (message) => told.push(message),
       run: () => Promise.resolve(),
       showText: async (content, language) => {
         shown.push({ content, language });

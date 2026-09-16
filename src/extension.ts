@@ -87,7 +87,7 @@ export function activate(context: ExtensionContext): void {
 
         return run.ran ? run.problems : [];
       },
-      say: (message) => api.info(message),
+      say: api.say,
     },
     trust,
     panel,
@@ -115,7 +115,7 @@ export function activate(context: ExtensionContext): void {
   // list in the activity bar, a page in the editor
   // and the canvas all draw it, and any of them can
   // be disposed while the others are on screen.
-  const runsEditor = runsHost();
+  const runsEditor = runsHost(api);
   const runs = runsStore({
     host: runsEditor,
     agent: panel,
