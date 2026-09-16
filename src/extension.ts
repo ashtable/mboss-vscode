@@ -141,17 +141,13 @@ export function activate(context: ExtensionContext): void {
   const focus = inspectorFocus();
   const see = new SeePanel(context.extensionUri, runs, focus);
 
-  // Opening a run takes both the store that reads
-  // it and the page that shows one, so the pair is
-  // put together once here. Three surfaces ask for
-  // it — the canvas's followed run, a card in the
-  // Inspector, and a row mBoss wrote into the
-  // transcript — and none has any business holding
-  // both halves.
-  const openRun = async (workflowId: string): Promise<void> => {
-    await runs.select(workflowId);
-    see.show();
-  };
+  // Opening a run is the run tab's own verb: it
+  // reads through the store and then shows itself.
+  // Three surfaces ask for it — the canvas's
+  // followed run, a card in the Inspector, and a row
+  // mBoss wrote into the transcript — and none holds
+  // either half.
+  const openRun = (workflowId: string): Promise<void> => see.open(workflowId);
 
   // A replay from a block, which the agent panel
   // offers after a turn that asked about one.

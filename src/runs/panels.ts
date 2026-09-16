@@ -84,7 +84,7 @@ export class RunsListView implements WebviewViewProvider {
         // the history list, one from a row of what
         // this session started.
         if (message.type === 'runSelect' || message.type === 'openRun') {
-          void this.open(message.workflowId);
+          void this.see.open(message.workflowId);
         }
 
         if (message.type === 'stackUp') void this.store.stackUp();
@@ -141,11 +141,6 @@ export class RunsListView implements WebviewViewProvider {
     // asked for.
     void this.store.refresh();
   }
-
-  private async open(workflowId: string): Promise<void> {
-    await this.store.select(workflowId);
-    this.see.show();
-  }
 }
 
 /**
@@ -166,6 +161,24 @@ export class SeePanel {
     private readonly store: RunsStore,
     private readonly focus: InspectorFocus,
   ) {}
+
+  /**
+   * Reads one run and puts the tab in front, in that
+   * order.
+   *
+   * The order is a fact whoever follows both leans
+   * on: the store says the run moved before the tab
+   * reports focus, so the Inspector reveals or meets
+   * its pane for a run the tab had not shown without
+   * asking who holds focus. Written once here, since
+   * the list and three callers outside it used to
+   * spell the pair themselves and nothing said which
+   * half came first.
+   */
+  async open(workflowId: string): Promise<void> {
+    await this.store.select(workflowId);
+    this.show();
+  }
 
   show(): void {
     if (this.panel !== undefined) {
