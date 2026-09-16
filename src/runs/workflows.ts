@@ -83,7 +83,13 @@ function read(path: string): ProjectWorkflow | undefined {
 }
 
 /**
- * The document a run was a run of, whole.
+ * The document a run was a run of, whole, as it is
+ * saved.
+ *
+ * Read off disk and parsed, which is what tells it
+ * apart from core's `workflowDocument`, the path a
+ * document of that name would be at: the two used
+ * to share the name and answer different questions.
  *
  * Nothing rather than a refusal for a workflow the
  * project no longer has — somebody renamed it, or
@@ -93,7 +99,7 @@ function read(path: string): ProjectWorkflow | undefined {
  * picture is missing, and saying so is the page's
  * job rather than this one's.
  */
-export function workflowDocument(
+export function savedDocument(
   project: string,
   name: string,
 ): WorkflowIR | undefined {

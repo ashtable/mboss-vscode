@@ -87,7 +87,7 @@ export const WORKFLOWS: Record<string, unknown> = {
 /** A saved workflow document, as a fixture. Named
  *  for what it builds rather than for what it is,
  *  because the production reader of a saved document
- *  is called `workflowDocument` and two different
+ *  is called `savedDocument` and two different
  *  things must not share one name. */
 export function savedWorkflow(name: string, trigger: unknown): string {
   return JSON.stringify({

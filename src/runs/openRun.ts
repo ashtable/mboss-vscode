@@ -20,7 +20,7 @@ import {
 import { drawnUnder, finished, reusedRow } from './reading.js';
 import type { ProjectSdk } from './sdk.js';
 import { readView, seeInit, type SeeView } from './view.js';
-import { workflowDocument } from './workflows.js';
+import { savedDocument } from './workflows.js';
 
 /**
  * The run somebody has open, and everything about
@@ -282,7 +282,7 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
   ): Promise<SeeView> => {
     const dir = deps.project();
     const ir =
-      dir === undefined ? undefined : workflowDocument(dir, found.run.name);
+      dir === undefined ? undefined : savedDocument(dir, found.run.name);
     const lineage = lineageOf(found, ir);
 
     // Only a run that is still going is worth

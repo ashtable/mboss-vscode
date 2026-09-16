@@ -23,7 +23,7 @@ import {
 } from '../../src/runs/rows.js';
 import { startRun } from '../../src/runs/runner.js';
 import { dockerStack, type StackController } from '../../src/runs/stack.js';
-import { workflowDocument } from '../../src/runs/workflows.js';
+import { savedDocument } from '../../src/runs/workflows.js';
 import {
   copyLib,
   makeProject,
@@ -232,7 +232,7 @@ describe("a scaffolded project's own stack", () => {
           value: CLAIM,
         });
 
-        const ir = workflowDocument(project, WORKFLOW);
+        const ir = savedDocument(project, WORKFLOW);
         expect(ir).toBeDefined();
         if (ir === undefined) return;
 

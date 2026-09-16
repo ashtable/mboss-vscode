@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { savedWorkflow } from '../test-support/runs.js';
 
-import { needsTopic, projectWorkflows, workflowDocument } from './workflows.js';
+import { needsTopic, projectWorkflows, savedDocument } from './workflows.js';
 
 /**
  * The documents a project has saved, and one of
@@ -52,7 +52,7 @@ describe('the workflows a project has saved', () => {
 describe('one saved workflow, read whole', () => {
   it('parses the document the run was a run of', () => {
     const dir = project({ groom_booking: { mode: 'manual' } });
-    const found = workflowDocument(dir, 'groom_booking');
+    const found = savedDocument(dir, 'groom_booking');
 
     expect(found?.name).toBe('groom_booking');
     expect(found?.nodes.map((node) => node.id)).toEqual(['started']);
@@ -68,7 +68,7 @@ describe('one saved workflow, read whole', () => {
   it('says nothing about a workflow the project does not have', () => {
     const dir = project({ groom_booking: { mode: 'manual' } });
 
-    expect(workflowDocument(dir, 'nightly_sync')).toBeUndefined();
+    expect(savedDocument(dir, 'nightly_sync')).toBeUndefined();
   });
 
   it('says nothing about a document that will not parse', () => {
@@ -79,7 +79,7 @@ describe('one saved workflow, read whole', () => {
       'utf8',
     );
 
-    expect(workflowDocument(dir, 'half_typed')).toBeUndefined();
+    expect(savedDocument(dir, 'half_typed')).toBeUndefined();
   });
 });
 

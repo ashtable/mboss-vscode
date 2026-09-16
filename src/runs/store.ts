@@ -52,7 +52,7 @@ import { testRunZone } from './testRun.js';
 import { runTabOf, type RunTab, type SeeView } from './view.js';
 
 import { printedInput, type LiveRun, type RunWatch } from './watch.js';
-import { projectWorkflows, workflowDocument } from './workflows.js';
+import { projectWorkflows, savedDocument } from './workflows.js';
 import { runsWords } from './words.js';
 
 export type { StackAction } from './stack.js';
@@ -472,7 +472,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     document: (name) => {
       const dir = project();
 
-      return dir === undefined ? undefined : workflowDocument(dir, name);
+      return dir === undefined ? undefined : savedDocument(dir, name);
     },
     // Kept by id rather than as a set of rows: the
     // same run can be both the one a person has
@@ -539,7 +539,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     document: (name) => {
       const dir = project();
 
-      return dir === undefined ? undefined : workflowDocument(dir, name);
+      return dir === undefined ? undefined : savedDocument(dir, name);
     },
     // The scan type-checks every file in `lib/` and
     // caches what it found on a source hash, which
@@ -683,7 +683,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
     document: async (name) => {
       const dir = project();
 
-      return dir === undefined ? undefined : workflowDocument(dir, name);
+      return dir === undefined ? undefined : savedDocument(dir, name);
     },
     compileInputs,
     projectSdk: deps.projectSdk,
@@ -825,7 +825,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
       const dir = project();
       if (url === undefined || run === undefined || dir === undefined) return;
 
-      const ir = workflowDocument(dir, run.workflow);
+      const ir = savedDocument(dir, run.workflow);
       const node = ir?.nodes.find((one) => one.id === nodeId);
       if (node?.kind !== 'queue') return;
 
@@ -977,7 +977,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
       const found = await history.runOf(workflowId);
       if (found === undefined) return;
 
-      const document = workflowDocument(dir, found.name);
+      const document = savedDocument(dir, found.name);
       const node = document?.nodes.find((one) => one.id === nodeId);
       if (node === undefined) return;
 
