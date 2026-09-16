@@ -42,15 +42,8 @@ import { PropertyRow, type Named } from '../webview/signal/PropertyRow.js';
 import { SectionLabel } from '../webview/signal/SectionLabel.js';
 import { fitsFor, signatureOf, type LibFit } from '../canvas/libFunction.js';
 
-import { configToForm, type InspectorField } from './forms.js';
-import {
-  pairOf,
-  pickerAfter,
-  showsDeclarations,
-  visible,
-  type NumberField,
-  type PickerEvent,
-} from './lens.js';
+import type { FormGroup, FormLine, FormPlan, InspectorField } from './forms.js';
+import { pickerAfter, type NumberField, type PickerEvent } from './lens.js';
 import { fieldNotes } from './notes.js';
 import { outcomesOf } from './outcomes.js';
 import { Recorded } from './Value.js';
@@ -86,33 +79,6 @@ import { Recorded } from './Value.js';
  * reflects the input a run from the Runs view would
  * start the workflow with, and offers that run.
  */
-
-/** The field a block is renamed in, which is drawn
- *  at the top of the pane rather than in this
- *  face. */
-export const TITLE = 'title';
-
-/** The types a block declares, drawn only where the
- *  function behind it cannot say them. */
-const DECLARED = new Set(['in', 'out']);
-
-/** The group a block's tries are set in, which says
- *  once that its numbers are configuration. */
-const RETRY_POLICY = 'retryPolicy';
-
-/**
- * The limits written as a count and the period it
- * is counted over: each half's lens, and the word
- * the row they share is called by.
- */
-const PAIRS = [
-  { per: 'rateLimitPer', sec: 'rateLimitSec', name: 'rateLimit' },
-  {
-    per: 'partitionRateLimitPer',
-    sec: 'partitionRateLimitSec',
-    name: 'partitionRateLimit',
-  },
-] as const;
 
 /**
  * Which control had focus, said so that it can be
@@ -190,16 +156,6 @@ function controlsUnder(form: HTMLElement, field: string): HTMLElement[] {
   );
 }
 
-/** The groups a kind opens with folded: every one
- *  that folds at all. */
-export function initiallyFolded(node: WorkflowNode): Set<string> {
-  return new Set(
-    configToForm(node)
-      .fields.filter((field) => field.control === 'section' && field.folds)
-      .map((field) => field.id),
-  );
-}
-
 /**
  * The block's name, as the field it is renamed in.
  *
@@ -258,6 +214,7 @@ export function ConfigureFace({
   workflow,
   node,
   draft,
+  plan,
   readOnly,
   refused,
   proposal,
@@ -294,6 +251,10 @@ export function ConfigureFace({
   /** The block as the person has set it so far. */
   draft: WorkflowNode;
 
+  /** What the block is set to, as the form answers
+   *  it: the lines to draw, under their groups. */
+  plan: FormPlan;
+
   readOnly: boolean;
 
   /** The field whose last commit was no value for
@@ -320,14 +281,13 @@ export function ConfigureFace({
   onRunTrigger: (workflow: string) => void;
   onOpenRunInput: () => void;
 }) {
-  const form = configToForm(draft);
   const rows = useHandsBack<HTMLDivElement>(held, block);
   const groups = useId();
 
   // Two ids read differently by kind, and the rest
   // read the same on every one.
   const word = (id: string): string | undefined =>
-    strings.fieldsByKind[form.kind]?.[id] ?? strings.fields[id];
+    strings.fieldsByKind[plan.kind]?.[id] ?? strings.fields[id];
 
   // Asked of the document rather than of the
   // draft, because the findings were asked of the
@@ -337,54 +297,26 @@ export function ConfigureFace({
   // this face is built again anyway.
   const notes = fieldNotes(ir, node, diagnostics);
 
-  // Asked of the document too, so a row somebody is
-  // typing into does not leave under them before
-  // the host has written what they typed.
-  const declares = showsDeclarations(
-    node,
-    lib?.find((fn) => fn.export === node.handler?.export),
-  );
-
-  const shown = visible(form.fields, folded).filter(
-    (field) => field.id !== TITLE && (declares || !DECLARED.has(field.id)),
-  );
-
-  // One row can cover every try DBOS made at a step,
-  // which is worth saying where the block may make
-  // more than one.
-  const tries = form.fields.find((field) => field.id === 'retryMaxAttempts');
-  const retries =
-    tries?.control === 'number' && tries.value !== null && tries.value > 1;
-
-  // What a group needs saying that no one row in it
-  // does is said once its rows are all drawn, after
+  // What a group needs saying that no one line in it
+  // does is said once its lines are all drawn, after
   // the last of them; its label only names it. A
-  // folded group draws no rows, and so says nothing
+  // folded group draws no lines, and so says nothing
   // after them either.
-  const ends = new Map(
-    shown
-      .filter((field) => field.control === 'section')
-      .map((field): [number | undefined, string] => [
-        groupEnd(shown, field.id),
-        field.id,
-      ]),
-  );
+  const saidAfter = (group: FormGroup): ReactNode => {
+    if (folded.has(group.id)) return null;
 
-  const saidAfter = (group: string): ReactNode => {
-    if (folded.has(group)) return null;
-
-    if (group === RETRY_POLICY) {
-      return retries ? (
+    if (group.configured) {
+      return group.retries ? (
         <FieldHint hook={{ 'retry-hint': '' }}>
           {strings.durationCoversTries}
         </FieldHint>
       ) : null;
     }
 
-    const hint = strings.hints[group];
+    const hint = strings.hints[group.id];
 
     return hint === undefined ? null : (
-      <FieldHint hook={{ 'group-hint': group }}>{hint}</FieldHint>
+      <FieldHint hook={{ 'group-hint': group.id }}>{hint}</FieldHint>
     );
   };
 
@@ -403,10 +335,7 @@ export function ConfigureFace({
       ? undefined
       : startFrom(runInput, strings, onRunTrigger);
 
-  // One form asks for a wider label column. A
-  // queue's limits are told apart by the scope in
-  // their names, and a scope is no use cut in half.
-  const labels = form.kind === 'queue' ? 'wide' : undefined;
+  const labels = plan.labels;
 
   // Which groups are closed. The kind says which
   // ones start that way and this holds it from
@@ -424,54 +353,63 @@ export function ConfigureFace({
       return next;
     });
 
-  // One field, drawn as what it is, after the one
-  // before it.
-  const drawField = (
-    field: InspectorField,
-    before: InspectorField | undefined,
+  // One group's header, as the group is: the one
+  // that folds is the way into what it hides.
+  const drawGroup = (group: FormGroup): ReactNode =>
+    group.opensFolded ? (
+      <Fold
+        key={group.id}
+        id={group.id}
+        name={word(group.id)}
+        open={!folded.has(group.id)}
+        onFold={() => fold(group.id)}
+      />
+    ) : (
+      <Group
+        key={group.id}
+        id={group.id}
+        labelId={`${groups}${group.id}`}
+        name={word(group.id)}
+        mark={group.configured ? strings.configured : undefined}
+      />
+    );
+
+  // One line, drawn as what it is, in the group it
+  // is under.
+  const drawLine = (
+    line: FormLine,
+    group: FormGroup | undefined,
   ): ReactNode => {
-    if (field.control === 'section') {
-      return field.folds ? (
-        <Fold
-          key={field.id}
-          id={field.id}
-          name={word(field.id)}
-          open={!folded.has(field.id)}
-          onFold={() => fold(field.id)}
-        />
-      ) : (
-        <Group
-          key={field.id}
-          id={field.id}
-          labelId={`${groups}${field.id}`}
-          name={word(field.id)}
-          mark={field.id === RETRY_POLICY ? strings.configured : undefined}
+    // The workflow a trigger starts is the file's,
+    // read rather than set: the saved workflow's
+    // name where the Runs view has one, which is the
+    // name a run starts.
+    if (line.at === 'value') {
+      return (
+        <PropertyRow
+          key={line.id}
+          label={strings.workflow}
+          value={runInput?.saved?.name ?? workflow}
+          mono
+          hook={{ workflow: '' }}
         />
       );
     }
 
-    // A limit's two halves share the row drawn where
-    // its count is, and its period draws nothing of
-    // its own. Two halves the form does not keep
-    // side by side are two rows.
-    const paired = PAIRS.find(
-      (one) => one.per === field.id || one.sec === field.id,
-    );
-    const pair =
-      paired === undefined ? undefined : pairOf(shown, paired.per, paired.sec);
-
-    if (paired !== undefined && pair !== undefined) {
-      return field.id === paired.sec ? null : (
+    // A limit's two halves share the line drawn
+    // under the word the limit is called by.
+    if (line.at === 'pair') {
+      return (
         <Pair
-          key={field.id}
+          key={line.id}
           strings={strings}
           word={word}
-          name={paired.name}
-          pair={pair}
+          name={line.id}
+          pair={{ per: line.per, sec: line.sec }}
           labels={labels}
-          notes={[...(notes[pair.per.id] ?? []), ...(notes[pair.sec.id] ?? [])]}
+          notes={[...(notes[line.per.id] ?? []), ...(notes[line.sec.id] ?? [])]}
           refused={
-            refused === pair.per.id || refused === pair.sec.id
+            refused === line.per.id || refused === line.sec.id
               ? strings.notAValue
               : undefined
           }
@@ -481,12 +419,14 @@ export function ConfigureFace({
       );
     }
 
+    const { field } = line;
+
     if (field.control === 'picker') {
       // A picker that opens a group is named by that
       // group's label, which says the same word.
       const named =
-        before?.control === 'section' && !before.folds
-          ? `${groups}${before.id}`
+        group !== undefined && !group.opensFolded && group.lines[0] === line
+          ? `${groups}${group.id}`
           : undefined;
 
       return (
@@ -529,24 +469,25 @@ export function ConfigureFace({
       )}
 
       <div className="configure" ref={rows}>
-        {form.kind === 'trigger' ? (
-          <StartsOn
-            strings={strings}
-            workflow={runInput?.saved?.name ?? workflow}
-            fields={shown}
-            draw={(field) => drawField(field, undefined)}
-          />
-        ) : (
-          shown.map((field, at) => {
-            const ended = ends.get(at);
+        {plan.loose.map((line) => drawLine(line, undefined))}
 
-            return (
-              <Fragment key={field.id}>
-                {drawField(field, shown[at - 1])}
-                {ended === undefined ? null : saidAfter(ended)}
-              </Fragment>
-            );
-          })
+        {plan.groups.map((group) => (
+          <Fragment key={group.id}>
+            {drawGroup(group)}
+            {folded.has(group.id)
+              ? null
+              : group.lines.map((line) => drawLine(line, group))}
+            {saidAfter(group)}
+          </Fragment>
+        ))}
+
+        {/* A trigger is the one block with no
+            function: it is how DBOS starts the
+            workflow. */}
+        {plan.kind !== 'trigger' ? null : (
+          <FieldHint hook={{ 'owns-no-function': '' }}>
+            {strings.triggerOwnsNoFunction}
+          </FieldHint>
         )}
 
         {outcomesOf(ir, node).map((outcome) => (
@@ -560,7 +501,7 @@ export function ConfigureFace({
           />
         ))}
 
-        {form.kind !== 'transaction' ? null : (
+        {plan.kind !== 'transaction' ? null : (
           <>
             {/* Read rather than edited: which database
                 a transaction commits to is the
@@ -580,8 +521,8 @@ export function ConfigureFace({
                 reads as an oversight instead of as
                 the answer. */}
             <Group
-              id={RETRY_POLICY}
-              name={word(RETRY_POLICY)}
+              id="retryPolicy"
+              name={word('retryPolicy')}
               hint={strings.retry}
             />
           </>
@@ -604,63 +545,6 @@ export function ConfigureFace({
         onOpenFunction={onOpenFunction}
         onAskAgent={onAskAgent}
       />
-    </>
-  );
-}
-
-/**
- * How a trigger starts: what kind of start it is,
- * the workflow it starts and the type of the input
- * it starts that workflow with, then whatever that
- * kind of start is set by.
- *
- * Drawn in an order of its own rather than the
- * form's. The form also lists a type the trigger
- * takes, which is never drawn: nothing hands a
- * trigger anything. The workflow is read rather
- * than set, because it is the file's.
- */
-function StartsOn({
-  strings,
-  workflow,
-  fields,
-  draw,
-}: {
-  strings: InspectorStrings;
-
-  /** The saved workflow's name where the Runs view
-   *  has one, which is the name a run starts. */
-  workflow: string;
-
-  fields: InspectorField[];
-  draw: (field: InspectorField) => ReactNode;
-}) {
-  const kind = fields.find((field) => field.id === 'mode');
-  const type = fields.find((field) => field.id === 'out');
-  const rest = fields.filter(
-    (field) => !['in', 'mode', 'out'].includes(field.id),
-  );
-
-  return (
-    <>
-      <Group id="startsOn" name={strings.startsOn} />
-
-      {kind === undefined ? null : draw(kind)}
-
-      <PropertyRow
-        label={strings.workflow}
-        value={workflow}
-        mono
-        hook={{ workflow: '' }}
-      />
-
-      {type === undefined ? null : draw(type)}
-
-      {rest.map((field) => draw(field))}
-
-      <FieldHint hook={{ 'owns-no-function': '' }}>
-        {strings.triggerOwnsNoFunction}
-      </FieldHint>
     </>
   );
 }
@@ -826,25 +710,6 @@ function startFrom(
     ok: false,
     reason: !unsaved && needsTopic ? strings.needsTopic : strings.saveToRun,
   };
-}
-
-/**
- * Where the group under a header ends: the place of
- * its last field in the list, or of the header
- * itself where nothing follows it. Nothing where
- * the list has no such header.
- */
-function groupEnd(fields: InspectorField[], id: string): number | undefined {
-  const start = fields.findIndex(
-    (field) => field.control === 'section' && field.id === id,
-  );
-  if (start === -1) return undefined;
-
-  const next = fields.findIndex(
-    (field, at) => at > start && field.control === 'section',
-  );
-
-  return (next === -1 ? fields.length : next) - 1;
 }
 
 /**

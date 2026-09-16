@@ -7,6 +7,7 @@ import {
   NODE_PALETTE,
   NodeSchema,
   WorkflowIRSchema,
+  type LibFunction,
   type NodeKind,
   type WorkflowIR,
   type WorkflowNode,
@@ -17,8 +18,11 @@ import { inspectorWords, paletteLabels } from '../canvas/words.js';
 
 import {
   configToForm,
+  foldedGroups,
   formToConfig,
+  planOf,
   wholeNode,
+  type FormLine,
   type InspectorField,
 } from './forms.js';
 
@@ -934,6 +938,287 @@ describe('a block’s groups', () => {
 
     expect(headed.length).toBeGreaterThan(5);
     expect(headed).toEqual(headed.map(([id]) => [id, 'retryPolicy']));
+  });
+});
+
+/**
+ * The form as it is drawn.
+ *
+ * The flat list above is what the lenses read and
+ * write; the plan is what the face walks. The five
+ * conventions the face used to keep — the first
+ * field is the name, two ids are hidden by a rule,
+ * two number fields next to each other are one
+ * line, a header owns what follows it, a trigger
+ * is drawn in its own order — are the plan's
+ * answers now, so they are pinned here and nowhere
+ * in the face.
+ */
+describe('the form as it is drawn', () => {
+  const HALVES = [
+    'rateLimitPer',
+    'rateLimitSec',
+    'partitionRateLimitPer',
+    'partitionRateLimitSec',
+  ];
+
+  const step = (over: object = {}): WorkflowNode =>
+    NodeSchema.parse({
+      id: 'find_slot',
+      kind: 'step',
+      title: 'Find open slot',
+      in: 'BookingReq',
+      out: 'SlotGrid',
+      handler: { export: 'findSlot' },
+      config: {},
+      ...over,
+    });
+
+  const findSlot: LibFunction = {
+    export: 'findSlot',
+    file: 'lib/findSlot.ts',
+    params: [{ name: 'req', type: 'BookingReq' }],
+    returnType: 'SlotGrid',
+  };
+
+  const plan = (node: WorkflowNode, fn?: LibFunction) =>
+    planOf(node, { node, fn });
+
+  const idOf = (line: FormLine): string =>
+    line.at === 'field' ? line.field.id : line.id;
+
+  const ids = (lines: FormLine[]): string[] => lines.map(idOf);
+
+  /** Every line of the form, in the order drawn. */
+  const drawn = (node: WorkflowNode, fn?: LibFunction): string[] => {
+    const { loose, groups } = plan(node, fn);
+
+    return ids([...loose, ...groups.flatMap((group) => group.lines)]);
+  };
+
+  it('names the block at the top and draws no title line below', () => {
+    const { name, loose, groups } = plan(sample('index_pages'));
+
+    expect(name).toEqual({
+      id: 'title',
+      control: 'text',
+      value: 'Index each page',
+    });
+    expect(ids(loose)).not.toContain('title');
+    for (const group of groups) {
+      expect(ids(group.lines)).not.toContain('title');
+    }
+  });
+
+  /** A header owns everything after it until the
+   *  next, and what comes before the first belongs
+   *  to no group. */
+  it('draws the lines before the first header loose, and the rest under theirs', () => {
+    const decided = plan(sample('route_claim'));
+
+    expect(ids(decided.loose)).toEqual(['in', 'out', 'logic']);
+    expect(decided.groups.map((group) => group.id)).toEqual(['retryPolicy']);
+
+    const predicates = plan(sample('reply_decision'));
+
+    expect(ids(predicates.loose)).toEqual(
+      expect.arrayContaining(['cases', 'elsePort']),
+    );
+    expect(predicates.groups).toEqual([]);
+
+    const queue = plan(sample('index_pages'));
+
+    expect(queue.loose).toEqual([]);
+    expect(queue.groups.map((group) => group.id)).toEqual([
+      'function',
+      'queuePolicy',
+      'enqueuePolicy',
+      'retryPolicy',
+      'advanced',
+    ]);
+  });
+
+  it('opens folded only the group that folds', () => {
+    const queue = plan(sample('index_pages'));
+
+    expect(
+      queue.groups.filter((group) => group.opensFolded).map((one) => one.id),
+    ).toEqual(['advanced']);
+    expect(foldedGroups(sample('index_pages'))).toEqual(new Set(['advanced']));
+    expect(foldedGroups(sample('reply_decision'))).toEqual(new Set());
+  });
+
+  it('draws a limit as its two halves on one line, the count first', () => {
+    const queue = plan(sample('fan_out_orders'));
+    const under = (id: string) =>
+      queue.groups.find((group) => group.id === id)?.lines ?? [];
+
+    expect(under('queuePolicy')).toContainEqual({
+      at: 'pair',
+      id: 'rateLimit',
+      per: expect.objectContaining({ id: 'rateLimitPer', control: 'number' }),
+      sec: expect.objectContaining({ id: 'rateLimitSec', control: 'number' }),
+    });
+    expect(under('advanced')).toContainEqual({
+      at: 'pair',
+      id: 'partitionRateLimit',
+      per: expect.objectContaining({ id: 'partitionRateLimitPer', value: 30 }),
+      sec: expect.objectContaining({ id: 'partitionRateLimitSec', value: 1 }),
+    });
+  });
+
+  it('never draws half a limit as a line of its own', () => {
+    for (const node of SAMPLES) {
+      const { loose, groups } = plan(node);
+      const alone = [...loose, ...groups.flatMap((group) => group.lines)]
+        .filter((line) => line.at === 'field')
+        .map(idOf)
+        .filter((id) => HALVES.includes(id));
+
+      expect(alone, node.id).toEqual([]);
+    }
+  });
+
+  /**
+   * The line naming the function a block runs
+   * already carries that function's signature, so
+   * where the block declares the same types two
+   * more lines would say them again. They come
+   * back wherever the signature cannot speak for
+   * the block: nothing is behind it, the scan has no
+   * such export, it fans out so it takes the
+   * collection while the function takes one item,
+   * or the two disagree — the one place somebody
+   * has to see both.
+   */
+  it('leaves the types a block declares to a signature that agrees', () => {
+    expect(drawn(step(), findSlot)).not.toContain('in');
+    expect(drawn(step(), findSlot)).not.toContain('out');
+  });
+
+  it('draws them on a block nothing is behind', () => {
+    expect(drawn(step({ handler: undefined }))).toContain('in');
+  });
+
+  it('draws them where the scan has no such export', () => {
+    expect(drawn(step())).toContain('in');
+  });
+
+  it('draws them on a block that fans out', () => {
+    expect(
+      drawn(step({ forEach: { itemsPath: 'slots' } }), findSlot),
+    ).toContain('in');
+  });
+
+  it('draws them where the block and the function disagree', () => {
+    expect(drawn(step({ out: 'Booking' }), findSlot)).toContain('out');
+    expect(
+      drawn(step(), {
+        ...findSlot,
+        params: [{ name: 'req', type: 'WebhookEvent' }],
+      }),
+    ).toContain('in');
+  });
+
+  /** A queue fans out by being one, and what it
+   *  declares is the item: the function's one
+   *  parameter is held to that, so the signature
+   *  speaks for it until the two disagree. */
+  it('holds a queue to the item it declares', () => {
+    const queue = (itemType: string): WorkflowNode =>
+      NodeSchema.parse({
+        id: 'index_pages',
+        kind: 'queue',
+        title: 'Index each page',
+        handler: { export: 'indexItem' },
+        config: {
+          itemsPath: 'pages',
+          itemType,
+          queue: { name: 'document-index' },
+          enqueue: {},
+        },
+      });
+    const indexItem: LibFunction = {
+      export: 'indexItem',
+      file: 'lib/indexItem.ts',
+      params: [{ name: 'item', type: 'Item' }],
+      returnType: 'Indexed',
+    };
+
+    expect(drawn(queue('Item'), indexItem)).not.toContain('in');
+    expect(drawn(queue('Page'), indexItem)).toContain('in');
+  });
+
+  /** Read off the draft, so a value half typed is
+   *  drawn as typed so far; whether the declared
+   *  types are drawn is asked of the document, so
+   *  the line being typed into does not leave under
+   *  somebody's cursor before the host has written
+   *  what they typed. */
+  it('draws the draft, and asks the document whether the types are drawn', () => {
+    const node = step({ out: 'Booking' });
+    const draft = { ...node, title: 'Find a slot', out: 'SlotGrid' };
+    const { name, groups } = planOf(draft, { node, fn: findSlot });
+    const lines = groups.flatMap((group) => group.lines);
+
+    expect(name.value).toBe('Find a slot');
+    expect(lines).toContainEqual({
+      at: 'field',
+      field: expect.objectContaining({ id: 'out', value: 'SlotGrid' }),
+    });
+  });
+
+  /** One row can cover every try DBOS made, which
+   *  the group says only where there can be more
+   *  than one: a block with no policy reads the
+   *  default three tries, so it may. */
+  it('says a block may retry only where it is set to more than one try', () => {
+    const retries = (node: WorkflowNode) =>
+      plan(node).groups.find((group) => group.id === 'retryPolicy')?.retries;
+
+    expect(retries(sample('call_out'))).toBe(true);
+    expect(retries(step())).toBe(true);
+    expect(retries(step({ retry: { maxAttempts: 1 } }))).toBe(false);
+    expect(retries(sample('reply_decision'))).toBeUndefined();
+  });
+
+  it('marks only the retry group as configuration', () => {
+    const configured = plan(sample('index_pages'))
+      .groups.filter((group) => group.configured)
+      .map((group) => group.id);
+
+    expect(configured).toEqual(['retryPolicy']);
+  });
+
+  /** A queue's limits are told apart by the scope in
+   *  their names, and a scope is no use cut in
+   *  half. */
+  it('asks a wider label column for a queue alone', () => {
+    for (const node of SAMPLES) {
+      expect(plan(node).labels, node.id).toBe(
+        node.kind === 'queue' ? 'wide' : undefined,
+      );
+    }
+  });
+
+  /** Kind, then the workflow it starts — a value
+   *  read off the file, set nowhere — then the type
+   *  of what it starts that workflow with; never
+   *  what it takes, since nothing hands a trigger
+   *  anything. */
+  it('draws a trigger as how it starts, in its own order', () => {
+    const manual = plan(sample('manual_start'));
+
+    expect(manual.loose).toEqual([]);
+    expect(manual.groups.map((group) => group.id)).toEqual(['startsOn']);
+    expect(ids(manual.groups[0]!.lines)).toEqual(['mode', 'workflow', 'out']);
+    expect(manual.groups[0]!.lines[1]).toEqual({ at: 'value', id: 'workflow' });
+
+    const weekly = drawn(sample('weekly_sweep'));
+
+    expect(weekly.slice(0, 3)).toEqual(['mode', 'workflow', 'out']);
+    expect(weekly.length).toBeGreaterThan(3);
+    expect(weekly).not.toContain('in');
   });
 });
 

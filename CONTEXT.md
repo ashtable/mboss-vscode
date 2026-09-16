@@ -112,3 +112,15 @@ surfaces ask for it"); this is the sense the Inspector means, and the one a
 glossary entry was owed for.
 
 `src/inspector/surface.ts:BlockSurface`
+
+### line
+
+One thing the Configure face draws under a header: a field, two number fields
+that are one limit between them (a count and the period it is counted over),
+or a value read off the file and set nowhere (the workflow a trigger starts).
+The plan of a form is the block's name, the lines before any header, and its
+groups of lines; the face walks the plan and knows no field by its id. "Line"
+rather than "row", because a row is what the ledger writes and what is picked
+on the run tab.
+
+`src/inspector/forms.ts:FormLine`

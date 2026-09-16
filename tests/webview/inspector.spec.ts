@@ -6021,8 +6021,8 @@ test.describe('a trigger block', () => {
 
     await expect(
       page.locator('[data-field="startsOn"] .section-label'),
-    ).toHaveText(inspectorStrings.startsOn);
-    expect(inspectorStrings.startsOn).toBe('starts on');
+    ).toHaveText(word(fields, 'startsOn'));
+    expect(word(fields, 'startsOn')).toBe('starts on');
 
     // Kind, then the workflow it starts, then the
     // type of what it starts that workflow with.

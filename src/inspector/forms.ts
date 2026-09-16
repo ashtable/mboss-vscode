@@ -1,8 +1,10 @@
 import {
   DEFAULT_RETRY,
   NodeSchema,
+  declaredTypeMisfit,
   type BranchCase,
   type FormField,
+  type LibFunction,
   type NodeKind,
   type Predicate,
   type Retry,
@@ -25,6 +27,7 @@ import {
   text,
   type InspectorField,
   type Lens,
+  type NumberField,
 } from './lens.js';
 import { REPEATS, readSchedule, writeSchedule } from './schedule.js';
 
@@ -59,6 +62,70 @@ export type InspectorForm = {
 };
 
 /**
+ * One line of a form as it is drawn: a field, two
+ * number fields that are one limit between them, or
+ * a value read off the file and set nowhere.
+ *
+ * "Line" rather than "row", because a row is what
+ * the ledger writes.
+ */
+export type FormLine =
+  | { at: 'field'; field: InspectorField }
+  | { at: 'pair'; id: string; per: NumberField; sec: NumberField }
+  | { at: 'value'; id: 'workflow' };
+
+/** The lines under one header. */
+export type FormGroup = {
+  id: string;
+
+  /** Whether the group opens folded: it is for the
+   *  knobs nobody turns often. */
+  opensFolded: boolean;
+
+  /** Whether the group's numbers are configuration
+   *  rather than anything recorded, which its label
+   *  says once. */
+  configured: boolean;
+
+  /** Whether the block may make more than one try,
+   *  which the group says after its lines: one row
+   *  can cover every try DBOS made. */
+  retries: boolean;
+
+  lines: FormLine[];
+};
+
+/**
+ * The form as it is drawn: the block's name, then
+ * the lines before any group, then the groups in
+ * the order their settings take hold.
+ *
+ * The plan is what a face walks, so the face knows
+ * no field by its id. What used to be a flat list
+ * plus five conventions — the first field is the
+ * name, two ids are hidden by a rule, two number
+ * fields next to each other are one line, a header
+ * owns what follows it, one kind's order is not the
+ * list's — is answered here once.
+ */
+export type FormPlan = {
+  kind: NodeKind;
+
+  /** The field a block is renamed in, drawn at the
+   *  top of the pane rather than in the form. */
+  name: Extract<InspectorField, { control: 'text' }>;
+
+  /** One kind asks for a wider label column: a
+   *  queue's limits are told apart by the scope in
+   *  their names, and a scope is no use cut in
+   *  half. */
+  labels: 'wide' | undefined;
+
+  loose: FormLine[];
+  groups: FormGroup[];
+};
+
+/**
  * Whether the document would take this node.
  *
  * Asked of a draft before it is kept or sent. A box
@@ -87,6 +154,199 @@ export function formToConfig(
   fields: InspectorField[],
 ): WorkflowNode {
   return bind(node).write(fields);
+}
+
+/**
+ * The form to draw for a draft, given the document's
+ * node and the function behind it.
+ *
+ * Read off the draft, so a field half set is drawn
+ * as set so far; whether the types a block declares
+ * are drawn is asked of the document with the
+ * function, so a line somebody is typing into does
+ * not leave under them before the host has written
+ * what they typed.
+ */
+export function planOf(
+  draft: WorkflowNode,
+  given: { node: WorkflowNode; fn: LibFunction | undefined },
+): FormPlan {
+  const fields = configToForm(draft).fields;
+  const declares = showsDeclarations(given.node, given.fn);
+  const name = fields.find(
+    (field): field is Extract<InspectorField, { control: 'text' }> =>
+      field.id === 'title' && field.control === 'text',
+  ) ?? { id: 'title', control: 'text', value: draft.title };
+  const body = fields.filter(
+    (field) => field.id !== 'title' && (declares || !DECLARED.has(field.id)),
+  );
+  const tries = fields.find((field) => field.id === 'retryMaxAttempts');
+  const retries =
+    tries?.control === 'number' && tries.value !== null && tries.value > 1;
+
+  return {
+    kind: draft.kind,
+    name,
+    labels: draft.kind === 'queue' ? 'wide' : undefined,
+    ...(draft.kind === 'trigger'
+      ? { loose: [], groups: [startsOn(body)] }
+      : grouped(body, retries)),
+  };
+}
+
+/** The groups a node's form opens with folded:
+ *  every one that folds at all. */
+export function foldedGroups(node: WorkflowNode): Set<string> {
+  return new Set(
+    configToForm(node)
+      .fields.filter((field) => field.control === 'section' && field.folds)
+      .map((field) => field.id),
+  );
+}
+
+/** The types a block declares, drawn only where the
+ *  function behind it cannot say them. */
+const DECLARED = new Set(['in', 'out']);
+
+/** The group a block's tries are set in. */
+const RETRY_POLICY = 'retryPolicy';
+
+/**
+ * Whether a block's takes and produces are drawn as
+ * lines of their own.
+ *
+ * The line naming the function a block runs already
+ * carries that function's signature, so where the
+ * block declares the same types the signature says
+ * them and two more lines would say them again. The
+ * lines come back wherever the signature cannot
+ * speak for the block: nothing is behind it, the
+ * scan has no such export, it fans out — so it
+ * takes the collection while the function takes
+ * one item — or what it declares and what the
+ * function is written with disagree.
+ *
+ * A queue fans out by being one, and declares the
+ * item rather than the collection, so it is held to
+ * the function like any other block. Core's own
+ * comparison makes the same exception, and is asked
+ * rather than copied.
+ */
+function showsDeclarations(
+  node: WorkflowNode,
+  fn: LibFunction | undefined,
+): boolean {
+  if (node.handler === undefined || fn === undefined) return true;
+  if (node.kind !== 'queue' && node.forEach !== undefined) return true;
+
+  return declaredTypeMisfit(node, fn) !== undefined;
+}
+
+/**
+ * The fields under their headers. A header owns
+ * everything after it until the next; the fields
+ * before the first belong to no group.
+ */
+function grouped(
+  fields: InspectorField[],
+  retries: boolean,
+): Pick<FormPlan, 'loose' | 'groups'> {
+  const loose: FormLine[] = [];
+  const groups: FormGroup[] = [];
+
+  for (const line of lined(fields)) {
+    if (line.at === 'group') {
+      groups.push({
+        id: line.id,
+        opensFolded: line.folds,
+        configured: line.id === RETRY_POLICY,
+        retries: line.id === RETRY_POLICY && retries,
+        lines: [],
+      });
+
+      continue;
+    }
+
+    (groups.at(-1)?.lines ?? loose).push(line);
+  }
+
+  return { loose, groups };
+}
+
+/**
+ * How a trigger starts: what kind of start it is,
+ * the workflow it starts and the type of the input
+ * it starts that workflow with, then whatever that
+ * kind of start is set by — under one header, in
+ * an order of the group's own rather than the
+ * lenses'. The type a trigger takes is never drawn:
+ * nothing hands a trigger anything, and the
+ * workflow is read rather than set, because it is
+ * the file's.
+ */
+function startsOn(fields: InspectorField[]): FormGroup {
+  const of = (id: string): FormLine[] =>
+    fields
+      .filter((field) => field.id === id)
+      .map((field) => ({ at: 'field', field }));
+  const rest = fields.filter(
+    (field) => !['in', 'mode', 'out'].includes(field.id),
+  );
+
+  return {
+    id: 'startsOn',
+    opensFolded: false,
+    configured: false,
+    retries: false,
+    lines: [
+      ...of('mode'),
+      { at: 'value', id: 'workflow' },
+      ...of('out'),
+      ...rest.map((field): FormLine => ({ at: 'field', field })),
+    ],
+  };
+}
+
+/**
+ * The fields as lines, with a limit's two halves —
+ * a count and the period it is counted over, which
+ * the lenses keep side by side — as one line under
+ * the word the limit is called by.
+ */
+function lined(
+  fields: InspectorField[],
+): ({ at: 'group'; id: string; folds: boolean } | FormLine)[] {
+  const lines: ({ at: 'group'; id: string; folds: boolean } | FormLine)[] = [];
+
+  for (let at = 0; at < fields.length; at += 1) {
+    const field = fields[at];
+    const next = fields[at + 1];
+    if (field === undefined) continue;
+
+    if (field.control === 'section') {
+      lines.push({ at: 'group', id: field.id, folds: field.folds });
+
+      continue;
+    }
+
+    const pair = RATE_PAIRS.find((one) => one.per === field.id);
+
+    if (
+      pair !== undefined &&
+      field.control === 'number' &&
+      next?.control === 'number' &&
+      next.id === pair.sec
+    ) {
+      lines.push({ at: 'pair', id: pair.name, per: field, sec: next });
+      at += 1;
+
+      continue;
+    }
+
+    lines.push({ at: 'field', field });
+  }
+
+  return lines;
 }
 
 /**
@@ -563,6 +823,20 @@ function partitioningField(): Lens<Queue> {
     });
   });
 }
+
+/**
+ * The limits written as a count and the period it
+ * is counted over: each half's lens, and the word
+ * the line they share is called by.
+ */
+const RATE_PAIRS = [
+  { per: 'rateLimitPer', sec: 'rateLimitSec', name: 'rateLimit' },
+  {
+    per: 'partitionRateLimitPer',
+    sec: 'partitionRateLimitSec',
+    name: 'partitionRateLimit',
+  },
+] as const;
 
 /**
  * A rate limit is a count and a period together, or

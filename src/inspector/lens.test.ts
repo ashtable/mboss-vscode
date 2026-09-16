@@ -1,21 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  NodeSchema,
-  type LibFunction,
-  type WorkflowNode,
-} from '../core/rules.js';
+import { NodeSchema, type WorkflowNode } from '../core/rules.js';
 
 import { configToForm, formToConfig } from './forms.js';
-import {
-  apply,
-  pairOf,
-  pickerAfter,
-  section,
-  showsDeclarations,
-  visible,
-  type InspectorField,
-} from './lens.js';
+import { apply, pickerAfter, section, type InspectorField } from './lens.js';
 
 /**
  * A header that groups the fields after it.
@@ -56,60 +44,6 @@ describe('a section header', () => {
     const lens = section<typeof subject>('advanced');
 
     expect(apply(subject, [lens], [lens.read(subject)])).toEqual(subject);
-  });
-});
-
-/**
- * What a fold hides.
- *
- * A header owns everything after it until the next
- * one, so a fold takes out a run of the list rather
- * than a set of ids somebody has to keep in step
- * with the form.
- */
-describe('the fields a folded form draws', () => {
-  const form: InspectorField[] = [
-    { id: 'title', control: 'text', value: 'Orders' },
-    { id: 'queue', control: 'section', folds: false },
-    { id: 'queueName', control: 'text', value: 'orders' },
-    { id: 'advanced', control: 'section', folds: true },
-    { id: 'onConflict', control: 'text', value: '' },
-  ];
-
-  it('draws every field when nothing is folded', () => {
-    expect(visible(form, new Set()).map((field) => field.id)).toEqual([
-      'title',
-      'queue',
-      'queueName',
-      'advanced',
-      'onConflict',
-    ]);
-  });
-
-  it('hides the fields under a folded header, and no others', () => {
-    expect(
-      visible(form, new Set(['advanced'])).map((field) => field.id),
-    ).toEqual(['title', 'queue', 'queueName', 'advanced']);
-  });
-
-  /** Folding a group never takes away the way back
-   *  into it. */
-  it('keeps drawing a folded header itself', () => {
-    expect(visible(form, new Set(['queue', 'advanced']))).toContainEqual({
-      id: 'queue',
-      control: 'section',
-      folds: false,
-    });
-  });
-
-  /** A fold reaches forward only. The next header
-   *  ends the one before it, and a field written
-   *  before any header belongs to no group at
-   *  all. */
-  it('draws the fields written before the first header', () => {
-    expect(
-      visible(form, new Set(['queue', 'advanced'])).map((field) => field.id),
-    ).toEqual(['title', 'queue', 'advanced']);
   });
 });
 
@@ -202,108 +136,11 @@ describe('a node’s own fields', () => {
 });
 
 /**
- * Whether a block's takes and produces are drawn
- * as rows of their own.
- *
- * Where a function is behind the block and the
- * scan read it, its signature already says what
- * goes in and what comes out, on the row that names
- * it; two more rows saying the same thing again are
- * two more to read. They come back wherever that
- * row cannot speak for them: nothing is behind the
- * block, the scan has no such export, the block
- * fans out so it takes the collection while the
- * function takes one item, or what the block
- * declares and what the function is written with
- * disagree — the one place somebody has to see
- * both.
- */
-describe('whether a block shows the types it declares', () => {
-  const step = (over: object = {}): WorkflowNode =>
-    NodeSchema.parse({
-      id: 'find_slot',
-      kind: 'step',
-      title: 'Find open slot',
-      in: 'BookingReq',
-      out: 'SlotGrid',
-      handler: { export: 'findSlot' },
-      config: {},
-      ...over,
-    });
-
-  const findSlot: LibFunction = {
-    export: 'findSlot',
-    file: 'lib/findSlot.ts',
-    params: [{ name: 'req', type: 'BookingReq' }],
-    returnType: 'SlotGrid',
-  };
-
-  it('leaves them to the signature where the function agrees', () => {
-    expect(showsDeclarations(step(), findSlot)).toBe(false);
-  });
-
-  it('draws them on a block nothing is behind', () => {
-    expect(showsDeclarations(step({ handler: undefined }), undefined)).toBe(
-      true,
-    );
-  });
-
-  it('draws them where the scan has no such export', () => {
-    expect(showsDeclarations(step(), undefined)).toBe(true);
-  });
-
-  it('draws them on a block that fans out', () => {
-    const fanned = step({ forEach: { itemsPath: 'slots' } });
-
-    expect(showsDeclarations(fanned, findSlot)).toBe(true);
-  });
-
-  it('draws them where the block and the function disagree', () => {
-    expect(showsDeclarations(step({ out: 'Booking' }), findSlot)).toBe(true);
-    expect(
-      showsDeclarations(step(), {
-        ...findSlot,
-        params: [{ name: 'req', type: 'WebhookEvent' }],
-      }),
-    ).toBe(true);
-  });
-
-  /** A queue fans out by being one, and what it
-   *  declares is the item: the function's one
-   *  parameter is held to that, so the signature
-   *  speaks for it until the two disagree. */
-  it('holds a queue to the item it declares', () => {
-    const queue = (itemType: string): WorkflowNode =>
-      NodeSchema.parse({
-        id: 'index_pages',
-        kind: 'queue',
-        title: 'Index each page',
-        handler: { export: 'indexItem' },
-        config: {
-          itemsPath: 'pages',
-          itemType,
-          queue: { name: 'document-index' },
-          enqueue: {},
-        },
-      });
-    const indexItem: LibFunction = {
-      export: 'indexItem',
-      file: 'lib/indexItem.ts',
-      params: [{ name: 'item', type: 'Item' }],
-      returnType: 'Indexed',
-    };
-
-    expect(showsDeclarations(queue('Item'), indexItem)).toBe(false);
-    expect(showsDeclarations(queue('Page'), indexItem)).toBe(true);
-  });
-});
-
-/**
  * A limit set as a count and the period it is
  * counted over.
  *
- * The two are one property, so they are drawn in
- * one row, and they stay two fields: each box is
+ * The two are one property, so they are drawn on
+ * one line, and they stay two fields: each box is
  * committed on its own, the way every box is. What
  * keeps them one limit is that a half is written
  * with the other beside it — a count with the
@@ -331,9 +168,13 @@ describe('a limit written as a pair', () => {
 
   /** Both halves as the form reads them back. */
   const read = (node: WorkflowNode, per: string, sec: string) => {
-    const pair = pairOf(configToForm(node).fields, per, sec);
+    const fields = configToForm(node).fields;
+    const count = fields.find((one) => one.id === per);
+    const period = fields.find((one) => one.id === sec);
 
-    return pair === undefined ? undefined : [pair.per.value, pair.sec.value];
+    return count?.control === 'number' && period?.control === 'number'
+      ? [count.value, period.value]
+      : undefined;
   };
 
   /** One box committed on its own. */
@@ -342,33 +183,6 @@ describe('a limit written as a pair', () => {
     id: string,
     value: number | null,
   ): WorkflowNode => formToConfig(node, [{ id, control: 'number', value }]);
-
-  it('finds both halves, the count first', () => {
-    const fields = configToForm(
-      queue({ rateLimit: { limitPerPeriod: 100, periodSec: 60 } }),
-    ).fields;
-
-    expect(pairOf(fields, 'rateLimitPer', 'rateLimitSec')).toEqual({
-      per: { id: 'rateLimitPer', control: 'number', value: 100 },
-      sec: { id: 'rateLimitSec', control: 'number', value: 60 },
-    });
-  });
-
-  it('is no pair when either half is missing or out of place', () => {
-    const fields = configToForm(queue()).fields;
-    const without = (id: string) => fields.filter((one) => one.id !== id);
-    const per = fields.findIndex((one) => one.id === 'rateLimitPer');
-
-    expect(per).toBeGreaterThan(-1);
-    expect(
-      pairOf(without('rateLimitSec'), 'rateLimitPer', 'rateLimitSec'),
-    ).toBeUndefined();
-    expect(
-      pairOf(without('rateLimitPer'), 'rateLimitPer', 'rateLimitSec'),
-    ).toBeUndefined();
-    expect(pairOf(fields, 'rateLimitSec', 'rateLimitPer')).toBeUndefined();
-    expect(pairOf(fields, 'rateLimitPer', 'globalConcurrency')).toBeUndefined();
-  });
 
   it('writes the whole limit from either half', () => {
     for (const [per, sec, key] of PAIRS) {

@@ -21,13 +21,7 @@ import { FieldHint } from '../webview/signal/FieldHint.js';
 import { TabPanel, Tabs } from '../webview/signal/Tabs.js';
 import type { RunState } from '../canvas/graph.js';
 
-import {
-  ConfigureFace,
-  TITLE,
-  TitleField,
-  initiallyFolded,
-  type Held,
-} from './ConfigureFace.js';
+import { ConfigureFace, TitleField, type Held } from './ConfigureFace.js';
 import {
   EvidenceFace,
   evidenceStatus,
@@ -36,8 +30,9 @@ import {
 import { InspectorHeader } from './Header.js';
 import { evidenceOf } from './evidence.js';
 import {
-  configToForm,
+  foldedGroups,
   formToConfig,
+  planOf,
   wholeNode,
   type InspectorField,
 } from './forms.js';
@@ -199,26 +194,6 @@ export function Inspector({
   onShowRun,
 }: InspectorProps) {
   const selectedId = selected?.node.id;
-  const [folded, setFolded] = useState<Set<string>>(() =>
-    selected === undefined ? new Set() : initiallyFolded(selected.node),
-  );
-
-  useEffect(() => {
-    setFolded(
-      selected === undefined ? new Set() : initiallyFolded(selected.node),
-    );
-  }, [selectedId]);
-
-  // Which control had focus as a form was drawn
-  // afresh, for the form drawn in its place to hand
-  // back. Read only in the commit that replaced the
-  // form: once that has painted, nothing a person is
-  // doing points at it any more.
-  const held = useRef<Held | undefined>(undefined);
-
-  useEffect(() => {
-    held.current = undefined;
-  });
 
   // One form per surface, document, block and
   // revision. What somebody has set so far belongs
@@ -230,6 +205,29 @@ export function Inspector({
       ? undefined
       : `${source}:${path}:${selected.node.id}:${revision}`;
   const block = `${source}:${path}:${selectedId}`;
+
+  // Which groups are closed: the kind says which
+  // ones start that way, and a block picked afresh
+  // — the same id in another document included —
+  // starts that way again.
+  const [folded, setFolded] = useState<Set<string>>(() =>
+    selected === undefined ? new Set() : foldedGroups(selected.node),
+  );
+
+  useEffect(() => {
+    setFolded(selected === undefined ? new Set() : foldedGroups(selected.node));
+  }, [block]);
+
+  // Which control had focus as a form was drawn
+  // afresh, for the form drawn in its place to hand
+  // back. Read only in the commit that replaced the
+  // form: once that has painted, nothing a person is
+  // doing points at it any more.
+  const held = useRef<Held | undefined>(undefined);
+
+  useEffect(() => {
+    held.current = undefined;
+  });
 
   const [edited, setEdited] = useState<{ form: string; node: WorkflowNode }>();
   const draft =
@@ -288,13 +286,18 @@ export function Inspector({
     });
   };
 
-  const title =
-    draft === undefined
+  // The form as it is drawn, read off the draft
+  // against the document and the function behind
+  // the block; its name is the field the header
+  // renames the block in.
+  const plan =
+    selected === undefined || draft === undefined
       ? undefined
-      : configToForm(draft).fields.find(
-          (field): field is Extract<InspectorField, { control: 'text' }> =>
-            field.id === TITLE && field.control === 'text',
-        );
+      : planOf(draft, {
+          node: selected.node,
+          fn: lib?.find((one) => one.export === selected.node.handler?.export),
+        });
+  const title = plan?.name;
 
   const node = selected?.node;
   const evidence = evidenceBlockOf(nodeId, node);
@@ -363,7 +366,9 @@ export function Inspector({
           change beside a fact they may not. */}
       <TabPanel panel={FACE} active={mode}>
         {mode === 'configure' ? (
-          selected === undefined || draft === undefined ? null : (
+          selected === undefined ||
+          draft === undefined ||
+          plan === undefined ? null : (
             <ConfigureFace
               key={form}
               strings={strings}
@@ -373,6 +378,7 @@ export function Inspector({
               workflow={workflow}
               node={selected.node}
               draft={draft}
+              plan={plan}
               readOnly={readOnly}
               refused={refusedField}
               proposal={proposal}

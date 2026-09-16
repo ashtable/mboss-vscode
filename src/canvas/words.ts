@@ -556,7 +556,6 @@ export const inspectorWords = once(() => ({
   // A trigger has no function: it is how DBOS
   // starts the workflow, so its form is headed by
   // that and says so under its rows.
-  startsOn: l10n.t('starts on'),
   workflow: l10n.t('workflow'),
   triggerOwnsNoFunction: l10n.t(
     'a Trigger owns no ƒ — it names the workflow and its input type · DBOS starts the workflow with that input',
@@ -831,6 +830,7 @@ function inspectorFields(): Record<string, string> {
     handler: l10n.t('function'),
     logic: l10n.t('logic'),
     database: l10n.t('database'),
+    startsOn: l10n.t('starts on'),
     service: l10n.t('service'),
 
     // The groups a block that runs code is read in:

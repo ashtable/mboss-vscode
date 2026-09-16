@@ -1,9 +1,3 @@
-import {
-  declaredTypeMisfit,
-  type LibFunction,
-  type WorkflowNode,
-} from '../core/rules.js';
-
 /**
  * A field, read and written in one place.
  *
@@ -242,96 +236,8 @@ export function section<S>(
   };
 }
 
-/**
- * The fields to draw, with the folded groups left
- * out.
- *
- * A header owns everything after it until the next
- * header, so a fold takes out a run of the list
- * rather than a set of ids somebody has to keep in
- * step with the form. A field written before the
- * first header belongs to no group and is always
- * drawn; a header is always drawn, folded or not,
- * because it is the way back into what it hides.
- */
-export function visible(
-  fields: InspectorField[],
-  folded: ReadonlySet<string>,
-): InspectorField[] {
-  let hiding = false;
-
-  return fields.filter((field) => {
-    if (field.control !== 'section') return !hiding;
-
-    hiding = folded.has(field.id);
-
-    return true;
-  });
-}
-
 /** A field holding a number. */
 export type NumberField = Extract<InspectorField, { control: 'number' }>;
-
-/**
- * Two number fields that are one property between
- * them — a count, and the period it is counted
- * over — so that they can be drawn as one row.
- *
- * Found in the form rather than declared in it, so
- * each half stays a lens of its own that commits on
- * its own, which is what keeps the limit whole: a
- * lens writes its half with the other beside it,
- * and empties both when it is emptied. They are a
- * pair only where the period follows the count:
- * anywhere else they are two rows, since a row
- * drawn out of fields the form keeps apart would
- * draw them somewhere they are not.
- */
-export function pairOf(
-  fields: InspectorField[],
-  per: string,
-  sec: string,
-): { per: NumberField; sec: NumberField } | undefined {
-  const at = fields.findIndex((field) => field.id === per);
-  const count = fields[at];
-  const period = fields[at + 1];
-
-  if (count?.control !== 'number' || period?.control !== 'number') return;
-  if (period.id !== sec) return;
-
-  return { per: count, sec: period };
-}
-
-/**
- * Whether a block's takes and produces are drawn as
- * rows of their own.
- *
- * The row naming the function a block runs already
- * carries that function's signature, so where the
- * block declares the same types the signature says
- * them and two more rows would say them again. The
- * rows come back wherever the signature cannot
- * speak for the block: nothing is behind it, the
- * scan has no such export, it fans out — so it
- * takes the collection while the function takes
- * one item — or what it declares and what the
- * function is written with disagree.
- *
- * A queue fans out by being one, and declares the
- * item rather than the collection, so it is held to
- * the function like any other block. Core's own
- * comparison makes the same exception, and is asked
- * rather than copied.
- */
-export function showsDeclarations(
-  node: WorkflowNode,
-  fn: LibFunction | undefined,
-): boolean {
-  if (node.handler === undefined || fn === undefined) return true;
-  if (node.kind !== 'queue' && node.forEach !== undefined) return true;
-
-  return declaredTypeMisfit(node, fn) !== undefined;
-}
 
 /**
  * Whether the function picker is open, and whether
