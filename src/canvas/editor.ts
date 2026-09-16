@@ -27,6 +27,7 @@ import type {
 } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import type { InspectorFocus } from '../inspector/focus.js';
+import type { BlockInputs } from '../inspector/surface.js';
 import { messages } from '../messages.js';
 import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { PreviewModel } from '../preview/model.js';
@@ -150,48 +151,6 @@ export type CanvasRuns = {
  */
 export type CanvasCode = {
   onGenerated(listener: (project: string) => void): Disposable;
-};
-
-/**
- * Everything the Inspector needs from a canvas to
- * draw the block selected on it.
- *
- * Read off the session rather than out of the
- * message its panel is sent, because the panel is
- * not painted while its tab is hidden and the
- * Inspector still has to be right then. Each field
- * is worked out by the same rule the panel's own
- * message uses, so the two never disagree.
- */
-export type SubjectInputs = {
-  /** The document's file name, as a person reads
-   *  it. */
-  file: string;
-
-  /** Where the document is, which is how a question
-   *  about one of its blocks names the file. */
-  path: string;
-
-  /** The workflow the file holds, by its name. */
-  workflow: string;
-
-  read: CanvasDocument;
-
-  /** What an edit is made against; absent where
-   *  nothing may be edited. */
-  revision: number | undefined;
-
-  manifest: LibManifest | undefined;
-  diagnostics: CanvasInit['diagnostics'];
-  selected: string | undefined;
-  mode: InspectorMode;
-  run: ShownRun | undefined;
-  decided: CanvasInit['decided'];
-
-  /** Who proposed what is drawn in the document's
-   *  place, while something is: the one fact behind
-   *  an absent revision that a pane has to say. */
-  proposedBy: string | undefined;
 };
 
 export class WorkflowCanvasEditor implements CustomTextEditorProvider {
@@ -405,7 +364,7 @@ export class CanvasSession {
    * about the same block, and it is let go of in
    * the same place.
    */
-  private chosenMode: InspectorMode | undefined;
+  private chosenFace: InspectorMode | undefined;
 
   /** The run being followed, when it is a run of
    *  this workflow. */
@@ -513,7 +472,7 @@ export class CanvasSession {
     // out a fresh reading whenever the ledger says
     // anything new, and a face that reset on every
     // reading would be one nobody could hold.
-    if (here?.workflowId !== this.run?.workflowId) this.chosenMode = undefined;
+    if (here?.workflowId !== this.run?.workflowId) this.chosenFace = undefined;
 
     this.run = here;
 
@@ -576,9 +535,17 @@ export class CanvasSession {
   /**
    * What the Inspector draws a block from, read off
    * this canvas whether or not its panel is showing.
+   *
+   * Each field is worked out by the same rule the
+   * panel's own message uses, so the two never
+   * disagree. A canvas draws a block and none of its
+   * rows, and its rows come from the run it follows
+   * at that run's own moment, so the clock is not
+   * read here.
    */
-  subjectInputs(): SubjectInputs {
+  block(): BlockInputs {
     return {
+      source: 'canvas',
       file: basename(this.document.uri.fsPath),
       path: this.document.uri.fsPath,
       workflow: this.name,
@@ -587,10 +554,11 @@ export class CanvasSession {
       manifest: this.manifest,
       diagnostics: this.diagnostics(),
       selected: this.nodeAt(this.selected)?.id,
-      mode: this.mode(),
+      face: this.face(),
       run: this.run,
       decided: this.decided(),
       proposedBy: this.live?.proposedBy,
+      functionId: undefined,
     };
   }
 
@@ -665,10 +633,10 @@ export class CanvasSession {
    * Refused over a draft for the reason a selection
    * is, and said for the same reason too.
    */
-  chooseMode(mode: InspectorMode): void {
+  chooseFace(mode: InspectorMode): void {
     if (this.live !== undefined) return;
 
-    this.chosenMode = mode;
+    this.chosenFace = mode;
     this.changes.fire();
   }
 
@@ -784,10 +752,10 @@ export class CanvasSession {
    * they say otherwise, and then that is what they
    * get for as long as it is the same run.
    */
-  private mode(): InspectorMode {
+  private face(): InspectorMode {
     if (this.run === undefined) return 'configure';
 
-    return this.chosenMode ?? 'evidence';
+    return this.chosenFace ?? 'evidence';
   }
 
   /**

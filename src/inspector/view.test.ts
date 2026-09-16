@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { fakeWebview } from '../../test/doubles/webview.js';
-import type { CanvasSession, SubjectInputs } from '../canvas/editor.js';
+import type { CanvasSession } from '../canvas/editor.js';
 import { canvasSessions, type CanvasSessions } from '../canvas/sessions.js';
 import { inspectorWords } from '../canvas/words.js';
 import { workflowDocument } from '../core/index.js';
@@ -21,6 +21,7 @@ import { liveRun, project, savedWorkflow } from '../test-support/runs.js';
 import type { InspectorInit } from '../webview/protocol.js';
 
 import { inspectorFocus } from './focus.js';
+import type { BlockInputs } from './surface.js';
 import { InspectorView, type InspectorRuns } from './view.js';
 
 /**
@@ -69,12 +70,13 @@ const PATH = workflowDocument(PROJECT, 'groom_booking');
  */
 function session(
   file: string,
-  over: Partial<SubjectInputs> = {},
+  over: Partial<BlockInputs> = {},
   did: unknown[][] = [],
 ) {
   const changes = emitter();
   const workflow = file.replace(/\.workflow\.json$/, '');
-  const inputs: SubjectInputs = {
+  const inputs: BlockInputs = {
+    source: 'canvas',
     file,
     path: workflowDocument(PROJECT, workflow),
     workflow,
@@ -83,10 +85,11 @@ function session(
     manifest: undefined,
     diagnostics: [],
     selected: undefined,
-    mode: 'configure',
+    face: 'configure',
     run: undefined,
     decided: {},
     proposedBy: undefined,
+    functionId: undefined,
     ...over,
   };
   const verb =
@@ -96,12 +99,12 @@ function session(
     };
 
   const canvas = {
-    subjectInputs: () => ({ ...inputs }),
+    block: () => ({ ...inputs }),
     onChanged: changes.on,
     edit: verb('edit'),
-    chooseMode: (mode: SubjectInputs['mode']) => {
-      did.push(['chooseMode', mode]);
-      inputs.mode = mode;
+    chooseFace: (mode: BlockInputs['face']) => {
+      did.push(['chooseFace', mode]);
+      inputs.face = mode;
       changes.fire();
     },
     openFunction: verb('openFunction'),
@@ -380,7 +383,7 @@ describe('the Inspector view', () => {
     });
     const second = session('groom_booking.workflow.json', {
       selected: 'book_appointment',
-      mode: 'evidence',
+      face: 'evidence',
       run: liveRun({ workflow: 'groom_booking' }),
     });
 
@@ -407,7 +410,7 @@ describe('what a canvas subject says, and where it goes', () => {
     const pane = mounted();
     const canvas = session('groom_booking.workflow.json', {
       selected: 'find_slot',
-      mode: 'evidence',
+      face: 'evidence',
       run: liveRun({ workflow: 'groom_booking' }),
     });
 
@@ -424,7 +427,7 @@ describe('what a canvas subject says, and where it goes', () => {
 
     frame.send({ type: 'inspectorMode', mode: 'configure', about: block });
 
-    expect(canvas.did).toEqual([['chooseMode', 'configure']]);
+    expect(canvas.did).toEqual([['chooseFace', 'configure']]);
     expect(subjects().at(-1)).toMatchObject({
       at: 'block',
       block: { face: 'configure' },
@@ -484,7 +487,7 @@ describe('what a canvas subject says, and where it goes', () => {
     expect(other.did).toEqual([]);
     expect(pane.canvas.did).toEqual([
       ['edit', edit],
-      ['chooseMode', 'configure'],
+      ['chooseFace', 'configure'],
     ]);
   });
 
@@ -1034,7 +1037,7 @@ describe('the whole run, shown again from a trigger', () => {
     const pane = mounted();
     const canvas = session('groom_booking.workflow.json', {
       selected: 'booking_requested',
-      mode: 'evidence',
+      face: 'evidence',
       run: liveRun({ workflowId: 'wf_1', workflow: 'groom_booking' }),
     });
 
@@ -1549,7 +1552,7 @@ describe('what a run-level subject says, and where it goes', () => {
   function onCanvas() {
     const pane = mounted();
     const canvas = session('groom_booking.workflow.json', {
-      mode: 'evidence',
+      face: 'evidence',
       run: liveRun({ workflowId: 'wf_1', workflow: 'groom_booking' }),
     });
 

@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import type { SubjectInputs } from '../canvas/editor.js';
 import { inspectorWords, kindWords, paletteLabels } from '../canvas/words.js';
 import {
   WorkflowIRSchema,
@@ -26,6 +25,7 @@ import {
   type RunsPanel,
   type StartRefusal,
 } from './subject.js';
+import type { BlockInputs } from './surface.js';
 
 /**
  * What the Inspector draws, worked out from what
@@ -66,8 +66,9 @@ const NOT_ASKED: RunsPanel = (path) => {
 
 /** A canvas on groom_booking, as its session
  *  answers. */
-function canvas(over: Partial<SubjectInputs> = {}): SubjectInputs {
+function canvas(over: Partial<BlockInputs> = {}): BlockInputs {
   return {
+    source: 'canvas',
     file: 'groom_booking.workflow.json',
     path: '/work/grooming/.mboss/workflows/groom_booking.workflow.json',
     workflow: 'groom_booking',
@@ -76,10 +77,11 @@ function canvas(over: Partial<SubjectInputs> = {}): SubjectInputs {
     manifest: undefined,
     diagnostics: [],
     selected: undefined,
-    mode: 'configure',
+    face: 'configure',
     run: undefined,
     decided: {},
     proposedBy: undefined,
+    functionId: undefined,
     ...over,
   };
 }
@@ -177,7 +179,7 @@ describe('a block selected on a canvas', () => {
         at: 'canvas',
         startRefusal: OFFERED,
         runsPanel: NOT_ASKED,
-        canvas: canvas({ selected: 'find_slot', mode: 'evidence', run }),
+        canvas: canvas({ selected: 'find_slot', face: 'evidence', run }),
       }).subject,
     ).toMatchObject({ at: 'block', block: { face: 'evidence', run } });
   });
@@ -1030,7 +1032,7 @@ describe('a run with nothing picked', () => {
         startRefusal,
         runsPanel: NOT_ASKED,
         canvas: canvas({
-          mode: 'evidence',
+          face: 'evidence',
           run: liveRun({ workflowId: ID, workflow: 'groom_booking', ...over }),
         }),
       }).subject;

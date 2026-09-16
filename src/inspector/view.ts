@@ -9,11 +9,7 @@ import {
 } from 'vscode';
 
 import type { Agent } from '../acp/agent.js';
-import type {
-  CanvasCode,
-  CanvasSession,
-  SubjectInputs,
-} from '../canvas/editor.js';
+import type { CanvasCode, CanvasSession } from '../canvas/editor.js';
 import type { CanvasSessions } from '../canvas/sessions.js';
 import { inspectorWords } from '../canvas/words.js';
 import { manifestFor, projectOf, workflowDocument } from '../core/index.js';
@@ -36,6 +32,7 @@ import type {
 } from '../webview/protocol.js';
 
 import type { InspectorFocus } from './focus.js';
+import type { BlockInputs } from './surface.js';
 import {
   inspectorInit,
   type Focused,
@@ -405,7 +402,7 @@ export class InspectorView implements WebviewViewProvider {
     return holder.at === 'canvas'
       ? {
           at: 'canvas',
-          canvas: holder.session.subjectInputs(),
+          canvas: holder.session.block(),
           startRefusal,
           runsPanel,
         }
@@ -473,7 +470,7 @@ export class InspectorView implements WebviewViewProvider {
     // asked only where no canvas is.
     const document: RunDocument =
       canvas !== undefined
-        ? canvasDocument(canvas.subjectInputs())
+        ? canvasDocument(canvas.block())
         : {
             at: 'buffer',
             file: basename(path),
@@ -645,7 +642,7 @@ export class InspectorView implements WebviewViewProvider {
   private heardOnCanvas(canvas: CanvasSession, message: AboutBlock): void {
     switch (message.type) {
       case 'inspectorMode':
-        canvas.chooseMode(message.mode);
+        canvas.chooseFace(message.mode);
 
         return;
 
@@ -809,7 +806,7 @@ export class InspectorView implements WebviewViewProvider {
     const holder = this.focus.holder();
 
     return holder?.at === 'canvas'
-      ? holder.session.subjectInputs().path
+      ? holder.session.block().path
       : this.runDocument()?.path;
   }
 
@@ -820,7 +817,7 @@ export class InspectorView implements WebviewViewProvider {
    * on a block brings the pane forward.
    */
   private canvasMoved(canvas: CanvasSession): void {
-    const selected = canvas.subjectInputs().selected;
+    const selected = canvas.block().selected;
     const before = this.selections.get(canvas);
 
     this.selections.set(canvas, selected);
@@ -886,6 +883,6 @@ export class InspectorView implements WebviewViewProvider {
 
 /** The document as the canvas open on it holds it,
  *  the proposer included. */
-function canvasDocument(canvas: SubjectInputs): RunDocument {
+function canvasDocument(canvas: BlockInputs): RunDocument {
   return { at: 'canvas', canvas, proposedBy: canvas.proposedBy };
 }

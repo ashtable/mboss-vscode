@@ -67,6 +67,7 @@ const INSPECTOR_HOST = new Set([
   'subject.ts',
   'focus.ts',
   'host.ts',
+  'surface.ts',
 ]);
 
 const CANVAS_IMPORT = /from\s+'(\.\.\/canvas\/[^']+)'/g;

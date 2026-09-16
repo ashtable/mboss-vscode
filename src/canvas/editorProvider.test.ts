@@ -821,7 +821,7 @@ describe('what an open canvas tells the registry', () => {
 
     expect(moved).toHaveLength(1);
     expect(moved[0]).toBe(canvasOn());
-    expect(canvasOn().subjectInputs().revision).toBe(ir.revision + 1);
+    expect(canvasOn().block().revision).toBe(ir.revision + 1);
     expect(panel.posted).toHaveLength(posted);
   });
 
@@ -837,7 +837,7 @@ describe('what an open canvas tells the registry', () => {
     await settled();
 
     expect(moved).toHaveLength(1);
-    expect(canvasOn().subjectInputs().run?.workflowId).toBe('wf_1');
+    expect(canvasOn().block().run?.workflowId).toBe('wf_1');
     expect(panel.posted).toHaveLength(posted);
   });
 
@@ -860,7 +860,7 @@ describe('what an open canvas tells the registry', () => {
 
     await until(() => moved.length > 0);
     expect(moved[0]).toBe(canvasOn(path));
-    expect(canvasOn(path).subjectInputs().manifest).toBeDefined();
+    expect(canvasOn(path).block().manifest).toBeDefined();
     expect(panel.posted).toHaveLength(posted);
   });
 });
@@ -968,11 +968,11 @@ describe('selecting a node', () => {
   it('selects through the canvas as its panel would', async () => {
     canvasOn().select('find_slot');
 
-    expect(canvasOn().subjectInputs().selected).toBe('find_slot');
+    expect(canvasOn().block().selected).toBe('find_slot');
 
     canvasOn().select('no_such_node');
 
-    expect(canvasOn().subjectInputs().selected).toBeUndefined();
+    expect(canvasOn().block().selected).toBeUndefined();
 
     canvasOn().select('reply_decision');
     panel.send({ type: 'ready', view: 'canvas' });
@@ -1029,7 +1029,8 @@ describe('selecting a node', () => {
 
     const init = lastCanvasInit();
 
-    expect(canvasOn().subjectInputs()).toEqual({
+    expect(canvasOn().block()).toEqual({
+      source: 'canvas',
       file: 'groom_booking.workflow.json',
       path: GROOM_BOOKING,
       workflow: 'groom_booking',
@@ -1038,10 +1039,11 @@ describe('selecting a node', () => {
       manifest: init.manifest,
       diagnostics: init.diagnostics,
       selected: 'find_slot',
-      mode: 'configure',
+      face: 'configure',
       run: undefined,
       decided: {},
       proposedBy: undefined,
+      functionId: undefined,
     });
     expect(init.diagnostics.length).toBeGreaterThan(0);
   });
@@ -1431,7 +1433,7 @@ describe('a proposal about the document on screen', () => {
   it('says who proposed what is drawn', async () => {
     const path = await openProposed();
 
-    expect(canvasOn(path).subjectInputs()).toMatchObject({
+    expect(canvasOn(path).block()).toMatchObject({
       revision: undefined,
       proposedBy: 'claude code',
     });
@@ -1445,11 +1447,11 @@ describe('a proposal about the document on screen', () => {
     await settled();
 
     canvasOn(path).select('find_slot');
-    canvasOn(path).chooseMode('configure');
+    canvasOn(path).chooseFace('configure');
 
-    expect(canvasOn(path).subjectInputs()).toMatchObject({
+    expect(canvasOn(path).block()).toMatchObject({
       selected: undefined,
-      mode: 'evidence',
+      face: 'evidence',
       revision: undefined,
     });
   });
@@ -1881,7 +1883,7 @@ describe('a run of the workflow on screen', () => {
  */
 describe('the face the Inspector is showing', () => {
   it('shows Configure when no run is in focus', () => {
-    expect(canvasOn().subjectInputs().mode).toBe('configure');
+    expect(canvasOn().block().face).toBe('configure');
   });
 
   it('shows Run Evidence once when a run comes into focus', async () => {
@@ -1891,7 +1893,7 @@ describe('the face the Inspector is showing', () => {
     runs.heard(runOf('groom_booking'));
     await settled();
 
-    expect(canvasOn().subjectInputs().mode).toBe('evidence');
+    expect(canvasOn().block().face).toBe('evidence');
   });
 
   /**
@@ -1908,14 +1910,14 @@ describe('the face the Inspector is showing', () => {
     runs.heard(runOf('groom_booking'));
     await settled();
 
-    canvasOn().chooseMode('configure');
+    canvasOn().chooseFace('configure');
 
-    expect(canvasOn().subjectInputs().mode).toBe('configure');
+    expect(canvasOn().block().face).toBe('configure');
 
     runs.heard(runOf('groom_booking'));
     await settled();
 
-    expect(canvasOn().subjectInputs().mode).toBe('configure');
+    expect(canvasOn().block().face).toBe('configure');
   });
 
   it('goes back to Run Evidence when a different run comes into focus', async () => {
@@ -1924,12 +1926,12 @@ describe('the face the Inspector is showing', () => {
 
     runs.heard(runOf('groom_booking'));
     await settled();
-    canvasOn().chooseMode('configure');
+    canvasOn().chooseFace('configure');
 
     runs.heard(runOf('groom_booking', 'wf_2'));
     await settled();
 
-    expect(canvasOn().subjectInputs().mode).toBe('evidence');
+    expect(canvasOn().block().face).toBe('evidence');
   });
 
   it('goes back to Configure when the run goes away', async () => {
@@ -1941,7 +1943,7 @@ describe('the face the Inspector is showing', () => {
     runs.heard(undefined);
     await settled();
 
-    expect(canvasOn().subjectInputs().mode).toBe('configure');
+    expect(canvasOn().block().face).toBe('configure');
   });
 });
 
@@ -2028,7 +2030,7 @@ describe('a card about the run on screen', () => {
     panel.send({ type: 'askAgent', view: 'canvas', workflowId: 'wf_1' });
     await settled();
 
-    expect(canvasOn().subjectInputs().mode).toBe('evidence');
+    expect(canvasOn().block().face).toBe('evidence');
     expect(runs.opened).toEqual([]);
     expect(recorded.opened).toEqual([]);
     expect(recorded.told.slice(told)).toEqual([]);

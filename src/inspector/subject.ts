@@ -1,4 +1,3 @@
-import type { SubjectInputs } from '../canvas/editor.js';
 import { inspectorWords, kindWords, paletteLabels } from '../canvas/words.js';
 import { checkWorkflow, readWorkflow } from '../core/index.js';
 import type { Diagnostic, LibManifest, WorkflowIR } from '../core/rules.js';
@@ -20,6 +19,8 @@ import type {
   RunLevel,
 } from '../webview/protocol.js';
 import { glyphStateOf, runWord, type RunWord } from '../webview/states.js';
+
+import type { BlockInputs } from './surface.js';
 
 /**
  * What the Inspector draws, worked out from what the
@@ -74,7 +75,7 @@ export type Focused =
   | { at: 'none' }
   | {
       at: 'canvas';
-      canvas: SubjectInputs;
+      canvas: BlockInputs;
       startRefusal: StartRefusal;
       runsPanel: RunsPanel;
     }
@@ -102,7 +103,7 @@ export type Focused =
 export type RunDocument =
   | {
       at: 'canvas';
-      canvas: SubjectInputs;
+      canvas: BlockInputs;
 
       /** Who proposed what is waiting on the document,
        *  when something is. */
@@ -217,7 +218,7 @@ function runOnRunTab(tab: RunTab, startRefusal: StartRefusal): RunLevel {
  * the canvas never asked for one.
  */
 function runOnCanvas(
-  canvas: SubjectInputs,
+  canvas: BlockInputs,
   run: LiveRun,
   startRefusal: StartRefusal,
 ): RunLevel {
@@ -301,7 +302,7 @@ function wordOf(run: LiveRun): RunWord {
  * waits on its file like any other.
  */
 function blockOnCanvas(
-  canvas: SubjectInputs,
+  canvas: BlockInputs,
   runsPanel: RunsPanel,
 ): BlockSubject | undefined {
   if (!canvas.read.ok || canvas.selected === undefined) return undefined;
@@ -314,15 +315,14 @@ function blockOnCanvas(
     ir: canvas.read.ir,
     revision: canvas.revision,
     nodeId: canvas.selected,
-    face: canvas.mode,
+    face: canvas.face,
     manifest: canvas.manifest,
     diagnostics: canvas.diagnostics,
     paletteLabels: paletteLabels(),
     kindWords: kindWords(),
     run: canvas.run,
 
-    // A canvas draws a block, not one of its rows.
-    functionId: undefined,
+    functionId: canvas.functionId,
     decided: canvas.decided,
     runInput: runInputOf(
       canvas.read.ir,
