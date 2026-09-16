@@ -63,13 +63,16 @@ const PATH = workflowDocument(PROJECT, 'groom_booking');
  * Inspector reads of one and asks of one, with
  * every verb it was asked written down in order.
  * The face it is asked for is the face it then
- * answers with, as a real session's is.
+ * answers with, and a selection or a face pick is
+ * said by the session, as a real session's are;
+ * `moved` says any other move.
  */
 function session(
   file: string,
   over: Partial<SubjectInputs> = {},
   did: unknown[][] = [],
 ) {
+  const changes = emitter();
   const workflow = file.replace(/\.workflow\.json$/, '');
   const inputs: SubjectInputs = {
     file,
@@ -94,10 +97,12 @@ function session(
 
   const canvas = {
     subjectInputs: () => ({ ...inputs }),
+    onChanged: changes.on,
     edit: verb('edit'),
     chooseMode: (mode: SubjectInputs['mode']) => {
       did.push(['chooseMode', mode]);
       inputs.mode = mode;
+      changes.fire();
     },
     openFunction: verb('openFunction'),
     openErrorLocation: verb('openErrorLocation'),
@@ -105,10 +110,11 @@ function session(
     select: (nodeId: string | null) => {
       did.push(['select', nodeId]);
       inputs.selected = nodeId ?? undefined;
+      changes.fire();
     },
   } as unknown as CanvasSession;
 
-  return { canvas, inputs, did };
+  return { canvas, inputs, did, moved: () => changes.fire() };
 }
 
 /**
@@ -351,15 +357,17 @@ describe('the Inspector view', () => {
 
   it('draws again when the canvas it is about moves, and for no other', () => {
     const { focus, sessions, subjects } = mounted();
-    const front = session('groom_booking.workflow.json').canvas;
-    const behind = session('refund_approval.workflow.json').canvas;
+    const front = session('groom_booking.workflow.json');
+    const behind = session('refund_approval.workflow.json');
 
-    focus.report({ at: 'canvas', session: front });
-    sessions.fire(behind);
+    sessions.register(front.inputs.path, front.canvas, { active: false });
+    sessions.register(behind.inputs.path, behind.canvas, { active: false });
+    focus.report({ at: 'canvas', session: front.canvas });
+    behind.moved();
 
     expect(subjects()).toHaveLength(1);
 
-    sessions.fire(front);
+    front.moved();
 
     expect(subjects()).toEqual([
       { at: 'none', file: 'groom_booking.workflow.json' },
@@ -656,15 +664,16 @@ describe('what a canvas subject says, and where it goes', () => {
 describe('when the Inspector puts itself in front of somebody', () => {
   it('brings itself into view when a selection lands on a block', () => {
     const { frame, sessions } = mounted();
-    const { canvas, inputs } = session('groom_booking.workflow.json');
+    const { canvas, inputs, moved } = session('groom_booking.workflow.json');
 
+    sessions.register(inputs.path, canvas, { active: false });
     frame.hide();
-    sessions.fire(canvas);
+    moved();
 
     expect(frame.revealed).toEqual([]);
 
     inputs.selected = 'find_slot';
-    sessions.fire(canvas);
+    moved();
 
     expect(frame.revealed).toEqual([true]);
   });
@@ -676,11 +685,12 @@ describe('when the Inspector puts itself in front of somebody', () => {
    */
   it('stays put while the mBoss views are not showing', () => {
     const { frame, sessions } = mounted({ showing: () => false });
-    const { canvas, inputs } = session('groom_booking.workflow.json');
+    const { canvas, inputs, moved } = session('groom_booking.workflow.json');
 
+    sessions.register(inputs.path, canvas, { active: false });
     frame.hide();
     inputs.selected = 'find_slot';
-    sessions.fire(canvas);
+    moved();
 
     expect(frame.revealed).toEqual([]);
   });
@@ -694,7 +704,8 @@ describe('when the Inspector puts itself in front of somebody', () => {
       selected: 'refund_payment',
     });
 
-    sessions.fire(first.canvas);
+    sessions.register(first.inputs.path, first.canvas, { active: false });
+    sessions.register(second.inputs.path, second.canvas, { active: false });
     frame.hide();
     focus.report({ at: 'canvas', session: second.canvas });
     focus.report({ at: 'canvas', session: first.canvas });
@@ -704,13 +715,13 @@ describe('when the Inspector puts itself in front of somebody', () => {
 
   it('stays put for a tick that changes no selection', () => {
     const { frame, sessions } = mounted();
-    const { canvas } = session('groom_booking.workflow.json', {
+    const { canvas, inputs, moved } = session('groom_booking.workflow.json', {
       selected: 'find_slot',
     });
 
-    sessions.fire(canvas);
+    sessions.register(inputs.path, canvas, { active: false });
     frame.hide();
-    sessions.fire(canvas);
+    moved();
 
     expect(frame.revealed).toEqual([]);
   });
@@ -723,19 +734,21 @@ describe('when the Inspector puts itself in front of somebody', () => {
    */
   it('shows itself once in a window where it never resolved', () => {
     const { sessions, host } = mounted({ resolved: false });
-    const first = session('groom_booking.workflow.json').canvas;
-    const second = session('refund_approval.workflow.json').canvas;
+    const first = session('groom_booking.workflow.json');
+    const second = session('refund_approval.workflow.json');
 
-    sessions.fire(first);
-    sessions.fire(second);
+    sessions.register(first.inputs.path, first.canvas, { active: false });
+    sessions.register(second.inputs.path, second.canvas, { active: false });
+    first.moved();
 
     expect(host.met).toBe(1);
   });
 
   it('meets nobody in a window where it has resolved', () => {
     const { sessions, host } = mounted();
+    const { canvas, inputs } = session('groom_booking.workflow.json');
 
-    sessions.fire(session('groom_booking.workflow.json').canvas);
+    sessions.register(inputs.path, canvas, { active: false });
 
     expect(host.met).toBe(0);
   });
@@ -875,14 +888,14 @@ describe('what a run-tab subject says, and where it goes', () => {
   });
 
   /**
-   * The canvas draws its board from the registry, so
-   * a selection made from here is only on screen
-   * once the registry has said so. An edit that
-   * lands says so by itself, through the document
-   * change it makes; one that writes nothing — a
-   * refused assign, a stale revision, a block that
-   * has gone — leaves the board ringing the block it
-   * rang before.
+   * The canvas draws its board from what it says
+   * itself, and a selection made from here is said
+   * by the canvas as any other is. An edit that
+   * lands says so again through the document change
+   * it makes; one that writes nothing — a refused
+   * assign, a stale revision, a block that has gone
+   * — still leaves the board ringing the block the
+   * selection named.
    */
   it('says the canvas moved for a run-tab edit that writes nothing', async () => {
     const pane = onRunTab();
@@ -914,7 +927,7 @@ describe('what a run-tab subject says, and where it goes', () => {
     // re-reads it and says so.
     opened.inputs.revision = ir.revision + 1;
     opened.inputs.read = { ok: true, ir: { ...ir, revision: ir.revision + 1 } };
-    pane.sessions.fire(opened.canvas);
+    opened.moved();
 
     expect(pane.subjects().at(-1)).toMatchObject({
       at: 'block',
@@ -1032,6 +1045,7 @@ describe('the whole run, shown again from a trigger', () => {
       run: liveRun({ workflowId: 'wf_1', workflow: 'groom_booking' }),
     });
 
+    pane.sessions.register(canvas.inputs.path, canvas.canvas, { active: true });
     pane.focus.report({ at: 'canvas', session: canvas.canvas });
     pane.frame.send({ type: 'inspectRun' });
 
@@ -1237,12 +1251,13 @@ describe('what the Inspector follows for a run-tab block', () => {
     const other = session('refund_approval.workflow.json');
 
     pane.sessions.register(PATH, open.canvas, { active: false });
+    pane.sessions.register(other.inputs.path, other.canvas, { active: false });
     const drawn = pane.subjects().length;
 
-    pane.sessions.fire(other.canvas);
+    other.moved();
     expect(pane.subjects()).toHaveLength(drawn);
 
-    pane.sessions.fire(open.canvas);
+    open.moved();
     expect(pane.subjects()).toHaveLength(drawn + 1);
   });
 

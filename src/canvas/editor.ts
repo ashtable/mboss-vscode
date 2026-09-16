@@ -25,6 +25,7 @@ import type {
   WorkflowIR,
   WorkflowNode,
 } from '../core/rules.js';
+import { emitter } from '../emitter.js';
 import type { InspectorFocus } from '../inspector/focus.js';
 import { messages } from '../messages.js';
 import { openHandler, openSourceFrame } from '../openHandler.js';
@@ -285,28 +286,24 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
 
     letGo.push(registered, focused);
 
-    // Whatever moved this canvas is said to the
-    // registry, whether or not the frame is showing:
-    // a hidden frame is not painted, and the Inspector
-    // drawing this canvas's block has to be right all
-    // the same. The frame draws itself from what the
-    // registry hears about it, so a selection the
+    // The session says when it moved, whether or not
+    // the frame is showing: a hidden frame is not
+    // painted, and the Inspector drawing this canvas's
+    // block has to be right all the same. The frame
+    // draws itself from that word, so a selection the
     // Inspector lets go of is drawn on the board too.
-    const changed = (): void => this.sessions.fire(session);
+    // Let go of after the registration, which forwards
+    // it, has let go itself.
+    letGo.push({ dispose: () => session.dispose() });
 
     mountWebview(panel, {
       extensionUri: this.extensionUri,
       view: 'canvas',
       title: basename(document.uri.path),
       init: () => session.init(),
-      heard: (message) => {
-        if (session.heard(message)) changed();
-      },
+      heard: (message) => session.heard(message),
       follows: [
-        (repaint) =>
-          this.sessions.onChanged((moved) => {
-            if (moved === session) repaint();
-          }),
+        (repaint) => session.onChanged(repaint),
 
         // A change to the file from anywhere — a hand
         // edit in the JSON view, an agent writing
@@ -318,16 +315,13 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
               return;
             }
 
-            void session.reread().then(changed);
+            void session.reread();
           }),
 
         // A proposal can appear or be answered while
         // this panel is open, and it changes what the
         // panel is drawing — not only what it says.
-        () =>
-          this.preview.onChanged(() => {
-            void session.reread().then(changed);
-          }),
+        () => this.preview.onChanged(() => void session.reread()),
 
         // A run moves while the document sits still, so
         // this is a repaint rather than a re-read: the
@@ -338,10 +332,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         // most runs are runs of some other workflow, so
         // the session says whether this canvas is
         // drawing anything different.
-        () =>
-          this.runs.onChanged(() => {
-            if (session.followRun()) changed();
-          }),
+        () => this.runs.onChanged(() => session.followRun()),
 
         // A manifest is a type-check of the project's
         // code-behind, far too slow to open a file
@@ -350,10 +341,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         // moment the scan lands — which in a restricted
         // window is when the person trusts the folder,
         // and not before.
-        () =>
-          this.trust.onGranted(() => {
-            void session.scan().then(changed);
-          }),
+        () => this.trust.onGranted(() => void session.scan()),
 
         // A function written into `lib/` while this tab
         // is open is one the palette, the picker and the
@@ -364,14 +352,12 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         // is a hash of the files when nothing changed.
         () =>
           this.code.onGenerated((project) => {
-            if (session.inProject(project)) {
-              void session.scan().then(changed);
-            }
+            if (session.inProject(project)) void session.scan();
           }),
       ],
     });
 
-    void session.scan().then(changed);
+    void session.scan();
   }
 }
 
@@ -425,6 +411,20 @@ export class CanvasSession {
    *  this workflow. */
   private run: ShownRun | undefined;
 
+  /**
+   * Said whenever this canvas moved: a selection, a
+   * face pick, a re-read, a run it follows, a scan
+   * that read something.
+   *
+   * Said by the session, since it is the one that
+   * knows. Nine sites in two modules used to say it
+   * on the session's behalf, three different ways,
+   * and a selection made from the Inspector's pane
+   * was drawn on the board only where the pane
+   * remembered to.
+   */
+  private readonly changes = emitter();
+
   constructor(
     private readonly document: TextDocument,
     private readonly api: VsCodeApi,
@@ -460,8 +460,33 @@ export class CanvasSession {
       ? onTheGrid(this.read.ir, await boxesFor(this.read.ir))
       : {};
 
-    this.followRun();
+    this.takeRun();
     this.reselect();
+    this.changes.fire();
+  }
+
+  /** Hears this canvas move, whether or not its frame
+   *  is showing. */
+  onChanged(listener: () => void): Disposable {
+    return this.changes.on(listener);
+  }
+
+  /** Lets go of everyone hearing it, once its tab has
+   *  gone. */
+  dispose(): void {
+    this.changes.dispose();
+  }
+
+  /**
+   * Takes the run this canvas is about, and says so
+   * where the panel is now drawing a different one.
+   *
+   * The store speaks up for everything it holds, and
+   * most runs are runs of some other workflow, so a
+   * tick that changes nothing here is silent.
+   */
+  followRun(): void {
+    if (this.takeRun()) this.changes.fire();
   }
 
   /**
@@ -476,7 +501,7 @@ export class CanvasSession {
    * identity because the store hands out a new
    * reading each time the ledger says something new.
    */
-  followRun(): boolean {
+  private takeRun(): boolean {
     const live = this.runs.live();
     const here = live?.workflow === this.name ? live : undefined;
 
@@ -513,6 +538,7 @@ export class CanvasSession {
     if (project === undefined) return;
 
     this.manifest = await Promise.resolve(manifestFor(project));
+    this.changes.fire();
   }
 
   /** Whether the document this canvas is drawing is
@@ -573,35 +599,33 @@ export class CanvasSession {
    * arriving while a proposal is drawn is refused
    * here rather than only being unreachable there.
    *
-   * Answers whether the panel has to be drawn
-   * again. Everything that writes the document is
-   * drawn again anyway, when the change comes back
-   * through `onDocumentChanged`; a selection is not
-   * in the document, so it is the one thing that has
-   * to say so.
+   * Everything that writes the document is drawn
+   * again when the change comes back through
+   * `onDocumentChanged`; a selection is not in the
+   * document, and `select` says so itself.
    */
-  heard(message: Heard<'canvas'>): boolean {
+  heard(message: Heard<'canvas'>): void {
     // Asked before the proposal gate, because it
     // writes nothing: the run a canvas is following
     // is readable whatever is drawn over the graph.
     if (message.type === 'openRun') {
       void this.runs.openRun(message.workflowId);
 
-      return false;
+      return;
     }
 
-    if (this.live !== undefined) return false;
+    if (this.live !== undefined) return;
 
     if (message.type === 'select') {
       this.select(message.nodeId);
 
-      return true;
+      return;
     }
 
     if (message.type === 'text') {
       this.replaceText(message.text);
 
-      return false;
+      return;
     }
 
     // Everything else this panel says is an edit, and
@@ -615,8 +639,6 @@ export class CanvasSession {
     // panel is drawn again from that rather than from
     // here.
     void this.edit(message);
-
-    return false;
   }
 
   /**
@@ -625,14 +647,15 @@ export class CanvasSession {
    * Only a block the document on screen has: a
    * selection names something a person can edit, so
    * a draft on screen — where nothing can be — takes
-   * no selection at all. Whoever calls this draws
-   * again; a selection is not in the document, so
-   * nothing else will.
+   * no selection at all. A selection is not in the
+   * document, so this is the one move nothing else
+   * would say.
    */
   select(nodeId: string | null): void {
     if (this.live !== undefined) return;
 
     this.selected = this.nodeAt(nodeId ?? undefined)?.id;
+    this.changes.fire();
   }
 
   /**
@@ -640,13 +663,13 @@ export class CanvasSession {
    * for as long as the same run is in focus.
    *
    * Refused over a draft for the reason a selection
-   * is, and drawn again by whoever calls it for the
-   * same reason too.
+   * is, and said for the same reason too.
    */
   chooseMode(mode: InspectorMode): void {
     if (this.live !== undefined) return;
 
     this.chosenMode = mode;
+    this.changes.fire();
   }
 
   /**

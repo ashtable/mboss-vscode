@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { emitter } from '../emitter.js';
 import { REPO_ROOT, sourceFiles } from '../test-support/repo.js';
 
 import type { CanvasSession } from './editor.js';
@@ -12,14 +13,21 @@ import { canvasSessions } from './sessions.js';
  * The canvases that are open, as everything that is
  * not a canvas finds them.
  *
- * The registry never calls a session, so a session
- * here is only something with an identity, and a
- * panel only the one flag it reads.
+ * The registry asks a session one thing, to hear
+ * it move, so a session here is an identity and
+ * its own signal, and a panel only the one flag
+ * the registry reads.
  */
 
-/** A session nothing asks anything of. */
-function aSession(): CanvasSession {
-  return {} as CanvasSession;
+/** A session that can say it moved, and nothing
+ *  else. */
+function aSession(): CanvasSession & { moved(): void } {
+  const changes = emitter();
+
+  return {
+    onChanged: changes.on,
+    moved: () => changes.fire(),
+  } as unknown as CanvasSession & { moved(): void };
 }
 
 /** A panel, as far as the registry reads one. */
@@ -57,6 +65,9 @@ describe('the canvases that are open', () => {
     expect(await sessions.whenOpen('/p/a.workflow.json')).toBe(one);
   });
 
+  /** A registration is the first word about a canvas,
+   *  and every move the canvas says after it is
+   *  forwarded with the canvas as payload. */
   it('tells whoever follows it which canvas moved', () => {
     const sessions = canvasSessions();
     const one = aSession();
@@ -66,19 +77,35 @@ describe('the canvases that are open', () => {
     sessions.onChanged((session) => moved.push(session));
 
     sessions.register('/p/a.workflow.json', one, aPanel());
-    sessions.fire(other);
+    sessions.register('/p/b.workflow.json', other, aPanel());
+    other.moved();
+    one.moved();
 
-    expect(moved).toHaveLength(2);
-    expect(moved[0]).toBe(one);
-    expect(moved[1]).toBe(other);
+    expect(moved).toEqual([one, other, other, one]);
   });
 
   it('stops telling a follower that has let go', () => {
     const sessions = canvasSessions();
+    const one = aSession();
     const moved: CanvasSession[] = [];
 
     sessions.onChanged((session) => moved.push(session)).dispose();
-    sessions.fire(aSession());
+    sessions.register('/p/a.workflow.json', one, aPanel());
+    one.moved();
+
+    expect(moved).toEqual([]);
+  });
+
+  it('stops forwarding a canvas whose registration has let go', () => {
+    const sessions = canvasSessions();
+    const one = aSession();
+    const moved: CanvasSession[] = [];
+
+    const registered = sessions.register('/p/a.workflow.json', one, aPanel());
+    sessions.onChanged((session) => moved.push(session));
+
+    registered.dispose();
+    one.moved();
 
     expect(moved).toEqual([]);
   });

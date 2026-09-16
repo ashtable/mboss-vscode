@@ -331,7 +331,7 @@ export class InspectorView implements WebviewViewProvider {
       view: 'inspector',
       title: inspectorWords().heading,
       init: () => this.init(),
-      heard: (message) => this.heard(message, () => mounted.repaint()),
+      heard: (message) => this.heard(message),
       follows: [
         (repaint) => this.focus.onChanged(repaint),
         (repaint) =>
@@ -560,7 +560,7 @@ export class InspectorView implements WebviewViewProvider {
     if (this.focus.holder()?.at === 'run') this.mounted?.repaint();
   }
 
-  private heard(message: Heard<'inspector'>, repaint: () => void): void {
+  private heard(message: Heard<'inspector'>): void {
     switch (message.type) {
       case 'openRun':
         void this.runs.openRun(message.workflowId);
@@ -646,7 +646,7 @@ export class InspectorView implements WebviewViewProvider {
       // A document nobody has open any more: its
       // session went with its tab, and there is
       // nothing left to edit through.
-      if (canvas !== undefined) this.heardOnCanvas(canvas, message, repaint);
+      if (canvas !== undefined) this.heardOnCanvas(canvas, message);
 
       return;
     }
@@ -654,17 +654,13 @@ export class InspectorView implements WebviewViewProvider {
     this.heardOnRunTab(message);
   }
 
-  private heardOnCanvas(
-    canvas: CanvasSession,
-    message: AboutBlock,
-    repaint: () => void,
-  ): void {
+  /** A block picked on a canvas: every verb is the
+   *  canvas's own, and the canvas says when it moved,
+   *  so nothing here draws the pane again itself. */
+  private heardOnCanvas(canvas: CanvasSession, message: AboutBlock): void {
     switch (message.type) {
-      // Not in the document, so nothing else will
-      // draw the pane again for it.
       case 'inspectorMode':
         canvas.chooseMode(message.mode);
-        repaint();
 
         return;
 
@@ -748,9 +744,8 @@ export class InspectorView implements WebviewViewProvider {
    * run tab without taking focus from it, and the
    * edit waits for it to register. The block the
    * edit was made about is selected on it first, so
-   * the canvas shows the block the edit lands on,
-   * and the registry is told: an edit that writes
-   * nothing draws no board by itself.
+   * the canvas shows the block the edit lands on
+   * whether or not the edit writes anything.
    */
   private async editFromRunTab(
     found: RunTabDocument,
@@ -767,7 +762,6 @@ export class InspectorView implements WebviewViewProvider {
     }
 
     canvas.select(message.about.nodeId);
-    this.sessions.fire(canvas);
     await canvas.edit(message);
   }
 
@@ -777,20 +771,16 @@ export class InspectorView implements WebviewViewProvider {
    * with nothing picked, that surface is about its
    * run.
    *
-   * A canvas lets go of its selection and says so to
-   * the registry, which is what draws it — on the
-   * board and in this pane — since nothing the
-   * canvas's own frame said moved it. The run tab's
-   * selection is the store's, and the store draws
-   * both views when it changes.
+   * A canvas lets go of its selection and says so,
+   * which is what draws it — on the board and in
+   * this pane. The run tab's selection is the
+   * store's, and the store draws both views when it
+   * changes.
    */
   private showWholeRun(): void {
     const holder = this.focus.holder();
 
-    if (holder?.at === 'canvas') {
-      holder.session.select(null);
-      this.sessions.fire(holder.session);
-    }
+    if (holder?.at === 'canvas') holder.session.select(null);
 
     if (holder?.at === 'run') this.runs.selectNode(null);
   }

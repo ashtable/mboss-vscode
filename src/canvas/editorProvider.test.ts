@@ -786,10 +786,10 @@ describe('what an open canvas tells the registry', () => {
 
   /**
    * The Inspector lets go of a canvas's selection
-   * from its own pane, and tells the registry. The
-   * board draws whatever the registry hears about
-   * it, so it does not keep a block ringed that the
-   * pane has already let go of.
+   * from its own pane, and the canvas says so
+   * itself. The board draws whatever the canvas
+   * says, so it does not keep a block ringed that
+   * the pane has already let go of.
    */
   it('draws a selection let go of from outside its frame', async () => {
     panel.send({ type: 'select', view: 'canvas', nodeId: 'find_slot' });
@@ -798,7 +798,6 @@ describe('what an open canvas tells the registry', () => {
     const posted = panel.posted.length;
 
     canvasOn().select(null);
-    sessions.fire(canvasOn());
 
     expect(panel.posted).toHaveLength(posted + 1);
     expect(panel.posted.at(-1)).toMatchObject({ selected: undefined });

@@ -21,6 +21,11 @@ import type { CanvasSession } from './editor.js';
  * file no canvas has open yet has to wait for the
  * canvas it opens, which nothing can do on a map.
  *
+ * Each canvas says when it moved; the registry
+ * forwards it with the canvas as payload, from its
+ * registration until that lets go, so a follower
+ * of every canvas subscribes once.
+ *
  * Keyed by the file's path: a workflow opens in one
  * canvas at most, and a path is what the run tab
  * and the Inspector hold.
@@ -28,7 +33,9 @@ import type { CanvasSession } from './editor.js';
 export type CanvasSessions = {
   /**
    * Adds the canvas a panel is showing, wakes
-   * anybody waiting for that file, and says so.
+   * anybody waiting for that file, says so, and
+   * forwards every move the canvas says from then
+   * on.
    *
    * The panel comes along because whether somebody
    * is looking at it is the platform's answer, read
@@ -53,8 +60,8 @@ export type CanvasSessions = {
   whenOpen(path: string): Promise<CanvasSession>;
 
   /**
-   * Hears which canvas moved: a selection, a re-read,
-   * a run it follows, a scan.
+   * Hears which canvas moved: a selection, a face
+   * pick, a re-read, a run it follows, a scan.
    *
    * The canvas travels with the signal, so a
    * follower drawing one canvas can tell its own
@@ -62,9 +69,6 @@ export type CanvasSessions = {
    * every canvas again.
    */
   onChanged(listener: (session: CanvasSession) => void): Disposable;
-
-  /** Says that canvas moved. */
-  fire(session: CanvasSession): void;
 };
 
 /** The one fact about a panel the registry reads. */
@@ -88,10 +92,12 @@ export function canvasSessions(): CanvasSessions {
       for (const wake of waiting.get(path) ?? []) wake(session);
       waiting.delete(path);
 
+      const moves = session.onChanged(() => changes.fire(session));
       changes.fire(session);
 
       return {
         dispose: () => {
+          moves.dispose();
           if (open.get(path) === registration) open.delete(path);
         },
       };
@@ -111,7 +117,5 @@ export function canvasSessions(): CanvasSessions {
     },
 
     onChanged: (listener) => changes.on(listener),
-
-    fire: (session) => changes.fire(session),
   };
 }
