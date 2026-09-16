@@ -164,10 +164,12 @@ export type LiveRun = {
   forkedFrom: string | undefined;
 };
 
-/** The rows one tick read, handed over beside the
- *  reading made of them so nothing has to ask the
- *  database again for what is already in hand. */
-export type LedgerRead = { run: Run; steps: Step[] };
+/** The rows one tick read, and the same rows as the
+ *  reading attributed them, handed over beside the
+ *  run made of them so nothing has to ask the
+ *  database again for what is already in hand, nor
+ *  read the rows a second time at a second clock. */
+export type LedgerRead = { run: Run; steps: Step[]; operations: Operation[] };
 
 export type RunWatcher = { stop(): void };
 
@@ -362,7 +364,7 @@ export function watchRun(
           ...liveRunOf(run, reading),
           ...(queues === undefined ? {} : { queues }),
         },
-        read: { run, steps: recorded },
+        read: { run, steps: recorded, operations: reading.steps },
       };
     } catch {
       // A read that did not answer is a tick that

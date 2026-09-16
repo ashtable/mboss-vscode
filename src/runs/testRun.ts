@@ -22,8 +22,7 @@ import {
 } from './evidence.js';
 import type { FollowedRun, Following } from './following.js';
 import { decidedArms } from './operations.js';
-import { readRun } from './reading.js';
-import { hasRecovered, payloadIn } from './rows.js';
+import { payloadIn } from './rows.js';
 import { newRunId, type RunStart, type RunStarter } from './runner.js';
 import {
   refusedRunId,
@@ -702,20 +701,15 @@ export function testRunZone(deps: TestRunDeps): TestRun {
         ? ledger.steps.find((step) => step.functionId === functionId)?.output
         : undefined,
 
+    // Off the rows the watch attributed, the same
+    // reading the run the canvas draws was made of:
+    // a second reading at a second clock is how a
+    // block came to be drawn from two answers. The
+    // arms are asked of the canvas's own document,
+    // so a block deleted since the run decides
+    // nothing.
     decided: (ir) =>
-      ledger === undefined
-        ? new Map()
-        : decidedArms(
-            readRun(
-              ledger.run,
-              ledger.steps,
-              ir,
-              hasRecovered(ledger.run),
-              Date.now(),
-              ir,
-            ).steps,
-            ir,
-          ),
+      ledger === undefined ? new Map() : decidedArms(ledger.operations, ir),
 
     render: () => ({
       testRun: {

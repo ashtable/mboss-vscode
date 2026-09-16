@@ -15,7 +15,7 @@ import { workflowDocument } from '../core/index.js';
 import { WorkflowIRSchema } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import { messages } from '../messages.js';
-import type { SeeView } from '../runs/view.js';
+import { runTabOf, type SeeView } from '../runs/view.js';
 import { makeProject } from '../test-support/project.js';
 import { liveRun } from '../test-support/runs.js';
 import type { InspectorInit } from '../webview/protocol.js';
@@ -187,10 +187,8 @@ function mounted(
 
   const runs: InspectorRuns = {
     detail: () => tab.reading,
-    inspected: () =>
-      tab.reading === undefined
-        ? undefined
-        : { run: liveRun({ workflowId: 'wf_1' }), decided: {} },
+    tab: (now) =>
+      tab.reading === undefined ? undefined : runTabOf(tab.reading, now),
     project: () => options.project ?? PROJECT,
     chooseFace: (mode) => void asked.push(['chooseFace', mode]),
     selectNode: (nodeId) => void asked.push(['selectNode', nodeId]),
@@ -220,7 +218,6 @@ function mounted(
     }),
     runTrigger: async (...args) => void asked.push(['runTrigger', ...args]),
     openRunInput: async (...args) => void asked.push(['openRunInput', ...args]),
-    cancelledHere: () => false,
     replayStartRefusal: () => undefined,
     onChanged: moves.on,
     onInputChanged: typing.on,
@@ -1563,20 +1560,16 @@ describe('what a run-level subject says, and where it goes', () => {
     });
   }
 
-  it('says whether this window cancelled the run the tab is showing', () => {
+  /** "by you" is the store's answer, carried on the
+   *  one projection the pane reads; the pane asks no
+   *  second question about it. */
+  it('says whether this window cancelled the run, as the store projected it', () => {
     const pane = mounted();
     const stopped = { ...seeView().run, status: 'CANCELLED' };
-    const asked: string[] = [];
 
-    pane.runs.cancelledHere = (workflowId) => {
-      asked.push(workflowId);
-
-      return true;
-    };
-    pane.tab.reading = seeView({ run: stopped });
+    pane.tab.reading = seeView({ run: stopped, cancelledHere: true });
     pane.focus.report({ at: 'run' });
 
-    expect(asked).toEqual(['wf_1']);
     expect(pane.subjects().at(-1)).toMatchObject({
       at: 'run',
       run: { controls: { cancelledAt: expect.stringContaining('by you') } },

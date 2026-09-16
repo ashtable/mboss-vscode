@@ -3,18 +3,14 @@ import { inspectorWords, kindWords, paletteLabels } from '../canvas/words.js';
 import { checkWorkflow, readWorkflow } from '../core/index.js';
 import type { Diagnostic, LibManifest, WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
-import type { InspectedRun } from '../runs/store.js';
 import {
   ledgerOf,
-  readView,
   recordedValueOf,
-  recoverySentences,
   runControlsOf,
   runLine,
-  runLineageOf,
-  type SeeView,
+  type RunTab,
 } from '../runs/view.js';
-import { liveRunOf, type LiveRun } from '../runs/watch.js';
+import type { LiveRun } from '../runs/watch.js';
 import type { ProjectWorkflow } from '../runs/workflows.js';
 import { shortRunId } from '../webview/ids.js';
 import type {
@@ -81,12 +77,11 @@ export type RunsPanel = (path: string) => {
  * The surface last in front, with what it holds.
  *
  * A canvas answers with its session's inputs. The
- * run tab answers with the run it is showing, which
- * is nothing until a read of one lands — and, once a
- * block is picked on it, with that run as the
- * Inspector draws it and the document the run was a
- * run of. Its rows are read at the moment handed in,
- * the one clock for the whole pane.
+ * run tab answers with the run it is showing as the
+ * store projected it, at one moment, for the card
+ * and the block alike — nothing until a read of one
+ * lands — and, once a block is picked on it, with
+ * the document the run was a run of.
  */
 export type Focused =
   | { at: 'none' }
@@ -98,10 +93,8 @@ export type Focused =
     }
   | {
       at: 'run';
-      reading: SeeView | undefined;
-      inspected: InspectedRun | undefined;
+      tab: RunTab | undefined;
       document: RunDocument | undefined;
-      now: number;
       startRefusal: StartRefusal;
       runsPanel: RunsPanel;
     };
@@ -168,10 +161,10 @@ function subjectOf(focused: Focused): InspectorSubject {
   if (focused.at === 'none') return { at: 'none', file: undefined };
 
   if (focused.at === 'run') {
-    const { reading } = focused;
+    const { tab } = focused;
 
-    return reading !== undefined && reading.selectedNode === undefined
-      ? { at: 'run', run: runOnRunTab(reading, focused) }
+    return tab !== undefined && tab.picked.nodeId === undefined
+      ? { at: 'run', run: runOnRunTab(tab, focused.startRefusal) }
       : blockOnRunTab(focused);
   }
 
@@ -207,25 +200,19 @@ type RunReadings = Pick<RunLevel, 'recovery' | 'lineage' | 'note'> & {
  * The run the run tab is showing, with nothing of it
  * picked.
  *
- * Read the way the tab reads it — its rows against
- * the document it drew, at one moment — so the card
- * and the page beside it cannot say two words for
- * one run. The tab has read the ledger for the run,
- * so it can say all of the card.
+ * The tab has read the ledger for the run, so it can
+ * say all of the card; the store projected it once,
+ * for this card and the block beside it, so the two
+ * cannot say two words for one run.
  */
-function runOnRunTab(
-  reading: SeeView,
-  focused: Extract<Focused, { at: 'run' }>,
-): RunLevel {
-  const read = readView(reading, focused.now);
-
-  return runLevelOf(liveRunOf(reading.run, read), {
+function runOnRunTab(tab: RunTab, startRefusal: StartRefusal): RunLevel {
+  return runLevelOf(tab.run, {
     source: 'run',
-    recovery: recoverySentences(reading.run, read),
-    lineage: runLineageOf(reading.lineage),
-    note: reading.note,
-    cancelledHere: reading.cancelledHere ?? false,
-    replayRefused: focused.startRefusal(reading.run.name, reading.ir),
+    recovery: tab.recovery,
+    lineage: tab.lineage,
+    note: tab.note,
+    cancelledHere: tab.cancelledHere,
+    replayRefused: startRefusal(tab.name, tab.ir),
   });
 }
 
@@ -387,15 +374,10 @@ function blockOnCanvas(
 function blockOnRunTab(
   focused: Extract<Focused, { at: 'run' }>,
 ): InspectorSubject {
-  const { reading, inspected, document } = focused;
-  const nodeId = reading?.selectedNode;
+  const { tab, document } = focused;
+  const nodeId = tab?.picked.nodeId;
 
-  if (
-    reading === undefined ||
-    nodeId === undefined ||
-    inspected === undefined ||
-    document === undefined
-  ) {
+  if (tab === undefined || nodeId === undefined || document === undefined) {
     return { at: 'none', file: undefined };
   }
 
@@ -418,18 +400,18 @@ function blockOnRunTab(
       source: 'run',
       file: drawn.file,
       path,
-      workflow: reading.run.name,
+      workflow: tab.name,
       ir: drawn.ir,
       revision: proposedBy === undefined ? drawn.revision : undefined,
       nodeId,
-      face: there ? (reading.face ?? 'evidence') : 'evidence',
+      face: there ? (tab.picked.face ?? 'evidence') : 'evidence',
       manifest: drawn.manifest,
       diagnostics: drawn.diagnostics,
       paletteLabels: paletteLabels(),
       kindWords: kindWords(),
-      run: inspected.run,
-      functionId: reading.selectedStep,
-      decided: inspected.decided,
+      run: tab.inspected,
+      functionId: tab.picked.functionId,
+      decided: tab.decided,
       runInput: runInputOf(drawn.ir, nodeId, path, focused.runsPanel),
       proposal:
         proposedBy === undefined

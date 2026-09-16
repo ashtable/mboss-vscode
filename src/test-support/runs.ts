@@ -7,7 +7,13 @@ import { vi } from 'vitest';
 import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
 import type { Database } from '../runs/db.js';
 import type { ManagementClient } from '../runs/manage.js';
-import { storedValue, type Step } from '../runs/rows.js';
+import { readRun } from '../runs/reading.js';
+import {
+  hasRecovered,
+  storedValue,
+  type Run,
+  type Step,
+} from '../runs/rows.js';
 import type { RunRequest, RunStart, RunStarter } from '../runs/runner.js';
 import type { StackController, StackStatus } from '../runs/stack.js';
 import type { RunsHost } from '../runs/store.js';
@@ -560,29 +566,36 @@ export function timerThenAnswerRun(
  * things must not share one name.
  */
 export function ledgerReadOf(run: LiveRun): LedgerRead {
+  const row: Run = {
+    workflowId: run.workflowId,
+    name: run.workflow,
+    status: run.status,
+    recoveryAttempts: run.recoveryAttempts,
+    executorId: run.executorId,
+    applicationVersion: run.applicationVersion,
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    completedAt: run.completedAt,
+    error: run.error,
+    forkedFrom: run.forkedFrom,
+    wasForkedFrom: false,
+  };
+  const steps: Step[] = run.steps.map((step) => ({
+    functionId: step.functionId,
+    name: step.name,
+    startedAt: step.startedAt,
+    completedAt: step.completedAt,
+    output: step.output,
+    error: step.error?.message,
+    childWorkflowId: step.childWorkflowId,
+  }));
+
+  // Attributed the way a watch attributes them: by
+  // the grammar alone, with no drawing to gate on.
   return {
-    run: {
-      workflowId: run.workflowId,
-      name: run.workflow,
-      status: run.status,
-      recoveryAttempts: run.recoveryAttempts,
-      executorId: run.executorId,
-      applicationVersion: run.applicationVersion,
-      createdAt: run.createdAt,
-      startedAt: run.startedAt,
-      completedAt: run.completedAt,
-      error: run.error,
-      forkedFrom: run.forkedFrom,
-      wasForkedFrom: false,
-    },
-    steps: run.steps.map((step) => ({
-      functionId: step.functionId,
-      name: step.name,
-      startedAt: step.startedAt,
-      completedAt: step.completedAt,
-      output: step.output,
-      error: step.error?.message,
-      childWorkflowId: step.childWorkflowId,
-    })),
+    run: row,
+    steps,
+    operations: readRun(row, steps, 'unasked', hasRecovered(row), 0, undefined)
+      .steps,
   };
 }

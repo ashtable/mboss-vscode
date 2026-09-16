@@ -371,7 +371,7 @@ describe('what a queue block is doing', () => {
 
     // And on the copy a block of it is drawn from in
     // the Inspector, which is the same read.
-    expect(store.inspected()?.run.queueEvidence).toEqual(
+    expect(store.tab(0)?.inspected.queueEvidence).toEqual(
       store.see().run?.live?.queueEvidence,
     );
     expect(store.see().run?.live?.queueEvidence).toEqual({
@@ -464,8 +464,12 @@ describe('the run a block picked on the run tab is drawn from', () => {
 
     expect(
       store
-        .inspected()
-        ?.run.steps.map((one) => [one.name, one.nodeId, one.sdk ?? false]),
+        .tab(0)
+        ?.inspected.steps.map((one) => [
+          one.name,
+          one.nodeId,
+          one.sdk ?? false,
+        ]),
     ).toEqual([
       ['ask_details', 'ask_details', false],
       ['await_details.register', 'await_details', false],
@@ -491,12 +495,12 @@ describe('the run a block picked on the run tab is drawn from', () => {
       { name: 'slot_open', output: '{"requestedSlotFree":true}' },
     ]);
 
-    expect(store.inspected()?.decided).toEqual({ slot_open: 'yes' });
-    expect(store.inspected()?.decided).toEqual(store.see().run?.graph?.decided);
+    expect(store.tab(0)?.decided).toEqual({ slot_open: 'yes' });
+    expect(store.tab(0)?.decided).toEqual(store.see().run?.graph?.decided);
   });
 
   it('has nothing to draw before a run is open', () => {
-    expect(runsStore(deps()).inspected()).toBeUndefined();
+    expect(runsStore(deps()).tab(0)).toBeUndefined();
   });
 });
 
@@ -1249,5 +1253,12 @@ describe('a run this window cancelled', () => {
 
     expect(store.cancelledHere('wf_c9d2f3')).toBe(true);
     expect(store.cancelledHere('wf_somebody_else')).toBe(false);
+
+    // And the Inspector reads it off the one
+    // projection of the open run, not by a question
+    // of its own.
+    await store.select('wf_c9d2f3');
+
+    expect(store.tab(0)?.cancelledHere).toBe(true);
   });
 });

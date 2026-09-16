@@ -13,6 +13,7 @@ import { inFlight, runWord, settled, type RunWord } from '../webview/states.js';
 import { clock, duration, fine } from '../webview/time.js';
 import type {
   InspectorMode,
+  ShownRun,
   RecordedValue,
   RunLevel,
   RunLineage,
@@ -236,24 +237,76 @@ export function readView(view: SeeView, now: number): Reading {
 }
 
 /**
- * The run a block picked on the run tab is drawn
- * from in the Inspector, and which way each
- * decided block of it went.
+ * The run tab's run, as the Inspector reads it:
+ * projected once, at the moment the pane passed,
+ * for the card about the whole run and for the
+ * block picked on it alike.
  *
- * The ways are read against the document the run
- * page drew, the same as its graph's, so the card
- * about a block and the block on the graph beside
- * it say the same thing.
+ * One projection rather than two, because the card
+ * and the block used to be projected at two clocks
+ * in two modules, and a run read twice is how two
+ * answers come to disagree. `now` is a parameter
+ * for the reason it is one on `readRun`: the window
+ * a row is drawn in is the reader's, and a moment
+ * kept here would freeze a timer's wait.
  */
-export function inspectedOf(
-  view: SeeView,
-  now: number,
-): { run: LiveRun; decided: Record<string, string> } {
+export type RunTab = {
+  workflowId: string;
+
+  /** The workflow the run is a run of, by name. */
+  name: string;
+
+  /** The run as a canvas draws one, for the card. */
+  run: LiveRun;
+
+  /** The same run with the SDK's own rows put back
+   *  under the blocks they ran in, for a block. */
+  inspected: ShownRun;
+
+  /** Which way out each decided block took, read
+   *  against the saved drawing the page drew, so
+   *  the card and the graph beside it agree. */
+  decided: Record<string, string>;
+
+  recovery: string[] | undefined;
+  lineage: RunLineage[];
+  note: string | undefined;
+
+  /** The saved drawing the rows were read against,
+   *  for the replay's refusal. */
+  ir: WorkflowIR | undefined;
+
+  /** Whether this window cancelled the run. */
+  cancelledHere: boolean;
+
+  /** The block and row picked on the tab, and the
+   *  face somebody picked for that block. */
+  picked: {
+    nodeId: string | undefined;
+    functionId: number | undefined;
+    face: InspectorMode | undefined;
+  };
+};
+
+export function runTabOf(view: SeeView, now: number): RunTab {
   const reading = readView(view, now);
 
   return {
-    run: inspectedRunOf(view.run, reading),
+    workflowId: view.run.workflowId,
+    name: view.run.name,
+    run: liveRunOf(view.run, reading),
+    inspected: inspectedRunOf(view.run, reading),
     decided: Object.fromEntries(decidedArms(reading.steps, view.ir)),
+    recovery: recoverySentences(view.run, reading),
+    lineage: runLineageOf(view.lineage),
+    note: view.note,
+    ir: view.ir,
+    cancelledHere: view.cancelledHere ?? false,
+    picked: {
+      nodeId: view.selectedNode,
+      functionId: view.selectedStep,
+      face: view.face,
+    },
   };
 }
 

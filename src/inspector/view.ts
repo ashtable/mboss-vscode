@@ -22,8 +22,8 @@ import { messages } from '../messages.js';
 import type { PreviewStore } from '../preview/store.js';
 import type { AskAgent } from '../runs/evidence.js';
 import { pointIn } from '../runs/replayZone.js';
-import type { InspectedRun, ReplayPick } from '../runs/store.js';
-import type { SeeView } from '../runs/view.js';
+import type { ReplayPick } from '../runs/store.js';
+import type { RunTab, SeeView } from '../runs/view.js';
 import { needsTopic, projectWorkflows } from '../runs/workflows.js';
 import type { Trust } from '../trust.js';
 import type { VsCodeApi } from '../vscodeApi.js';
@@ -58,11 +58,13 @@ import {
  * values.
  */
 export type InspectorRuns = {
-  /** The run the run tab is showing. */
+  /** The run the run tab is showing, as it was read:
+   *  which run, and what is picked on it. */
   detail(): SeeView | undefined;
 
-  /** Whether this window cancelled that run. */
-  cancelledHere(workflowId: string): boolean;
+  /** That run as the pane reads it, projected once
+   *  at the moment the pane passed. */
+  tab(now: number): RunTab | undefined;
 
   /** Why a run of that workflow could not be
    *  replayed from its start; nothing where it
@@ -71,9 +73,6 @@ export type InspectorRuns = {
     workflow: string,
     document: WorkflowIR | undefined,
   ): string | undefined;
-
-  /** That run, as a block picked on it is drawn. */
-  inspected(): InspectedRun | undefined;
 
   /** The project the runs are read from, which is
    *  where the run's document is. */
@@ -439,37 +438,17 @@ export class InspectorView implements WebviewViewProvider {
   }
 
   /**
-   * What the run tab holds, and — once a block is
-   * picked on it — the run as that block is drawn
-   * and the document the block is drawn from.
-   *
-   * Whether this window cancelled the run is asked
-   * as the pane is drawn, as the run page asks it,
-   * so a run cancelled from here says so without a
-   * read of it.
+   * What the run tab holds, projected once at this
+   * moment for the card and the block alike, and —
+   * once a block is picked on it — the document the
+   * block is drawn from.
    */
   private onRunTab(startRefusal: StartRefusal, runsPanel: RunsPanel): Focused {
-    const shown = this.runs.detail();
-    const reading =
-      shown === undefined
-        ? undefined
-        : {
-            ...shown,
-            cancelledHere: this.runs.cancelledHere(shown.run.workflowId),
-          };
+    const tab = this.runs.tab(Date.now());
     const found = this.runDocument();
-    const now = Date.now();
 
-    if (reading === undefined || found === undefined) {
-      return {
-        at: 'run',
-        reading,
-        inspected: undefined,
-        document: undefined,
-        now,
-        startRefusal,
-        runsPanel,
-      };
+    if (tab === undefined || found === undefined) {
+      return { at: 'run', tab, document: undefined, startRefusal, runsPanel };
     }
 
     const { project, path, canvas } = found;
@@ -486,19 +465,10 @@ export class InspectorView implements WebviewViewProvider {
             path,
             text: this.host.documentText(path),
             manifest: this.manifestOf(project),
-            proposedBy: this.preview.forWorkflow(project, reading.run.name)
-              ?.proposedBy,
+            proposedBy: this.preview.forWorkflow(project, tab.name)?.proposedBy,
           };
 
-    return {
-      at: 'run',
-      reading,
-      inspected: this.runs.inspected(),
-      document,
-      now,
-      startRefusal,
-      runsPanel,
-    };
+    return { at: 'run', tab, document, startRefusal, runsPanel };
   }
 
   /**

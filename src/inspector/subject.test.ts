@@ -14,7 +14,7 @@ import {
 } from '../core/rules.js';
 import { messages } from '../messages.js';
 import type { Run, Step } from '../runs/rows.js';
-import type { SeeView } from '../runs/view.js';
+import { type SeeView, runTabOf } from '../runs/view.js';
 import { needsTopic, projectWorkflows } from '../runs/workflows.js';
 import { liveRun, project, savedWorkflow } from '../test-support/runs.js';
 import { shortRunId } from '../webview/ids.js';
@@ -112,10 +112,8 @@ describe('what the Inspector is about', () => {
     expect(
       inspectorInit({
         at: 'run',
-        reading: undefined,
-        inspected: undefined,
+        tab: undefined,
         document: undefined,
-        now: NOW,
         startRefusal: OFFERED,
         runsPanel: NOT_ASKED,
       }).subject,
@@ -276,19 +274,13 @@ describe('a block picked on the run tab', () => {
     } as RunDocument;
   }
 
-  const inspected = {
-    run: liveRun({ workflowId: 'wf_1', workflow: 'groom_booking' }),
-    decided: { slot_open: 'yes' },
-  };
-
-  /** What the pane is about, with that in front. */
-  function subject(tab: SeeView, document: RunDocument = buffer()) {
+  /** What the pane is about, with that in front: the
+   *  tab as the store projects it, at one moment. */
+  function subject(view: SeeView, document: RunDocument = buffer()) {
     return inspectorInit({
       at: 'run',
-      reading: tab,
-      inspected,
+      tab: runTabOf(view, NOW),
       document,
-      now: NOW,
       startRefusal: OFFERED,
       runsPanel: NOT_ASKED,
     }).subject;
@@ -310,6 +302,8 @@ describe('a block picked on the run tab', () => {
       ),
     ) as LibManifest;
 
+    const tab = runTabOf(reading({ selectedStep: 3 }), NOW);
+
     expect(
       subject(
         reading({ selectedStep: 3 }),
@@ -330,9 +324,9 @@ describe('a block picked on the run tab', () => {
         diagnostics: validateWorkflow(document, { manifest }),
         paletteLabels: paletteLabels(),
         kindWords: kindWords(),
-        run: inspected.run,
+        run: tab.inspected,
         functionId: 3,
-        decided: inspected.decided,
+        decided: tab.decided,
         runInput: undefined,
         proposal: undefined,
       },
@@ -518,28 +512,30 @@ describe('what a trigger block knows of the Runs input', () => {
   function onRunTab(dir: string, runs: RunsPanel, selectedNode: string) {
     return inspectorInit({
       at: 'run',
-      reading: {
-        run: {
-          workflowId: 'wf_1',
-          name: 'groom_booking',
-          status: 'SUCCESS',
-          recoveryAttempts: 0,
-          executorId: 'local-dev',
-          applicationVersion: 'v0.1.0',
-          createdAt: 1000,
-          startedAt: 1000,
-          completedAt: 9000,
-          error: undefined,
-          forkedFrom: undefined,
-          wasForkedFrom: false,
+      tab: runTabOf(
+        {
+          run: {
+            workflowId: 'wf_1',
+            name: 'groom_booking',
+            status: 'SUCCESS',
+            recoveryAttempts: 0,
+            executorId: 'local-dev',
+            applicationVersion: 'v0.1.0',
+            createdAt: 1000,
+            startedAt: 1000,
+            completedAt: 9000,
+            error: undefined,
+            forkedFrom: undefined,
+            wasForkedFrom: false,
+          },
+          steps: [],
+          selectedStep: undefined,
+          note: undefined,
+          ir,
+          selectedNode,
         },
-        steps: [],
-        selectedStep: undefined,
-        note: undefined,
-        ir,
-        selectedNode,
-      },
-      inspected: { run: liveRun({ workflowId: 'wf_1' }), decided: {} },
+        NOW,
+      ),
       document: {
         at: 'buffer',
         file: 'groom_booking.workflow.json',
@@ -548,7 +544,6 @@ describe('what a trigger block knows of the Runs input', () => {
         manifest: undefined,
         proposedBy: undefined,
       },
-      now: NOW,
       startRefusal: OFFERED,
       runsPanel: runs,
     }).subject;
@@ -722,17 +717,18 @@ describe('a run with nothing picked', () => {
   ) {
     return inspectorInit({
       at: 'run',
-      reading: {
-        run: RUN,
-        steps: [],
-        selectedStep: undefined,
-        note: undefined,
-        ir,
-        ...over,
-      },
-      inspected: undefined,
+      tab: runTabOf(
+        {
+          run: RUN,
+          steps: [],
+          selectedStep: undefined,
+          note: undefined,
+          ir,
+          ...over,
+        },
+        NOW,
+      ),
       document: undefined,
-      now: NOW,
       startRefusal,
       runsPanel: NOT_ASKED,
     }).subject;

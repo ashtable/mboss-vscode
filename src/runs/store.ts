@@ -49,7 +49,7 @@ import type { SessionLog } from './sessionLog.js';
 import type { StackController } from './stack.js';
 import { stackZone } from './stackZone.js';
 import { testRunZone } from './testRun.js';
-import { inspectedOf, type SeeView } from './view.js';
+import { runTabOf, type RunTab, type SeeView } from './view.js';
 
 import { printedInput, type LiveRun, type RunWatch } from './watch.js';
 import { projectWorkflows, workflowDocument } from './workflows.js';
@@ -57,17 +57,6 @@ import { runsWords } from './words.js';
 
 export type { StackAction } from './stack.js';
 export type { ReplayPick } from './replayZone.js';
-
-/**
- * The run tab's run, as the Inspector draws a
- * block of it: every row, the SDK's own included,
- * with whatever was read about its queue blocks,
- * and which way each decided block went.
- */
-export type InspectedRun = {
-  run: ShownRun;
-  decided: Record<string, string>;
-};
 
 /**
  * What the window knows about a project's runs,
@@ -203,9 +192,13 @@ export type RunsStore = Disposable & {
    *  drawn. */
   detail(): SeeView | undefined;
 
-  /** The open run, as the Inspector draws a block
-   *  picked on it. */
-  inspected(): InspectedRun | undefined;
+  /**
+   * The open run as the Inspector reads it, projected
+   * once at the moment the pane passed, with what
+   * only the store holds put on: the queue reads and
+   * whether this window cancelled it.
+   */
+  tab(now: number): RunTab | undefined;
 
   /** The run a canvas draws itself against, when
    *  one has been followed. */
@@ -788,17 +781,25 @@ export function runsStore(deps: RunsDeps): RunsStore {
 
     detail: openRun.reading,
 
-    // Read again from the rows the page holds rather
-    // than kept beside them: a tick replaces those
-    // rows, and a copy made at the last click would
-    // be a run from a moment ago.
-    inspected: () => {
+    // Projected again from the rows the page holds
+    // rather than kept beside them: a tick replaces
+    // those rows, and a copy made at the last click
+    // would be a run from a moment ago. "by you" is
+    // asked here as the page asks it, so a run
+    // cancelled from here says so without a re-read.
+    tab: (now) => {
       const view = openRun.reading();
       if (view === undefined) return undefined;
 
-      const { run, decided } = inspectedOf(view, Date.now());
+      const tab = runTabOf(
+        {
+          ...view,
+          cancelledHere: history.cancelledHere().has(view.run.workflowId),
+        },
+        now,
+      );
 
-      return { run: withQueues(run), decided };
+      return { ...tab, inspected: withQueues(tab.inspected) };
     },
 
     live: () => shownRun(testRun.live()),

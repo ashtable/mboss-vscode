@@ -230,10 +230,9 @@ export function activate(context: ExtensionContext): void {
     preview,
     {
       detail: () => runs.detail(),
-      cancelledHere: (workflowId) => runs.cancelledHere(workflowId),
+      tab: (now) => runs.tab(now),
       replayStartRefusal: (workflow, document) =>
         runs.replayStartRefusal(workflow, document),
-      inspected: () => runs.inspected(),
       // The project the store reads its runs from.
       project: () => runsEditor.projects()[0],
       chooseFace: (mode) => runs.chooseFace(mode),
