@@ -15,7 +15,12 @@ import {
 import { editFor } from '../canvas/edits.js';
 import { inspectorWords, paletteLabels } from '../canvas/words.js';
 
-import { configToForm, formToConfig, type InspectorField } from './forms.js';
+import {
+  configToForm,
+  formToConfig,
+  wholeNode,
+  type InspectorField,
+} from './forms.js';
 
 /**
  * The Inspector, as a set of fields over a node.
@@ -1128,5 +1133,28 @@ describe('every field a person sees', () => {
       .filter((key) => strings.options[key] === undefined);
 
     expect([...new Set(unlabelled)]).toEqual([]);
+  });
+});
+
+describe('a node the document would take', () => {
+  it('takes every sample as it stands', () => {
+    for (const node of SAMPLES) expect(wholeNode(node)).toBe(true);
+  });
+
+  /**
+   * The same rule the host applies, asked before a
+   * draft is kept: letters where a count goes come
+   * through as no number at all, and a count the
+   * schema bounds is refused outside its range.
+   */
+  it('refuses text where a count goes, and a count outside its range', () => {
+    const node = sample('call_out');
+    const tries = (value: number): WorkflowNode =>
+      formToConfig(node, set(fieldsOf(node), 'retryMaxAttempts', value));
+
+    expect(wholeNode(tries(Number('abc')))).toBe(false);
+    expect(wholeNode(tries(0))).toBe(false);
+    expect(wholeNode(tries(11))).toBe(false);
+    expect(wholeNode(tries(3))).toBe(true);
   });
 });

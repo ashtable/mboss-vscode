@@ -70,12 +70,17 @@ export type PropertyRowProps = Holding & {
   /** What is wrong with the value, said under it. */
   note?: string;
 
+  /** What was typed that is no value for this row,
+   *  said under it in the failing voice while the
+   *  box keeps it for the person to put right. */
+  refused?: string;
+
   hook?: Record<string, string>;
 };
 
 /** One property, label first, in its own row. */
 export function PropertyRow(props: PropertyRowProps) {
-  const { label, labels, mono, unit, provenance, note, hook } = props;
+  const { label, labels, mono, unit, provenance, note, refused, hook } = props;
   const named = useId();
 
   const ids = {
@@ -83,6 +88,7 @@ export function PropertyRow(props: PropertyRowProps) {
     control: `${named}control`,
     unit: `${named}unit`,
     note: `${named}note`,
+    refused: `${named}refused`,
   };
 
   // The unit and the note are what a screen reader
@@ -96,6 +102,7 @@ export function PropertyRow(props: PropertyRowProps) {
     [
       counted && unit !== undefined ? ids.unit : '',
       note === undefined ? '' : ids.note,
+      refused === undefined ? '' : ids.refused,
     ]
       .filter((id) => id !== '')
       .join(' ') || undefined;
@@ -169,6 +176,17 @@ export function PropertyRow(props: PropertyRowProps) {
       {note === undefined ? null : (
         <FieldHint id={ids.note} hookClass="field-note">
           {note}
+        </FieldHint>
+      )}
+
+      {refused === undefined ? null : (
+        <FieldHint
+          id={ids.refused}
+          tone="fail"
+          hookClass="field-note"
+          hook={{ refused: '' }}
+        >
+          {refused}
         </FieldHint>
       )}
     </div>

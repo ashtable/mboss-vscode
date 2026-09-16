@@ -95,6 +95,7 @@
     },
     "noRun": "start or pick a run to see what it recorded",
     "notInWorkflow": "not in the workflow",
+    "notAValue": "not a value for this field · nothing was saved",
     "kinds": {
       "trigger": "Trigger",
       "step": "Step",

@@ -393,6 +393,7 @@ export const inspectorWords = once(() => ({
   // block a run recorded and the document has since
   // lost.
   notInWorkflow: l10n.t('not in the workflow'),
+  notAValue: l10n.t('not a value for this field · nothing was saved'),
 
   kinds: paletteLabels(),
 

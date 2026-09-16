@@ -1,5 +1,6 @@
 import {
   DEFAULT_RETRY,
+  NodeSchema,
   type BranchCase,
   type FormField,
   type NodeKind,
@@ -56,6 +57,21 @@ export type InspectorForm = {
   kind: NodeKind;
   fields: InspectorField[];
 };
+
+/**
+ * Whether the document would take this node.
+ *
+ * Asked of a draft before it is kept or sent. A box
+ * can hold text that is no value for its field —
+ * letters where a count goes, a count outside its
+ * range — and the host refuses such a node whole,
+ * so a draft that kept it would have every later
+ * commit refused with it. The rule is core's own
+ * schema, the one the host applies.
+ */
+export function wholeNode(node: WorkflowNode): boolean {
+  return NodeSchema.safeParse(node).success;
+}
 
 type Of<K extends NodeKind> = Extract<WorkflowNode, { kind: K }>;
 

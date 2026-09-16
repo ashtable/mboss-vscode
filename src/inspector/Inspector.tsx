@@ -35,7 +35,12 @@ import {
 } from './EvidenceFace.js';
 import { InspectorHeader } from './Header.js';
 import { evidenceOf } from './evidence.js';
-import { configToForm, formToConfig, type InspectorField } from './forms.js';
+import {
+  configToForm,
+  formToConfig,
+  wholeNode,
+  type InspectorField,
+} from './forms.js';
 
 /**
  * A block in the Inspector: its name over two faces,
@@ -230,6 +235,13 @@ export function Inspector({
   const draft =
     edited !== undefined && edited.form === form ? edited.node : selected?.node;
 
+  // The field whose last commit was no value, kept
+  // with the form it was typed in: another form is
+  // another draft, with nothing refused yet.
+  const [refused, setRefused] = useState<{ form: string; id: string }>();
+  const refusedField =
+    refused !== undefined && refused.form === form ? refused.id : undefined;
+
   const readOnly = revision === undefined;
 
   // What every message about this block names it by.
@@ -245,6 +257,17 @@ export function Inspector({
 
     const next = formToConfig(draft, [field]);
 
+    // Text that is no value for its field goes
+    // nowhere: the box keeps it and says so under
+    // it. A draft that kept it would have every
+    // later commit on this form refused with it.
+    if (!wholeNode(next)) {
+      setRefused({ form, id: field.id });
+
+      return;
+    }
+
+    setRefused(undefined);
     setEdited({ form, node: next });
     postToHost({ type: 'edit', baseRevision: revision, node: next, about });
   };
@@ -351,6 +374,7 @@ export function Inspector({
               node={selected.node}
               draft={draft}
               readOnly={readOnly}
+              refused={refusedField}
               proposal={proposal}
               lib={lib}
               misfits={misfits}

@@ -402,6 +402,7 @@
   "none": "none",
   "not JSON yet · Run will refuse it": "not JSON yet · Run will refuse it",
   "not a block in the saved workflow": "not a block in the saved workflow",
+  "not a value for this field · nothing was saved": "not a value for this field · nothing was saved",
   "not in the workflow": "not in the workflow",
   "not registered yet": "not registered yet",
   "not set": "not set",

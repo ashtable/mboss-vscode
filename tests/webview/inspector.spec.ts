@@ -5079,6 +5079,45 @@ test.describe('a field at rest and in use', () => {
     await expect(field).toHaveValue('5');
   });
 
+  /**
+   * Text that is no value for its field goes
+   * nowhere. The box keeps it and says so under it,
+   * and the next value typed is sent on its own:
+   * a draft that kept the text would have every
+   * later commit refused with it.
+   */
+  test('keeps text that is no value in the box and sends nothing', async ({
+    page,
+  }) => {
+    const harness = await openInspector(
+      page,
+      blockInit(blockSubject('find_slot')),
+    );
+    const field = attempts(page);
+    const refused = page.locator('[data-refused]');
+
+    await field.fill('abc');
+    await field.press('Enter');
+
+    expect(await harness.postedOfType('edit')).toHaveLength(0);
+    await expect(field).toHaveValue('abc');
+    await expect(refused).toHaveText(inspectorStrings.notAValue);
+
+    await field.fill('11');
+    await field.press('Enter');
+
+    expect(await harness.postedOfType('edit')).toHaveLength(0);
+    await expect(refused).toHaveCount(1);
+
+    await field.fill('4');
+    await field.press('Enter');
+
+    const sent = await harness.postedOfType('edit');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ node: { retry: { maxAttempts: 4 } } });
+    await expect(refused).toHaveCount(0);
+  });
+
   test('sends one edit for a field left after Enter', async ({ page }) => {
     const harness = await openInspector(
       page,

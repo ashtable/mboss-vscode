@@ -259,6 +259,7 @@ export function ConfigureFace({
   node,
   draft,
   readOnly,
+  refused,
   proposal,
   lib,
   misfits,
@@ -294,6 +295,10 @@ export function ConfigureFace({
   draft: WorkflowNode;
 
   readOnly: boolean;
+
+  /** The field whose last commit was no value for
+   *  it, if any: its box keeps the text and says so. */
+  refused: string | undefined;
 
   /** Why nothing here can be changed, when a
    *  proposal is the reason. */
@@ -465,6 +470,11 @@ export function ConfigureFace({
           pair={pair}
           labels={labels}
           notes={[...(notes[pair.per.id] ?? []), ...(notes[pair.sec.id] ?? [])]}
+          refused={
+            refused === pair.per.id || refused === pair.sec.id
+              ? strings.notAValue
+              : undefined
+          }
           readOnly={readOnly}
           onCommit={onCommit}
         />
@@ -503,6 +513,7 @@ export function ConfigureFace({
         field={field}
         labels={labels}
         notes={notes[field.id]}
+        refused={refused === field.id ? strings.notAValue : undefined}
         readOnly={readOnly}
         onCommit={onCommit}
       />
@@ -918,6 +929,7 @@ function Row({
   field,
   labels,
   notes,
+  refused,
   readOnly,
   onCommit,
 }: {
@@ -934,6 +946,10 @@ function Row({
    *  on the block, because this is where it would
    *  be put right. */
   notes?: string[];
+
+  /** What was typed here that is no value, kept in
+   *  the box and said under it. */
+  refused?: string;
 
   readOnly: boolean;
 
@@ -992,6 +1008,7 @@ function Row({
           field={field.id}
           unit={strings.units[field.id]}
           note={notes?.join(' ')}
+          refused={refused}
           control={(named) => (
             <Control
               strings={strings}
@@ -1024,6 +1041,7 @@ function Pair({
   pair,
   labels,
   notes,
+  refused,
   readOnly,
   onCommit,
 }: {
@@ -1040,6 +1058,9 @@ function Pair({
    *  is a way out of. */
   notes: string[];
 
+  /** What was typed in either half that is no value. */
+  refused?: string;
+
   readOnly: boolean;
   onCommit: (field: InspectorField) => void;
 }) {
@@ -1049,6 +1070,7 @@ function Pair({
       labels={labels}
       unit={strings.units[pair.sec.id]}
       note={notes.length === 0 ? undefined : notes.join(' ')}
+      refused={refused}
       controls={[pair.per, pair.sec].map((half) => ({
         field: half.id,
         control: (named: Named) => (
