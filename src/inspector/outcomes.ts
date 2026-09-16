@@ -1,4 +1,5 @@
 import type { WorkflowIR, WorkflowNode } from '../core/rules.js';
+import type { DecisionOutcome } from '../webview/protocol.js';
 
 /**
  * Where each way out of a decision leads.
@@ -13,16 +14,6 @@ import type { WorkflowIR, WorkflowNode } from '../core/rules.js';
  * the column's, not this. This says which block, or
  * none, and the column draws it.
  */
-export type DecisionOutcome = {
-  /** The value the function returns to take this
-   *  way out, as it reads. */
-  value: string;
-
-  /** The block it leads to, absent where the port
-   *  is unwired. */
-  target: string | undefined;
-};
-
 export function outcomesOf(
   ir: WorkflowIR,
   node: WorkflowNode,

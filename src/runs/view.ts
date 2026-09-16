@@ -14,7 +14,6 @@ import { clock, duration, fine } from '../webview/time.js';
 import type {
   InspectorMode,
   ShownRun,
-  RecordedValue,
   RunLevel,
   RunLineage,
   RunRow,
@@ -43,15 +42,14 @@ import { decidedArms, groupsOf, type TraceGroup } from './operations.js';
 import { replayRowReason } from './replayZone.js';
 import { readRun, type Operation, type Reading } from './reading.js';
 import {
-  INLINE_LIMIT,
-  OUTPUT_KEPT,
   hasRecovered,
   inlineJson,
   recoveriesOf,
-  sizeOf,
   type Run,
   type RunInput,
   type Step,
+  recordedValue,
+  type RecordedValue,
 } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
 import { inspectedRunOf, liveRunOf, type LiveRun } from './watch.js';
@@ -871,19 +869,16 @@ export function recordedValueOf(
 
   const shown =
     input.shape === 'payload' ? inlineJson(input.value) : input.text;
-
-  if (shown.length <= INLINE_LIMIT) return { kind: 'inline', text: shown };
-
   const stored =
     input.shape === 'payload'
       ? (JSON.stringify(input.value) ?? '')
       : input.text;
 
-  return {
-    kind: 'artifact',
-    preview: shown.slice(0, OUTPUT_KEPT),
-    size: sizeOf(new TextEncoder().encode(stored).length, sizeWords()),
-  };
+  return recordedValue(
+    shown,
+    new TextEncoder().encode(stored).length,
+    sizeWords(),
+  );
 }
 
 function chipOf(step: Operation, points: ReplayPoints): SeeChip {

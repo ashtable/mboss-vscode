@@ -294,8 +294,12 @@ none of that.
   `BlockSurface`, the one interface a canvas session and the run tab's
   adapter in `inspector/runTab.ts` both answer), `inspector/blockEvidence.ts`
   finishes what the run a surface follows recorded about the block — its
-  rows, the row drawn, where it got to by the board's own rule — so the
-  pane draws an answer rather than deriving one, and `InspectorView`
+  rows, the row drawn, where it got to by the board's own rule — and
+  `subject.ts` finishes the rest the same way (the block itself, its
+  findings beside the fields that are ways out of them, a decided branch's
+  outcomes, the functions on offer, and through `inspector/runCard.ts` the
+  Runs view as a trigger's card shows it), so the pane draws answers rather
+  than deriving them from a document, a manifest and findings; `InspectorView`
   routes what the pane says — a face, an edit, the ways into a block's code
   — to the surface the `about` every one of those carries names (the
   surface a block was picked on, its document and its id) rather than to

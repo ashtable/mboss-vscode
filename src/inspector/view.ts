@@ -25,10 +25,10 @@ import type {
   BlockAbout,
   InspectorInit,
   RunByHand,
-  RunInputView,
 } from '../webview/protocol.js';
 
 import type { InspectorFocus } from './focus.js';
+import type { RunInputRead } from './runCard.js';
 import type { RunTabSurface } from './runTab.js';
 import {
   inspectorInit,
@@ -374,7 +374,7 @@ export class InspectorView implements WebviewViewProvider {
    * it: a window trusted mid-session draws the pane
    * again, and the card offers the run it now can.
    */
-  private runsPanel(path: string): RunInputView {
+  private runsPanel(path: string): RunInputRead {
     const project = this.runs.project();
     const box = this.runs.runInput();
     const saved =

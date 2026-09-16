@@ -1192,7 +1192,14 @@ describe('a trigger block and the Runs input', () => {
         expect(pane.subjects()).toHaveLength(drawn + 1);
         expect(pane.subjects().at(-1)).toMatchObject({
           at: 'block',
-          block: { runInput: { text: '{"n":2}' } },
+          block: {
+            runInput: {
+              sample: {
+                json: true,
+                value: { kind: 'inline', text: '{ "n": 2 }' },
+              },
+            },
+          },
         });
       });
 
@@ -1220,21 +1227,6 @@ describe('a trigger block and the Runs input', () => {
         expect(asked).toEqual([['openRunInput']]);
         expect(did).toEqual([]);
       });
-
-      it('says whether its document has changes nobody saved', () => {
-        const pane = about();
-
-        expect(pane.subjects().at(-1)).toMatchObject({
-          block: { runInput: { unsaved: false } },
-        });
-
-        pane.dirty.add(PATH);
-        pane.typed('{}');
-
-        expect(pane.subjects().at(-1)).toMatchObject({
-          block: { runInput: { unsaved: true } },
-        });
-      });
     });
   }
 
@@ -1248,8 +1240,11 @@ describe('a trigger block and the Runs input', () => {
    * one of the two worth saying.
    */
   describe('what the Runs view answers about the trigger’s document', () => {
+    const words = inspectorWords();
+
     /** The pane about the trigger selected on a
-     *  canvas over a file in a real project. */
+     *  canvas over a file in a real project, and
+     *  the card it draws at any moment. */
     function inProject(dir: string, options: { trusted?: boolean } = {}) {
       const pane = mounted({ project: dir, ...options });
       const path = join(
@@ -1266,18 +1261,22 @@ describe('a trigger block and the Runs input', () => {
       pane.sessions.register(path, canvas.canvas, { active: true });
       pane.focus.report({ at: 'canvas', session: canvas.canvas });
 
-      const subject = pane.subjects().at(-1);
+      const card = () => {
+        const subject = pane.subjects().at(-1);
 
-      return subject?.at === 'block' ? subject.block.runInput : undefined;
+        return subject?.at === 'block' ? subject.block.runInput : undefined;
+      };
+
+      return { ...pane, path, card };
     }
 
     it('finds this document among the saved workflows by its file', () => {
       const dir = project({ workflows: ['groom_booking', 'expense_claim'] });
 
-      expect(inProject(dir)).toMatchObject({
-        saved: { name: 'groom_booking', mode: 'manual' },
-        needsTopic: false,
-        selectedWorkflow: 'groom_booking',
+      expect(inProject(dir, { trusted: true }).card()).toMatchObject({
+        saved: 'groom_booking',
+        switches: undefined,
+        start: { ok: true, workflow: 'groom_booking' },
       });
     });
 
@@ -1289,9 +1288,9 @@ describe('a trigger block and the Runs input', () => {
         'utf8',
       );
 
-      expect(inProject(dir)).toMatchObject({
+      expect(inProject(dir, { trusted: true }).card()).toMatchObject({
         saved: undefined,
-        needsTopic: false,
+        start: { ok: false, reason: words.saveToRun },
       });
     });
 
@@ -1303,9 +1302,23 @@ describe('a trigger block and the Runs input', () => {
         'utf8',
       );
 
-      expect(inProject(dir)).toMatchObject({
+      expect(inProject(dir, { trusted: true }).card()).toMatchObject({
         saved: undefined,
-        needsTopic: true,
+        start: { ok: false, reason: words.needsTopic },
+      });
+    });
+
+    it('says whether its document has changes nobody saved', () => {
+      const dir = project({ workflows: ['groom_booking'] });
+      const pane = inProject(dir, { trusted: true });
+
+      expect(pane.card()).toMatchObject({ start: { ok: true } });
+
+      pane.dirty.add(pane.path);
+      pane.typed('{}');
+
+      expect(pane.card()).toMatchObject({
+        start: { ok: false, reason: words.saveToRun },
       });
     });
 
@@ -1317,9 +1330,11 @@ describe('a trigger block and the Runs input', () => {
     it('says whether this window may start a run at all', () => {
       const dir = project({ workflows: ['groom_booking'] });
 
-      expect(inProject(dir)).toMatchObject({ trusted: false });
-      expect(inProject(dir, { trusted: true })).toMatchObject({
-        trusted: true,
+      expect(inProject(dir).card()).toMatchObject({
+        start: { ok: false, reason: words.untrusted },
+      });
+      expect(inProject(dir, { trusted: true }).card()).toMatchObject({
+        start: { ok: true },
       });
     });
   });
@@ -1447,15 +1462,14 @@ describe('what the Inspector follows for a run-tab block', () => {
     pane.moved();
 
     expect(pane.subjects().at(-1)).toMatchObject({
-      block: { manifest: undefined },
+      block: { lib: undefined },
     });
 
     pane.trust.grant();
 
-    const manifest = (
-      pane.subjects().at(-1) as { block: { manifest?: unknown } }
-    ).block.manifest;
-    expect(manifest).toBeDefined();
+    const lib = (pane.subjects().at(-1) as { block: { lib?: unknown } }).block
+      .lib;
+    expect(lib).toBeDefined();
   });
 
   it('reads the project’s code again once it is generated', async () => {
@@ -1469,10 +1483,8 @@ describe('what the Inspector follows for a run-tab block', () => {
 
     const names = () =>
       (
-        pane.subjects().at(-1) as {
-          block: { manifest?: { functions: { export: string }[] } };
-        }
-      ).block.manifest?.functions.map((one) => one.export) ?? [];
+        pane.subjects().at(-1) as { block: { lib?: { export: string }[] } }
+      ).block.lib?.map((one) => one.export) ?? [];
 
     expect(names()).toContain('findSlot');
     expect(names()).not.toContain('holdSlot');

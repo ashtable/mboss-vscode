@@ -593,6 +593,39 @@ export function sizeOf(bytes: number, words: SizeWords): string {
     : words.megabytes.replace('{0}', (bytes / MEGABYTE).toFixed(1));
 }
 
+/** A recorded value as a card draws it: whole where
+ *  it is short enough to read where it was recorded,
+ *  and past that a preview with its size and a way
+ *  to open all of it. */
+export type RecordedValue =
+  | { kind: 'inline'; text: string }
+  | { kind: 'artifact'; preview: string; size: string };
+
+/**
+ * The one rule every card draws a recorded value by.
+ *
+ * `shown` is the value as a person reads it and
+ * `bytes` its size before any cut. Which of the two
+ * shapes a value takes is decided here, against the
+ * one inline limit, for a run's input, a step's
+ * output and the sample a card would start a run
+ * with alike: three cards used to hold three copies
+ * of this, and the fourth would have drifted.
+ */
+export function recordedValue(
+  shown: string,
+  bytes: number,
+  sizes: SizeWords,
+): RecordedValue {
+  return shown.length <= INLINE_LIMIT
+    ? { kind: 'inline', text: shown }
+    : {
+        kind: 'artifact',
+        preview: shown.slice(0, OUTPUT_KEPT),
+        size: sizeOf(bytes, sizes),
+      };
+}
+
 /**
  * A recorded value, as every panel needs it.
  *

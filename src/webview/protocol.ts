@@ -12,14 +12,16 @@ import type { canvasWords, inspectorWords } from '../canvas/words.js';
 import type { galleryWords } from '../gallery/words.js';
 import type {
   Diagnostic,
+  LibFunction,
   LibManifest,
   NodeBox,
   NodeKind,
   WorkflowIR,
+  WorkflowNode,
 } from '../core/rules.js';
 import type { RunFilter } from '../runs/queries.js';
 import type { StepState } from '../runs/reading.js';
-import type { RunCounts, StepError } from '../runs/rows.js';
+import type { RecordedValue, RunCounts, StepError } from '../runs/rows.js';
 import type { ServiceHealth, StackAction } from '../runs/stack.js';
 import type { QueueEvidence, QueueItem } from '../runs/queueEvidence.js';
 import type { SessionVia } from '../runs/sessionLog.js';
@@ -958,12 +960,8 @@ export type InspectorSubject =
 export type BlockSubject = {
   source: 'canvas' | 'run';
 
-  /** The workflow file's name,
-   *  `<name>.workflow.json`. */
-  file: string;
-
   /**
-   * Where that file is. The pane draws the blocks
+   * Where the document is. The pane draws the blocks
    * of every open document, and two documents can
    * share a name and their blocks' ids, so this is
    * what tells one block's form from the other's.
@@ -972,10 +970,15 @@ export type BlockSubject = {
 
   workflow: string;
 
-  /** The document buffer's IR (a canvas session's,
-   *  or the text document's), never the run's disk
-   *  copy. */
-  ir: WorkflowIR;
+  /**
+   * The block as the document buffer holds it — a
+   * canvas session's read, or the text document's,
+   * never the run's disk copy — and nothing where
+   * the document no longer has it: a block a run
+   * recorded and the document has lost since, which
+   * has nothing to configure.
+   */
+  node: WorkflowNode | undefined;
 
   /** Present when the buffer parses and no proposal
    *  is showing: what every edit carries as
@@ -986,11 +989,19 @@ export type BlockSubject = {
 
   face: InspectorMode;
 
-  manifest: LibManifest | undefined;
+  /** What core says about this block, beside the
+   *  field that is a way out of each finding: the
+   *  sentence the Problems panel is showing. */
+  notes: Record<string, string[]>;
 
-  diagnostics: Diagnostic[];
+  /** Where each way out of a decided branch leads;
+   *  nothing for any other block. */
+  outcomes: DecisionOutcome[];
 
-  paletteLabels: Record<NodeKind, string>;
+  /** What the project's code-behind offers, which
+   *  is what the picker offers; nothing where the
+   *  code has not been read. */
+  lib: LibFunction[] | undefined;
 
   kindWords: Record<NodeKind, string>;
 
@@ -1197,38 +1208,59 @@ export type QueueCardEvidence = {
 };
 
 /**
- * The Runs panel's input, as a trigger's card shows
- * it: read there and never written from here, so
- * the panel stays the one place a run's input is
- * typed.
+ * Where one way out of a decision leads.
+ *
+ * A branch that runs a function has no predicates
+ * to edit — the function decided these — so its
+ * cases are read beside the wires they stand for.
+ * The word for an outcome nothing is wired to is
+ * the pane's, not this: this says which block, or
+ * none, and the pane draws it.
+ */
+export type DecisionOutcome = {
+  /** The value the function returns to take this
+   *  way out, as it reads. */
+  value: string;
+
+  /** The title of the block it leads to, absent
+   *  where the port is unwired. */
+  target: string | undefined;
+};
+
+/**
+ * The Runs view, as a trigger's card shows it: read
+ * there and never written from here, so the view
+ * stays the one place a run's input is typed, and
+ * worked out on the host, so the card draws it.
  */
 export type RunInputView = {
-  /** What the Runs panel's input box holds right
-   *  now. */
-  text: string;
+  /** The saved workflow this document is, by name,
+   *  where the Runs view has one: the name a run
+   *  starts. */
+  saved: string | undefined;
 
-  /** The workflow the Runs panel is set to. */
-  selectedWorkflow: string | undefined;
+  /** What Run would start the workflow with, as the
+   *  card draws it, and whether it is JSON; nothing
+   *  for an empty box. */
+  sample: { value: RecordedValue; json: boolean } | undefined;
 
-  /** This document's entry in the Runs panel's
-   *  saved workflows, matched by file path. */
-  saved: { name: string; mode: WorkflowTrigger['mode'] } | undefined;
+  /** The sentence saying Run switches the Runs view,
+   *  where it is set to another workflow. */
+  switches: string | undefined;
 
-  /** Why the saved file is not runnable although it
-   *  is on disk: its event trigger has no topic. */
-  needsTopic: boolean;
+  /** Why the Runs view's last start of this workflow
+   *  was refused, where it was. */
+  refused: string | undefined;
 
-  /** The document buffer has unsaved changes, so a
-   *  run would start the saved workflow, not the
-   *  one shown. */
-  unsaved: boolean;
-
-  /** This window may run the project's code. A run
-   *  executes what the folder holds, which is the
-   *  decision trust exists to make. */
-  trusted: boolean;
-
-  problem: TestRunProblem | undefined;
+  /**
+   * Whether Run would start what the canvas shows —
+   * the saved workflow, by name — or the one
+   * sentence saying why not. A trigger on a
+   * schedule is started by DBOS and never by Run,
+   * which the pane says in the run's place, reading
+   * the draft's mode rather than the file's.
+   */
+  start: { ok: true; workflow: string } | { ok: false; reason: string };
 };
 
 /**
@@ -1282,12 +1314,6 @@ export type RunLevel = {
 
   note: string | undefined;
 };
-
-/** A recorded value: short enough to show whole, or
- *  a preview with its size and a way to open it. */
-export type RecordedValue =
-  | { kind: 'inline'; text: string }
-  | { kind: 'artifact'; preview: string; size: string };
 
 /** One lineage line. The view composes the words,
  *  because each id in them is a Button. */

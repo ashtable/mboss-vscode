@@ -12,24 +12,14 @@ import {
 } from 'react';
 
 import type {
-  Diagnostic,
   HandlerMisfit,
   LibFunction,
-  WorkflowIR,
   WorkflowNode,
 } from '../core/rules.js';
-import {
-  INLINE_LIMIT,
-  OUTPUT_KEPT,
-  inlineJson,
-  payloadIn,
-  sizeOf,
-  type SizeWords,
-} from '../runs/rows.js';
 import { filled } from '../webview/fill.js';
 import type {
+  DecisionOutcome,
   InspectorStrings,
-  RecordedValue,
   RunInputView,
 } from '../webview/protocol.js';
 import { Button } from '../webview/signal/Button.js';
@@ -44,8 +34,6 @@ import { fitsFor, signatureOf, type LibFit } from '../canvas/libFunction.js';
 
 import type { FormGroup, FormLine, FormPlan, InspectorField } from './forms.js';
 import { pickerAfter, type NumberField, type PickerEvent } from './lens.js';
-import { fieldNotes } from './notes.js';
-import { outcomesOf } from './outcomes.js';
 import { Recorded } from './Value.js';
 
 /**
@@ -210,7 +198,6 @@ export function ConfigureFace({
   strings,
   block,
   held,
-  ir,
   workflow,
   node,
   draft,
@@ -220,7 +207,8 @@ export function ConfigureFace({
   proposal,
   lib,
   misfits,
-  diagnostics,
+  notes,
+  outcomes,
   runInput,
   folded,
   setFolded,
@@ -239,8 +227,6 @@ export function ConfigureFace({
   block: string;
 
   held: RefObject<Held | undefined>;
-
-  ir: WorkflowIR;
 
   /** The workflow's name, as the document says it. */
   workflow: string;
@@ -267,7 +253,16 @@ export function ConfigureFace({
 
   lib: LibFunction[] | undefined;
   misfits: Record<HandlerMisfit['kind'], string>;
-  diagnostics: Diagnostic[];
+
+  /** What core says about the block, beside the
+   *  field that is a way out of each finding: the
+   *  sentence the Problems panel is showing, which
+   *  changes when the document does — the moment
+   *  this face is built again anyway. */
+  notes: Record<string, string[]>;
+
+  /** Where each way out of a decided branch leads. */
+  outcomes: DecisionOutcome[];
 
   /** What the Runs view holds, beside a trigger. */
   runInput: RunInputView | undefined;
@@ -288,14 +283,6 @@ export function ConfigureFace({
   // read the same on every one.
   const word = (id: string): string | undefined =>
     strings.fieldsByKind[plan.kind]?.[id] ?? strings.fields[id];
-
-  // Asked of the document rather than of the
-  // draft, because the findings were asked of the
-  // document: the sentence under a field is the one
-  // the Problems panel is showing, and it changes
-  // when the document does — which is the moment
-  // this face is built again anyway.
-  const notes = fieldNotes(ir, node, diagnostics);
 
   // What a group needs saying that no one line in it
   // does is said once its lines are all drawn, after
@@ -331,9 +318,7 @@ export function ConfigureFace({
   // a trigger's, and never one on a schedule, which
   // the card says in the run's place.
   const start =
-    node.kind !== 'trigger' || scheduled || runInput === undefined
-      ? undefined
-      : startFrom(runInput, strings, onRunTrigger);
+    node.kind !== 'trigger' || scheduled ? undefined : runInput?.start;
 
   const labels = plan.labels;
 
@@ -389,7 +374,7 @@ export function ConfigureFace({
         <PropertyRow
           key={line.id}
           label={strings.workflow}
-          value={runInput?.saved?.name ?? workflow}
+          value={runInput?.saved ?? workflow}
           mono
           hook={{ workflow: '' }}
         />
@@ -490,7 +475,7 @@ export function ConfigureFace({
           </FieldHint>
         )}
 
-        {outcomesOf(ir, node).map((outcome) => (
+        {outcomes.map((outcome) => (
           <PropertyRow
             key={outcome.value}
             label={<span data-mono="">{outcome.value} →</span>}
@@ -544,6 +529,7 @@ export function ConfigureFace({
         start={start}
         onOpenFunction={onOpenFunction}
         onAskAgent={onAskAgent}
+        onRunTrigger={onRunTrigger}
       />
     </>
   );
@@ -552,16 +538,16 @@ export function ConfigureFace({
 /**
  * What Run with this input would start the
  * workflow with: the Runs view's input box, read
- * here and never written, so the box stays the one
+ * there and never written, so the box stays the one
  * place a run's input is typed.
  *
- * Drawn as Run takes it. An empty box is a run with
- * no input, and text that is not JSON is drawn as it
- * was typed beside the refusal Run would give. Where
- * the Runs view is set to another workflow the card
- * says that Run switches it, and where the Runs
- * view's last start of this workflow was refused,
- * why.
+ * Drawn as the host worked it out. An empty box is
+ * a run with no input, and text that is not JSON is
+ * drawn as it was typed beside the refusal Run
+ * would give. Where the Runs view is set to another
+ * workflow the card says that Run switches it, and
+ * where the Runs view's last start of this workflow
+ * was refused, why.
  */
 function RunSample({
   strings,
@@ -572,35 +558,17 @@ function RunSample({
   input: RunInputView;
   onOpen: () => void;
 }) {
-  const { saved, selectedWorkflow, problem } = input;
-  const drawn = sampleOf(input.text, strings.sizes);
-
-  // Set to no workflow, the Runs view has none for
-  // a run to switch it from.
-  const switches =
-    saved === undefined ||
-    selectedWorkflow === undefined ||
-    selectedWorkflow === saved.name
-      ? undefined
-      : filled(strings.localRunsSetTo, selectedWorkflow, saved.name);
-
-  // A refusal is about the workflow the Runs view is
-  // set to, which is this card's only when it is
-  // this workflow.
-  const refusal =
-    saved !== undefined && selectedWorkflow === saved.name
-      ? problem?.detail
-      : undefined;
+  const { sample, switches, refused } = input;
 
   return (
     <section className="run-sample" data-run-sample="">
       <SectionLabel>{strings.sampleInput}</SectionLabel>
 
-      {drawn === undefined ? (
+      {sample === undefined ? (
         <FieldHint hook={{ 'no-input': '' }}>{strings.noInputRun}</FieldHint>
       ) : (
         <Recorded
-          value={drawn.value}
+          value={sample.value}
           words={{
             inline: strings.inline,
             artifact: strings.artifact,
@@ -611,7 +579,7 @@ function RunSample({
         />
       )}
 
-      {drawn === undefined || drawn.json ? null : (
+      {sample === undefined || sample.json ? null : (
         <FieldHint tone="warn" hook={{ 'not-json': '' }}>
           {strings.notJsonYet}
         </FieldHint>
@@ -623,9 +591,9 @@ function RunSample({
         </FieldHint>
       )}
 
-      {refusal === undefined ? null : (
+      {refused === undefined ? null : (
         <FieldHint tone="fail" hook={{ 'run-problem': '' }}>
-          {refusal}
+          {refused}
         </FieldHint>
       )}
 
@@ -634,82 +602,6 @@ function RunSample({
       </FieldHint>
     </section>
   );
-}
-
-/**
- * The Runs view's input as a card draws it, or
- * nothing for an empty box.
- *
- * JSON is printed the way a recorded payload is, and
- * anything else as it was typed; either is whole
- * where it is short and named by its size where it
- * is not, by the one limit every recorded value is
- * drawn under.
- */
-function sampleOf(
-  typed: string,
-  sizes: SizeWords,
-): { value: RecordedValue; json: boolean } | undefined {
-  const read = payloadIn(typed);
-
-  // JSON has no `undefined`, so only an empty box
-  // reads as one.
-  if (read.ok && read.value === undefined) return undefined;
-
-  const shown = read.ok ? inlineJson(read.value) : typed;
-
-  return {
-    json: read.ok,
-    value:
-      shown.length <= INLINE_LIMIT
-        ? { kind: 'inline', text: shown }
-        : {
-            kind: 'artifact',
-            preview: shown.slice(0, OUTPUT_KEPT),
-            size: sizeOf(new TextEncoder().encode(typed).length, sizes),
-          },
-  };
-}
-
-/** A run a card can start, or the one sentence
- *  saying why it cannot. */
-type Start = { ok: true; onStart: () => void } | { ok: false; reason: string };
-
-/**
- * Whether Run with this input would start what the
- * canvas shows, and why not where it would not.
- *
- * A run starts the workflow as it was saved and
- * built, by its saved name. So any unsaved change —
- * to this trigger or to any other block — means a
- * run would start something that is not on screen,
- * and that is said first, since saving is also how
- * a file gets a topic it lacks. A file the Runs view
- * has no entry for was never saved, or was saved as
- * an event trigger with no topic, and only the
- * second has more to say.
- */
-function startFrom(
-  input: RunInputView,
-  strings: InspectorStrings,
-  onRun: (workflow: string) => void,
-): Start {
-  const { saved, unsaved, needsTopic, trusted } = input;
-
-  // Said before anything about the file, because
-  // nothing a person does to the document changes
-  // it: a window nobody has trusted runs nothing
-  // the folder holds.
-  if (!trusted) return { ok: false, reason: strings.untrusted };
-
-  if (!unsaved && saved !== undefined && saved.mode !== 'schedule') {
-    return { ok: true, onStart: () => onRun(saved.name) };
-  }
-
-  return {
-    ok: false,
-    reason: !unsaved && needsTopic ? strings.needsTopic : strings.saveToRun,
-  };
 }
 
 /**
@@ -733,13 +625,20 @@ function Actions({
   start,
   onOpenFunction,
   onAskAgent,
+  onRunTrigger,
 }: {
   strings: InspectorStrings;
   node: WorkflowNode;
   readOnly: boolean;
-  start: Start | undefined;
+
+  /** Whether Run would start what the canvas shows,
+   *  or why not; nothing where the card offers no
+   *  run at all. */
+  start: RunInputView['start'] | undefined;
+
   onOpenFunction: () => void;
   onAskAgent: () => void;
+  onRunTrigger: (workflow: string) => void;
 }) {
   const opens = node.handler !== undefined;
 
@@ -763,7 +662,7 @@ function Actions({
           variant="secondary"
           ink="brand"
           hook={{ 'run-trigger': '' }}
-          onClick={start.onStart}
+          onClick={() => onRunTrigger(start.workflow)}
         >
           {strings.runWithInput}
         </Button>

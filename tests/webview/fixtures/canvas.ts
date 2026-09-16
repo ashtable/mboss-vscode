@@ -25,6 +25,12 @@ import type {
   QueueCounts,
 } from '../../../src/runs/watch.js';
 import { blockEvidenceOf } from '../../../src/inspector/blockEvidence.js';
+import { fieldNotes } from '../../../src/inspector/notes.js';
+import { outcomesOf } from '../../../src/inspector/outcomes.js';
+import {
+  runCardOf,
+  type RunInputRead,
+} from '../../../src/inspector/runCard.js';
 import { liveStep } from '../../../src/test-support/runs.js';
 import type {
   BlockSubject,
@@ -32,7 +38,6 @@ import type {
   InspectorInit,
   InspectorMode,
   InspectorSubject,
-  RunInputView,
   ShownRun,
 } from '../../../src/webview/protocol.js';
 
@@ -157,38 +162,43 @@ export function blockInit(block: BlockSubject): InspectorInit {
  * A block selected on a canvas, as the Inspector is
  * sent it — and, where a test needs the block to
  * read differently, with the document changed on the
- * way in. The pane reads everything about a block
- * off the document, so that is the only place a
- * variant can come from.
+ * way in. Everything the host finishes about a block
+ * is finished here the host's own way: the findings
+ * beside their fields, where a decided branch's ways
+ * out lead, and the Runs view as a trigger's card
+ * shows it.
  *
  * Everything else is what a canvas on that document
  * holds with no run in focus: editable at the
- * document's revision, with the scanned manifest and
- * what core makes of the document.
+ * document's revision, offering the scanned
+ * manifest's functions, with what core makes of the
+ * document unless a case says what it found.
  */
 export function blockSubject(
   nodeId: string,
   over: Partial<WorkflowNode> = {},
   face: InspectorMode = 'configure',
   document: WorkflowIR = ir,
+  findings?: Finding[],
 ): BlockSubject {
   const nodes = document.nodes.map((one) =>
     one.id === nodeId ? ({ ...one, ...over } as WorkflowNode) : one,
   );
+  const shown = { ...document, nodes };
   const node = nodes.find((one) => one.id === nodeId);
+  const found = findings ?? validateWorkflow(shown, { manifest });
 
   return {
     source: 'canvas',
-    file: `${document.name}.workflow.json`,
     path: `/work/project/.mboss/workflows/${document.name}.workflow.json`,
     workflow: document.name,
-    ir: { ...document, nodes },
+    node,
     revision: document.revision,
     nodeId,
     face,
-    manifest,
-    diagnostics: validateWorkflow(document, { manifest }),
-    paletteLabels,
+    notes: node === undefined ? {} : fieldNotes(shown, node, found),
+    outcomes: node === undefined ? [] : outcomesOf(shown, node),
+    lib: manifest.functions,
     kindWords: canvasWords.kinds,
     evidence: undefined,
     // The host carries the Runs view's side on a
@@ -196,18 +206,34 @@ export function blockSubject(
     // box, set to this workflow, saved as it reads.
     runInput:
       node?.kind === 'trigger'
-        ? {
-            text: '',
-            selectedWorkflow: document.name,
-            saved: { name: document.name, mode: node.config.mode },
-            needsTopic: false,
-            unsaved: false,
-            trusted: true,
-            problem: undefined,
-          }
+        ? runCardOf(runsRead(document.name, node.config.mode), inspectorWords)
         : undefined,
     proposal: undefined,
   };
+}
+
+/** What the Runs view answers about a document: an
+ *  empty box, set to this workflow, saved as it
+ *  reads, in a trusted window. */
+export function runsRead(
+  name: string,
+  mode: NonNullable<RunInputRead['saved']>['mode'],
+): RunInputRead {
+  return {
+    text: '',
+    selectedWorkflow: name,
+    saved: { name, mode },
+    needsTopic: false,
+    unsaved: false,
+    trusted: true,
+    problem: undefined,
+  };
+}
+
+/** The same block at the next revision, as the host
+ *  sends it once an edit has landed. */
+export function landed(block: BlockSubject): BlockSubject {
+  return { ...block, revision: (block.revision ?? 0) + 1 };
 }
 
 /**
@@ -225,17 +251,32 @@ export function blockSubject(
 export function following(
   block: BlockSubject,
   run: ShownRun,
-  functionId?: number,
+  over: { functionId?: number; document?: WorkflowIR } = {},
 ): BlockSubject {
+  // The document the block was built from, with the
+  // block as the subject holds it: a case that
+  // changed the block on the way in changed the
+  // document the host would read it from.
+  const base = over.document ?? ir;
+  const document =
+    block.node === undefined
+      ? base
+      : {
+          ...base,
+          nodes: base.nodes.map((one) =>
+            one.id === block.nodeId ? block.node! : one,
+          ),
+        };
+
   return {
     ...block,
     evidence: blockEvidenceOf(
       {
         run,
-        document: block.ir,
+        document,
         nodeId: block.nodeId,
         decided: {},
-        functionId,
+        functionId: over.functionId,
       },
       inspectorWords,
     ),
@@ -255,14 +296,17 @@ export type TriggerConfig = Extract<
  */
 export function triggerSubject(
   config: TriggerConfig,
-  runInput: Partial<RunInputView> = {},
+  runInput: Partial<RunInputRead> = {},
   over: Partial<BlockSubject> = {},
 ): BlockSubject {
   const block = blockSubject('booking_requested', { config });
 
   return {
     ...block,
-    runInput: { ...block.runInput!, ...runInput },
+    runInput: runCardOf(
+      { ...runsRead(ir.name, config.mode), ...runInput },
+      inspectorWords,
+    ),
     ...over,
   };
 }
@@ -399,10 +443,13 @@ export function queueSubject(
 ): BlockSubject {
   const queue = { handler: { export: 'indexPage' }, config };
 
-  return {
-    ...blockSubject('queue', queue as Partial<WorkflowNode>, face, everyKind),
+  return blockSubject(
+    'queue',
+    queue as Partial<WorkflowNode>,
+    face,
+    everyKind,
     diagnostics,
-  };
+  );
 }
 
 /**
@@ -426,15 +473,13 @@ export function apiCallSubject(
     ...over,
   };
 
-  return {
-    ...blockSubject(
-      'api_call',
-      called as Partial<WorkflowNode>,
-      face,
-      everyKind,
-    ),
-    diagnostics: [],
-  };
+  return blockSubject(
+    'api_call',
+    called as Partial<WorkflowNode>,
+    face,
+    everyKind,
+    [],
+  );
 }
 
 /**
@@ -474,9 +519,11 @@ export function showing(
   nodeId: string,
   over: Partial<WorkflowNode> = {},
 ): Pick<CanvasInit, 'document' | 'selected'> {
-  const { ir: shown } = blockSubject(nodeId, over);
+  const nodes = ir.nodes.map((one) =>
+    one.id === nodeId ? ({ ...one, ...over } as WorkflowNode) : one,
+  );
 
-  return { document: { ok: true, ir: shown }, selected: nodeId };
+  return { document: { ok: true, ir: { ...ir, nodes } }, selected: nodeId };
 }
 
 /**

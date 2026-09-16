@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { inspectorWords, kindWords, paletteLabels } from '../canvas/words.js';
+import { inspectorWords, kindWords } from '../canvas/words.js';
 import {
   WorkflowIRSchema,
   validateWorkflow,
@@ -16,9 +16,9 @@ import type { Run, Step } from '../runs/rows.js';
 import { type SeeView, runTabOf } from '../runs/view.js';
 import { liveRun, project } from '../test-support/runs.js';
 import { shortRunId } from '../webview/ids.js';
-import type { RunInputView } from '../webview/protocol.js';
 import { fine } from '../webview/time.js';
 
+import type { RunInputRead } from './runCard.js';
 import { inspectorInit, type RunsPanel, type StartRefusal } from './subject.js';
 import type { BlockInputs } from './surface.js';
 
@@ -141,21 +141,119 @@ describe('a block selected on a canvas', () => {
       at: 'block',
       block: {
         source: 'canvas',
-        file: 'groom_booking.workflow.json',
         path: '/work/grooming/.mboss/workflows/groom_booking.workflow.json',
         workflow: 'groom_booking',
-        ir,
+        node: ir.nodes.find((one) => one.id === 'find_slot'),
         revision: ir.revision,
         nodeId: 'find_slot',
         face: 'configure',
-        manifest,
-        diagnostics,
-        paletteLabels: paletteLabels(),
+        notes: {},
+        outcomes: [],
+        lib: [],
         kindWords: kindWords(),
         evidence: undefined,
         runInput: undefined,
         proposal: undefined,
       },
+    });
+  });
+
+  /**
+   * A finding is drawn beside the field that is a way
+   * out of it, and the finding is the surface's own:
+   * the sentence the Problems panel is showing. Which
+   * field, and whether any, is worked out here from
+   * the document, so the pane draws a sentence under
+   * a box and derives nothing.
+   */
+  it('puts the surface’s findings beside the fields that are ways out of them', () => {
+    const queued = WorkflowIRSchema.parse({
+      $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+      version: 1,
+      revision: 1,
+      name: 'document_ingestion',
+      nodes: [
+        {
+          id: 'document_uploaded',
+          kind: 'trigger',
+          title: 'Document uploaded',
+          config: { mode: 'manual' },
+          out: 'Upload',
+        },
+        {
+          id: 'index_pages',
+          kind: 'queue',
+          title: 'Index each page',
+          handler: { export: 'indexPage' },
+          in: 'Upload',
+          config: {
+            itemsPath: 'pages',
+            queue: { name: 'document-index', partitionConcurrency: 2 },
+            enqueue: { deduplicationPath: 'documentId' },
+          },
+        },
+      ],
+      edges: [
+        {
+          id: 'e1',
+          from: { node: 'document_uploaded', port: 'out' },
+          to: { node: 'index_pages' },
+          type: 'Upload',
+        },
+      ],
+    });
+    const found = validateWorkflow(queued);
+    const about = found
+      .filter((one) => one.nodeId === 'index_pages')
+      .map((one) => one.message);
+
+    expect(about).not.toEqual([]);
+    expect(
+      inspectorInit({
+        at: 'canvas',
+        startRefusal: OFFERED,
+        runsPanel: NOT_ASKED,
+        canvas: canvas({
+          read: { ok: true, ir: queued },
+          selected: 'index_pages',
+          diagnostics: found,
+        }),
+      }).subject,
+    ).toMatchObject({
+      at: 'block',
+      block: {
+        notes: {
+          deduplicationPath: about.filter((one) => /dedup/i.test(one)),
+        },
+      },
+    });
+  });
+
+  /** Where a decided branch's ways out lead is read
+   *  off the wires, which only the document has. */
+  it('says where each way out of a decided branch leads', () => {
+    const decided = {
+      ...ir,
+      nodes: ir.nodes.map((one) =>
+        one.id === 'slot_open'
+          ? { ...one, handler: { export: 'decideSlot' } }
+          : one,
+      ),
+    };
+
+    expect(
+      inspectorInit({
+        at: 'canvas',
+        startRefusal: OFFERED,
+        runsPanel: NOT_ASKED,
+        canvas: canvas({
+          read: { ok: true, ir: decided },
+          selected: 'slot_open',
+        }),
+      }).subject,
+    ).toMatchObject({
+      at: 'block',
+      block: { outcomes: [{ value: 'true', target: 'Book appointment' }] },
     });
   });
 
@@ -327,23 +425,21 @@ describe('a block picked on the run tab', () => {
       at: 'block',
       block: {
         source: 'run',
-        file: 'groom_booking.workflow.json',
         path: '/work/grooming/.mboss/workflows/groom_booking.workflow.json',
         workflow: 'groom_booking',
-        ir: document,
+        node: document.nodes.find((one) => one.id === 'find_slot'),
         revision: 8,
         nodeId: 'find_slot',
         face: 'evidence',
-        manifest,
-        diagnostics,
-        paletteLabels: paletteLabels(),
+        notes: {},
+        outcomes: [],
+        lib: manifest.functions,
         kindWords: kindWords(),
         evidence: expect.objectContaining({ workflowId: 'wf_1', rows: [] }),
         runInput: undefined,
         proposal: undefined,
       },
     });
-    expect(diagnostics).not.toEqual([]);
   });
 
   /**
@@ -396,7 +492,7 @@ describe('a block picked on the run tab', () => {
       subject(reading({ selectedNode: 'deleted_block', face: 'configure' })),
     ).toMatchObject({
       at: 'block',
-      block: { nodeId: 'deleted_block', face: 'evidence', ir: at(7) },
+      block: { nodeId: 'deleted_block', face: 'evidence', node: undefined },
     });
   });
 
@@ -477,7 +573,7 @@ describe('what a trigger block knows of the Runs input', () => {
   /** What the Runs view answers about this document,
    *  whatever it is asked, with every path it was
    *  asked about written down. */
-  const ANSWER: RunInputView = {
+  const ANSWER: RunInputRead = {
     text: '{"n":1}',
     selectedWorkflow: 'expense_claim',
     saved: { name: 'groom_booking', mode: 'manual' },
@@ -577,7 +673,13 @@ describe('what a trigger block knows of the Runs input', () => {
 
         expect(about(dir, runs.answer, 'booking_requested')).toMatchObject({
           at: 'block',
-          block: { nodeId: 'booking_requested', runInput: ANSWER },
+          block: {
+            nodeId: 'booking_requested',
+            runInput: {
+              saved: 'groom_booking',
+              start: { ok: true, workflow: 'groom_booking' },
+            },
+          },
         });
         expect(runs.asked).toEqual([fileIn(dir, 'groom_booking')]);
       });

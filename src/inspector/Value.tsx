@@ -1,4 +1,4 @@
-import type { RecordedValue } from '../webview/protocol.js';
+import type { RecordedValue } from '../runs/rows.js';
 import { Button } from '../webview/signal/Button.js';
 import { StateWord } from '../webview/signal/StateWord.js';
 

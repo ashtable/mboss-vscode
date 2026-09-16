@@ -101,8 +101,6 @@ function Block({
   block: BlockSubject;
   onShowRun: () => void;
 }) {
-  const node = block.ir.nodes.find((one) => one.id === block.nodeId);
-
   return (
     <Inspector
       strings={strings}
@@ -110,15 +108,16 @@ function Block({
       path={block.path}
       workflow={block.workflow}
       nodeId={block.nodeId}
-      selected={node === undefined ? undefined : { ir: block.ir, node }}
+      selected={block.node}
       mode={block.face}
       revision={block.revision}
       proposal={block.proposal}
       evidence={block.evidence}
-      lib={block.manifest?.functions}
+      lib={block.lib}
       misfits={strings.misfits}
       kindWords={block.kindWords}
-      diagnostics={block.diagnostics}
+      notes={block.notes}
+      outcomes={block.outcomes}
       runInput={block.runInput}
       onShowRun={onShowRun}
     />

@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
 import type {
-  Diagnostic,
   HandlerMisfit,
   LibFunction,
   NodeKind,
-  WorkflowIR,
   WorkflowNode,
 } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
@@ -13,6 +11,7 @@ import type {
   BlockAbout,
   BlockEvidence,
   BlockSubject,
+  DecisionOutcome,
   InspectorMode,
   InspectorStrings,
   RunInputView,
@@ -55,10 +54,6 @@ import {
  * half set below it.
  */
 
-/** The block the pane is showing, in the document
- *  it belongs to. */
-export type Selection = { ir: WorkflowIR; node: WorkflowNode };
-
 /**
  * Everything the pane draws a block from.
  *
@@ -89,10 +84,11 @@ export type InspectorProps = {
    *  it by — the document may have lost the rest. */
   nodeId: string;
 
-  /** Nothing where the document does not have the
-   *  block: one a run recorded and the document has
-   *  lost since, which has nothing to configure. */
-  selected: Selection | undefined;
+  /** The block as the document has it. Nothing
+   *  where the document does not have it: one a run
+   *  recorded and the document has lost since, which
+   *  has nothing to configure. */
+  selected: WorkflowNode | undefined;
 
   /** Which of the two faces is on screen. The
    *  host's answer, not the pane's: a panel that
@@ -132,10 +128,12 @@ export type InspectorProps = {
    *  is how the head of the pane names one. */
   kindWords: Record<NodeKind, string>;
 
-  /** What core makes of the document, so that a
-   *  finding a field on this form is a way out of
-   *  can be drawn on that field. */
-  diagnostics: Diagnostic[];
+  /** What core says about the block, beside the
+   *  field that is a way out of each finding. */
+  notes: Record<string, string[]>;
+
+  /** Where each way out of a decided branch leads. */
+  outcomes: DecisionOutcome[];
 
   /** What the Runs view holds, beside a trigger,
    *  which a trigger's card reflects and starts a
@@ -176,11 +174,12 @@ export function Inspector({
   lib,
   misfits,
   kindWords,
-  diagnostics,
+  notes,
+  outcomes,
   runInput,
   onShowRun,
 }: InspectorProps) {
-  const selectedId = selected?.node.id;
+  const selectedId = selected?.id;
 
   // One form per surface, document, block and
   // revision. What somebody has set so far belongs
@@ -190,7 +189,7 @@ export function Inspector({
   const form =
     selected === undefined
       ? undefined
-      : `${source}:${path}:${selected.node.id}:${revision}`;
+      : `${source}:${path}:${selected.id}:${revision}`;
   const block = `${source}:${path}:${selectedId}`;
 
   // Which groups are closed: the kind says which
@@ -198,11 +197,11 @@ export function Inspector({
   // — the same id in another document included —
   // starts that way again.
   const [folded, setFolded] = useState<Set<string>>(() =>
-    selected === undefined ? new Set() : foldedGroups(selected.node),
+    selected === undefined ? new Set() : foldedGroups(selected),
   );
 
   useEffect(() => {
-    setFolded(selected === undefined ? new Set() : foldedGroups(selected.node));
+    setFolded(selected === undefined ? new Set() : foldedGroups(selected));
   }, [block]);
 
   // Which control had focus as a form was drawn
@@ -218,7 +217,7 @@ export function Inspector({
 
   const [edited, setEdited] = useState<{ form: string; node: WorkflowNode }>();
   const draft =
-    edited !== undefined && edited.form === form ? edited.node : selected?.node;
+    edited !== undefined && edited.form === form ? edited.node : selected;
 
   // The field whose last commit was no value, kept
   // with the form it was typed in: another form is
@@ -281,13 +280,12 @@ export function Inspector({
     selected === undefined || draft === undefined
       ? undefined
       : planOf(draft, {
-          node: selected.node,
-          fn: lib?.find((one) => one.export === selected.node.handler?.export),
+          node: selected,
+          fn: lib?.find((one) => one.export === selected.handler?.export),
         });
   const title = plan?.name;
 
-  const node = selected?.node;
-  const identity = evidenceBlockOf(nodeId, node);
+  const identity = evidenceBlockOf(nodeId, selected);
 
   return (
     <>
@@ -314,7 +312,7 @@ export function Inspector({
             />
           )
         }
-        kind={node === undefined ? undefined : kindWords[node.kind]}
+        kind={selected === undefined ? undefined : kindWords[selected.kind]}
         // Where the block got to is the same answer on
         // either face, so the head carries it.
         status={
@@ -347,9 +345,8 @@ export function Inspector({
               strings={strings}
               block={block}
               held={held}
-              ir={selected.ir}
               workflow={workflow}
-              node={selected.node}
+              node={selected}
               draft={draft}
               plan={plan}
               readOnly={readOnly}
@@ -357,7 +354,8 @@ export function Inspector({
               proposal={proposal}
               lib={lib}
               misfits={misfits}
-              diagnostics={diagnostics}
+              notes={notes}
+              outcomes={outcomes}
               runInput={runInput}
               folded={folded}
               setFolded={setFolded}
@@ -366,7 +364,7 @@ export function Inspector({
               onOpenFunction={() =>
                 postToHost({
                   type: 'openFunction',
-                  nodeId: selected.node.id,
+                  nodeId: selected.id,
                   about,
                 })
               }
@@ -374,7 +372,7 @@ export function Inspector({
                 postToHost({
                   type: 'askAboutBlock',
                   workflow,
-                  nodeId: selected.node.id,
+                  nodeId: selected.id,
                   about,
                 })
               }

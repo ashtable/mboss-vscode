@@ -6,7 +6,11 @@ import {
   type WorkflowNode,
 } from '../core/rules.js';
 import type { QueueEvidence } from '../runs/queueEvidence.js';
-import { INLINE_LIMIT, sizeOf, type SizeWords } from '../runs/rows.js';
+import {
+  recordedValue,
+  type RecordedValue,
+  type SizeWords,
+} from '../runs/rows.js';
 import type { LiveStep } from '../runs/watch.js';
 import { filled } from '../webview/fill.js';
 import type {
@@ -17,7 +21,6 @@ import type {
   QueueCardEvidence,
   QueueRow,
   QueueRowId,
-  RecordedValue,
   ShownRun,
 } from '../webview/protocol.js';
 
@@ -210,13 +213,7 @@ function outputOf(
 ): RecordedValue | undefined {
   if (row.shown === undefined || row.absent) return undefined;
 
-  return row.shown.length <= INLINE_LIMIT
-    ? { kind: 'inline', text: row.shown }
-    : {
-        kind: 'artifact',
-        preview: row.shown,
-        size: sizeOf(row.bytes, sizes),
-      };
+  return recordedValue(row.shown, row.bytes, sizes);
 }
 
 function rowOf(step: LiveStep, nodeId: string): EvidenceRow {

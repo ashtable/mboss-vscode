@@ -1,4 +1,4 @@
-import { inspectorWords, kindWords, paletteLabels } from '../canvas/words.js';
+import { inspectorWords, kindWords } from '../canvas/words.js';
 import type { WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
 import {
@@ -15,12 +15,14 @@ import type {
   InspectorInit,
   InspectorStrings,
   InspectorSubject,
-  RunInputView,
   RunLevel,
 } from '../webview/protocol.js';
 import { glyphStateOf, runWord, type RunWord } from '../webview/states.js';
 
 import { blockEvidenceOf } from './blockEvidence.js';
+import { fieldNotes } from './notes.js';
+import { outcomesOf } from './outcomes.js';
+import { runCardOf, type RunInputRead } from './runCard.js';
 import type { BlockInputs } from './surface.js';
 
 /**
@@ -50,17 +52,17 @@ export type StartRefusal = (
 ) => string | undefined;
 
 /**
- * The Runs view, as a trigger block shows it, about
- * the document at a path: the card's own view of it,
- * whole.
+ * The Runs view, as read about the document at a
+ * path, for a trigger block's card.
  *
  * A question rather than an answer, because the
  * saved workflows are read off disk, and only a
  * trigger block asks it. Which saved workflow is
  * this document's is the answerer's to find, by
- * where the file is; the card asks and shows.
+ * where the file is; what the card says of the
+ * answer is worked out here.
  */
-export type RunsPanel = (path: string) => RunInputView;
+export type RunsPanel = (path: string) => RunInputRead;
 
 /**
  * The surface last in front, with what it holds.
@@ -295,12 +297,16 @@ function wordOf(run: LiveRun): RunWord {
  * since its rows outlive the document — has nothing
  * left to configure, so it stays on Run evidence.
  *
- * What the run recorded about the block is finished
- * here too, from the run the surface follows, the
- * document it draws the block from and the arms it
- * decided, so the pane draws an answer rather than
- * working one out from a run and a document that
- * may not be the surface's.
+ * Everything else the pane draws the block from is
+ * finished here too, from what the surface holds,
+ * so the pane draws answers rather than working
+ * them out from a document, a manifest and findings
+ * that may not be the surface's: the block itself,
+ * the findings beside the fields that are ways out
+ * of them, where a decided branch's ways out lead,
+ * what the code-behind offers, what the run the
+ * surface follows recorded, and — on a trigger —
+ * the Runs view as its card shows it.
  */
 function blockOf(
   inputs: BlockInputs,
@@ -311,20 +317,19 @@ function blockOf(
 
   const { ir } = inputs.read;
   const nodeId = inputs.selected;
-  const there = ir.nodes.some((node) => node.id === nodeId);
+  const node = ir.nodes.find((one) => one.id === nodeId);
 
   return {
     source: inputs.source,
-    file: inputs.file,
     path: inputs.path,
     workflow: inputs.workflow,
-    ir,
+    node,
     revision: inputs.proposedBy === undefined ? inputs.revision : undefined,
     nodeId,
-    face: there ? inputs.face : 'evidence',
-    manifest: inputs.manifest,
-    diagnostics: inputs.diagnostics,
-    paletteLabels: paletteLabels(),
+    face: node === undefined ? 'evidence' : inputs.face,
+    notes: node === undefined ? {} : fieldNotes(ir, node, inputs.diagnostics),
+    outcomes: node === undefined ? [] : outcomesOf(ir, node),
+    lib: inputs.manifest?.functions,
     kindWords: kindWords(),
     evidence:
       inputs.run === undefined
@@ -339,29 +344,16 @@ function blockOf(
             },
             strings,
           ),
-    runInput: runInputOf(ir, nodeId, inputs.path, runsPanel),
+    // Asked only for a trigger, since the answer
+    // reads the saved workflows off disk and every
+    // other block shows nothing of the Runs view.
+    runInput:
+      node?.kind === 'trigger'
+        ? runCardOf(runsPanel(inputs.path), strings)
+        : undefined,
     proposal:
       inputs.proposedBy === undefined
         ? undefined
         : messages.previewHeadline(inputs.proposedBy),
   };
-}
-
-/**
- * What a trigger's card shows of the Runs view, and
- * nothing for any other block.
- *
- * Asked only for a trigger, since the answer reads
- * the saved workflows off disk and every other block
- * shows nothing of the Runs view.
- */
-function runInputOf(
-  ir: WorkflowIR,
-  nodeId: string,
-  path: string,
-  runsPanel: RunsPanel,
-): RunInputView | undefined {
-  const node = ir.nodes.find((one) => one.id === nodeId);
-
-  return node?.kind === 'trigger' ? runsPanel(path) : undefined;
 }

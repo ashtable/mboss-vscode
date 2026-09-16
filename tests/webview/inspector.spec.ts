@@ -39,6 +39,7 @@ import {
   blockSubject,
   everyKind,
   following,
+  landed,
   inspectorInit,
   ir,
   labelTrack,
@@ -1509,10 +1510,7 @@ test.describe('a block in the Inspector', () => {
     /** The same queue at the next revision, as the
      *  host sends it once an edit has landed. */
     function revised(config: object) {
-      const next = queueSubject(config);
-      const revision = next.ir.revision + 1;
-
-      return blockInit({ ...next, ir: { ...next.ir, revision }, revision });
+      return blockInit(landed(queueSubject(config)));
     }
 
     test('come as groups, the last of them folded away', async ({ page }) => {
@@ -2381,7 +2379,7 @@ test.describe('a block in the Inspector', () => {
   }) => {
     const onRunTab = (nodeId: string): BlockSubject =>
       following(
-        { ...blockSubject('find_slot', {}, 'evidence'), source: 'run', nodeId },
+        { ...blockSubject(nodeId, {}, 'evidence'), source: 'run' },
         runOf(IN_FLIGHT),
       );
     const configure = page.locator('button[data-inspector-tab="configure"]');
@@ -2511,7 +2509,7 @@ test.describe('a block in the Inspector', () => {
         following(
           { ...blockSubject(nodeId, {}, 'evidence', document), ...rest },
           run,
-          functionId,
+          { functionId, document },
         ),
       );
     }
@@ -2671,10 +2669,10 @@ test.describe('a block in the Inspector', () => {
           following(
             {
               ...blockSubject('let_it_wait', {}, 'evidence', TIMER_THEN_ANSWER),
-              manifest: undefined,
-              diagnostics: [],
+              lib: undefined,
             },
             timerThenAnswerRun({ attributed: true, answered }),
+            { document: TIMER_THEN_ANSWER },
           ),
         );
       const header = page.locator('[data-inspector-header]');
@@ -3441,6 +3439,7 @@ test.describe('a block in the Inspector', () => {
               liveStep({ name: 'step.r1', nodeId: 'step', functionId: 0 }),
               liveStep({ name: 'step.r2', nodeId: 'step', functionId: 1 }),
             ]),
+            { document: everyKind },
           ),
         ),
       );
@@ -3522,6 +3521,11 @@ test.describe('a block in the Inspector', () => {
       return queueSubject(INDEXED, [], 'evidence');
     }
 
+    /** That card on a surface following a run of the
+     *  every-kind document. */
+    const onQueue = (run: ShownRun): InspectorInit =>
+      blockInit(following(queueCard(), run, { document: everyKind }));
+
     /** One reading on the card, found by what it is
      *  a reading of. */
     function reading(page: Page, field: string): Locator {
@@ -3535,12 +3539,7 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit(
-          following(
-            queueCard(),
-            queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
-          ),
-        ),
+        onQueue(queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 })),
       );
 
       await expect(page.locator('[data-evidence="queue"]')).toHaveCount(1);
@@ -3560,12 +3559,7 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit(
-          following(
-            queueCard(),
-            queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
-          ),
-        ),
+        onQueue(queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 })),
       );
 
       const expected = [
@@ -3607,13 +3601,10 @@ test.describe('a block in the Inspector', () => {
     test('keeps a figure whole, with its word after it', async ({ page }) => {
       await openInspector(
         page,
-        blockInit(
-          following(
-            queueCard(),
-            queuedRun(
-              { active: 3, queued: 12, delayed: 4, failed: 1 },
-              queueEvidence(),
-            ),
+        onQueue(
+          queuedRun(
+            { active: 3, queued: 12, delayed: 4, failed: 1 },
+            queueEvidence(),
           ),
         ),
       );
@@ -3661,11 +3652,7 @@ test.describe('a block in the Inspector', () => {
       test(`marks a figure’s source with a quiet word in ${theme}`, async ({
         page,
       }) => {
-        await openInspector(
-          page,
-          blockInit(following(queueCard(), queuedRun({ active: 3 }))),
-          theme,
-        );
+        await openInspector(page, onQueue(queuedRun({ active: 3 })), theme);
 
         const marks = [
           ['queue', 'configured'],
@@ -3705,10 +3692,7 @@ test.describe('a block in the Inspector', () => {
     test('says nothing about the whole queue until a read answers', async ({
       page,
     }) => {
-      await openInspector(
-        page,
-        blockInit(following(queueCard(), queuedRun({ active: 3 }))),
-      );
+      await openInspector(page, onQueue(queuedRun({ active: 3 })));
 
       await expect(
         page.locator('[data-evidence-field="observedStarts"]'),
@@ -3721,7 +3705,7 @@ test.describe('a block in the Inspector', () => {
     test('asks for that read when the card is shown', async ({ page }) => {
       const harness = await openInspector(
         page,
-        blockInit(following(queueCard(), queuedRun({ active: 3 }))),
+        onQueue(queuedRun({ active: 3 })),
       );
 
       expect(await harness.postedOfType('inspectQueue')).toEqual([
@@ -3734,12 +3718,7 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit(
-          following(
-            queueCard(),
-            queuedRun({ active: 3, failed: 1 }, queueEvidence()),
-          ),
-        ),
+        onQueue(queuedRun({ active: 3, failed: 1 }, queueEvidence())),
       );
 
       const derived = `· ${inspectorStrings.derived}`;
@@ -3781,9 +3760,7 @@ test.describe('a block in the Inspector', () => {
     test('never draws a rate as a budget being spent', async ({ page }) => {
       await openInspector(
         page,
-        blockInit(
-          following(queueCard(), queuedRun({ active: 3 }, queueEvidence())),
-        ),
+        onQueue(queuedRun({ active: 3 }, queueEvidence())),
       );
 
       const said =
@@ -3798,21 +3775,18 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit(
-          following(
-            queueCard(),
-            queuedRun(
-              { active: 3 },
-              queueEvidence({
+        onQueue(
+          queuedRun(
+            { active: 3 },
+            queueEvidence({
+              registered: {
                 registered: {
-                  registered: {
-                    name: 'document-index',
-                    globalConcurrency: 4,
-                    minPollingIntervalMs: 1000,
-                  },
+                  name: 'document-index',
+                  globalConcurrency: 4,
+                  minPollingIntervalMs: 1000,
                 },
-              }),
-            ),
+              },
+            }),
           ),
         ),
       );
@@ -3837,9 +3811,7 @@ test.describe('a block in the Inspector', () => {
     test('names an item by its key, or by its short id', async ({ page }) => {
       await openInspector(
         page,
-        blockInit(
-          following(queueCard(), queuedRun({ active: 3 }, queueEvidence())),
-        ),
+        onQueue(queuedRun({ active: 3 }, queueEvidence())),
       );
 
       const keyed = page.locator('[data-queue-item="wf_child_1"]');
@@ -3878,22 +3850,19 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit(
-          following(
-            queueCard(),
-            queuedRun(
-              { active: 3 },
-              queueEvidence({
-                recent: [
-                  {
-                    workflowId: 'wf_child_1',
-                    label: 'tenant_acme_corporation_eu_west_2',
-                    status: 'SUCCESS',
-                    completedAt: RECORDED_AT,
-                  },
-                ],
-              }),
-            ),
+        onQueue(
+          queuedRun(
+            { active: 3 },
+            queueEvidence({
+              recent: [
+                {
+                  workflowId: 'wf_child_1',
+                  label: 'tenant_acme_corporation_eu_west_2',
+                  status: 'SUCCESS',
+                  completedAt: RECORDED_AT,
+                },
+              ],
+            }),
           ),
         ),
       );
@@ -3933,37 +3902,34 @@ test.describe('a block in the Inspector', () => {
     }) => {
       await openInspector(
         page,
-        blockInit(
-          following(
-            queueCard(),
-            queuedRun(
-              { active: 3 },
-              queueEvidence({
-                recent: [
-                  {
-                    workflowId: 'wf_child_1',
-                    label: 'doc_1',
-                    status: 'PENDING',
-                  },
-                  {
-                    workflowId: 'wf_child_2',
-                    status: 'SUCCESS',
-                    completedAt: RECORDED_AT,
-                  },
-                  {
-                    workflowId: 'wf_child_3',
-                    label: 'doc_3',
-                    status: 'ENQUEUED',
-                  },
-                  {
-                    workflowId: 'wf_child_4',
-                    label: 'doc_4',
-                    status: 'ERROR',
-                    completedAt: RECORDED_AT,
-                  },
-                ],
-              }),
-            ),
+        onQueue(
+          queuedRun(
+            { active: 3 },
+            queueEvidence({
+              recent: [
+                {
+                  workflowId: 'wf_child_1',
+                  label: 'doc_1',
+                  status: 'PENDING',
+                },
+                {
+                  workflowId: 'wf_child_2',
+                  status: 'SUCCESS',
+                  completedAt: RECORDED_AT,
+                },
+                {
+                  workflowId: 'wf_child_3',
+                  label: 'doc_3',
+                  status: 'ENQUEUED',
+                },
+                {
+                  workflowId: 'wf_child_4',
+                  label: 'doc_4',
+                  status: 'ERROR',
+                  completedAt: RECORDED_AT,
+                },
+              ],
+            }),
           ),
         ),
       );
@@ -4008,9 +3974,7 @@ test.describe('a block in the Inspector', () => {
     test('opens the run an item started', async ({ page }) => {
       const harness = await openInspector(
         page,
-        blockInit(
-          following(queueCard(), queuedRun({ active: 3 }, queueEvidence())),
-        ),
+        onQueue(queuedRun({ active: 3 }, queueEvidence())),
       );
 
       await page.locator('[data-queue-item="wf_child_1"]').click();
@@ -4026,9 +3990,7 @@ test.describe('a block in the Inspector', () => {
     test('says last whose figures these are', async ({ page }) => {
       await openInspector(
         page,
-        blockInit(
-          following(queueCard(), queuedRun({ active: 3 }, queueEvidence())),
-        ),
+        onQueue(queuedRun({ active: 3 }, queueEvidence())),
       );
 
       const local = page.locator(
@@ -4069,7 +4031,9 @@ test.describe('a block in the Inspector', () => {
       };
 
       return blockInit(
-        run === undefined ? block : following(block, run, functionId),
+        run === undefined
+          ? block
+          : following(block, run, { functionId, document }),
       );
     }
 
@@ -4452,10 +4416,7 @@ test.describe('the groups a block is set in', () => {
     const once = apiCallSubject({
       retry: { maxAttempts: 1, intervalSeconds: 1, backoffRate: 2 },
     });
-    const revision = once.ir.revision + 1;
-    await harness.show(
-      blockInit({ ...once, ir: { ...once.ir, revision }, revision }),
-    );
+    await harness.show(blockInit(landed(once)));
     await expect(
       page.locator('[data-field="retryMaxAttempts"] input'),
     ).toHaveValue('1');
@@ -4469,6 +4430,7 @@ test.describe('the groups a block is set in', () => {
         following(
           apiCallSubject({}, 'evidence'),
           recording([{ ...DONE, name: 'api_call', nodeId: 'api_call' }]),
+          { document: everyKind },
         ),
       ),
     );
@@ -4668,13 +4630,12 @@ test.describe('a field at rest and in use', () => {
   /** The same block at the revision after, carrying
    *  what was committed — what the host sends once
    *  the edit has landed. */
-  function landed(maxAttempts: number) {
+  function tried(maxAttempts: number) {
     const next = blockSubject('find_slot', {
       retry: { maxAttempts, intervalSeconds: 1, backoffRate: 2 },
     });
-    const revision = next.ir.revision + 1;
 
-    return blockInit({ ...next, ir: { ...next.ir, revision }, revision });
+    return blockInit(landed(next));
   }
 
   /** Marks every field on the page, so a spec can
@@ -5002,7 +4963,7 @@ test.describe('a field at rest and in use', () => {
     expect(await harness.postedOfType('edit')).toHaveLength(1);
 
     await probe(page);
-    await harness.show(landed(5));
+    await harness.show(tried(5));
 
     await expect(page.locator('[data-probe]')).toHaveCount(0);
     await expect(field).toHaveValue('5');
@@ -5028,10 +4989,8 @@ test.describe('a field at rest and in use', () => {
 
     await title.evaluate((input) => input.setAttribute('data-probe', ''));
 
-    const next = blockSubject('find_slot', { title: 'Find a slot' });
-    const revision = next.ir.revision + 1;
     await harness.show(
-      blockInit({ ...next, ir: { ...next.ir, revision }, revision }),
+      blockInit(landed(blockSubject('find_slot', { title: 'Find a slot' }))),
     );
 
     await expect(page.locator('[data-probe]')).toHaveCount(0);
@@ -5094,7 +5053,7 @@ test.describe('a field at rest and in use', () => {
     expect(await harness.postedOfType('edit')).toHaveLength(1);
     await expect(field).toHaveValue('5.0');
 
-    await harness.show(landed(5));
+    await harness.show(tried(5));
 
     await expect(field).toHaveValue('5');
   });
@@ -5167,7 +5126,7 @@ test.describe('a field at rest and in use', () => {
 
     await probe(page);
     await tab.focus();
-    await harness.show(landed(5));
+    await harness.show(tried(5));
 
     await expect(page.locator('[data-probe]')).toHaveCount(0);
     await expect(tab).toBeFocused();
@@ -5223,7 +5182,7 @@ test.describe('a field at rest and in use', () => {
     await page.evaluate(() => {
       document.hasFocus = () => false;
     });
-    await harness.show(landed(3));
+    await harness.show(tried(3));
 
     await expect(page.locator('[data-probe]')).toHaveCount(0);
     expect(await page.evaluate(() => document.activeElement?.tagName)).toBe(
@@ -5444,10 +5403,7 @@ test.describe('the function picker', () => {
   test('says why there is nothing to pick from', async ({ page }) => {
     const harness = await mountInspector(page);
     await harness.show(
-      blockInit({
-        ...blockSubject('slot_open'),
-        manifest: undefined,
-      }),
+      blockInit({ ...blockSubject('slot_open'), lib: undefined }),
     );
 
     await page.locator('[data-picker-current]').click();
@@ -5822,7 +5778,7 @@ test.describe('the function a block runs, at rest', () => {
   }) => {
     await openInspector(
       page,
-      blockInit({ ...blockSubject('find_slot'), manifest: undefined }),
+      blockInit({ ...blockSubject('find_slot'), lib: undefined }),
     );
 
     const current = page.locator('[data-picker-current]');
@@ -6633,24 +6589,14 @@ test.describe('a trigger block', () => {
       .toBe(1);
 
     const next = triggerSubject(EVENT, { text: SENTINEL });
-    const revision = next.ir.revision + 1;
-    const landed = {
-      ...next,
-      ir: {
-        ...next.ir,
-        revision,
-        nodes: next.ir.nodes.map((one) =>
-          one.id === 'booking_requested'
-            ? { ...one, out: 'BookingRequest' }
-            : one,
-        ),
-      },
-      revision,
+    const saved: BlockSubject = {
+      ...landed(next),
+      node: { ...next.node!, out: 'BookingRequest' },
     };
     await page
       .locator('[data-field="topic"] input')
       .evaluate((box) => box.setAttribute('data-probe', ''));
-    await harness.show(blockInit(landed));
+    await harness.show(blockInit(saved));
     await expect(page.locator('[data-probe]')).toHaveCount(0);
 
     const topic = page.locator('[data-field="topic"] input');
@@ -6661,7 +6607,7 @@ test.describe('a trigger block', () => {
     await expect.poll(async () => (await edits()).length).toBe(2);
     expect((await edits()).map((edit) => edit.baseRevision)).toEqual([
       at.revision,
-      revision,
+      saved.revision,
     ]);
 
     expect(JSON.stringify(await harness.posted())).not.toContain(SENTINEL);
