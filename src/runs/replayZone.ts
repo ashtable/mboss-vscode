@@ -24,8 +24,8 @@ import { replayFrom, type Replay } from './replay.js';
 import type { Run, Step } from './rows.js';
 import { newRunId } from './runner.js';
 import { EXTENSION_SDK, sdkSkew, type ProjectSdk } from './sdk.js';
-import { APP_SERVICE } from './stack.js';
 import type { Stack } from './stackZone.js';
+import { APP_SERVICE } from './state.js';
 import type { RunOrigin } from './testRun.js';
 
 /**

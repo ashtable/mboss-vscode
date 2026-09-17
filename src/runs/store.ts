@@ -655,6 +655,20 @@ export function runsStore(deps: RunsDeps): RunsStore {
   };
 
   /**
+   * Whether the list has had its first read: the
+   * stack asked, then the ledger.
+   *
+   * Until then the view draws its header alone,
+   * because every other state is a claim about
+   * something read and would be replaced a moment
+   * later. Held here rather than by the history,
+   * because the run page borrows the history's
+   * read, and a run opened before the list was
+   * shown is no answer about the stack.
+   */
+  let loaded = false;
+
+  /**
    * Everything read again once the stack has been
    * asked: the saved workflows, the list, and what
    * is worth following.
@@ -667,6 +681,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
   const readAfterStack = async (): Promise<void> => {
     testRun.refresh();
     await history.refresh();
+    loaded = true;
     follow.rewatch();
   };
 
@@ -794,13 +809,15 @@ export function runsStore(deps: RunsDeps): RunsStore {
   return {
     list: () => {
       const dir = project();
+      const read = history.render();
 
       return {
         type: 'init',
         view: 'runs',
         strings: runsWords(),
         project: dir === undefined ? undefined : basename(dir),
-        ...history.render(),
+        ...read,
+        state: loaded ? read.state : 'loading',
         stack: stack.render(),
         ...testRun.render(),
         // Whether, not where: the address stays on

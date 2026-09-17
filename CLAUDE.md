@@ -87,7 +87,8 @@ typed against `WebviewName` in `src/webview/entry.ts`.
   No host `.ts` imports a `.tsx`.
 - A webview may value-import only browser-safe modules: `src/core/rules.ts`,
   `src/webview/{client,fill,ids,protocol}.ts`, `src/webview/mount.tsx`,
-  `src/runs/queries.ts` (+ `rows.ts`), `src/acp/evidenceRow.ts`,
+  `src/runs/queries.ts` (+ `rows.ts`), `src/runs/state.ts` (the table that
+  decides what the Runs view draws in each state), `src/acp/evidenceRow.ts`,
   `src/sidebar/{markdown,naming}.ts` and the pure `src/canvas/**/*.ts`
   modules. It must never value-import
   `vscode`, `@mboss/core`, `src/messages.ts`, `src/webview/host.ts`, a `node:`
@@ -363,7 +364,9 @@ none of that.
   the same ledger as the list and **borrows the connection** rather than
   opening one: what a read learns about somebody's database is a fact about
   the project, so `history.connection()`/`read()` are lent and the list is
-  what says it. `list()` composes their renders into `RunsInit`; the row the
+  what says it. `list()` composes their renders into `RunsInit`, and says
+  `loading` until a refresh or a stack command has read the stack and then the
+  ledger (the run page's borrowed read does not count); the row the
   list marks is `history.ts`'s own (`selectRow`), never the run `select`
   opens. A stack command is followed by the reads `refresh()` makes, and a
   run this window set going is marked and the list read again when its watch
@@ -375,9 +378,11 @@ none of that.
   `SELECT`s over `dbos.workflow_status` / `dbos.operation_outputs` via `pg`
   (`queries.test.ts` enforces SELECT-only, the `dbos.` prefix and `$n` binds);
   the one write is a fork through `DBOSClient` (`replay.ts`). `stack.ts` drives `docker compose`
-  with `execFile`; `runner.ts` POSTs to the scaffolded app's `/runs` and
-  `/events` with the secret from the project's `.env` (`env.ts` reads only that
-  file); `watch.ts` polls a started run every 500 ms and goes quiet after 15 s.
+  with `execFile`, and once `ps` has answered asks `config --services` what the
+  file declares, so a service with no container still has an `absent` row and
+  `answered` tells a stopped daemon from a project nobody has started;
+  `runner.ts` POSTs to the scaffolded app's `/runs` and `/events` with the
+  secret from the project's `.env` (`env.ts` reads only that file); `watch.ts` polls a started run every 500 ms and goes quiet after 15 s.
   `queries.ts` and `rows.ts` are shared with the browser bundle: no Node
   imports there; `db.ts` is the only file that may import `pg`.
   **`reading.ts` is the one projection of a run's rows** (`readRun`): every row

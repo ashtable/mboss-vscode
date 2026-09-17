@@ -121,6 +121,7 @@ function runsInit(over: Partial<RunsInit> = {}): RunsInit {
     selected: undefined,
     stack: {
       available: true,
+      answered: true,
       services: [],
       busy: undefined,
       detail: undefined,
@@ -165,6 +166,7 @@ test.describe('the local stack', () => {
       runsInit({
         stack: {
           available: true,
+          answered: true,
           busy: undefined,
           detail: undefined,
           services: [
@@ -172,12 +174,14 @@ test.describe('the local stack', () => {
               service: 'postgres',
               state: 'running',
               health: 'healthy',
+              ports: [5432],
               detail: 'postgres:17 · :5432',
             },
             {
               service: 'app',
               state: 'running',
               health: 'healthy',
+              ports: [3000],
               detail: 'built 12 s ago · :3000',
             },
           ],
@@ -201,10 +205,17 @@ test.describe('the local stack', () => {
       runsInit({
         stack: {
           available: true,
+          answered: true,
           busy: undefined,
           detail: undefined,
           services: [
-            { service: 'app', state: 'exited', health: 'none', detail: '' },
+            {
+              service: 'app',
+              state: 'exited',
+              health: 'none',
+              ports: [],
+              detail: '',
+            },
           ],
         },
       }),
@@ -220,10 +231,17 @@ test.describe('the local stack', () => {
       runsInit({
         stack: {
           available: true,
+          answered: true,
           busy: undefined,
           detail: undefined,
           services: [
-            { service: 'app', state: 'running', health: 'healthy', detail: '' },
+            {
+              service: 'app',
+              state: 'running',
+              health: 'healthy',
+              ports: [3000],
+              detail: '',
+            },
           ],
         },
       }),
@@ -242,6 +260,7 @@ test.describe('the local stack', () => {
       runsInit({
         stack: {
           available: true,
+          answered: true,
           busy: undefined,
           detail: undefined,
           services: [
@@ -249,6 +268,7 @@ test.describe('the local stack', () => {
               service: 'app',
               state: 'running',
               health: 'healthy',
+              ports: [3000],
               detail: 'built 1 h ago',
             },
           ],
@@ -271,6 +291,7 @@ test.describe('the local stack', () => {
       runsInit({
         stack: {
           available: false,
+          answered: false,
           busy: undefined,
           detail: 'Docker is not on the PATH.',
           services: [],
@@ -1244,6 +1265,42 @@ test.describe('the run list', () => {
     );
 
     await expect(page.locator('.state')).toContainText('ECONNREFUSED');
+  });
+
+  test('says which file holds no database to read', async ({ page }) => {
+    const detail = '/demo/.env is not readable, so there is no database.';
+
+    await showList(page, runsInit({ state: 'no-database', detail, rows: [] }));
+
+    await expect(page.locator('.state')).toHaveText(detail);
+  });
+
+  /**
+   * Nothing has been read yet, and whatever the
+   * view drew below its header now would be
+   * replaced a moment later.
+   */
+  test('draws its header alone before the first read', async ({ page }) => {
+    await showList(
+      page,
+      runsInit({
+        state: 'loading',
+        rows: [],
+        counts: { all: 0, active: 0, failed: 0 },
+        stack: {
+          available: false,
+          answered: false,
+          services: [],
+          busy: undefined,
+          detail: undefined,
+        },
+      }),
+    );
+
+    const runs = page.locator('.runs');
+
+    await expect(runs.locator('.runs-head')).toContainText(runsStrings.heading);
+    await expect(runs.locator(':scope > *')).toHaveCount(1);
   });
 });
 

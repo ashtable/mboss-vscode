@@ -15,6 +15,7 @@ import type {
 } from '../webview/protocol.js';
 import { RUN_FILTERS, type RunFilter } from './queries.js';
 import type { StepState } from './reading.js';
+import { APP_SERVICE } from './state.js';
 import type { LiveRun } from './watch.js';
 
 import './runs.css';
@@ -62,24 +63,30 @@ const SESSION_MARKS: Record<SessionRow['outcome'], string> = {
   cancelled: '■',
 };
 
-/** The compose service the app runs in, as the
- *  scaffold's own compose file names it. Rebuild
- *  belongs beside this row and no other. */
-const APP_SERVICE = 'app';
-
 function Runs(state: RunsInit) {
   const { strings } = state;
   const showControls =
     state.state !== 'untrusted' && state.state !== 'no-project';
 
+  const header = (
+    <header className="runs-head">
+      <p className="eyebrow">{strings.heading}</p>
+      {state.project === undefined ? null : (
+        <p className="runs-project mono">{state.project}</p>
+      )}
+    </header>
+  );
+
+  // Nothing has been read yet, and anything drawn
+  // below the header would be replaced a moment
+  // later.
+  if (state.state === 'loading') {
+    return <div className="runs">{header}</div>;
+  }
+
   return (
     <div className="runs">
-      <header className="runs-head">
-        <p className="eyebrow">{strings.heading}</p>
-        {state.project === undefined ? null : (
-          <p className="runs-project mono">{state.project}</p>
-        )}
-      </header>
+      {header}
 
       {showControls ? (
         <>
@@ -664,7 +671,8 @@ function lineageText(line: RunLineage, strings: RunsStrings): string {
 }
 
 /** Why the list is empty, when it is not a list at
- *  all. */
+ *  all. A missing database and one that would not
+ *  answer each say which in the detail. */
 function blockedBy(state: RunsInit, strings: RunsStrings): string {
   if (state.state === 'untrusted') return strings.untrusted;
   if (state.state === 'no-project') return strings.noProject;

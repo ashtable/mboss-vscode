@@ -28,6 +28,7 @@ import type { ReplayQuestion } from './replayZone.js';
 import type { ProjectSdk } from './sdk.js';
 import { sessionLog } from './sessionLog.js';
 import type { StackController, StackStatus } from './stack.js';
+import { runsState } from './state.js';
 import {
   CONDUCTOR_DOCS_URL,
   runsStore,
@@ -91,6 +92,30 @@ describe('what the list draws', () => {
     expect(init.view).toBe('runs');
     expect(init.project).toBeUndefined();
     expect(init.strings.scope).toContain('Conductor');
+  });
+
+  /**
+   * Every state below the header is a claim about
+   * something read, and the first read has not
+   * finished: a card drawn now would be replaced a
+   * moment later. The run page borrowing the ledger
+   * is no read of the stack, so it is not the list's
+   * first read either.
+   */
+  it('draws nothing below the header until its first read', async () => {
+    const store = runsStore(deps());
+
+    expect(store.list().state).toBe('loading');
+
+    await store.select('wf_c9d2f3');
+    expect(store.list().state).toBe('loading');
+
+    await store.refresh();
+    expect(store.list().state).toBe('ok');
+
+    const started = runsStore(deps());
+    await started.stackUp();
+    expect(started.list().state).toBe('ok');
   });
 
   it('draws the three zones as one picture', async () => {
@@ -227,9 +252,22 @@ describe('one door for three zones', () => {
 
     const stopped: StackStatus = {
       available: true,
+      answered: true,
       services: [
-        { service: 'postgres', state: 'exited', health: 'none', detail: '' },
-        { service: 'app', state: 'exited', health: 'none', detail: '' },
+        {
+          service: 'postgres',
+          state: 'exited',
+          health: 'none',
+          ports: [],
+          detail: '',
+        },
+        {
+          service: 'app',
+          state: 'exited',
+          health: 'none',
+          ports: [],
+          detail: '',
+        },
       ],
       detail: undefined,
     };
@@ -248,11 +286,17 @@ describe('one door for three zones', () => {
 
     await store.refresh();
     expect(store.list().state).toBe('unreachable');
+    expect(runsState(store.list())).toEqual({
+      row: 'database-refused',
+      regions: ['services', 'state'],
+      action: 'start-app',
+    });
 
     await store.stackUp();
     const shown = store.list();
 
     expect(shown.state).toBe('ok');
+    expect(runsState(shown).row).toBe('no-runs');
     expect(shown.counts).toEqual({ all: 0, active: 0, failed: 0 });
     expect(shown.rows).toEqual([]);
     expect(shown.stack.services.map((one) => one.state)).toEqual([

@@ -437,6 +437,12 @@ export type RunsInit = {
 export type StackZone = {
   available: boolean;
 
+  /** Whether compose answered at all: false for a
+   *  daemon that is not running, which lists no
+   *  services exactly as a project nobody has
+   *  started would without it. */
+  answered: boolean;
+
   services: ServiceHealth[];
 
   /** Which command is going, while one is. */
@@ -539,13 +545,24 @@ export type SessionRow = {
 /**
  * Why the list is or is not showing runs.
  *
- * `unreachable` covers both halves of the same
- * experience — no connection string in the
- * project's `.env`, and a database that would not
- * answer — because what a person does about either
- * is read the sentence under it.
+ * - `loading`: nothing has been read yet, so the
+ *   view draws its header and nothing a moment
+ *   later would replace.
+ * - `ok`: the ledger answered; the rows are the
+ *   answer.
+ * - `untrusted`, `no-project`: nothing is read in
+ *   a folder nobody trusts, or without a project.
+ * - `no-database`: the project's `.env`, or the
+ *   connection string in it, is missing — a file
+ *   to fix, which starting the stack would not.
+ * - `unreachable`: there is a database to read and
+ *   it would not answer, which is most often the
+ *   stack's own, stopped.
+ *
+ * `detail` says which file or which refusal.
  */
-export type RunsState = 'ok' | 'untrusted' | 'no-project' | 'unreachable';
+export type RunsState =
+  'loading' | 'ok' | 'untrusted' | 'no-project' | 'no-database' | 'unreachable';
 
 export type RunRow = {
   workflowId: string;

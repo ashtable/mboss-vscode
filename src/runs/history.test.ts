@@ -1,3 +1,6 @@
+import { rmSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it, vi } from 'vitest';
 
 import { fakeAgent } from '../../test/doubles/agent.js';
@@ -88,6 +91,11 @@ describe('before there is anything to read', () => {
     expect(open).not.toHaveBeenCalled();
   });
 
+  /**
+   * A file to fix rather than a database to start:
+   * starting the stack would not write the missing
+   * line.
+   */
   it('says which variable is missing rather than failing quietly', async () => {
     const read = history({
       host: host({ projects: () => [project({ env: '# nothing\n' })] }),
@@ -95,8 +103,21 @@ describe('before there is anything to read', () => {
 
     await read.refresh();
 
-    expect(read.render().state).toBe('unreachable');
+    expect(read.render().state).toBe('no-database');
     expect(read.render().detail).toContain('DATABASE_URL');
+  });
+
+  it('says there is no .env to read a database from', async () => {
+    const dir = project();
+    rmSync(join(dir, '.env'));
+    const read = history({ host: host({ projects: () => [dir] }) });
+
+    await read.refresh();
+
+    expect(read.render().state).toBe('no-database');
+    expect(read.render().detail).toBe(
+      messages.runsNoEnvFile(join(dir, '.env')),
+    );
   });
 
   it('offers no ledger to watch, quietly', () => {

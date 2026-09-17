@@ -86,6 +86,24 @@ const NO_DOCKER: DockerOutcome = {
   detail: 'spawn docker ENOENT',
 };
 
+/** What a daemon that is not running says, with
+ *  docker itself on the path. */
+const REFUSED: DockerOutcome = {
+  ok: false,
+  because: 'refused',
+  detail: 'failed to connect to the docker API',
+};
+
+const CONFIG = ['compose', 'config', '--services'];
+
+/**
+ * What `compose config --services` prints for the
+ * scaffold's file: one name per line, in the order
+ * compose would start them, so the database the app
+ * depends on comes first.
+ */
+const DECLARED = 'postgres\napp\n';
+
 type Call = { args: string[]; project: string };
 
 type Driven = {
@@ -107,10 +125,15 @@ type Driven = {
  * so a spec can tell a command whose log belongs
  * in the channel from a read whose output is the
  * answer.
+ *
+ * Asking compose what the file declares is
+ * answered apart from everything else, because
+ * its output is a list of names and every other
+ * answer here would read as one.
  */
 function driven(
   answer: (args: readonly string[]) => DockerOutcome,
-  opts?: { composeFile?: boolean },
+  opts?: { composeFile?: boolean; services?: DockerOutcome },
 ): Driven {
   const project = mkdtempSync(join(tmpdir(), 'mboss-stack-'));
 
@@ -124,7 +147,10 @@ function driven(
   const run: RunDocker = async (args, cwd, onOutput) => {
     calls.push({ args: [...args], project: cwd });
 
-    const outcome = answer(args);
+    const declares = args.join(' ') === CONFIG.join(' ');
+    const outcome = declares
+      ? (opts?.services ?? { ok: true, stdout: DECLARED })
+      : answer(args);
     onOutput(outcome.ok ? outcome.stdout : outcome.detail);
 
     return outcome;
@@ -159,6 +185,7 @@ describe('what the local stack is doing', () => {
     ]);
     expect(calls[0]?.project).toBe(project);
     expect(status.available).toBe(true);
+    expect(status.answered).toBe(true);
     expect(status.detail).toBeUndefined();
     expect(status.services.map((service) => service.service)).toEqual([
       'postgres',
@@ -278,7 +305,29 @@ describe('what the local stack is doing', () => {
 
     expect(services[0]?.state).toBe('exited');
     expect(services[0]?.health).toBe('none');
+    expect(services[0]?.ports).toEqual([]);
     expect(services[0]?.detail).toBe('postgres:17');
+  });
+
+  /**
+   * Where each service listens, kept as numbers
+   * beside the sentence, for a line that says
+   * `postgres :5432 · app :3000` without taking
+   * the sentence apart.
+   */
+  it('says where each service listens, as numbers', async () => {
+    const { stack, project } = driven(answers(NDJSON));
+
+    const services = (await stack.status(project)).services;
+
+    expect(services.map((one) => [one.service, one.ports])).toEqual([
+      ['postgres', [5432]],
+      ['app', [3000]],
+    ]);
+    expect(services.map((one) => one.detail)).toEqual([
+      'postgres:17 · :5432',
+      'built 12 s ago · :3000',
+    ]);
   });
 
   /** A read's output is the answer, not a log. */
@@ -291,13 +340,111 @@ describe('what the local stack is doing', () => {
   });
 });
 
+/**
+ * `compose ps` lists containers, and a project
+ * nobody has started has none. A daemon that is
+ * not running also lists nothing — so the only
+ * thing that tells the two apart is whether `ps`
+ * answered at all, and what compose declares is
+ * how the first still has a row per service.
+ */
+describe('the services a project declares', () => {
+  it('lists what compose declares that nobody has started', async () => {
+    const { stack, project, calls } = driven(answers(''));
+
+    const status = await stack.status(project);
+
+    expect(status).toEqual({
+      available: true,
+      answered: true,
+      services: [
+        {
+          service: 'postgres',
+          state: 'absent',
+          health: 'none',
+          ports: [],
+          detail: '',
+        },
+        {
+          service: 'app',
+          state: 'absent',
+          health: 'none',
+          ports: [],
+          detail: '',
+        },
+      ],
+      detail: undefined,
+    });
+    expect(calls.map((call) => call.args)).toEqual([
+      ['compose', 'ps', '--all', '--format', 'json'],
+      CONFIG,
+    ]);
+  });
+
+  /** Each service once, in the order compose
+   *  listed it, the declared-only ones after. */
+  it('adds only the declared services ps did not list', async () => {
+    const { stack, project } = driven(answers(JSON.stringify(APP)));
+
+    const services = (await stack.status(project)).services;
+
+    expect(services.map((one) => [one.service, one.state])).toEqual([
+      ['app', 'running'],
+      ['postgres', 'absent'],
+    ]);
+  });
+
+  /**
+   * Compose has already said in the channel why it
+   * could not read the file, and what `ps` said is
+   * still true: the daemon answered.
+   */
+  it('keeps what ps said when compose cannot list what it declares', async () => {
+    const { stack, project, log } = driven(answers(NDJSON), {
+      services: REFUSED,
+    });
+
+    const status = await stack.status(project);
+
+    expect(status.answered).toBe(true);
+    expect(status.services.map((one) => [one.service, one.state])).toEqual([
+      ['postgres', 'running'],
+      ['app', 'running'],
+    ]);
+    expect(log()).toContain('failed to connect to the docker API');
+  });
+});
+
 describe('why nothing can run', () => {
+  /**
+   * A stopped daemon and a project nobody started
+   * both list no containers; this is the one that
+   * never answered, and what the file declares is
+   * no answer about what is running.
+   */
+  it('says the daemon did not answer, and asks compose nothing else', async () => {
+    const { stack, project, calls } = driven(() => REFUSED);
+
+    const status = await stack.status(project);
+
+    expect(status).toEqual({
+      available: true,
+      answered: false,
+      services: [],
+      detail: undefined,
+    });
+    expect(calls.map((call) => call.args)).toEqual([
+      ['compose', 'ps', '--all', '--format', 'json'],
+    ]);
+  });
+
   it('says so when docker is not on the path', async () => {
     const { stack, project } = driven(() => NO_DOCKER);
 
     const status = await stack.status(project);
 
     expect(status.available).toBe(false);
+    expect(status.answered).toBe(false);
     expect(status.services).toEqual([]);
     expect(status.detail).toBe(
       'Docker is not on the PATH, so there is no local stack to start.',
@@ -312,6 +459,7 @@ describe('why nothing can run', () => {
     const status = await stack.status(project);
 
     expect(status.available).toBe(false);
+    expect(status.answered).toBe(false);
     expect(status.services).toEqual([]);
     expect(status.detail).toBe(
       `${join(project, 'docker-compose.yml')} is not there, so there is ` +

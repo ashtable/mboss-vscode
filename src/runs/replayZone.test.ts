@@ -309,11 +309,13 @@ function recorder(
         builtAt: () => builtAt,
         render: () => ({
           available: true,
+          answered: true,
           services: [
             {
               service: 'app',
               state: 'running',
               health: 'healthy',
+              ports: [3000],
               detail: 'built 12 s ago',
             },
           ],
@@ -502,11 +504,13 @@ describe('deciding whether a run can be replayed from here', () => {
         builtAt: () => 20_000,
         render: () => ({
           available: true,
+          answered: true,
           services: [
             {
               service: 'app',
               state: 'running',
               health: 'healthy',
+              ports: [3000],
               detail: 'built 12 s ago',
             },
           ],
@@ -966,11 +970,13 @@ describe('what the modal says', () => {
           builtAt: () => 20_000,
           render: () => ({
             available: true,
+            answered: true,
             services: [
               {
                 service: 'app',
                 state: 'exited',
                 health: 'none',
+                ports: [],
                 detail: 'built 3 h ago',
               },
             ],

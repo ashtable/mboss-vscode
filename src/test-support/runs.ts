@@ -233,17 +233,20 @@ export function management(): ManagementClient & {
 
 export const RUNNING: StackStatus = {
   available: true,
+  answered: true,
   services: [
     {
       service: 'postgres',
       state: 'running',
       health: 'healthy',
+      ports: [5432],
       detail: 'postgres:17 · :5432',
     },
     {
       service: 'app',
       state: 'running',
       health: 'healthy',
+      ports: [3000],
       detail: 'built 12 s ago · :3000',
     },
   ],
@@ -252,11 +255,13 @@ export const RUNNING: StackStatus = {
 
 export const STOPPED: StackStatus = {
   available: true,
+  answered: true,
   services: [
     {
       service: 'app',
       state: 'exited',
       health: 'none',
+      ports: [],
       detail: 'built 3 h ago',
     },
   ],

@@ -245,8 +245,11 @@ export function runHistory(deps: HistoryDeps): History {
 
     const found = systemDatabaseUrl(dir);
 
+    // A file to fix. Starting the stack would not
+    // write it, which is what sets this apart from
+    // a database that would not answer.
     if (!found.ok) {
-      state = 'unreachable';
+      state = 'no-database';
       detail =
         found.because === 'no-env-file'
           ? messages.runsNoEnvFile(found.path)

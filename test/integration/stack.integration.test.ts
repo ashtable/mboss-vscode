@@ -128,12 +128,25 @@ describe("a scaffolded project's own stack", () => {
     5 * 60 * 1000,
   );
 
+  /**
+   * No container exists yet, so `ps` answers with
+   * nothing at all; what the file declares is what
+   * still gives each service a row. Compared sorted,
+   * because compose lists them in the order it
+   * would start them.
+   */
   it('finds a project nobody has started yet', async () => {
     const status = await stack.status(project);
 
     expect(status.available).toBe(true);
+    expect(status.answered).toBe(true);
     expect(status.detail).toBeUndefined();
-    expect(status.services).toEqual([]);
+    expect(
+      status.services.map((one) => [one.service, one.state]).sort(),
+    ).toEqual([
+      ['app', 'absent'],
+      ['postgres', 'absent'],
+    ]);
     expect(await stack.appOrigin(project)).toBeUndefined();
   });
 
@@ -143,6 +156,7 @@ describe("a scaffolded project's own stack", () => {
     const status = await stack.status(empty);
 
     expect(status.available).toBe(false);
+    expect(status.answered).toBe(false);
     expect(status.services).toEqual([]);
     expect(status.detail).toContain('docker-compose.yml');
   });
@@ -158,7 +172,9 @@ describe("a scaffolded project's own stack", () => {
       );
 
       expect(status.available).toBe(true);
+      expect(status.answered).toBe(true);
       expect(services.get('postgres')?.state).toBe('running');
+      expect(services.get('postgres')?.ports).toEqual([5432]);
       expect(services.get('postgres')?.detail).toBe('postgres:17 · :5432');
       expect(services.get('app')?.state).toBe('running');
 

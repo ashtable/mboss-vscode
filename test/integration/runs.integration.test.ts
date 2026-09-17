@@ -392,6 +392,7 @@ describe('a run history, read from a real dbos schema', () => {
         down: async () => undefined,
         status: async () => ({
           available: false,
+          answered: false,
           services: [],
           detail: undefined,
         }),

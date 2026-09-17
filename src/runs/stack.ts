@@ -51,14 +51,20 @@ export const STACK_OUTPUT = 'mBoss Stack';
 const COMPOSE_FILE = 'docker-compose.yml';
 
 /**
- * The service the app runs in and the port its
- * image listens on, both as the scaffold's compose
+ * The service the workflows run in and the port
+ * its image listens on, as the scaffold's compose
  * file names them.
+ *
+ * The Runs view reads the same service name from
+ * `state.ts`, and it is spelled again here on
+ * purpose: that module reads the webview
+ * contract's types, the contract reads this
+ * module's, and a module the contract reads
+ * imports nothing that leads back to it. Both
+ * spellings are pinned to the scaffold's name by
+ * their specs.
  */
-/** Compose's name for the container the workflows
- *  run in, which is the one whose state decides
- *  whether anything can be started at all. */
-export const APP_SERVICE = 'app';
+const APP_SERVICE = 'app';
 const APP_PORT = '3000';
 
 /**
@@ -74,6 +80,19 @@ const UP = ['compose', 'up', '--build', '--wait', '-d'] as const;
  * indistinguishable from one nobody ever started.
  */
 const PS = ['compose', 'ps', '--all', '--format', 'json'] as const;
+
+/**
+ * What the file declares, one name per line.
+ *
+ * `ps` lists containers, and a project nobody has
+ * started has none, so this is how such a project
+ * still has a row per service. Compose reads it
+ * off the file without the daemon, which is why it
+ * is asked only once `ps` has answered: a daemon
+ * that is not running has no services worth
+ * listing, whatever the file says.
+ */
+const CONFIG = ['compose', 'config', '--services'] as const;
 
 /** What `compose port` answers with: an address it
  *  bound, then the port. */
@@ -101,6 +120,17 @@ export type ServiceHealth = {
    */
   builtAt?: number;
 
+  /**
+   * Where it listens on this machine, lowest first
+   * and each once.
+   *
+   * The same numbers the detail ends with, kept
+   * apart so a line naming every service's ports
+   * does not have to take a sentence apart. None
+   * for a container that is not running.
+   */
+  ports: number[];
+
   /** `postgres:17 · :5432`, or for the app,
    *  `built 12 s ago · :3000`. */
   detail: string;
@@ -111,6 +141,17 @@ export type StackStatus = {
   /** Docker is on the path and the project has a
    *  compose file. */
   available: boolean;
+
+  /**
+   * Whether `compose ps` answered.
+   *
+   * A daemon that is not running and a project
+   * nobody has started both list no containers,
+   * and only this tells them apart: one is waiting
+   * for Docker, the other for somebody to press
+   * Start. False wherever `ps` was never asked.
+   */
+  answered: boolean;
 
   services: ServiceHealth[];
 
@@ -210,6 +251,7 @@ export function dockerStack(
       if (!existsSync(file)) {
         return {
           available: false,
+          answered: false,
           services: [],
           detail: messages.stackNoComposeFile(file),
         };
@@ -218,24 +260,33 @@ export function dockerStack(
       const outcome = await read(project, PS);
 
       // A compose that answered with something else
-      // has already said what in the channel, and
-      // the panel's own answer is the same either
-      // way: nothing is running.
+      // has already said what in the channel.
+      // Nothing is running either way, and a daemon
+      // that did not answer is not the project's
+      // services being down, so none are listed.
       if (!outcome.ok) {
         const missing = outcome.because === 'no-docker';
 
         return {
           available: !missing,
+          answered: false,
           services: [],
           detail: missing ? messages.stackNoDocker() : undefined,
         };
       }
 
       const at = now();
+      const listed = psRows(outcome.stdout).map((row) =>
+        serviceHealth(row, at),
+      );
 
       return {
         available: true,
-        services: psRows(outcome.stdout).map((row) => serviceHealth(row, at)),
+        answered: true,
+        services: [
+          ...listed,
+          ...notStarted(await read(project, CONFIG), listed),
+        ],
         detail: undefined,
       };
     },
@@ -364,16 +415,48 @@ function serviceHealth(row: PsRow, now: number): ServiceHealth {
   // compared against their workspace and would call
   // the app stale for a file newer than postgres.
   const builtAt = service === APP_SERVICE ? madeAt(row) : undefined;
+  const ports = portsOf(row);
 
   return {
     service,
     state: stateOf(row.State),
     health: healthOf(row.Health),
     builtAt,
-    detail: [headOf(row, service, builtAt, now), ...ports(row)]
+    ports,
+    detail: [headOf(row, service, builtAt, now), ...ports.map((n) => `:${n}`)]
       .filter((part) => part !== '')
       .join(' · '),
   };
+}
+
+/**
+ * The services the file declares that `ps` listed
+ * no container for, in the order compose names
+ * them.
+ *
+ * A file compose could not read adds nothing: it
+ * has already said why in the channel, and what
+ * `ps` answered is still true.
+ */
+function notStarted(
+  declared: DockerOutcome,
+  listed: readonly ServiceHealth[],
+): ServiceHealth[] {
+  if (!declared.ok) return [];
+
+  const known = new Set(listed.map((one) => one.service));
+
+  return declared.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((service) => service !== '' && !known.has(service))
+    .map((service) => ({
+      service,
+      state: 'absent',
+      health: 'none',
+      ports: [],
+      detail: '',
+    }));
 }
 
 /**
@@ -437,16 +520,18 @@ function madeAt(row: PsRow): number | undefined {
  * A port bound on both address families is two
  * publishers of the same number, and a panel that
  * said `:3000 · :3000` would be reporting the
- * address family nobody asked about.
+ * address family nobody asked about. Lowest first,
+ * so the same container reads the same whichever
+ * order compose printed its bindings in.
  */
-function ports(row: PsRow): string[] {
+function portsOf(row: PsRow): number[] {
   const published = new Set(
     (row.Publishers ?? [])
       .map((publisher) => publisher.PublishedPort)
       .filter((port): port is number => typeof port === 'number' && port > 0),
   );
 
-  return [...published].map((port) => `:${port}`);
+  return [...published].sort((a, b) => a - b);
 }
 
 const SECOND = 1000;
