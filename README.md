@@ -65,7 +65,7 @@ an applied change can be undone.
 ### Runs, on your machine
 
 The **Runs** view lists the project's DBOS runs, read straight from its local
-Postgres. Filter by failed or recovered runs, and start or stop the local stack
+Postgres. Filter by active or failed runs, and start or stop the local stack
 from the view's title bar.
 
 - **Run Workflow…** starts a workflow with the input you give it. The request

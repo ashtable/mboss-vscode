@@ -18,6 +18,7 @@ import { fakeAgent } from '../doubles/agent.js';
 import { fakeTrust } from '../doubles/trust.js';
 import { sessionLog } from '../../src/runs/sessionLog.js';
 import { runsStore, type RunsStore } from '../../src/runs/store.js';
+import { when } from '../../src/webview/time.js';
 
 /**
  * The run history, read out of a schema DBOS made.
@@ -360,6 +361,7 @@ describe('a run history, read from a real dbos schema', () => {
       host: {
         projects: () => [dir],
         say: (message) => said.push(message),
+        locale: () => 'en-US',
         setContext: () => undefined,
         copy: async () => undefined,
         openCanvas: async () => undefined,
@@ -426,7 +428,46 @@ describe('a run history, read from a real dbos schema', () => {
       RECOVERED_RUN,
       SLEEPING_RUN,
     ]);
-    expect(list.counts).toEqual({ all: 7, failed: 2, recovered: 1 });
+    expect(list.counts).toEqual({ all: 7, active: 3, failed: 2 });
+
+    // The columns the list asks of the other table
+    // — where a run threw, when its sleep ends, how
+    // many blocks it ran — as Postgres answers them
+    // rather than as a double does.
+    const byId = new Map(list.rows.map((row) => [row.workflowId, row]));
+    const clockOf = (epoch: string | null | undefined): string =>
+      when(Number(epoch), Date.now(), 'en-US');
+
+    const sleep = sleeping.find((one) => one.function_name === 'DBOS.sleep');
+    expect(sleep).toBeDefined();
+    expect(byId.get(SLEEPING_RUN)?.state).toBe('waiting');
+    const wakes = clockOf(sleep?.completed_at_epoch_ms);
+    expect(byId.get(SLEEPING_RUN)?.line).toBe(
+      `waiting · after before_wait · wakes ${wakes}`,
+    );
+
+    // The wait's two rows are one block, and the
+    // zero-width timeout marker is not a sleep
+    // still to end.
+    const register = parked.find(
+      (one) => one.function_name === 'manager_ok.register',
+    );
+    expect(register).toBeDefined();
+    expect(byId.get(PARKED_RUN)?.state).toBe('waiting');
+    const since = clockOf(register?.completed_at_epoch_ms);
+    expect(byId.get(PARKED_RUN)?.line).toBe(
+      `waiting · manager_ok · since ${since}`,
+    );
+    expect(byId.get(PARKED_RUN)?.operations).toBe(1);
+
+    expect(byId.get(FAILED_RUN)?.failedStep).toBe(1);
+    expect(byId.get(FAILED_RUN)?.line).toMatch(
+      /^failed · submit · \d{2}:\d{2} · /,
+    );
+    expect(byId.get(BOOKED_RUN)?.failedStep).toBe(0);
+    expect(byId.get(OK_RUN)?.failedStep).toBeUndefined();
+    expect(byId.get(OK_RUN)?.line).toMatch(/ · 2 steps$/);
+    expect(byId.get(CONTROLLED_RUN)?.state).toBe('running');
   });
 
   /**
@@ -546,10 +587,13 @@ describe('a run history, read from a real dbos schema', () => {
   });
 
   /**
-   * A run can match two filters at once — recovering
-   * is something that happened during a run, not a
-   * way one ended — so the counts do not add up and
-   * the sets overlap on purpose.
+   * Active and failed are two sets of statuses with
+   * nothing in common, so a run is in one of them
+   * at most and the two counts add up to no more
+   * than the first. Active is every run not over
+   * yet, whatever it is doing: the one executing,
+   * the one asleep on the clock and the one parked
+   * on a person.
    */
   it('filters on what the database itself calls failed', async () => {
     await store.setFilter('failed');
@@ -560,10 +604,13 @@ describe('a run history, read from a real dbos schema', () => {
         .sort(),
     ).toEqual([BOOKED_RUN, FAILED_RUN]);
 
-    await store.setFilter('recovered');
-    expect(store.list().rows.map((row) => row.workflowId)).toEqual([
-      RECOVERED_RUN,
-    ]);
+    await store.setFilter('active');
+    expect(
+      store
+        .list()
+        .rows.map((row) => row.workflowId)
+        .sort(),
+    ).toEqual([CONTROLLED_RUN, PARKED_RUN, SLEEPING_RUN]);
 
     await store.setFilter('all');
     expect(store.list().rows).toHaveLength(7);
@@ -705,6 +752,28 @@ describe('a run history, read from a real dbos schema', () => {
     } finally {
       await forked.close();
     }
+
+    // And the list asks the same question of every
+    // run it reads, so the replay's row and its
+    // parent's say where it began.
+    await store.refresh();
+    const rows = new Map(store.list().rows.map((row) => [row.workflowId, row]));
+
+    expect(rows.get(`${FAILED_RUN}_fork`)?.startStep).toBe(1);
+    expect(rows.get(`${FAILED_RUN}_fork`)?.lineage).toEqual([
+      expect.objectContaining({
+        direction: 'of',
+        workflowId: FAILED_RUN,
+        startStep: 1,
+      }),
+    ]);
+    expect(rows.get(FAILED_RUN)?.lineage).toEqual([
+      expect.objectContaining({
+        direction: 'to',
+        workflowId: `${FAILED_RUN}_fork`,
+        startStep: 1,
+      }),
+    ]);
   });
 
   /**

@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { SDK_OPERATIONS, queuedWorkflowName } from '../core/rules.js';
+import { SDK_OPERATIONS, ownerOf, queuedWorkflowName } from '../core/rules.js';
 
 import {
   ALL_QUERIES,
+  BLOCK_NAME,
   FAILED_STATUSES,
+  IN_FLIGHT_STATUSES,
   MAX_RUNS,
   QUEUED_STATUSES,
   RUN_COLUMNS,
@@ -20,7 +22,6 @@ import {
   runsQuery,
   stepsQuery,
 } from './queries.js';
-import { FIRST_DISPATCH } from './rows.js';
 
 /**
  * The statements, checked as text.
@@ -98,8 +99,15 @@ describe('every statement', () => {
 });
 
 describe('the run list', () => {
-  it('offers the three the design names', () => {
-    expect(RUN_FILTERS).toEqual(['all', 'failed', 'recovered']);
+  /**
+   * Recovered is not among them: a run DBOS picked
+   * back up is something that happened to it, and
+   * the row's own edge says so. What somebody opens
+   * the list to find is what is still going and
+   * what went wrong.
+   */
+  it('offers all, active and failed', () => {
+    expect(RUN_FILTERS).toEqual(['all', 'active', 'failed']);
   });
 
   /**
@@ -131,31 +139,30 @@ describe('the run list', () => {
 
     const query = runsQuery('failed', MAX_RUNS);
 
-    // Third and fourth, not first and second: the
-    // exclusion the summary columns bind sits in
+    // Fourth and fifth, not first and second: the
+    // three values the summary columns bind sit in
     // the SELECT list, ahead of the WHERE clause.
-    expect(query.text).toContain('WHERE status = ANY($3)');
-    expect(query.values.slice(2)).toEqual([FAILED_STATUSES, MAX_RUNS]);
+    expect(query.text).toContain('WHERE status = ANY($4)');
+    expect(query.values.slice(3)).toEqual([FAILED_STATUSES, MAX_RUNS]);
   });
 
   /**
-   * A count, not a status: a run that recovered and
-   * then succeeded is both recovered and a success,
-   * and this filter is about the crash rather than
-   * about the outcome.
-   *
-   * And greater than the *first dispatch*, never
-   * greater than zero. The column counts dispatches,
-   * so `> 0` selects every run in the database — a
-   * mistake that looks right until there is more
-   * than one row to look at.
+   * The SDK's own in-flight set: a run that is
+   * executing, parked, waiting for a worker or
+   * sitting out a delay is not over yet, whatever
+   * it is doing. Fenced to the top level like every
+   * other list read, so a queue block's fifty
+   * children do not count as fifty active runs.
    */
-  it('discounts the dispatch every run already has', () => {
-    const query = runsQuery('recovered', MAX_RUNS);
+  it('calls a run active while it is still in flight, at the top level', () => {
+    expect(IN_FLIGHT_STATUSES).toEqual(['PENDING', 'ENQUEUED', 'DELAYED']);
 
-    expect(query.text).toContain('WHERE recovery_attempts > $3');
-    expect(query.values.slice(2)).toEqual([FIRST_DISPATCH, MAX_RUNS]);
-    expect(FIRST_DISPATCH).toBe(1);
+    const query = runsQuery('active', MAX_RUNS);
+
+    expect(query.text).toContain(
+      'WHERE status = ANY($4) AND parent_workflow_id IS NULL',
+    );
+    expect(query.values.slice(3)).toEqual([IN_FLIGHT_STATUSES, MAX_RUNS]);
   });
 
   it('selects the columns a row and its rail are drawn from', () => {
@@ -203,7 +210,9 @@ describe('the filter counts', () => {
     const query = countsQuery();
 
     expect(query.text.match(/count\(\*\)/g)).toHaveLength(3);
-    expect(query.values).toEqual([FAILED_STATUSES, FIRST_DISPATCH]);
+    expect(query.text).toContain('AS active_runs');
+    expect(query.text).not.toContain('recovered_runs');
+    expect(query.values).toEqual([FAILED_STATUSES, IN_FLIGHT_STATUSES]);
   });
 });
 
@@ -280,6 +289,101 @@ describe('the run list', () => {
     expect(query.values).toContain('DBOS.%');
     expect(query.values).toContainEqual(unprefixed);
     expect(unprefixed).toEqual(['getStatus']);
+  });
+
+  /**
+   * The Replay label and "from step" read it off
+   * the row, so the list asks the fork read's own
+   * question: the rows a fork carried over are the
+   * ones completed before it was created.
+   */
+  it('reads where a replay began by the rule the fork read uses', () => {
+    expect(runsQuery('all', MAX_RUNS).text).toContain('AS last_reused');
+    expect(runsQuery('all', MAX_RUNS).text).toContain(
+      'o.completed_at_epoch_ms < s.created_at',
+    );
+    expect(forksQuery('wf_c9d2f3').text).toContain(
+      'o.completed_at_epoch_ms < f.created_at',
+    );
+  });
+
+  /**
+   * The row a replay of a failed run starts from.
+   * Any row of the run's own that threw, whether a
+   * replay could be offered from it or not: which
+   * rows are offered is the document's question,
+   * and the list has no document.
+   */
+  it('reads the first row of its own that threw, offered or not', () => {
+    const text = runsQuery('all', MAX_RUNS).text;
+    const failed = text.slice(
+      text.lastIndexOf('(SELECT', text.indexOf('AS failed_step')),
+      text.indexOf('AS failed_step'),
+    );
+
+    expect(failed).toContain('min(o.function_id)');
+    expect(failed).toContain('o.error IS NOT NULL');
+    expect(failed).toContain('function_name NOT LIKE $1');
+  });
+
+  /**
+   * A sleep row is completed at the moment the run
+   * is due to wake, written when the sleep starts,
+   * so the latest one still ahead of the clock is a
+   * run asleep. Only the SDK's sleep rows: every
+   * other row's completion is in the past.
+   */
+  it('reads when a sleeping run wakes, off the SDK sleep rows alone', () => {
+    const query = runsQuery('all', MAX_RUNS);
+
+    expect(query.text).toContain('max(o.completed_at_epoch_ms)');
+    expect(query.text).toContain('o.function_name = $3');
+    expect(query.text).toContain('AS sleeping_until');
+    expect(query.values[2]).toBe('DBOS.sleep');
+  });
+
+  /**
+   * "3 steps" means three blocks. A queue block
+   * writes a row per item, a wait two and a loop
+   * one per round, and none of those is a step
+   * somebody drew.
+   */
+  it('counts the blocks a run ran rather than the rows it wrote', () => {
+    const text = runsQuery('all', MAX_RUNS).text;
+
+    expect(text).toContain(
+      `count(DISTINCT substring(o.function_name FROM '${BLOCK_NAME}'))`,
+    );
+    expect(text).toContain('AS operation_count');
+    expect(text).not.toContain('SELECT count(*) FROM dbos.operation_outputs');
+  });
+
+  it('names the block a row belongs to as the grammar does', () => {
+    const names = [
+      'find_slot.r2',
+      'find_slot.r3',
+      'await_details.register',
+      'await_details.clear',
+      'index_pages.queued.document_ingestion',
+      'reminder.resend.2',
+      'charge_card',
+    ];
+    const blocks = new Set<string>();
+
+    for (const name of names) {
+      const owner = ownerOf(name);
+
+      // Read by the grammar first, so a name it
+      // refuses cannot make the comparison below
+      // agree with nothing.
+      expect(owner.kind, name).toBe('node');
+      if (owner.kind !== 'node') continue;
+
+      expect(new RegExp(BLOCK_NAME).exec(name)?.[0], name).toBe(owner.nodeId);
+      blocks.add(owner.nodeId);
+    }
+
+    expect(blocks.size).toBe(5);
   });
 });
 

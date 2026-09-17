@@ -3,6 +3,8 @@ import { expect, test, type Page } from '@playwright/test';
 import type { RunRow, RunsInit } from '../../src/webview/protocol.js';
 
 import { liveStep } from '../../src/test-support/runs.js';
+import { filled } from '../../src/webview/fill.js';
+import { glyphOf } from '../../src/webview/states.js';
 
 import { WARN } from './fixtures/runs.js';
 import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
@@ -26,63 +28,83 @@ const ROWS: RunRow[] = [
     workflowId: 'wf_c9d2f3',
     name: 'groom_booking',
     status: 'SUCCESS',
-    word: 'done',
-    when: '14:02 · 8.2 s',
+    state: 'done',
+    line: 'done · 14:02 · 8.2 s · ↻ recovered',
     recovered: true,
     recoveredNote: undefined,
     error: undefined,
-    summary: undefined,
     stoppedAt: undefined,
     operations: undefined,
-    replayOf: undefined,
-    forks: [],
+    lineage: [],
+    startStep: undefined,
+    failedStep: undefined,
   },
   {
     workflowId: 'wf_a1b4e7',
     name: 'groom_booking',
     status: 'SUCCESS',
-    word: 'done',
-    when: '13:57 · 4.8 s',
+    state: 'done',
+    line: 'done · 13:57 · 4.8 s',
     recovered: false,
     recoveredNote: undefined,
     error: undefined,
-    summary: undefined,
     stoppedAt: undefined,
     operations: undefined,
-    replayOf: undefined,
-    forks: [],
+    lineage: [],
+    startStep: undefined,
+    failedStep: undefined,
   },
   {
     workflowId: 'wf_77c101',
     name: 'nightly_sync',
     status: 'ERROR',
-    word: 'failed',
-    when: '13:41 · 1.2 s',
+    state: 'failed',
+    line: 'failed · sync_rows · 13:41 · 1.2 s',
     recovered: false,
     recoveredNote: undefined,
     error: 'login failed — CDC_PASS rotated',
-    summary: 'failed · sync_rows',
     stoppedAt: '13:41',
     operations: 3,
-    replayOf: undefined,
-    forks: [],
+    lineage: [],
+    startStep: undefined,
+    failedStep: 2,
   },
   {
     workflowId: 'wf_ff0912',
     name: 'nightly_sync',
     status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED',
-    word: 'gaveUp',
-    when: '13:20 · 61.0 s',
+    state: 'failed',
+    line: 'gave up · after sync_rows · 13:20',
     recovered: true,
-    recoveredNote: 'recovered from 3 crashes',
+    recoveredNote: 'recovered from 3 crashes · derived',
     error: 'gave up after 3 attempts',
-    summary: undefined,
-    stoppedAt: undefined,
-    operations: undefined,
-    replayOf: undefined,
-    forks: [],
+    stoppedAt: '13:19',
+    operations: 2,
+    lineage: [],
+    startStep: undefined,
+    failedStep: undefined,
   },
 ];
+
+/** One row, as a case changes it. */
+function listRow(over: Partial<RunRow>): RunRow {
+  return {
+    workflowId: 'wf_c9d2f3',
+    name: 'groom_booking',
+    status: 'SUCCESS',
+    state: 'done',
+    line: 'done · 14:02 · 8.2 s',
+    recovered: false,
+    recoveredNote: undefined,
+    error: undefined,
+    stoppedAt: undefined,
+    operations: undefined,
+    lineage: [],
+    startStep: undefined,
+    failedStep: undefined,
+    ...over,
+  };
+}
 
 function runsInit(over: Partial<RunsInit> = {}): RunsInit {
   return {
@@ -94,7 +116,7 @@ function runsInit(over: Partial<RunsInit> = {}): RunsInit {
     state: 'ok',
     detail: undefined,
     filter: 'all',
-    counts: { all: 6, failed: 1, recovered: 1 },
+    counts: { all: 6, active: 1, failed: 1 },
     rows: ROWS,
     selected: undefined,
     stack: {
@@ -744,23 +766,7 @@ test.describe('this session', () => {
     await showList(
       page,
       runsInit({
-        rows: [
-          {
-            workflowId: 'wf_c9d2f3',
-            name: 'groom_booking',
-            status: 'SUCCESS',
-            word: 'done',
-            when: '14:02 · 8.2 s',
-            recovered: false,
-            recoveredNote: undefined,
-            error: undefined,
-            summary: undefined,
-            stoppedAt: undefined,
-            operations: undefined,
-            replayOf: undefined,
-            forks: [],
-          },
-        ],
+        rows: [listRow({})],
         session: [
           {
             workflowId: 'wf_c9d2f3',
@@ -897,11 +903,16 @@ test.describe('the run list', () => {
   test('offers the three filters with what each would show', async ({
     page,
   }) => {
-    await showList(page, runsInit());
+    await showList(
+      page,
+      runsInit({ counts: { all: 6, active: 2, failed: 1 } }),
+    );
 
+    await expect(page.locator('[data-filter="all"]')).toHaveCount(1);
     await expect(page.locator('[data-filter="all"]')).toContainText('6');
+    await expect(page.locator('[data-filter="active"]')).toContainText('2');
     await expect(page.locator('[data-filter="failed"]')).toContainText('1');
-    await expect(page.locator('[data-filter="recovered"]')).toContainText('1');
+    await expect(page.locator('[data-filter="recovered"]')).toHaveCount(0);
 
     await expect(page.locator('[data-filter="all"]')).toHaveAttribute(
       'aria-pressed',
@@ -913,17 +924,19 @@ test.describe('the run list', () => {
     const harness = await showList(page, runsInit());
 
     await page.locator('[data-filter="failed"]').click();
+    await page.locator('[data-filter="active"]').click();
 
     expect(await harness.postedOfType('runFilter')).toEqual([
       { type: 'runFilter', filter: 'failed' },
+      { type: 'runFilter', filter: 'active' },
     ]);
   });
 
   /**
-   * The three states the design draws, told apart
-   * without reading anything: a mark, an accent rule
-   * down the edge of a run that recovered, and the
-   * failure in the failure colour.
+   * Three states told apart without reading
+   * anything: a mark, an accent rule down the edge
+   * of a run that recovered, and the failure in the
+   * failure colour.
    */
   test('draws a plain success, a recovered one and a failure apart', async ({
     page,
@@ -933,14 +946,16 @@ test.describe('the run list', () => {
     const recovered = page.locator('[data-run="wf_c9d2f3"]');
     await expect(recovered).toHaveAttribute('data-recovered', 'true');
     await expect(recovered).toContainText('↻ recovered');
-    await expect(recovered).toContainText('14:02 · 8.2 s');
+    await expect(recovered.locator('.run-summary')).toHaveText(
+      'done · 14:02 · 8.2 s · ↻ recovered',
+    );
 
     const plain = page.locator('[data-run="wf_a1b4e7"]');
     await expect(plain).toHaveAttribute('data-recovered', 'false');
     await expect(plain).not.toContainText('↻ recovered');
 
     const failed = page.locator('[data-run="wf_77c101"]');
-    await expect(failed).toHaveAttribute('data-severity', 'failed');
+    await expect(failed).toHaveAttribute('data-outcome', 'failed');
     await expect(failed).toContainText('login failed — CDC_PASS rotated');
   });
 
@@ -958,31 +973,26 @@ test.describe('the run list', () => {
       page,
       runsInit({
         rows: [
-          {
+          listRow({
             workflowId: 'wf_parked',
             name: 'expense_claim',
             status: 'PENDING',
-            word: 'waiting',
-            when: '14:06',
-            recovered: false,
-            recoveredNote: undefined,
-            error: undefined,
-            summary: 'waiting · manager_ok · 10:31',
+            state: 'waiting',
+            line: 'waiting · manager_ok · since 10:31',
             stoppedAt: '10:31',
-            operations: 4,
-            replayOf: undefined,
-            forks: [],
-          },
+            operations: 1,
+          }),
         ],
       }),
     );
 
     const row = page.locator('[data-run="wf_parked"]');
 
-    await expect(row.locator('.run-mark')).toHaveText('◐');
+    await expect(row).toHaveAttribute('data-outcome', 'waiting');
+    await expect(row.locator('.run-mark')).toHaveText(glyphOf('waiting').mark);
 
     const summary = row.locator('.run-summary');
-    await expect(summary).toHaveText('waiting · manager_ok · 10:31');
+    await expect(summary).toHaveText('waiting · manager_ok · since 10:31');
     await expect(summary).toHaveAttribute('data-stopped-at', '10:31');
     await expect(summary).toHaveAttribute('data-derived', 'true');
     await expect(summary).toHaveAttribute('title', runsStrings.derivedTitle);
@@ -1021,60 +1031,66 @@ test.describe('the run list', () => {
    */
   /**
    * Both lines come off `forked_from`, which every
-   * row already selects — so the child is drawn only
-   * because it happens to be on this page, and no
-   * row costs a query of its own.
+   * row already selects — so the replay is drawn
+   * only because it happens to be on this page, and
+   * no row costs a query of its own. The words are
+   * the Inspector's lineage lines, with the short id
+   * where the id goes.
    */
-  test('says which run a row is a replay of, and what came out of it', async ({
+  test('says which run a row is a replay of, and from which step', async ({
     page,
   }) => {
     await showList(
       page,
       runsInit({
         rows: [
-          {
+          listRow({
             workflowId: 'wf_c9d2f3',
-            name: 'groom_booking',
             status: 'ERROR',
-            word: 'failed',
-            when: '14:02 · 8.2 s',
-            recovered: false,
-            recoveredNote: undefined,
-            error: undefined,
-            summary: undefined,
-            stoppedAt: undefined,
-            operations: undefined,
-            replayOf: undefined,
-            forks: ['└ replay → wf_fork1 · SUCCESS'],
-          },
-          {
+            state: 'failed',
+            line: 'failed · 14:02 · 8.2 s',
+            failedStep: 2,
+            lineage: [
+              {
+                direction: 'to',
+                workflowId: 'wf_fork1',
+                short: '#f0rk',
+                startStep: 2,
+                word: 'done',
+              },
+            ],
+          }),
+          listRow({
             workflowId: 'wf_fork1',
-            name: 'groom_booking',
-            status: 'SUCCESS',
-            word: 'done',
-            when: '14:09 · 3.1 s',
-            recovered: false,
-            recoveredNote: undefined,
-            error: undefined,
-            summary: undefined,
-            stoppedAt: undefined,
-            operations: undefined,
-            replayOf: 'replay of wf_c9d2f3',
-            forks: [],
-          },
+            line: 'done · replay of #c9d2 · 14:09 · 3.1 s',
+            startStep: 2,
+            lineage: [
+              {
+                direction: 'of',
+                workflowId: 'wf_c9d2f3',
+                short: '#c9d2',
+                startStep: 2,
+              },
+            ],
+          }),
         ],
       }),
     );
 
+    const fromStep = filled(runsStrings.fromStep, '2');
+
     await expect(
       page.locator('[data-run="wf_c9d2f3"] [data-run-fork]'),
-    ).toHaveText('└ replay → wf_fork1 · SUCCESS');
+    ).toHaveText(filled(runsStrings.replayTo, fromStep, '#f0rk', 'done'));
     await expect(
       page.locator('[data-run="wf_fork1"] [data-replay-of]'),
-    ).toHaveText('replay of wf_c9d2f3');
+    ).toHaveText(filled(runsStrings.replayOf, '#c9d2', fromStep));
     await expect(
       page.locator('[data-run="wf_c9d2f3"] [data-replay-of]'),
     ).toHaveCount(0);
+    await expect(page.locator('[data-run="wf_fork1"] .run-summary')).toHaveText(
+      'done · replay of #c9d2 · 14:09 · 3.1 s',
+    );
   });
 
   test('says the list is a projection of the local ledger', async ({
@@ -1116,24 +1132,28 @@ test.describe('the run list', () => {
   });
 
   /**
-   * No mockup draws a run DBOS gave up recovering.
-   * It is a failure and it is not the same news as
-   * one that threw, so it gets its own mark — and
-   * this is where that decision is pinned.
+   * A run DBOS gave up recovering is a failure, so
+   * it wears the failed mark; its line is what says
+   * it was not one that threw.
    */
-  test('marks a run DBOS gave up on apart from one that threw', async ({
+  test('draws a run DBOS gave up on as a failure that says it gave up', async ({
     page,
   }) => {
     await showList(page, runsInit());
 
     const exhausted = page.locator('[data-run="wf_ff0912"]');
-    await expect(exhausted).toHaveAttribute('data-severity', 'gaveUp');
+    await expect(exhausted).toHaveAttribute('data-outcome', 'failed');
+    await expect(exhausted.locator('.run-summary')).toContainText('gave up');
     await expect(exhausted).toContainText('gave up after 3 attempts');
+    await expect(exhausted.locator('.run-note')).toHaveText(
+      'recovered from 3 crashes · derived',
+    );
 
     const mark = (run: string): Promise<string | null> =>
       page.locator(`[data-run="${run}"] .run-mark`).textContent();
 
-    expect(await mark('wf_ff0912')).not.toBe(await mark('wf_77c101'));
+    expect(await mark('wf_77c101')).toBe(glyphOf('failed').mark);
+    expect(await mark('wf_ff0912')).toBe(await mark('wf_77c101'));
   });
 
   test('opens a run when its row is clicked', async ({ page }) => {
@@ -1201,7 +1221,7 @@ test.describe('the run list', () => {
       runsInit({
         state: 'untrusted',
         rows: [],
-        counts: { all: 0, failed: 0, recovered: 0 },
+        counts: { all: 0, active: 0, failed: 0 },
       }),
     );
 

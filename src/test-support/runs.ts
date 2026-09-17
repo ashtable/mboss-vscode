@@ -71,8 +71,8 @@ export const STEP_ROW = {
 
 export const COUNTS_ROW = {
   all_runs: '6',
+  active_runs: '1',
   failed_runs: '1',
-  recovered_runs: '1',
 };
 
 export const WORKFLOWS: Record<string, unknown> = {
@@ -153,15 +153,19 @@ export function database(): Database & {
 
       if (state.fail !== undefined) throw new Error(state.fail);
 
-      // Told apart by what each one selects rather
-      // than by a fragment somewhere in it: the run
-      // list now counts operations in a correlated
-      // subquery, so both `count(*)` and
-      // `operation_outputs` appear inside a
-      // statement that is neither of these.
+      // Told apart by what each one selects, or by
+      // the clause only one of them has, rather than
+      // by a fragment somewhere in it: the run list
+      // counts blocks and reads where a replay began
+      // in correlated subqueries, so `count(`,
+      // `operation_outputs` and `AS last_reused` all
+      // appear inside a statement that is none of
+      // these.
       if (text.startsWith('SELECT count(*)')) return [COUNTS_ROW] as Row[];
       if (text.startsWith('SELECT function_id')) return state.steps as Row[];
-      if (text.includes('AS last_reused')) return state.forks as Row[];
+      if (text.includes('WHERE f.forked_from = $1')) {
+        return state.forks as Row[];
+      }
 
       // A read of one run answers with that run's
       // row and no other. The run page reads a
@@ -198,6 +202,9 @@ export function host(over: Partial<RunsHost> = {}): RunsHost {
     openCanvas: async () => undefined,
     openFile: async () => undefined,
     showText: async () => undefined,
+    // English, which is what every expectation
+    // below is written in.
+    locale: () => 'en-US',
     // No Conductor, because that is the window every
     // spec here is about unless it says otherwise.
     conductorConsoleUrl: () => '',

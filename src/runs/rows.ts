@@ -1,4 +1,5 @@
 import { libFrameOf, type SourceFrame } from './frames.js';
+import type { RunFilter } from './queries.js';
 
 /**
  * DBOS's columns, and the fields this view draws
@@ -73,11 +74,20 @@ export type WorkflowStatusRow = {
 
   operation_count?: BigIntColumn | null;
 
-  /** Selected only by the read that lists the runs
-   *  forked from another: the highest operation this
-   *  one carried over. `null` where it carried
-   *  none. */
+  /** Selected by the list and by the read that
+   *  lists the runs forked from another: the
+   *  highest operation this one carried over.
+   *  `null` where it carried none. */
   last_reused?: BigIntColumn | null;
+
+  /** Selected by the list only: the first row of
+   *  the run's own that threw. `min` over `int4`,
+   *  so a number. */
+  failed_step?: number | null;
+
+  /** Selected by the list only: when the run's
+   *  latest sleep was due to end. */
+  sleeping_until?: BigIntColumn | null;
 };
 
 /** A row of `dbos.operation_outputs`, as selected. */
@@ -101,13 +111,13 @@ export type OperationOutputRow = {
   serialization: string | null;
 };
 
-/** The three numbers over the segmented control. */
+/** The three numbers over the filters. */
 export type CountsRow = {
   all_runs: BigIntColumn;
 
-  failed_runs: BigIntColumn;
+  active_runs: BigIntColumn;
 
-  recovered_runs: BigIntColumn;
+  failed_runs: BigIntColumn;
 };
 
 /** One run of a workflow. */
@@ -184,12 +194,24 @@ export type Run = {
   operationCount?: number;
 
   /**
-   * Filled by the read that lists the runs forked
-   * from another: the first step this one ran for
-   * itself, which is the step above the last row it
-   * carried over.
+   * Filled by the list and by the read that lists
+   * the runs forked from another: the first step
+   * this one ran for itself, which is the step above
+   * the last row it carried over. Zero for a run
+   * that carried nothing.
    */
   startStep?: number;
+
+  /** Filled by the list read: the first row of the
+   *  run's own that threw, which is where a replay
+   *  of a failed run starts. */
+  failedStep?: number;
+
+  /** Filled by the list read: when the run's latest
+   *  sleep was due to end, which is how a run
+   *  asleep on the clock is told from one
+   *  executing. */
+  sleepingUntil?: number;
 };
 
 /** One step of a run. */
@@ -214,7 +236,9 @@ export type Step = {
   childWorkflowId: string | undefined;
 };
 
-export type RunCounts = { all: number; failed: number; recovered: number };
+/** One number per filter, keyed by the filter, so
+ *  the two cannot name different sets. */
+export type RunCounts = Record<RunFilter, number>;
 
 /**
  * What `recovery_attempts` reads for a run that
@@ -290,6 +314,12 @@ export function toRun(row: WorkflowStatusRow): Run {
     ...(row.last_reused === undefined
       ? {}
       : { startStep: startStepIn(row.last_reused) }),
+    ...(row.failed_step === undefined || row.failed_step === null
+      ? {}
+      : { failedStep: row.failed_step }),
+    ...(row.sleeping_until === undefined || row.sleeping_until === null
+      ? {}
+      : { sleepingUntil: Number(row.sleeping_until) }),
   };
 }
 
@@ -322,12 +352,12 @@ export function toStep(row: OperationOutputRow): Step {
 }
 
 export function toCounts(row: CountsRow | undefined): RunCounts {
-  if (row === undefined) return { all: 0, failed: 0, recovered: 0 };
+  if (row === undefined) return { all: 0, active: 0, failed: 0 };
 
   return {
     all: Number(row.all_runs),
+    active: Number(row.active_runs),
     failed: Number(row.failed_runs),
-    recovered: Number(row.recovered_runs),
   };
 }
 

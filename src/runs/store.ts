@@ -90,6 +90,10 @@ export type RunsHost = {
   /** Tells the person something they can act on. */
   say(message: string): void;
 
+  /** The language the editor is displayed in, for
+   *  the dates the list writes. */
+  locale(): string;
+
   /** Publishes a fact `when` clauses can read, so
    *  the view's Start and Stop swap with what is
    *  running. */

@@ -66,11 +66,12 @@ The two used to share `undefined`, and meant opposite things by it.
 ### evidence
 
 What a particular reader holds about a run, which is not the same for all of
-them. The run list has one recorded name per run and no rows; the run page has
-every row the run wrote; a watch has every row and a clock. Questions like
-"is this run parked" take the answer as an argument rather than deriving it,
-because deriving it needs evidence the caller may not have — which is how the
-run page came to ask a question about a column its own query never selected.
+them. The run list has one recorded name per run, when its sleep ends and no
+rows, read against one clock for the page; the run page has every row the run
+wrote; a watch has every row and a clock. Questions like "is this run parked"
+take the answer as an argument rather than deriving it, because deriving it
+needs evidence the caller may not have — which is how the run page came to ask
+a question about a column its own query never selected.
 
 `RunEvidence` is that shape for the one question every surface asks —
 where the run has got to — and `parked` is the part of it only the reader
@@ -86,11 +87,11 @@ panel says it in — `done`, `running`, `recovering`, `waiting`, `queued`,
 as against the ledger's own status, which is DBOS's and is printed only where
 a row is shown as evidence.
 
-One crossing between the two, and it takes its evidence rather than reading
-it: whoever read the run answered "parked" — the run tab from every row it
-wrote, the list from one recorded name, a read with neither saying `false` —
-and the crossing says the word. There used to be three, each with its own
-copy of the ledger's words, and they disagreed about a status none of them
+One crossing between the two, and it takes its evidence rather than reading it:
+whoever read the run answered "parked" — the run tab from every row it wrote,
+the list from one recorded name and a sleep's end, a read with neither saying
+`false` — and the crossing says the word. There used to be three, each with its
+own copy of the ledger's words, and they disagreed about a status none of them
 had heard of: one ticked it as done, two said it was still going.
 
 `src/webview/states.ts:runWord`

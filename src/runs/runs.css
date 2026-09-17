@@ -570,30 +570,29 @@ body {
   color: var(--brand);
 }
 
-.run-row[data-severity='failed'] .run-mark,
-.run-row[data-severity='gaveUp'] .run-mark {
+.run-row[data-outcome='failed'] .run-mark {
   color: var(--fail);
 }
 
-.run-row[data-severity='running'] .run-mark,
-.run-row[data-severity='recovering'] .run-mark,
-.run-row[data-severity='waiting'] .run-mark {
+.run-row[data-outcome='running'] .run-mark,
+.run-row[data-outcome='recovering'] .run-mark,
+.run-row[data-outcome='waiting'] .run-mark {
   color: var(--warn);
 }
-.run-row[data-severity='done'] .run-mark {
+.run-row[data-outcome='done'] .run-mark {
   color: var(--ok);
 }
 
 /* Filed and not claimed yet: nothing has happened,
    and the mark is as quiet as that. */
-.run-row[data-severity='queued'] .run-mark {
+.run-row[data-outcome='queued'] .run-mark {
   color: var(--ink-faint);
 }
 
-/* Somebody asked for this one, so it is neither the
-   failure colour nor the one that says a run is
-   fine. */
-.run-row[data-severity='cancelled'] .run-mark {
+/* Cancelled: somebody asked for this one, so it is
+   neither the failure colour nor the one that says
+   a run is fine. */
+.run-row[data-outcome='idle'] .run-mark {
   color: var(--ink-muted);
 }
 
@@ -604,9 +603,11 @@ body {
   white-space: nowrap;
 }
 
-.run-when {
+/* How many times DBOS picked the run back up, when
+   it was more than once. */
+.run-note {
   font-size: var(--text-sm);
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
+  color: var(--ink-muted);
 }
 
 /* Where the run came from and what came out of it.

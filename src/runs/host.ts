@@ -40,6 +40,12 @@ export function runsHost(
     openFile: api.openFile,
     showText: api.showText,
 
+    // Read on every call, like every other setting
+    // here, and never while this bag is built: the
+    // window's language is a fact about the editor
+    // at the moment the list is drawn.
+    locale: () => env.language,
+
     copy: (text) => Promise.resolve(env.clipboard.writeText(text)),
 
     setContext: (key, value) =>

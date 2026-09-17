@@ -1,9 +1,11 @@
 import { useState } from 'react';
 
 import { postToHost } from '../webview/client.js';
+import { filled } from '../webview/fill.js';
 import { mountView } from '../webview/mount.js';
-import { settled } from '../webview/states.js';
+import { glyphOf, settled } from '../webview/states.js';
 import type {
+  RunLineage,
   RunRow,
   RunsInit,
   RunsStrings,
@@ -32,26 +34,6 @@ import './runs.css';
  * extension's too: everything is pushed in on every
  * change the way the list always was.
  */
-
-/** One glyph per outcome, in place of an icon set
- *  the extension would have to ship. */
-const MARKS: Record<RunRow['word'], string> = {
-  done: '✓',
-  running: '●',
-  // Turning: picked back up, and going again.
-  recovering: '↻',
-  // Half filled: something is true of this run and
-  // nothing is happening in it.
-  waiting: '◐',
-  // Hollow: filed, and nothing has happened yet.
-  queued: '○',
-  failed: '✕',
-  gaveUp: '⊘',
-  // Barred rather than crossed: somebody asked for
-  // this, so it is not the same news as a run that
-  // threw.
-  cancelled: '■',
-};
 
 /** One glyph per step, read off the ledger. There is
  *  no `running` mark: a step lands in
@@ -508,13 +490,9 @@ function Session({
 }
 
 /**
- * The three the design names, with what each one
- * would show beside it.
- *
- * A run can be in two of them at once — recovering
- * is something that happened during a run, not a
- * way one ended — so the counts do not add up to
- * the first, and are not meant to.
+ * The three filters, with what each one would show
+ * beside it. Active and failed share no status, so
+ * the two never add up to more than the first.
  */
 function Filters({ state }: { state: RunsInit }) {
   return (
@@ -612,7 +590,10 @@ function Row({
       type="button"
       className="run-row"
       data-run={row.workflowId}
-      data-severity={row.word}
+      // The glyph state the mark is drawn in, which is
+      // not the session rows' outcome of the same
+      // name: that one is a watch's word.
+      data-outcome={row.state}
       data-recovered={String(row.recovered)}
       aria-current={selected}
       onClick={() =>
@@ -622,7 +603,7 @@ function Row({
       <span className="run-line">
         <span className="mono run-id">{row.workflowId}</span>
         <span className="run-mark" aria-hidden="true">
-          {MARKS[row.word]}
+          {glyphOf(row.state).mark}
         </span>
       </span>
 
@@ -633,48 +614,53 @@ function Row({
         ) : null}
       </span>
 
-      <span className="run-when">
-        {row.when}
-        {row.recoveredNote === undefined ? null : ` · ${row.recoveredNote}`}
+      {/* The block in it is worked out from the last
+          operation the run recorded, never read off
+          a column — so it says so, and carries the
+          moment that operation landed. */}
+      <span
+        className="run-summary"
+        data-derived
+        data-stopped-at={row.stoppedAt}
+        title={strings.derivedTitle}
+      >
+        {row.line}
       </span>
-
-      {/* Worked out from the last operation the run
-          recorded, never read off a column — so it
-          says so, and carries the moment it was
-          worked out from. */}
-      {row.summary === undefined ? null : (
-        <span
-          className="run-summary"
-          data-derived
-          data-stopped-at={row.stoppedAt}
-          title={strings.derivedTitle}
-        >
-          {row.summary}
-        </span>
-      )}
 
       {row.error === undefined ? null : (
         <span className="run-error">{row.error}</span>
       )}
 
-      {/* Where the run came from and what came out
-          of it. Both are read off a column every row
-          already selects, and the child line is
-          drawn only for a run that is on this page —
-          so neither costs a read. */}
-      {row.replayOf === undefined ? null : (
-        <span className="mono run-lineage" data-replay-of>
-          {row.replayOf}
-        </span>
+      {row.recoveredNote === undefined ? null : (
+        <span className="run-note">{row.recoveredNote}</span>
       )}
 
-      {row.forks.map((fork) => (
-        <span className="mono run-lineage" key={fork} data-run-fork>
-          {fork}
+      {/* Where the run came from and what came out
+          of it that is on this page. Both are read
+          off a column every row already selects, so
+          neither costs a read. */}
+      {row.lineage.map((line) => (
+        <span
+          className="mono run-lineage"
+          key={`${line.direction}-${line.workflowId}`}
+          data-replay-of={line.direction === 'of' ? true : undefined}
+          data-run-fork={line.direction === 'to' ? true : undefined}
+        >
+          {lineageText(line, strings)}
         </span>
       ))}
     </button>
   );
+}
+
+/** One lineage line, in the Inspector's words for
+ *  it, with the short id where the id goes. */
+function lineageText(line: RunLineage, strings: RunsStrings): string {
+  const step = filled(strings.fromStep, String(line.startStep));
+
+  return line.direction === 'of'
+    ? filled(strings.replayOf, line.short, step)
+    : filled(strings.replayTo, step, line.short, line.word);
 }
 
 /** Why the list is empty, when it is not a list at

@@ -4,9 +4,14 @@ import type { WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
 import { FORM_INTAKE, TIMER_THEN_ANSWER } from '../test-support/runs.js';
 import { shortRunId } from '../webview/ids.js';
-import type { SeeRun, TraceDetail, TraceRowView } from '../webview/protocol.js';
+import type {
+  RunRow,
+  SeeRun,
+  TraceDetail,
+  TraceRowView,
+} from '../webview/protocol.js';
 import { glyphStateOf, type RunWord } from '../webview/states.js';
-import { fine } from '../webview/time.js';
+import { fine, when } from '../webview/time.js';
 
 import type { RecordedRunEvidence } from './evidence.js';
 import type { Run, Step } from './rows.js';
@@ -106,42 +111,56 @@ const SESSION: SessionRun = {
   via: 'start',
 };
 
+/**
+ * The moment every list row below is read at.
+ * Built from local components rather than written
+ * as an epoch: the list writes the machine's own
+ * clock, so a literal would name a different hour
+ * on every machine.
+ */
+const NOW = new Date(2026, 8, 11, 18, 30).getTime();
+
+const DAY = 24 * 60 * 60 * 1000;
+
+/** A row as the list draws it: at that moment, in
+ *  English. */
+const listed = (run: Run, page: readonly Run[] = []): RunRow =>
+  rowOf(run, page, NOW, 'en-US');
+
+/** A run dispatched once, that started ten minutes
+ *  before that moment and took ten seconds, and
+ *  the clock the list writes for it. */
+const TODAY: Run = {
+  ...RUN,
+  recoveryAttempts: 1,
+  createdAt: NOW - 600_000,
+  completedAt: NOW - 590_000,
+};
+
+const TODAY_AT = when(TODAY.createdAt, NOW, 'en-US');
+
+/** A run another one was replayed from, with the
+ *  id DBOS mints for a run started at the top. */
+const PARENT = '5e7a1c3d-2b4f-4a6c-8d0e-1f2a3b4c5d6e';
+
 describe('a row of the run history', () => {
   it('names a run by the workflow it is a run of', () => {
-    const row = rowOf(RUN);
+    const shown = listed(RUN);
 
-    expect(row.workflowId).toBe('wf_c9d2f3');
-    expect(row.name).toBe('groom_booking');
+    expect(shown.workflowId).toBe('wf_c9d2f3');
+    expect(shown.name).toBe('groom_booking');
   });
 
   /**
-   * One 24-hour clock, whatever language the editor
-   * is displayed in. A list is read by scanning the
-   * times for the run that is out of line, and a
-   * meridiem — which a 12-hour locale writes and
-   * this row has no room for anyway — makes two
-   * afternoon rows read as morning ones.
-   */
-  it('says when it ran and how long it took', () => {
-    expect(rowOf(RUN).when).toMatch(/^\d{2}:\d{2} · 10\.0 s$/);
-  });
-
-  it('leaves the duration off a run that is still going', () => {
-    expect(
-      rowOf({ ...RUN, status: 'PENDING', completedAt: undefined }).when,
-    ).not.toContain('·');
-  });
-
-  /**
-   * The three the design names, and a run can match
-   * two of them: recovering is a thing that
-   * happened during a run, not a way one ended.
+   * Recovering is a thing that happened during a
+   * run, not a way one ended, so the glyph says how
+   * it ended and the edge says it recovered.
    */
   it('marks a run that recovered, whatever it went on to do', () => {
-    const row = rowOf(RUN);
+    const shown = listed(RUN);
 
-    expect(row.word).toBe('done');
-    expect(row.recovered).toBe(true);
+    expect(shown.state).toBe('done');
+    expect(shown.recovered).toBe(true);
   });
 
   /**
@@ -149,56 +168,57 @@ describe('a row of the run history', () => {
    * worth its space only past the first crash. It
    * also keeps the sentence grammatical, which one
    * without plural forms otherwise would not be
-   * for the commonest case there is.
+   * for the commonest case there is. The count is
+   * worked out from a column that counts
+   * dispatches, and the note says so.
    */
-  it('counts the crashes only once there is more than one', () => {
-    expect(rowOf(RUN).recoveredNote).toBeUndefined();
-    expect(rowOf({ ...RUN, recoveryAttempts: 3 }).recoveredNote).toBe(
-      'recovered from 2 crashes',
+  it('counts the crashes past the first, and says it worked them out', () => {
+    expect(listed(RUN).recoveredNote).toBeUndefined();
+    expect(listed({ ...RUN, recoveryAttempts: 3 }).recoveredNote).toBe(
+      'recovered from 2 crashes · derived',
     );
   });
 
   it('draws a failure loudly and says what it was', () => {
-    const row = rowOf({ ...RUN, status: 'ERROR', error: 'login failed' });
+    const shown = listed({ ...RUN, status: 'ERROR', error: 'login failed' });
 
-    expect(row.word).toBe('failed');
-    expect(row.error).toBe('login failed');
+    expect(shown.state).toBe('failed');
+    expect(shown.error).toBe('login failed');
   });
 
   /**
-   * A run DBOS gave up on is not the same news as a
-   * run that threw: one is a bug to read, the other
-   * is a loop somebody has to break. No mockup
-   * draws it, so it gets its own word rather than
-   * being folded in with the ordinary failures.
+   * A run DBOS gave up on wears the failed glyph,
+   * because that is what it is, and says in its own
+   * word that nothing will pick it back up.
    */
-  it('tells a run DBOS gave up on apart from one that threw', () => {
-    const row = rowOf({ ...RUN, status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' });
+  it('draws a run DBOS gave up on as a failure, and says it gave up', () => {
+    const shown = listed({ ...RUN, status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' });
 
-    expect(row.word).toBe('gaveUp');
-    expect(row.status).toBe('MAX_RECOVERY_ATTEMPTS_EXCEEDED');
+    expect(shown.state).toBe('failed');
+    expect(shown.status).toBe('MAX_RECOVERY_ATTEMPTS_EXCEEDED');
+    expect(shown.line.startsWith(runWords().gaveUp)).toBe(true);
   });
 
   /**
    * And a run somebody stopped is not news about the
    * code at all. It stays under Failed, because that
-   * filter is DBOS's own partial index and the
-   * status word on the row says which of the three it
-   * was — but it is drawn as its own thing, since
-   * nobody has to go and look into it.
+   * filter is DBOS's own partial index — but it is
+   * drawn idle and says what happened, since nobody
+   * has to go and look into it.
    */
-  it('tells a run somebody cancelled apart from one that failed', () => {
-    const row = rowOf({ ...RUN, status: 'CANCELLED' });
+  it('draws a run somebody cancelled idle, and says it was cancelled', () => {
+    const shown = listed({ ...RUN, status: 'CANCELLED' });
 
-    expect(row.word).toBe('cancelled');
-    expect(row.status).toBe('CANCELLED');
-    expect(rowOf({ ...RUN, status: 'ERROR' }).word).toBe('failed');
+    expect(shown.state).toBe('idle');
+    expect(shown.status).toBe('CANCELLED');
+    expect(shown.line.startsWith(runWords().cancelled)).toBe(true);
+    expect(listed({ ...RUN, status: 'ERROR' }).state).toBe('failed');
   });
 
   it('draws a run that has not finished as still going', () => {
     const going = { ...RUN, status: 'PENDING', completedAt: undefined };
 
-    expect(rowOf({ ...going, recoveryAttempts: 1 }).word).toBe('running');
+    expect(listed({ ...going, recoveryAttempts: 1 }).state).toBe('running');
   });
 
   /** The column counts dispatches, so one more than
@@ -208,22 +228,48 @@ describe('a row of the run history', () => {
   it('says recovering for a run something picked back up', () => {
     const again = { ...RUN, status: 'PENDING', completedAt: undefined };
 
-    expect(rowOf(again).word).toBe('recovering');
+    expect(listed(again).state).toBe('recovering');
   });
 
   it('says queued for a run nothing has claimed yet', () => {
     for (const status of ['ENQUEUED', 'DELAYED']) {
-      expect(rowOf({ ...RUN, status, completedAt: undefined }).word).toBe(
+      expect(listed({ ...RUN, status, completedAt: undefined }).state).toBe(
         'queued',
       );
     }
   });
 
-  it('names what a run is a replay of', () => {
-    const row = rowOf({ ...RUN, forkedFrom: 'wf_a1b4e7' });
+  /** Where a replay of a failed run would start:
+   *  the first row of its own that threw. */
+  it('carries the first step that threw', () => {
+    expect(listed({ ...RUN, status: 'ERROR', failedStep: 2 }).failedStep).toBe(
+      2,
+    );
+    expect(listed(RUN).failedStep).toBeUndefined();
+  });
 
-    expect(row.replayOf).toBe('replay of wf_a1b4e7');
-    expect(rowOf(RUN).replayOf).toBeUndefined();
+  /**
+   * The list read asks every run where it began,
+   * and a run that is not a replay began at the
+   * top — which is not worth a field.
+   */
+  it('names what a run is a replay of, and where it began', () => {
+    const shown = listed({ ...RUN, forkedFrom: PARENT, startStep: 3 });
+
+    expect(shown.lineage).toEqual([
+      {
+        direction: 'of',
+        workflowId: PARENT,
+        short: shortRunId(PARENT),
+        startStep: 3,
+      },
+    ]);
+    expect(shown.startStep).toBe(3);
+
+    const plain = listed({ ...RUN, startStep: 0 });
+
+    expect(plain.lineage).toEqual([]);
+    expect(plain.startStep).toBeUndefined();
   });
 
   /**
@@ -234,18 +280,32 @@ describe('a row of the run history', () => {
    * that is not is a query nobody asked for.
    */
   it('names the runs replayed from it that are on this page', () => {
-    const parent = { ...RUN, wasForkedFrom: true };
+    const parent = { ...RUN, wasForkedFrom: true, startStep: 0 };
     const child = {
       ...RUN,
       workflowId: 'wf_fork1',
       status: 'ERROR',
       forkedFrom: 'wf_c9d2f3',
+      startStep: 2,
     };
 
-    expect(rowOf(parent, [parent, child]).forks).toEqual([
-      '└ replay → wf_fork1 · failed',
+    expect(listed(parent, [parent, child]).lineage).toEqual([
+      {
+        direction: 'to',
+        workflowId: 'wf_fork1',
+        short: shortRunId('wf_fork1'),
+        startStep: 2,
+        word: 'failed',
+      },
     ]);
-    expect(rowOf(parent, [parent]).forks).toEqual([]);
+    expect(listed(parent, [parent]).lineage).toEqual([]);
+  });
+
+  /** A lineage line says where the replay began,
+   *  and a run read without that has no line to
+   *  draw. */
+  it('draws no lineage for a run read without its start step', () => {
+    expect(listed({ ...RUN, forkedFrom: PARENT }).lineage).toEqual([]);
   });
 });
 
@@ -498,85 +558,205 @@ describe('the run tab’s title and line', () => {
 });
 
 /**
- * What a row says about where a run got to.
+ * What a row says about where a run got to, in one
+ * line: the run's word, then the parts that word
+ * has to say.
  *
- * Worked out from the last operation the run
- * recorded of its own, which is the only thing the
- * ledger holds about where a run is — nothing marks
- * a run as "at" a block. So the line says so:
- * everything here is derived, and the row wears
- * that word.
+ * The block is worked out from the last operation
+ * the run recorded of its own, which is the only
+ * thing the ledger holds about where a run is —
+ * nothing marks a run as "at" a block. So the row
+ * wears the word that says the line was derived.
  */
-describe('the line under a run', () => {
+describe('the line a listed run is summed up in', () => {
+  it('dates a finished run, times it and counts its blocks', () => {
+    // The today form, so the lines below are the
+    // clock alone.
+    expect(TODAY_AT).toMatch(/^\d{2}:\d{2}$/);
+
+    expect(listed({ ...TODAY, operationCount: 3 }).line).toBe(
+      `done · ${TODAY_AT} · 10.0 s · 3 steps`,
+    );
+    expect(listed({ ...TODAY, operationCount: 1 }).line).toBe(
+      `done · ${TODAY_AT} · 10.0 s · 1 step`,
+    );
+    expect(listed({ ...TODAY, operationCount: 0 }).line).toBe(
+      `done · ${TODAY_AT} · 10.0 s`,
+    );
+    expect(listed(TODAY).line).toBe(`done · ${TODAY_AT} · 10.0 s`);
+  });
+
+  /** A 24-hour clock in every language, with the
+   *  month named in the editor's. */
+  it('names the day of a run from before today', () => {
+    const created = NOW - 2 * DAY;
+    const day = when(created, NOW, 'en-US');
+    const shown = listed({
+      ...TODAY,
+      createdAt: created,
+      completedAt: created + 10_000,
+    });
+
+    expect(day).toMatch(/^[A-Z][a-z]{2} \d{1,2} \d{2}:\d{2}$/);
+    expect(shown.line.startsWith(`done · ${day} ·`)).toBe(true);
+
+    for (const part of shown.line.split(' · ')) {
+      expect(part).not.toMatch(/AM|PM/);
+    }
+  });
+
   it('says which block a failure stopped at', () => {
-    const row = rowOf({
-      ...RUN,
-      status: 'ERROR',
-      lastOperation: 'charge_card.r2',
-      lastOperationAt: 1000,
-    });
+    const failed = { ...TODAY, status: 'ERROR' };
 
-    expect(row.word).toBe('failed');
-    expect(row.summary).toBe('failed · charge_card');
+    expect(listed({ ...failed, lastOperation: 'charge_card.r2' }).line).toBe(
+      `failed · charge_card · ${TODAY_AT} · 10.0 s`,
+    );
+    expect(listed(failed).line).toBe(`failed · ${TODAY_AT} · 10.0 s`);
   });
 
-  it('says which block a run is waiting on, and since when', () => {
-    const row = rowOf({
-      ...RUN,
+  /**
+   * Dead-lettering writes no error row, so the
+   * block the run last finished is all the ledger
+   * says. Restarted until DBOS stopped is what the
+   * word means, so no recovered tag follows it.
+   */
+  it('says a run DBOS gave up on gave up, after its last block', () => {
+    const dead = {
+      ...TODAY,
+      status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED',
+      recoveryAttempts: 2,
+    };
+
+    expect(listed({ ...dead, lastOperation: 'find_slot' }).line).toBe(
+      `gave up · after find_slot · ${TODAY_AT}`,
+    );
+    expect(listed(dead).line).toBe(`gave up · ${TODAY_AT}`);
+  });
+
+  it('says since when a run has waited on a person', () => {
+    const last = NOW - 120_000;
+    const since = when(last, NOW, 'en-US');
+    const waiting = {
+      ...TODAY,
       status: 'PENDING',
       completedAt: undefined,
-      lastOperation: 'await_reply.register',
-      lastOperationAt: 1000,
-    });
+      lastOperationAt: last,
+    };
 
-    expect(row.word).toBe('waiting');
-    expect(row.summary).toContain('waiting · await_reply · ');
-    expect(row.stoppedAt).toBeDefined();
-    expect(row.summary).toContain(row.stoppedAt ?? 'no time');
+    expect(
+      listed({ ...waiting, lastOperation: 'await_reply.register' }).line,
+    ).toBe(`waiting · await_reply · since ${since}`);
+    expect(
+      listed({ ...waiting, lastOperation: 'await_reply.resend.2' }).line,
+    ).toBe(`waiting · await_reply · since ${since}`);
+    expect(
+      listed({
+        ...waiting,
+        lastOperation: 'await_reply.register',
+        lastOperationAt: undefined,
+      }).line,
+    ).toBe('waiting · await_reply');
   });
 
-  it('says which block a running run got past', () => {
-    const row = rowOf({
-      ...RUN,
+  /**
+   * The wake is the deadline the SDK wrote on the
+   * sleep row, said as a clock and never as the
+   * epoch it is stored as. Once that moment is past
+   * the run is running again, whatever it has not
+   * yet written.
+   */
+  it('says when a run asleep on the clock wakes, and what it got past', () => {
+    const wakes = when(NOW + 60_000, NOW, 'en-US');
+    const asleep = {
+      ...TODAY,
       status: 'PENDING',
-      recoveryAttempts: 1,
+      completedAt: undefined,
+      lastOperation: 'load_records',
+      sleepingUntil: NOW + 60_000,
+    };
+    const shown = listed(asleep);
+
+    expect(shown.state).toBe('waiting');
+    expect(shown.line).toBe(`waiting · after load_records · wakes ${wakes}`);
+    expect(shown.line).not.toContain(String(NOW + 60_000));
+    expect(listed({ ...asleep, lastOperation: undefined }).line).toBe(
+      `waiting · wakes ${wakes}`,
+    );
+    expect(listed({ ...asleep, sleepingUntil: NOW - 1 }).line).toBe(
+      `running · after load_records · ${TODAY_AT}`,
+    );
+  });
+
+  /** How long a run still going took would be
+   *  stale the moment it was drawn. */
+  it('says where a running run got to', () => {
+    const going = { ...TODAY, status: 'PENDING', completedAt: undefined };
+
+    expect(listed({ ...going, lastOperation: 'find_slot' }).line).toBe(
+      `running · after find_slot · ${TODAY_AT}`,
+    );
+    expect(listed(going).line).toBe(`running · ${TODAY_AT}`);
+  });
+
+  /** The run tab and the Inspector say
+   *  "recovering" for the same run, and the mark
+   *  beside the line turns. */
+  it('says a recovering run is recovering, where it got to and no more', () => {
+    const again = {
+      ...TODAY,
+      status: 'PENDING',
+      recoveryAttempts: 2,
       completedAt: undefined,
       lastOperation: 'find_slot',
-      lastOperationAt: 1000,
-    });
+    };
 
-    expect(row.word).toBe('running');
-    expect(row.summary).toBe('running · after find_slot');
+    expect(listed(again).line).toBe(
+      `recovering · after find_slot · ${TODAY_AT}`,
+    );
   });
 
-  /** Still going, however many times it was
-   *  dispatched: the word says so, and the line
-   *  says where it got to. */
-  it('says the same of a run that is recovering', () => {
-    const row = rowOf({
-      ...RUN,
-      status: 'PENDING',
-      completedAt: undefined,
-      lastOperation: 'find_slot',
-      lastOperationAt: 1000,
-    });
+  it('says a queued or a cancelled run in its word and when it started', () => {
+    for (const status of ['ENQUEUED', 'DELAYED']) {
+      expect(listed({ ...TODAY, status, completedAt: undefined }).line).toBe(
+        `queued · ${TODAY_AT}`,
+      );
+    }
 
-    expect(row.word).toBe('recovering');
-    expect(row.summary).toBe('running · after find_slot');
+    expect(listed({ ...TODAY, status: 'CANCELLED' }).line).toBe(
+      `cancelled · ${TODAY_AT}`,
+    );
   });
 
-  it('counts the durable operations a finished run recorded', () => {
-    const row = rowOf({ ...RUN, operationCount: 7 });
+  it('says a finished run was picked back up', () => {
+    const tag = messages.runsRecoveredTag();
 
-    expect(row.word).toBe('done');
-    expect(row.summary).toBe('done · 7 durable operations');
+    expect(
+      listed({ ...TODAY, recoveryAttempts: 2, operationCount: 3 }).line,
+    ).toBe(`done · ${TODAY_AT} · 10.0 s · 3 steps · ${tag}`);
+    expect(
+      listed({ ...TODAY, status: 'ERROR', recoveryAttempts: 2 }).line,
+    ).toBe(`failed · ${TODAY_AT} · 10.0 s · ${tag}`);
   });
 
-  it('says nothing about a run that recorded nothing of its own', () => {
-    const row = rowOf({ ...RUN, status: 'PENDING', completedAt: undefined });
+  /**
+   * By the short id, as text: the whole id is on
+   * the parent's own row, and the line has no room
+   * for thirty-six characters. A scheduled firing's
+   * id is shortened as well as a UUID is.
+   */
+  it('says which run a replay came out of, by its short id', () => {
+    const shown = listed({ ...TODAY, forkedFrom: PARENT, startStep: 2 });
 
-    expect(row.summary).toBeUndefined();
-    expect(row.stoppedAt).toBeUndefined();
+    expect(shown.line).toBe(
+      `done · replay of ${shortRunId(PARENT)} · ${TODAY_AT} · 10.0 s`,
+    );
+    expect(shown.line).not.toContain(PARENT);
+
+    const nightly = 'sched-nightly_sync-2026-09-11T02:00:00.000Z';
+    const fired = listed({ ...TODAY, forkedFrom: nightly, startStep: 2 });
+
+    expect(fired.line).toContain(`replay of ${shortRunId(nightly)}`);
+    expect(fired.line).not.toContain(nightly);
   });
 });
 
@@ -597,24 +777,24 @@ describe('a run waiting on a person', () => {
       lastOperationAt: 1000,
     };
 
-    expect(rowOf({ ...inFlight, lastOperation: 'x.register' }).word).toBe(
+    expect(listed({ ...inFlight, lastOperation: 'x.register' }).state).toBe(
       'waiting',
     );
-    expect(rowOf({ ...inFlight, lastOperation: 'x.resend.2' }).word).toBe(
+    expect(listed({ ...inFlight, lastOperation: 'x.resend.2' }).state).toBe(
       'waiting',
     );
-    expect(rowOf({ ...inFlight, lastOperation: 'x.clear' }).word).toBe(
+    expect(listed({ ...inFlight, lastOperation: 'x.clear' }).state).toBe(
       'running',
     );
-    expect(rowOf({ ...inFlight, lastOperation: 'find_slot' }).word).toBe(
+    expect(listed({ ...inFlight, lastOperation: 'find_slot' }).state).toBe(
       'running',
     );
 
     // A run that has ended is not waiting for
     // anybody, whatever its last row was.
     expect(
-      rowOf({ ...RUN, lastOperation: 'x.register', lastOperationAt: 1000 })
-        .word,
+      listed({ ...RUN, lastOperation: 'x.register', lastOperationAt: 1000 })
+        .state,
     ).toBe('done');
   });
 
@@ -625,11 +805,11 @@ describe('a run waiting on a person', () => {
   it('takes the moment a run last recorded something', () => {
     const at = new Date(2026, 8, 11, 18, 24, 19, 240).getTime();
 
-    expect(rowOf({ ...RUN, lastOperationAt: at }).stoppedAt).toBe('18:24');
+    expect(listed({ ...RUN, lastOperationAt: at }).stoppedAt).toBe('18:24');
   });
 
   it('has no such moment for a run with no operation of its own', () => {
-    expect(rowOf(RUN).stoppedAt).toBeUndefined();
+    expect(listed(RUN).stoppedAt).toBeUndefined();
   });
 
   /**
@@ -710,9 +890,7 @@ describe('one word for one run', () => {
     for (const status of statuses) {
       const run = { ...RUN, status, completedAt: undefined };
 
-      expect(glyphStateOf(rowOf(run).word), status).toBe(
-        seeInit(page(run)).run?.state,
-      );
+      expect(listed(run).state, status).toBe(seeInit(page(run)).run?.state);
     }
   });
 
@@ -723,6 +901,8 @@ describe('one word for one run', () => {
 
     expect(shown?.state).toBe(glyphStateOf('gaveUp'));
     expect(shown?.line).toContain(runWords().gaveUp);
+    expect(listed(dead).state).toBe('failed');
+    expect(listed(dead).line.startsWith(runWords().gaveUp)).toBe(true);
   });
 
   /** A status this build has never seen is a run
@@ -732,7 +912,7 @@ describe('one word for one run', () => {
   it('calls a status it has never seen still going, on both', () => {
     const odd = { ...RUN, status: 'PAUSED', recoveryAttempts: 1 };
 
-    expect(rowOf(odd).word).toBe('running');
+    expect(listed(odd).state).toBe('running');
     expect(seeInit(page(odd)).run?.state).toBe('running');
   });
 });

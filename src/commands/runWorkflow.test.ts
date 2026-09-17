@@ -61,6 +61,7 @@ function runsHost(dir: string): RunsHost {
   return {
     projects: () => [dir],
     say: () => undefined,
+    locale: () => 'en-US',
     setContext: () => undefined,
     copy: async () => undefined,
     openCanvas: async () => undefined,

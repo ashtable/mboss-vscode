@@ -20,15 +20,13 @@
 
 import { SDK_OPERATIONS } from '../core/rules.js';
 
-import { FIRST_DISPATCH } from './rows.js';
-
 /** A statement and the values it is given. */
 export type Query = { text: string; values: unknown[] };
 
 /** Which runs the list is showing. */
 export type RunFilter = (typeof RUN_FILTERS)[number];
 
-export const RUN_FILTERS = ['all', 'failed', 'recovered'] as const;
+export const RUN_FILTERS = ['all', 'active', 'failed'] as const;
 
 /**
  * The most runs the list will hold.
@@ -75,6 +73,19 @@ export const FAILED_STATUSES = [
  * items are all waiting for room.
  */
 export const QUEUED_STATUSES = ['ENQUEUED', 'DELAYED'] as const;
+
+/**
+ * What counts as not over yet.
+ *
+ * The SDK's own set: the three statuses it calls a
+ * workflow active in. A run executing a step, one
+ * parked on somebody and one waiting for a worker
+ * are all still going, and the Active filter shows
+ * all three. Counted under the same top-level
+ * fence as every other list read, so a queue
+ * block's items are not each an active run.
+ */
+export const IN_FLIGHT_STATUSES = ['PENDING', 'ENQUEUED', 'DELAYED'] as const;
 
 /** The one status that means the run worked. Held
  *  here beside the sets the filters read, so the
@@ -172,6 +183,23 @@ const STEP_COLUMNS = [
 const TOP_LEVEL = 'parent_workflow_id IS NULL';
 
 /**
+ * What a block's rows begin with.
+ *
+ * Core's node-id grammar, written into the text
+ * rather than bound because it is a constant of
+ * the grammar and not a value. A queue block's
+ * items, a wait's two rows and a loop's rounds all
+ * begin with the block's id, so counting what this
+ * matches counts blocks rather than rows.
+ */
+export const BLOCK_NAME = '^[a-z][a-z0-9_]{0,40}';
+
+/** What the SDK records a sleep under. Bound
+ *  rather than written in, like every other
+ *  value. */
+const SLEEP = 'DBOS.sleep';
+
+/**
  * The runs one filter shows, newest first.
  *
  * Filtered in the database rather than in the
@@ -182,22 +210,32 @@ const TOP_LEVEL = 'parent_workflow_id IS NULL';
  * otherwise.
  */
 export function runsQuery(filter: RunFilter, limit: number): Query {
-  // The two exclusion binds are $1 and $2 because
-  // they are in the SELECT list, which comes before
-  // the WHERE clause — so the filter and the limit
-  // shift along behind them.
-  const where = whereFor(filter, 3);
-  const limitAt = 3 + where.values.length;
+  // The two exclusion binds and the sleep's name
+  // are $1 to $3 because they are in the SELECT
+  // list, which comes before the WHERE clause — so
+  // the filter and the limit shift along behind
+  // them.
+  const where = whereFor(filter, 4);
+  const limitAt = 4 + where.values.length;
 
   return {
     text:
       `SELECT ${RUN_COLUMNS.join(', ')}, ` +
       `${ownOperation('function_name')} AS last_operation, ` +
       `${ownOperation('completed_at_epoch_ms')} AS last_operation_at, ` +
-      `${ownOperationCount()} AS operation_count ` +
+      `${ownBlockCount()} AS operation_count, ` +
+      // Where a replay began, for "from step" and
+      // the Replay label: the fork read's own rule.
+      `${lastReused('s')} AS last_reused, ` +
+      // Where a failed run threw, which is where a
+      // replay of it starts.
+      `${firstFailure()} AS failed_step, ` +
+      // When a run asleep on the clock wakes, which
+      // is how the list tells it is waiting.
+      `${sleepingUntil()} AS sleeping_until ` +
       'FROM dbos.workflow_status s ' +
       `${where.text}ORDER BY created_at DESC LIMIT $${limitAt}`,
-    values: [SDK_PREFIX_PATTERN, SDK_UNPREFIXED, ...where.values, limit],
+    values: [SDK_PREFIX_PATTERN, SDK_UNPREFIXED, SLEEP, ...where.values, limit],
   };
 }
 
@@ -219,8 +257,47 @@ function ownOperation(column: string): string {
   );
 }
 
-function ownOperationCount(): string {
-  return `(SELECT count(*) FROM dbos.operation_outputs o WHERE ${OWN_ROWS})`;
+/** How many blocks the run ran, by the id each of
+ *  its own rows begins with. */
+function ownBlockCount(): string {
+  return (
+    `(SELECT count(DISTINCT substring(o.function_name FROM '${BLOCK_NAME}')) ` +
+    `FROM dbos.operation_outputs o WHERE ${OWN_ROWS})`
+  );
+}
+
+/**
+ * The first row of the run's own that threw.
+ *
+ * Any such row, whether or not a replay could be
+ * offered from it: which rows are offered is a
+ * question about the document, and the list does
+ * not hold one. A run DBOS gave up on wrote no
+ * error row at all, so it has none.
+ */
+function firstFailure(): string {
+  return (
+    '(SELECT min(o.function_id) FROM dbos.operation_outputs o ' +
+    `WHERE ${OWN_ROWS} AND o.error IS NOT NULL)`
+  );
+}
+
+/**
+ * The latest moment the run's sleeps were due to
+ * end.
+ *
+ * The SDK writes a sleep row's completion as the
+ * wake deadline when the sleep begins, so a value
+ * still ahead of the reader's clock is a run
+ * asleep. Compared with the clock by whoever reads
+ * the row, never here: the page and the list agree
+ * on one moment only if the reader supplies it.
+ */
+function sleepingUntil(): string {
+  return (
+    '(SELECT max(o.completed_at_epoch_ms) FROM dbos.operation_outputs o ' +
+    'WHERE o.workflow_uuid = s.workflow_uuid AND o.function_name = $3)'
+  );
 }
 
 /** This run's rows, minus everything DBOS records
@@ -244,9 +321,9 @@ export function countsQuery(): Query {
     text:
       'SELECT count(*) AS all_runs, ' +
       'count(*) FILTER (WHERE status = ANY($1)) AS failed_runs, ' +
-      'count(*) FILTER (WHERE recovery_attempts > $2) AS recovered_runs ' +
+      'count(*) FILTER (WHERE status = ANY($2)) AS active_runs ' +
       `FROM dbos.workflow_status WHERE ${TOP_LEVEL}`,
-    values: [FAILED_STATUSES, FIRST_DISPATCH],
+    values: [FAILED_STATUSES, IN_FLIGHT_STATUSES],
   };
 }
 
@@ -310,13 +387,30 @@ export function forksQuery(workflowId: string): Query {
   return {
     text:
       `SELECT ${RUN_COLUMNS.join(', ')}, ` +
-      '(SELECT max(o.function_id) FROM dbos.operation_outputs o ' +
-      'WHERE o.workflow_uuid = f.workflow_uuid ' +
-      'AND o.completed_at_epoch_ms < f.created_at) AS last_reused ' +
+      `${lastReused('f')} AS last_reused ` +
       'FROM dbos.workflow_status f ' +
       'WHERE f.forked_from = $1 ORDER BY f.created_at',
     values: [workflowId],
   };
+}
+
+/**
+ * The highest row a run carried over from the run
+ * it was forked from, over the run the statement
+ * calls `run`.
+ *
+ * One fragment for both reads that ask, so the
+ * list's "from step" and the run page's lineage
+ * cannot find two different places a replay began.
+ * `null` for a run that carried nothing, which is
+ * every run that is not a fork.
+ */
+function lastReused(run: string): string {
+  return (
+    '(SELECT max(o.function_id) FROM dbos.operation_outputs o ' +
+    `WHERE o.workflow_uuid = ${run}.workflow_uuid ` +
+    `AND o.completed_at_epoch_ms < ${run}.created_at)`
+  );
 }
 
 /**
@@ -465,13 +559,10 @@ function whereFor(
     };
   }
 
-  // Greater than the first dispatch, not greater
-  // than zero: the column counts dispatches, so
-  // every run in the database has at least one.
-  if (filter === 'recovered') {
+  if (filter === 'active') {
     return {
-      text: `WHERE recovery_attempts > $${from} AND ${TOP_LEVEL} `,
-      values: [FIRST_DISPATCH],
+      text: `WHERE status = ANY($${from}) AND ${TOP_LEVEL} `,
+      values: [IN_FLIGHT_STATUSES],
     };
   }
 

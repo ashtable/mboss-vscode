@@ -163,6 +163,42 @@ describe('a run row', () => {
   });
 });
 
+describe('a listed run', () => {
+  /**
+   * The three the list read asks for so a row can
+   * say "from step", offer a replay from where the
+   * run threw, and tell a run asleep on the clock
+   * from one executing. `bigint` columns arrive as
+   * text and `min(int)` as a number, as `pg` hands
+   * them over.
+   */
+  it('reads where a listed run began, failed and sleeps', () => {
+    const run = toRun({
+      ...RUN,
+      last_reused: '3',
+      failed_step: 2,
+      sleeping_until: '61000',
+    });
+
+    expect(run.startStep).toBe(4);
+    expect(run.failedStep).toBe(2);
+    expect(run.sleepingUntil).toBe(61000);
+  });
+
+  it('reads a run that carried nothing, threw nowhere and never slept', () => {
+    const run = toRun({
+      ...RUN,
+      last_reused: null,
+      failed_step: null,
+      sleeping_until: null,
+    });
+
+    expect(run.startStep).toBe(0);
+    expect(run).not.toHaveProperty('failedStep');
+    expect(run).not.toHaveProperty('sleepingUntil');
+  });
+});
+
 describe('a step row', () => {
   /**
    * `function_id` is the one number in either table
@@ -231,15 +267,15 @@ describe('the filter counts', () => {
   it('reads all three back as numbers', () => {
     const row: CountsRow = {
       all_runs: '6',
+      active_runs: '3',
       failed_runs: '1',
-      recovered_runs: '1',
     };
 
-    expect(toCounts(row)).toEqual({ all: 6, failed: 1, recovered: 1 });
+    expect(toCounts(row)).toEqual({ all: 6, active: 3, failed: 1 });
   });
 
   it('reads an empty database as three zeroes', () => {
-    expect(toCounts(undefined)).toEqual({ all: 0, failed: 0, recovered: 0 });
+    expect(toCounts(undefined)).toEqual({ all: 0, active: 0, failed: 0 });
   });
 });
 

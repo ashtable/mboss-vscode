@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { messages } from '../messages.js';
+import { when } from '../webview/time.js';
 import {
   RUN_ROW,
   database,
@@ -121,7 +122,40 @@ describe('reading a project run history', () => {
 
     expect(shown.state).toBe('ok');
     expect(shown.rows.map((row) => row.workflowId)).toEqual(['wf_c9d2f3']);
-    expect(shown.counts).toEqual({ all: 6, failed: 1, recovered: 1 });
+    expect(shown.counts).toEqual({ all: 6, active: 1, failed: 1 });
+  });
+
+  /**
+   * One clock for the whole page, as the run page
+   * reads one, and the month named in the language
+   * the editor is displayed in rather than the
+   * machine's.
+   */
+  it('draws every row at one moment, in the editor language', async () => {
+    const created = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    const db = database();
+    db.rows = [
+      { ...RUN_ROW, created_at: String(created), completed_at: null },
+      {
+        ...RUN_ROW,
+        workflow_uuid: 'wf_second',
+        created_at: String(created + 1000),
+        completed_at: null,
+      },
+    ];
+    const locale = vi.fn(() => 'fi-FI');
+    const read = reading(db, {
+      host: host({ projects: () => [project()], locale }),
+    });
+
+    await read.refresh();
+    const rows = read.render().rows;
+    const now = Date.now();
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.line).toContain(when(created, now, 'fi-FI'));
+    expect(rows[1]?.line).toContain(when(created + 1000, now, 'fi-FI'));
+    expect(locale).toHaveBeenCalled();
   });
 
   it('names the database without naming the credentials', async () => {

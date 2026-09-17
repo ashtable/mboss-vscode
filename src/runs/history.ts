@@ -73,6 +73,10 @@ import { rowOf } from './view.js';
 export type HistoryHost = {
   projects(): string[];
   say(message: string): void;
+
+  /** The language the editor is displayed in,
+   *  which is the one the list names a day in. */
+  locale(): string;
 };
 
 export type HistoryDeps = {
@@ -170,7 +174,7 @@ export type History = Disposable & {
   onChanged(listener: () => void): Disposable;
 };
 
-const EMPTY: RunCounts = { all: 0, failed: 0, recovered: 0 };
+const EMPTY: RunCounts = { all: 0, active: 0, failed: 0 };
 
 export function runHistory(deps: HistoryDeps): History {
   const changes = emitter();
@@ -496,15 +500,25 @@ export function runHistory(deps: HistoryDeps): History {
       await readRuns();
     },
 
-    render: () => ({
-      state,
-      detail,
-      source:
-        database === undefined ? undefined : messages.runsSource(database),
-      filter,
-      counts,
-      rows: runs.map((run) => rowOf(run, runs)),
-    }),
+    render: () => {
+      // One moment and one language for the whole
+      // page, as the run page reads one clock: a
+      // row asked about a different moment from the
+      // row beside it could call the same sleep
+      // over on one and not on the other.
+      const now = Date.now();
+      const locale = deps.host.locale();
+
+      return {
+        state,
+        detail,
+        source:
+          database === undefined ? undefined : messages.runsSource(database),
+        filter,
+        counts,
+        rows: runs.map((run) => rowOf(run, runs, now, locale)),
+      };
+    },
 
     onChanged: changes.on,
     dispose: changes.dispose,

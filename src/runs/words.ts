@@ -68,16 +68,14 @@ export const runWords = once(
 export const runsWords = once(() => ({
   heading: l10n.t('Runs'),
 
-  // Written out rather than abbreviated the way
-  // the design draws them. The panel is narrow
-  // and the drawn control says `RECOV.`, but an
-  // abbreviation is a thing only English can make
-  // — a translator handed `RECOV.` has no way to
-  // know what was cut.
+  // Whole words rather than abbreviations. The
+  // panel is narrow, but an abbreviation is a
+  // thing only English can make — a translator
+  // handed one has no way to know what was cut.
   filters: {
     all: l10n.t('All'),
+    active: l10n.t('Active'),
     failed: l10n.t('Failed'),
-    recovered: l10n.t('Recovered'),
   } satisfies Record<RunFilter, string>,
 
   recoveredTag: messages.runsRecoveredTag(),
@@ -87,6 +85,17 @@ export const runsWords = once(() => ({
   derivedTitle: l10n.t('derived from the last recorded operation'),
 
   copyRunId: l10n.t('Copy run id'),
+
+  /**
+   * The lineage lines under a row, in the words the
+   * Inspector's card says them in, so a translator
+   * words a replay once. The view fills each piece
+   * apart, because the id in each is where a way to
+   * that run goes.
+   */
+  replayOf: l10n.t('replay of {0} {1}'),
+  replayTo: l10n.t('└ replay {0} → {1} · {2}'),
+  fromStep: l10n.t('from step {0}'),
 
   untrusted: messages.runsNeedTrust(),
   noProject: messages.runsNoProject(),

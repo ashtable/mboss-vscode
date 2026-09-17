@@ -547,14 +547,29 @@ export const messages = {
   runsRecoveredTag: () => l10n.t('↻ recovered'),
 
   /**
-   * Where a run got to, in one line under its row.
+   * The parts of a listed run's line — the block
+   * a run got past, since when it has waited, when
+   * it wakes — each said after the run's word and
+   * joined by ` · `, the way the run tab's line is.
    *
-   * Every form of it is worked out from the last
-   * operation the run recorded of its own — nothing
-   * in the ledger marks a run as being *at* a block
-   * — so the row draws these beside the word that
-   * says they were derived.
+   * Phrases rather than one sentence per form:
+   * every form is the word followed by some of the
+   * same parts, and a translator reorders the words
+   * inside a part rather than the parts of a line.
+   * The block is worked out from the last operation
+   * the run recorded of its own, and the row says
+   * so beside the line.
    */
+  runsAfter: (block: string) => l10n.t('after {0}', block),
+  runsSince: (at: string) => l10n.t('since {0}', at),
+  runsWakes: (at: string) => l10n.t('wakes {0}', at),
+
+  /** Blocks rather than rows, and a form of its
+   *  own for one: `vscode.l10n` has no plural
+   *  forms, and "1 steps" is wrong. */
+  runsSteps: (count: number) => l10n.t('{0} steps', count),
+  runsOneStep: () => l10n.t('1 step'),
+
   /**
    * What the run page's graph is a picture of.
    *
@@ -567,12 +582,6 @@ export const messages = {
   runGraphMissing: (name: string) =>
     l10n.t('no saved workflow named {0} · trace only', name),
 
-  runFailedSummary: (node: string) => l10n.t('failed · {0}', node),
-  runWaitingSummary: (node: string, at: string) =>
-    l10n.t('waiting · {0} · {1}', node, at),
-  runRunningSummary: (node: string) => l10n.t('running · after {0}', node),
-  runDoneSummary: (count: number) =>
-    l10n.t('done · {0} durable operations', count),
   /**
    * How many crashes, not what the column says: the
    * column counts dispatches, so a run that never
@@ -671,16 +680,14 @@ export const messages = {
     l10n.t('{0} · {1}', workflow, said),
 
   /**
-   * A fork, from the list.
+   * The run a listed replay came out of, by its
+   * short id, inside the replay's line.
    *
-   * The child line is drawn only for a run already
-   * on the page, so neither of these costs a query:
-   * `forked_from` is a column every row already
-   * selects.
+   * Text rather than a way to that run: the line is
+   * one string, and the row's lineage line below it
+   * is where the id is something to press.
    */
   runsReplayOf: (id: string) => l10n.t('replay of {0}', id),
-  runsReplayInto: (id: string, word: string) =>
-    l10n.t('└ replay → {0} · {1}', id, word),
 
   /**
    * What a replay did.

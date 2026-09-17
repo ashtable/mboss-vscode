@@ -30,7 +30,7 @@ import type { runsWords, seeWords } from '../runs/words.js';
 import type { WorkflowTrigger } from '../runs/workflows.js';
 import type { sidebarWords } from '../sidebar/words.js';
 
-import type { GlyphState, RunWord, StepWord } from './states.js';
+import type { GlyphState, StepWord } from './states.js';
 
 /**
  * What the host and a webview say to each other.
@@ -548,62 +548,65 @@ export type RunRow = {
   /** DBOS's own status word. */
   status: string;
 
-  /** Where it has got to, in the one word every
-   *  surface says it in. */
-  word: RunWord;
+  /**
+   * The glyph the row's mark is drawn with, from
+   * the list's own evidence: one recorded name and
+   * when the run's sleep ends. A run DBOS gave up
+   * on is `failed` and a cancelled one `idle`; the
+   * line says which.
+   */
+  state: GlyphState;
 
-  /** `14:02 · 8.2 s`, already formatted. */
-  when: string;
+  /**
+   * Where the run got to, in one line: its word,
+   * the block it reached, when it started or since
+   * when it has waited, how long it took and how
+   * many blocks it ran — whichever of those its
+   * word has to say.
+   *
+   * The block is worked out from the last operation
+   * the run recorded of its own, because nothing in
+   * the ledger marks a run as being *at* a block,
+   * so the row says the line was derived.
+   */
+  line: string;
 
   /** Whether DBOS ever picked this run back up. */
   recovered: boolean;
 
-  /** `1 crash · 1 retry`, when it did. */
+  /** `recovered from 2 crashes · derived`, when it
+   *  did more than once. */
   recoveredNote: string | undefined;
 
   /** What it failed with, shown on the row itself
    *  rather than behind a click. */
   error: string | undefined;
 
-  /**
-   * Where the run got to, worked out from the last
-   * operation it recorded of its own.
-   *
-   * Nothing in the ledger marks a run as being *at*
-   * a block, so this is derived and the row says so
-   * beside it. Absent for a run that has recorded
-   * nothing of its own — a projection over no rows
-   * is not a fact.
-   */
-  summary: string | undefined;
-
-  /** When that operation landed, for a row to put
-   *  where a reader can check it. */
+  /** When the last operation of its own landed,
+   *  for a row to put where a reader can check
+   *  it. */
   stoppedAt: string | undefined;
 
-  /** How many durable operations it recorded. */
+  /** How many blocks it ran. */
   operations: number | undefined;
 
   /**
-   * `replay of wf_a1b4e7`, where the run came out of
-   * another one.
+   * The run it was replayed from, then each replay
+   * of it **that is on this page**.
    *
    * Read off `forked_from`, which every row already
-   * selects — a replay is a second run beside the
-   * first rather than a repair of it, and both are
-   * on this list.
+   * selects, so neither costs a query: a replay
+   * further down the history is simply not drawn
+   * here.
    */
-  replayOf: string | undefined;
+  lineage: RunLineage[];
 
-  /**
-   * `└ replay → wf_fork1 · ERROR`, one per run that
-   * came out of this one **and is on this page**.
-   *
-   * Never a query of its own: the list draws what it
-   * is already holding, so a fork further down the
-   * history is simply not drawn here.
-   */
-  forks: string[];
+  /** Where a replay began, on a run that is one. */
+  startStep: number | undefined;
+
+  /** The first row of its own that threw, which is
+   *  where a replay of it starts. */
+  failedStep: number | undefined;
 };
 
 export type RunsStrings = ReturnType<typeof runsWords>;

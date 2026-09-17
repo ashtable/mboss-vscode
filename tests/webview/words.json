@@ -478,12 +478,15 @@
     "heading": "Runs",
     "filters": {
       "all": "All",
-      "failed": "Failed",
-      "recovered": "Recovered"
+      "active": "Active",
+      "failed": "Failed"
     },
     "recoveredTag": "↻ recovered",
     "derivedTitle": "derived from the last recorded operation",
     "copyRunId": "Copy run id",
+    "replayOf": "replay of {0} {1}",
+    "replayTo": "└ replay {0} → {1} · {2}",
+    "fromStep": "from step {0}",
     "untrusted": "Reading a run history opens a database this folder names, so it waits until you trust this window.",
     "noProject": "Open an mBoss project to see how its runs went.",
     "empty": "No runs recorded yet. Start the app and set a workflow going.",

@@ -17,12 +17,11 @@ import { filled } from '../webview/fill.js';
 import { shortRunId } from '../webview/ids.js';
 import {
   glyphStateOf,
-  inFlight,
   runWord,
   settled,
   type RunWord,
 } from '../webview/states.js';
-import { clock, duration, fine } from '../webview/time.js';
+import { clock, duration, fine, when } from '../webview/time.js';
 import type {
   InspectorMode,
   ShownRun,
@@ -46,6 +45,7 @@ import type {
 import type { Lineage } from './openRun.js';
 import { runWords, seeWords } from './words.js';
 import { decidedArms, wakeOf, type Wake } from './operations.js';
+import { IN_FLIGHT_STATUSES } from './queries.js';
 import { replayRowReason } from './replayZone.js';
 import {
   headlineRow,
@@ -80,8 +80,11 @@ import type { ProjectWorkflow } from './workflows.js';
  * the rows worded here.
  */
 
-/** Statuses that mean the run has not finished. */
-const IN_FLIGHT = new Set(['PENDING', 'ENQUEUED', 'DELAYED']);
+/** Statuses that mean the run has not finished:
+ *  the set the Active filter asks for, so the
+ *  control a row offers and the filter it is shown
+ *  under cannot disagree. */
+const IN_FLIGHT = new Set<string>(IN_FLIGHT_STATUSES);
 
 /**
  * Statuses a run can be picked back up from.
@@ -679,90 +682,216 @@ function offerOf(
  * draws.
  *
  * `page` is the rest of what the list is holding,
- * and it is the only place a fork line comes from:
- * `forked_from` is a column every row already
- * selects, so a child on screen is a line drawn for
- * free and a child that is not on screen is a query
- * nobody asked for. An empty page is therefore a row
- * drawn on its own, which is what a caller with no
- * others means.
+ * and it is the only place a replay's lineage
+ * comes from: `forked_from` is a column every row
+ * already selects, so a replay on screen is a line
+ * drawn for free and one that is not is a query
+ * nobody asked for. An empty page is a row drawn
+ * on its own.
+ *
+ * Neither `now` nor `locale` has a default, for the
+ * reason the reading's clock has none: the list is
+ * one page read at one moment, and whether a sleep
+ * has ended and which day a clock is on are both
+ * answered against it — in the editor's language,
+ * which a function reading the machine's would
+ * not be.
  */
-export function rowOf(run: Run, page: readonly Run[] = []): RunRow {
-  const word = wordOf(run, parked(run.lastOperation));
+export function rowOf(
+  run: Run,
+  page: readonly Run[],
+  now: number,
+  locale: string,
+): RunRow {
+  const word = listedWord(run, now);
 
   return {
     workflowId: run.workflowId,
     name: run.name,
     status: run.status,
-    word,
-    when: whenOf(run),
+    state: glyphStateOf(word),
+    line: lineOf(run, word, now, locale),
     recovered: hasRecovered(run),
     // Only past the first: the tag beside it
     // already says the run recovered, so the
     // number is worth its space only when it is
-    // more than one.
+    // more than one. Worked out from a column that
+    // counts dispatches, and marked so.
     recoveredNote:
       recoveriesOf(run) > 1
-        ? messages.runsRecoveredNote(recoveriesOf(run))
+        ? messages.runLevelDerived(
+            messages.runsRecoveredNote(recoveriesOf(run)),
+          )
         : undefined,
     error: run.error,
-    summary: summaryOf(run, word),
     stoppedAt:
       run.lastOperationAt === undefined
         ? undefined
         : clock(run.lastOperationAt),
     operations: run.operationCount,
-    replayOf:
-      run.forkedFrom === undefined
-        ? undefined
-        : messages.runsReplayOf(run.forkedFrom),
-    forks: page
-      .filter((one) => one.forkedFrom === run.workflowId)
-      .map((one) =>
-        messages.runsReplayInto(
-          one.workflowId,
-          runWords()[wordOf(one, parked(one.lastOperation))],
-        ),
-      ),
+    lineage: lineageOf(run, page, now),
+    // The list asks every run where it began, and
+    // a run that is not a replay began at the top.
+    startStep: run.forkedFrom === undefined ? undefined : run.startStep,
+    failedStep: run.failedStep,
   };
 }
 
 /**
- * Where the run got to, in one line.
- *
- * Every form of it is worked out from the last
- * operation the run recorded of its own, because
- * nothing in the ledger marks a run as being *at* a
- * block. A run that has recorded nothing gets no
- * line: a projection over no rows is not a fact
- * worth drawing.
+ * The word for a listed run, with the list's
+ * evidence for whether it is parked: its last
+ * recorded name, and whether a sleep it began is
+ * still to end. A run asleep on the clock writes
+ * nothing of its own while it sleeps, so its name
+ * alone would call it running.
  */
-function summaryOf(run: Run, word: RunWord): string | undefined {
-  if (word === 'done') {
-    return run.operationCount === undefined
-      ? undefined
-      : messages.runDoneSummary(run.operationCount);
+function listedWord(run: Run, now: number): RunWord {
+  const asleep = run.sleepingUntil !== undefined && run.sleepingUntil > now;
+
+  return wordOf(run, parked(run.lastOperation) || asleep);
+}
+
+/**
+ * A listed run in one line: its word, the run it
+ * is a replay of, whatever its word has to say,
+ * and whether DBOS picked it back up.
+ */
+function lineOf(run: Run, word: RunWord, now: number, locale: string): string {
+  return [
+    runWords()[word],
+    ...(run.forkedFrom === undefined
+      ? []
+      : [messages.runsReplayOf(shortRunId(run.forkedFrom))]),
+    ...partsOf(run, word, now, locale),
+    ...recoveredAfter(word, hasRecovered(run)),
+  ].join(' · ');
+}
+
+/**
+ * What each word says after itself.
+ *
+ * The clock is when the run started, except where
+ * the question is how long it has waited or when
+ * it wakes. How long a run took only where it
+ * ended by finishing or by throwing: a run DBOS
+ * gave up on or somebody cancelled was stopped
+ * rather than finished, and a length of time for a
+ * run still going would be stale as soon as it was
+ * drawn.
+ */
+function partsOf(
+  run: Run,
+  word: RunWord,
+  now: number,
+  locale: string,
+): string[] {
+  const started = when(run.createdAt, now, locale);
+  const block = blockOf(run.lastOperation);
+  const named = block === undefined ? [] : [block];
+  const after = said(block, messages.runsAfter);
+
+  switch (word) {
+    case 'done':
+      return [started, ...tookOf(run), ...stepsOf(run.operationCount)];
+    case 'failed':
+      return [...named, started, ...tookOf(run)];
+    case 'gaveUp':
+    case 'running':
+    case 'recovering':
+      return [...after, started];
+    case 'queued':
+    case 'cancelled':
+      return [started];
+    case 'waiting':
+      // Parked on a person: the block that asked,
+      // and since when. Otherwise asleep on the
+      // clock: the block it got past, and when the
+      // sleep ends.
+      return parked(run.lastOperation)
+        ? [
+            ...named,
+            ...said(run.lastOperationAt, (at) =>
+              messages.runsSince(when(at, now, locale)),
+            ),
+          ]
+        : [
+            ...after,
+            ...said(run.sleepingUntil, (at) =>
+              messages.runsWakes(when(at, now, locale)),
+            ),
+          ];
   }
+}
 
-  const at = run.lastOperation;
-  if (at === undefined) return undefined;
+/** A part, where there is anything to say it
+ *  about. */
+function said<Value>(
+  value: Value | undefined,
+  say: (value: Value) => string,
+): string[] {
+  return value === undefined ? [] : [say(value)];
+}
 
-  const owner = ownerOf(at);
-  const nodeId = owner.kind === 'node' ? owner.nodeId : at;
+/** The block a recorded name belongs to, else the
+ *  name as it was recorded. */
+function blockOf(name: string | undefined): string | undefined {
+  if (name === undefined) return undefined;
 
-  if (word === 'waiting') {
-    return run.lastOperationAt === undefined
-      ? undefined
-      : messages.runWaitingSummary(nodeId, clock(run.lastOperationAt));
-  }
+  const owner = ownerOf(name);
 
-  // Still going, however many times it was
-  // dispatched and whether or not a worker has
-  // claimed it yet; everything else is over and
-  // stopped at this block.
-  return inFlight(word)
-    ? messages.runRunningSummary(nodeId)
-    : messages.runFailedSummary(nodeId);
+  return owner.kind === 'node' ? owner.nodeId : name;
+}
+
+function tookOf(run: Run): string[] {
+  return said(run.completedAt, (at) => lasted(at - run.createdAt));
+}
+
+/** How many blocks a run ran, where it ran any. */
+function stepsOf(count: number | undefined): string[] {
+  if (count === undefined || count === 0) return [];
+
+  return [count === 1 ? messages.runsOneStep() : messages.runsSteps(count)];
+}
+
+/**
+ * Where the run came from and what came out of it
+ * that is on this page, as the Inspector's lineage
+ * lines are built.
+ *
+ * Only runs whose start step was read: a lineage
+ * line says where the replay began, and the list
+ * read asks that of every run. A replay's word is
+ * asked with the list's own evidence, which it has
+ * for every run on the page.
+ */
+function lineageOf(run: Run, page: readonly Run[], now: number): RunLineage[] {
+  const parent: RunLineage[] =
+    run.forkedFrom === undefined || run.startStep === undefined
+      ? []
+      : [
+          {
+            direction: 'of',
+            workflowId: run.forkedFrom,
+            short: shortRunId(run.forkedFrom),
+            startStep: run.startStep,
+          },
+        ];
+
+  const replays = page.flatMap((one): RunLineage[] =>
+    one.forkedFrom !== run.workflowId || one.startStep === undefined
+      ? []
+      : [
+          {
+            direction: 'to',
+            workflowId: one.workflowId,
+            short: shortRunId(one.workflowId),
+            startStep: one.startStep,
+            word: runWords()[listedWord(one, now)],
+          },
+        ],
+  );
+
+  return [...parent, ...replays];
 }
 
 /**
@@ -825,11 +954,7 @@ export type RunLineOf = {
  * `completed_at`, which it does for every way a run
  * ends and clears on a resume; a length of time for
  * a run still going would be stale as soon as it
- * was drawn. The recovered tag only on a run that is
- * over, because one still being picked back up
- * already says "recovering" — and never after "gave
- * up", which is a word for being restarted until
- * DBOS stopped.
+ * was drawn.
  */
 export function runLine(run: RunLineOf): string {
   const { word, createdAt, completedAt, recovered } = run;
@@ -837,19 +962,21 @@ export function runLine(run: RunLineOf): string {
 
   if (completedAt !== undefined) parts.push(lasted(completedAt - createdAt));
 
-  if (recovered && settled(word) && word !== 'gaveUp') {
-    parts.push(messages.runsRecoveredTag());
-  }
-
-  return parts.join(' · ');
+  return [...parts, ...recoveredAfter(word, recovered)].join(' · ');
 }
 
-function whenOf(run: Run): string {
-  const at = clock(run.createdAt);
-
-  return run.completedAt === undefined
-    ? at
-    : `${at} · ${lasted(run.completedAt - run.createdAt)}`;
+/**
+ * The recovered tag, where a line should end with
+ * it: on a run that is over, because one still
+ * being picked back up already says "recovering" —
+ * and never after "gave up", which is a word for
+ * being restarted until DBOS stopped. One rule for
+ * the list's line and the run tab's.
+ */
+function recoveredAfter(word: RunWord, recovered: boolean): string[] {
+  return recovered && settled(word) && word !== 'gaveUp'
+    ? [messages.runsRecoveredTag()]
+    : [];
 }
 
 /**

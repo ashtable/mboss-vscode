@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
 import { FAILED_STATUSES, QUEUED_STATUSES } from '../runs/queries.js';
-import { FIRST_DISPATCH } from '../runs/rows.js';
+import { FIRST_DISPATCH, type Run } from '../runs/rows.js';
+import { rowOf, runTabOf } from '../runs/view.js';
 import { runWords } from '../runs/words.js';
+import {
+  TIMER_STARTED_AT,
+  TIMER_THEN_ANSWER,
+  TIMER_WAKES_AT,
+  timerThenAnswerRows,
+} from '../test-support/runs.js';
 
 import {
   glyphOf,
@@ -148,6 +155,59 @@ describe('the word a run is said in', () => {
 
     expect(runWord(asked)).toBe('running');
     expect(runWord({ ...asked, parked: true })).toBe('waiting');
+  });
+});
+
+/**
+ * A run asleep on the clock is `PENDING`, exactly
+ * like one executing a step, and writes nothing of
+ * its own while it sleeps. The list has one column
+ * to tell it by — when its sleep ends — and the run
+ * tab has every row; both have to say it is
+ * waiting.
+ */
+describe('a run asleep on the clock', () => {
+  const asleep = TIMER_WAKES_AT - 1000;
+
+  const run: Run = {
+    workflowId: 'wf_timer',
+    name: TIMER_THEN_ANSWER.name,
+    status: 'PENDING',
+    recoveryAttempts: FIRST_DISPATCH,
+    executorId: 'local-dev',
+    applicationVersion: undefined,
+    createdAt: TIMER_STARTED_AT,
+    startedAt: TIMER_STARTED_AT,
+    completedAt: undefined,
+    error: undefined,
+    forkedFrom: undefined,
+    wasForkedFrom: false,
+  };
+
+  it('says waiting on the list and on the run tab alike', () => {
+    const listed = rowOf(
+      { ...run, sleepingUntil: TIMER_WAKES_AT },
+      [],
+      asleep,
+      'en-US',
+    );
+
+    expect(listed.state).toBe(glyphStateOf('waiting'));
+
+    // The run tab takes the clock too: read at the
+    // real one, the fixture's deadline is long past.
+    const tab = runTabOf(
+      {
+        run,
+        steps: timerThenAnswerRows(),
+        ir: TIMER_THEN_ANSWER,
+        selectedStep: undefined,
+        note: undefined,
+      },
+      asleep,
+    );
+
+    expect(tab.run.outcome).toBe('waiting');
   });
 });
 
