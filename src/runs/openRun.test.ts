@@ -130,10 +130,20 @@ function reading(
   return db;
 }
 
-/** The rows the page would draw, by the name each
- *  one recorded. */
+/** Every row the page would draw, by the name each
+ *  one recorded, in the order DBOS numbered them:
+ *  the trace, the SDK's rows under it and the rows
+ *  no block owns. */
 function drawnRows(open: OpenRun): string[] {
-  return (open.see().run?.raw ?? []).map((row) => row.fn);
+  const run = open.see().run;
+  const rows = [
+    ...(run?.trace ?? []).flatMap((row) => [row, ...row.sdk]),
+    ...(run?.unattributed ?? []),
+  ];
+
+  return rows
+    .sort((one, other) => one.functionId - other.functionId)
+    .map((row) => row.name);
 }
 
 describe('reading a run', () => {
@@ -396,23 +406,20 @@ describe('what a reader keeps', () => {
   /**
    * Refresh is the same run read again, not a
    * different question. Pressing it while reading a
-   * group two thirds down a trace with the SDK's
-   * own rows shown must not put somebody back at
-   * the top with those rows hidden.
+   * block two thirds down a trace must not put
+   * somebody back at the top.
    */
   it('keeps what somebody was reading when the same run is read again', async () => {
     const { open } = page(twoSteps());
 
     await open.open('wf_c9d2f3');
     open.node('find_slot');
-    open.raw(true);
 
     await open.again();
 
     const shown = open.see().run;
     expect(shown?.selected.nodeId).toBe('find_slot');
     expect(shown?.selected.functionId).toBeUndefined();
-    expect(shown?.showRaw).toBe(true);
   });
 
   it('keeps a picked row when the same run is read again', async () => {
@@ -435,13 +442,12 @@ describe('what a reader keeps', () => {
     });
   });
 
-  it('starts a different run at the top, with the DBOS rows hidden', async () => {
+  it('starts a different run with nothing picked', async () => {
     const db = twoSteps();
     const { open } = page(db);
 
     await open.open('wf_c9d2f3');
     open.node('find_slot');
-    open.raw(true);
 
     db.rows = [{ ...RUN_ROW, workflow_uuid: 'wf_other' }];
     await open.open('wf_other');
@@ -449,7 +455,6 @@ describe('what a reader keeps', () => {
     const shown = open.see().run;
     expect(shown?.selected.nodeId).toBeUndefined();
     expect(shown?.selected.functionId).toBeUndefined();
-    expect(shown?.showRaw).toBe(false);
   });
 
   /** Which of the two views is on screen belongs to
@@ -773,10 +778,16 @@ describe('whether a project records when a run wakes', () => {
 
       await open.open('wf_c9d2f3');
 
-      const wakes = (open.see().run?.groups ?? []).some(
-        (group) => group.wakes !== undefined,
+      const run = open.see().run;
+      const sleeps = [
+        ...(run?.trace ?? []).flatMap((row) => [row, ...row.sdk]),
+        ...(run?.unattributed ?? []),
+      ].filter((row) => row.name === 'DBOS.sleep');
+      const wakes = sleeps.some((row) =>
+        /^(wakes|woke|times out) /.test(row.detail.derived ?? ''),
       );
 
+      expect(sleeps).toHaveLength(1);
       expect({ sdk, said: wakes }).toEqual({ sdk, said });
     }
   });

@@ -393,9 +393,8 @@ export type RunsStore = Disposable & {
    */
   openProduction(): Promise<void>;
 
-  /** The run page: which block, which view, whether
-   *  the SDK's own rows are shown, and reading it
-   *  again. */
+  /** The run page: which block, which view, and
+   *  reading it again. */
   selectNode(nodeId: string | null): void;
 
   /** Which of the Inspector's faces a person picked
@@ -403,8 +402,6 @@ export type RunsStore = Disposable & {
   chooseFace(mode: InspectorMode): void;
 
   showTab(tab: 'graph' | 'trace'): void;
-
-  showRaw(raw: boolean): void;
 
   refreshRun(): Promise<void>;
 
@@ -939,7 +936,6 @@ export function runsStore(deps: RunsDeps): RunsStore {
     selectNode: openRun.node,
     chooseFace: openRun.face,
     showTab: openRun.tab,
-    showRaw: openRun.raw,
     refreshRun: openRun.again,
 
     onChanged: changes.on,

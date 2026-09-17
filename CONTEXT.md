@@ -52,7 +52,8 @@ is still parked, and the reading says so.
 
 What a reader knows about the drawing, where it is not holding one. `lost`
 means it looked and the project has no document of that name — an answer, and
-the reason a trace with no picture beside it draws as one nameless group.
+the reason a trace with no picture beside it draws every row apart, under no
+block.
 `unasked` means nobody looked: a watch polls a database and never had a
 document, so the grammar's answer about a row's block is the only evidence
 there is, and gating on a drawing nobody consulted would tell the canvas that

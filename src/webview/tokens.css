@@ -1416,48 +1416,6 @@ button.lib-fn {
   font-size: var(--text-sm);
 }
 
-/* An aside about the thing above it — never a
-   failure, which is what the voice colours are
-   for. */
-.hint {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--ink-muted);
-}
-
-/* — provenance — */
-
-/* Whether the panel read this or worked it out.
-   Every derived number in this extension wears one,
-   because a derived number a person mistakes for a
-   recorded one is the whole failure mode of a
-   flight recorder.
-
-   The dashed edge is the derived one, matching the
-   dashes a proposal is drawn in on the canvas:
-   dashes mean nobody has written this down. */
-.provenance {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 0 5px;
-  border: 1px solid var(--hairline-strong);
-  border-radius: 4px;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: var(--label-tracking);
-  color: var(--ink-muted);
-  white-space: nowrap;
-}
-
-.provenance[data-provenance='recorded'] {
-  color: var(--ink);
-}
-
-.provenance[data-provenance='derived'] {
-  border-style: dashed;
-}
-
 /* — controls — */
 
 /* What a run is doing, wherever a run is named. The

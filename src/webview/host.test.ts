@@ -220,7 +220,6 @@ describe('what each view may say', () => {
     inspectQueue: ['inspector'],
     seeShow: ['see'],
     seeNode: ['see'],
-    seeRaw: ['see'],
     seeRefresh: ['see'],
     openWorkflow: ['see'],
 
@@ -314,7 +313,6 @@ describe('what each view may say', () => {
     inspectQueue: { workflowId: 'wf_c9d2f3', nodeId: 'index_pages' },
     seeShow: { tab: 'trace' },
     seeNode: { nodeId: 'find_slot' },
-    seeRaw: { raw: true },
     seeRefresh: {},
     openWorkflow: { workflowId: 'wf_c9d2f3' },
 

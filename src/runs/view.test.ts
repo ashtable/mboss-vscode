@@ -4,7 +4,7 @@ import type { WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
 import { FORM_INTAKE, TIMER_THEN_ANSWER } from '../test-support/runs.js';
 import { shortRunId } from '../webview/ids.js';
-import type { SeeRun, TraceRowView } from '../webview/protocol.js';
+import type { SeeRun, TraceDetail, TraceRowView } from '../webview/protocol.js';
 import type { RunWord } from '../webview/states.js';
 import { fine } from '../webview/time.js';
 
@@ -29,11 +29,7 @@ import type { ProjectWorkflow } from './workflows.js';
  * A webview has no localization bundle and may draw
  * no string the host did not resolve, so everything
  * a person reads in either surface is composed
- * here. The arithmetic that decides *where* a bar
- * goes is here too, because the panel is resizable
- * and the host has no idea how wide it is — so what
- * travels is fractions of a window rather than
- * pixels.
+ * here.
  */
 
 const RUN: Run = {
@@ -387,6 +383,39 @@ describe('one run in detail', () => {
     ).toEqual([]);
   });
 
+  /**
+   * The trace is one list of the rows the run wrote,
+   * with a length of time on each. A strip of the
+   * same steps, a chart of the same lengths and the
+   * table they were all read from said it three more
+   * times, so none of them is sent any more, and
+   * neither are the words they were labelled with.
+   */
+  it('carries no strip, timeline, table or groups any more', () => {
+    expect(
+      Object.keys(run ?? {}).filter((field) =>
+        ['groups', 'chips', 'timeline', 'raw', 'showRaw', 'span'].includes(
+          field,
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      Object.keys(init.strings).filter((word) =>
+        [
+          'steps',
+          'timeline',
+          'hatched',
+          'raw',
+          'columns',
+          'showRaw',
+          'dbosOwned',
+          'recorded',
+          'childRun',
+        ].includes(word),
+      ),
+    ).toEqual([]);
+  });
+
   it('says what it is and how long it took', () => {
     expect(run?.headline).toBe('SUCCESS · 10.0 s total');
     expect(run?.breadcrumb).toBe('mBoss › runs › groom_booking › wf_c9d2f3');
@@ -426,161 +455,6 @@ describe('one run in detail', () => {
     expect(bare.run?.rail.map((row) => row.label)).not.toContain(
       'application_version',
     );
-  });
-
-  /**
-   * `<step> ✓` against `<step> ✓ restored` is the
-   * one distinction this whole view exists to draw,
-   * and the word is the host's because a webview
-   * shows none of its own.
-   */
-  it('marks the steps that came back from Postgres', () => {
-    expect(run?.chips.map((chip) => chip.restored)).toEqual([
-      true,
-      true,
-      false,
-    ]);
-    expect(init.strings.restored).toBe('restored');
-  });
-
-  it('draws the band across the hole nothing ran in', () => {
-    expect(run?.timeline.outage).toEqual({
-      from: 0.2,
-      width: 0.6,
-      down: 'process down · 6.0 s',
-      resumed: 'resumed by DBOS',
-    });
-  });
-
-  it('places every bar as a fraction of the window', () => {
-    expect(run?.timeline.bars.map((bar) => bar.at)).toEqual([
-      { from: 0, width: 0.1 },
-      { from: 0.1, width: 0.1 },
-      { from: 0.8, width: 0.1 },
-    ]);
-  });
-
-  /**
-   * A step DBOS has not timed is drawn without a
-   * bar rather than dropped: a step missing from
-   * the chart is a step nobody knows ran.
-   */
-  it('keeps a step it cannot place, and gives it no bar', () => {
-    const untimed = {
-      ...step(3, 0, 0),
-      startedAt: undefined,
-      completedAt: undefined,
-    };
-    const shown = seeInit({
-      run: RUN,
-      steps: [...STEPS, untimed],
-      selectedStep: undefined,
-      note: undefined,
-    });
-
-    expect(shown.run?.timeline.bars).toHaveLength(4);
-    expect(shown.run?.timeline.bars[3]?.at).toBeUndefined();
-  });
-
-  /**
-   * The chart is about what the workflow did, so
-   * the SDK's own rows get no bar and no chip. The
-   * hole computation still sees them, and has to:
-   * a wait the SDK wrote is what fills a gap that
-   * would otherwise be read as a crash.
-   */
-  it('draws no bar for a row the SDK wrote, and still counts it', () => {
-    const slept = seeInit({
-      run: RUN,
-      steps: [
-        step(0, 0, 1000),
-        { ...step(1, 1000, 9000), name: 'DBOS.sleep' },
-        step(2, 9000, 10_000),
-      ],
-      selectedStep: undefined,
-      note: undefined,
-    });
-
-    expect(slept.run?.timeline.bars.map((bar) => bar.name)).toEqual([
-      'step_0',
-      'step_2',
-    ]);
-    expect(slept.run?.chips.map((chip) => chip.name)).toEqual([
-      'step_0',
-      'step_2',
-    ]);
-    expect(slept.run?.timeline.outage).toBeUndefined();
-  });
-
-  /**
-   * A wait on the clock owns its sleep row, so the
-   * row is drawn — and what that row records as its
-   * completion is the moment the run is due to
-   * wake, which has not happened. The chart draws
-   * what has, so the bar stops where the window
-   * does instead of running two windows past it.
-   */
-  it('stops a sleeping wait’s bar where the chart closes', () => {
-    const started = Date.now() - 600_000;
-    const shown = seeInit({
-      run: {
-        ...RUN,
-        status: 'PENDING',
-        createdAt: started,
-        startedAt: started,
-        completedAt: undefined,
-      },
-      steps: [
-        {
-          ...step(0, started, started + 1_200_000),
-          name: 'DBOS.sleep',
-          output: String(started + 1_200_000),
-        },
-      ],
-      selectedStep: undefined,
-      note: undefined,
-      ir: TIMER_THEN_ANSWER,
-    });
-
-    const bars = shown.run?.timeline.bars ?? [];
-
-    expect(bars.map((bar) => bar.name)).toEqual(['DBOS.sleep']);
-    expect(bars[0]?.at?.from).toBe(0);
-    expect(bars[0]?.at?.width).toBeCloseTo(1, 3);
-  });
-
-  /**
-   * The raw panel is a picture of the table, so it
-   * shows the bytes the column holds — and no
-   * attempts column, because DBOS records no
-   * per-step attempt count anywhere for one to be
-   * read out of.
-   */
-  it('shows the table as the table, output and all', () => {
-    expect(run?.raw[0]?.stepId).toBe(0);
-    expect(run?.raw[0]?.fn).toBe('step_0');
-    expect(run?.raw[0]?.output).toBe('{"n":0}');
-    expect(run?.raw[0]?.committedAt).toMatch(/^\d{1,2}:\d{2}:\d{2}/);
-
-    expect(Object.keys(init.strings.columns)).toEqual([
-      'stepId',
-      'fn',
-      'output',
-      'committedAt',
-    ]);
-  });
-
-  it('cuts an output too long for a cell to carry', () => {
-    const long = seeInit({
-      run: RUN,
-      steps: [{ ...step(0, 0, 1), output: 'x'.repeat(400) }],
-      selectedStep: undefined,
-      note: undefined,
-    });
-
-    const shown = long.run?.raw[0]?.output ?? '';
-    expect(shown.length).toBeLessThan(400);
-    expect(shown.endsWith('…')).toBe(true);
   });
 
   it('carries the step a replay would fork from', () => {
@@ -962,7 +836,6 @@ describe('one run, as the run page draws it', () => {
       ['parse_request', true],
       ['find_slot', true],
     ]);
-    expect(shown.chips.map((chip) => chip.replayable)).toEqual([true, true]);
   });
 
   it('says why a row is not one', () => {
@@ -971,10 +844,8 @@ describe('one run, as the run page draws it', () => {
         { ...step(0, 0, 1000), name: 'parse_request' },
         { ...step(1, 1000, 2000), name: 'DBOS.sleep' },
       ],
-      raw: true,
     });
-    const rows = shown.groups.flatMap((group) => group.operations);
-    const withheld = rows.find((one) => one.name === 'DBOS.sleep');
+    const withheld = rows(shown).find((one) => one.name === 'DBOS.sleep');
 
     expect(withheld?.replayable).toBe(false);
     expect(withheld?.because).toBe(messages.replayRowSdkOwned());
@@ -986,11 +857,10 @@ describe('one run, as the run page draws it', () => {
    * — and says so rather than offering every row.
    */
   it('offers no point at all without a document', () => {
-    const shown = page({ ir: undefined, boxes: undefined });
-    const rows = shown.groups.flatMap((group) => group.operations);
+    const shown = rows(page({ ir: undefined, boxes: undefined }));
 
-    expect(rows.map((one) => one.replayable)).toEqual([false, false]);
-    expect(rows[0]?.because).toBe(messages.replayNotOffered());
+    expect(shown.map((one) => one.replayable)).toEqual([false, false]);
+    expect(shown[0]?.because).toBe(messages.replayNotOffered());
   });
 
   /**
@@ -1001,26 +871,14 @@ describe('one run, as the run page draws it', () => {
    * schema marks a row as copied, and this is the
    * only evidence there is.
    */
-  it('marks a reused row recorded', () => {
+  it('marks a reused row reused, and an own row not', () => {
     const shown = page({ run: REPLAY });
 
-    expect(
-      shown.groups
-        .flatMap((group) => group.operations)
-        .map((one) => [one.name, one.reused]),
-    ).toEqual([
+    expect(rows(shown).map((one) => [one.name, one.reused])).toEqual([
       ['parse_request', true],
       ['find_slot', false],
     ]);
-    expect(seeInit(undefined).strings.recorded).toBe('↺ recorded');
-  });
-
-  it('marks a reused chip and bar reused, and an own row not', () => {
-    const shown = page({ run: REPLAY });
-
-    expect(rows(shown).map((one) => one.reused)).toEqual([true, false]);
-    expect(shown.chips.map((chip) => chip.reused)).toEqual([true, false]);
-    expect(shown.timeline.bars.map((bar) => bar.reused)).toEqual([true, false]);
+    expect(seeInit(undefined).strings.reused).toBe('reused');
   });
 
   it('carries the trace, the graph, the selection and the input', () => {
@@ -1043,17 +901,12 @@ describe('one run, as the run page draws it', () => {
 
   /**
    * With no document nothing tells one row's block
-   * from another's, so the trace is one flat group
-   * of unattributed rows — which is exactly what a
-   * trace with no picture beside it is.
-   *
-   * And that group is nameless. Only the document
-   * says what a block is called, so a group with no
-   * block behind it has nothing to be called: naming
-   * it after whichever row came first would tell
-   * somebody a group of fifty rows was
-   * `parse_request`. The badge beside it says what
-   * it is instead.
+   * from another's, so every row is drawn under no
+   * block — apart, under the one label that says so,
+   * which is exactly what a trace with no picture
+   * beside it is. None of them is named after a
+   * block: only the document says what a block is
+   * called.
    */
   it('draws no graph for a run whose workflow the project lost', () => {
     const shown = page({ ir: undefined, boxes: undefined });
@@ -1062,25 +915,13 @@ describe('one run, as the run page draws it', () => {
     expect(shown.noGraph).toBe(
       'no saved workflow named groom_booking · trace only',
     );
-    expect(shown.groups).toHaveLength(1);
-    expect(shown.groups[0]?.operations).toHaveLength(2);
-    expect(shown.groups[0]?.nodeId).toBeUndefined();
-    expect(shown.groups[0]?.title).toBe('');
-  });
-
-  /**
-   * Times are read in whatever zone the machine is
-   * in, so the moment is asked of the same clock the
-   * page uses rather than typed.
-   */
-  it('projects a group of one own row as that row', () => {
-    const [first] = page().groups;
-
-    expect(first?.title).toBe('Parse');
-    expect(first?.qualifier).toBeUndefined();
-    expect(first?.operations).toHaveLength(1);
-    expect(first?.operations[0]?.owner).toBe('node');
-    expect(first?.operations[0]?.at).toBe(fine(1000));
+    expect(shown.trace).toEqual([]);
+    expect(
+      shown.unattributed.map((row) => [row.functionId, row.nodeId]),
+    ).toEqual([
+      [0, undefined],
+      [1, undefined],
+    ]);
   });
 
   it('draws a block’s own row as one trace row', () => {
@@ -1089,34 +930,8 @@ describe('one run, as the run page draws it', () => {
     expect(first?.name).toBe('parse_request');
     expect(first?.owner).toBe('node');
     expect(first?.nodeId).toBe('parse_request');
-    expect(first?.at).toBe(fine(1000));
     expect(first?.duration).toBe('1.0 s');
     expect(first?.sdk).toEqual([]);
-  });
-
-  /**
-   * Collapsed by default, except where somebody is
-   * most likely to be going: the turn that failed,
-   * and the one holding the block they picked.
-   */
-  it('opens a failed group, and the one holding the selected block', () => {
-    const plain = page();
-    expect(plain.groups.map((group) => group.open)).toEqual([false, false]);
-
-    const picked = page({ selectedNode: 'find_slot' });
-    expect(picked.groups.map((group) => group.open)).toEqual([false, true]);
-
-    const broken = page({
-      steps: [
-        { ...step(0, 0, 1000), name: 'parse_request' },
-        {
-          ...step(1, 1000, 2000),
-          name: 'find_slot',
-          failure: { message: 'no slot' },
-        },
-      ],
-    });
-    expect(broken.groups.map((group) => group.open)).toEqual([false, true]);
   });
 
   /**
@@ -1529,34 +1344,29 @@ describe('one run, as the run page draws it', () => {
  * SDK records the row it is read off.
  */
 describe('when a run wakes', () => {
-  /** One step, then a wait on whichever source the
-   *  case is about. */
-  function waitingOn(source: unknown): WorkflowIR {
-    return {
-      $schema: 'https://mboss.dev/schemas/workflow-v1.json',
-      version: 1,
-      revision: 2,
-      name: 'expense_claim',
-      nodes: [
-        { id: 'file_it', kind: 'step', title: 'File it', config: {} },
-        {
-          id: 'hold_on',
-          kind: 'durableWait',
-          title: 'Hold on',
-          config: { source, onTimeout: 'abort' },
-        },
-      ],
-      edges: [
-        {
-          id: 'e1',
-          from: { node: 'file_it', port: 'out' },
-          to: { node: 'hold_on' },
-        },
-      ],
-    } as unknown as WorkflowIR;
-  }
-
-  const WAITING = waitingOn({ kind: 'timer', seconds: 60 });
+  /** One step, then a wait on the clock. */
+  const WAITING = {
+    $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+    version: 1,
+    revision: 2,
+    name: 'expense_claim',
+    nodes: [
+      { id: 'file_it', kind: 'step', title: 'File it', config: {} },
+      {
+        id: 'hold_on',
+        kind: 'durableWait',
+        title: 'Hold on',
+        config: { source: { kind: 'timer', seconds: 60 }, onTimeout: 'abort' },
+      },
+    ],
+    edges: [
+      {
+        id: 'e1',
+        from: { node: 'file_it', port: 'out' },
+        to: { node: 'hold_on' },
+      },
+    ],
+  } as unknown as WorkflowIR;
 
   function sleeping(over: Partial<SeeView> = {}): SeeRun {
     const shown = seeInit({
@@ -1580,57 +1390,41 @@ describe('when a run wakes', () => {
     return shown;
   }
 
+  /** The line under the sleep row the run wrote,
+   *  wherever the trace draws that row. */
+  function sleepLine(run: SeeRun | undefined): TraceDetail {
+    const all = [
+      ...(run?.trace ?? []).flatMap((row) => [row, ...row.sdk]),
+      ...(run?.unattributed ?? []),
+    ];
+    const [sleep, ...more] = all.filter((row) => row.name === 'DBOS.sleep');
+
+    if (sleep === undefined || more.length > 0) {
+      throw new Error('not one sleep row');
+    }
+
+    return sleep.detail;
+  }
+
   it('says when a sleeping block wakes, under the gate', () => {
-    expect(sleeping({ timing: true }).groups[0]?.wakes).toContain(
-      'asleep until',
+    expect(sleepLine(sleeping({ timing: true })).derived).toMatch(
+      /^(wakes|woke) /,
     );
   });
 
+  /**
+   * An older SDK does not write the deadline this is
+   * read from, so below the gate there is no moment
+   * to say — and the number the row holds is never
+   * said in its place.
+   */
   it('says nothing about it below the gate', () => {
-    expect(sleeping({ timing: false }).groups[0]?.wakes).toBeUndefined();
-    expect(sleeping().groups[0]?.wakes).toBeUndefined();
-  });
+    for (const shown of [sleeping({ timing: false }), sleeping()]) {
+      const line = sleepLine(shown);
+      const said = [line.derived, line.plain, line.verbatim].join(' ');
 
-  /**
-   * A bare sleep inside a block that branches
-   * afterwards says nothing about where the run
-   * goes next, and guessing would be the page
-   * making something up.
-   */
-  it('says nothing where the block has more than one way onward', () => {
-    const forked = {
-      ...WAITING,
-      edges: [
-        ...WAITING.edges,
-        {
-          id: 'e2',
-          from: { node: 'file_it', port: 'out' },
-          to: { node: 'hold_on' },
-        },
-      ],
-    } as unknown as WorkflowIR;
-
-    expect(
-      sleeping({ timing: true, ir: forked }).groups[0]?.wakes,
-    ).toBeUndefined();
-  });
-
-  /**
-   * `asleep until` is a sentence about a timer. A
-   * wait on a person or an event has a deadline
-   * too, but it is the moment the wait gives up
-   * rather than the moment the run comes back —
-   * somebody answering is what wakes that one, and
-   * no row says when they will.
-   */
-  it('says nothing where the wait ahead is not a timer', () => {
-    for (const source of [
-      { kind: 'form', email: 'file_it' },
-      { kind: 'event', topic: 'x', correlationPath: 'a', correlateWith: 'b' },
-    ]) {
-      expect(
-        sleeping({ timing: true, ir: waitingOn(source) }).groups[0]?.wakes,
-      ).toBeUndefined();
+      expect(said).not.toMatch(/\b(wakes|woke|times out)\b/);
+      expect(said).not.toContain('90000');
     }
   });
 
@@ -1646,7 +1440,7 @@ describe('when a run wakes', () => {
       timing: true,
     }).run;
 
-    expect(shown?.groups[0]?.wakes).toContain('times out');
+    expect(sleepLine(shown).derived).toMatch(/^times out /);
   });
 });
 

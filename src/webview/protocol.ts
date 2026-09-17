@@ -612,11 +612,10 @@ export type RunsStrings = ReturnType<typeof runsWords>;
  * One run, in as much detail as the ledger holds.
  *
  * Its own editor tab rather than a section of the
- * list: the graph, the Gantt and the raw table are
- * a page, and the list is 300px wide. What the run
- * recorded about a block, or about the whole run,
- * is the Inspector's, so none of its words travel
- * here.
+ * list: the graph and the trace are a page, and the
+ * list is 300px wide. What the run recorded about a
+ * block, or about the whole run, is the
+ * Inspector's, so none of its words travel here.
  */
 export type SeeInit = {
   type: 'init';
@@ -646,21 +645,10 @@ export type SeeRun = {
    *  surface says it in. */
   word: RunWord;
 
-  /** `started 14:02:11 · finished 14:02:19` */
-  span: string;
-
-  chips: SeeChip[];
-
-  timeline: SeeTimeline;
-
-  /** `dbos.operation_outputs`, as a table. */
-  raw: SeeRawRow[];
-
   /** `dbos.workflow_status`, row by row. */
   rail: { label: string; value: string }[];
 
-  /** The step a person picked, which the strip and
-   *  the chart mark. */
+  /** The step a person picked. */
   selectedStep: number | undefined;
 
   /** What the last replay did, or would not do. */
@@ -695,9 +683,6 @@ export type SeeRun = {
    *  drawn onto it. */
   live: ShownRun | undefined;
 
-  /** The trace, in the turns each block took. */
-  groups: TraceGroupView[];
-
   /** The trace, one recorded operation to a row, in
    *  the order DBOS numbered them, with the SDK's
    *  own rows under the block row they ran beside. */
@@ -715,10 +700,6 @@ export type SeeRun = {
    * by.
    */
   selected: { nodeId: string | undefined; functionId: number | undefined };
-
-  /** Whether the rows DBOS wrote for itself are
-   *  shown. `raw` above is the table itself. */
-  showRaw: boolean;
 
   /** Whether a watch is still reading this run, and
    *  what it would take to find out if not. */
@@ -767,86 +748,6 @@ export type SeeGraph = {
   decided: Record<string, string>;
 };
 
-/** One block's turn, with whatever the SDK wrote
- *  while it was taking it. */
-export type TraceGroupView = {
-  /** The block it belongs to, where the saved
-   *  document still has one. */
-  nodeId: string | undefined;
-
-  /** What to call it: the block's title, or the
-   *  recorded name where nothing owns it. */
-  title: string;
-
-  /** `· round 2`, `· 12 items`, or nothing. */
-  qualifier: string | undefined;
-
-  /**
-   * `asleep until 14:04:11.000` or
-   * `times out 14:04:11.000`, where the project's
-   * SDK records the row it is read off. Derived: it
-   * is a deadline the SDK wrote down rather than
-   * something that has happened.
-   */
-  wakes: string | undefined;
-
-  /** Whether it is open when the page is drawn. */
-  open: boolean;
-
-  failed: boolean;
-
-  operations: TraceOpView[];
-};
-
-/** One recorded row, as the trace draws it. */
-export type TraceOpView = {
-  functionId: number;
-
-  /** The name the ledger recorded. */
-  name: string;
-
-  owner: 'node' | 'sdk' | 'unmapped';
-
-  state: 'done' | 'failed' | 'waiting';
-
-  /** `14:02:19.240`, or nothing where DBOS did not
-   *  time it. */
-  at: string | undefined;
-
-  /** What it returned, cut where it was long. */
-  output: string | undefined;
-
-  outputCut: boolean;
-
-  /** What it failed with. */
-  error: string | undefined;
-
-  /** Whether it came back from the ledger rather
-   *  than running again. */
-  restored: boolean;
-
-  /**
-   * Whether it was carried over from the run this
-   * one was replayed from.
-   *
-   * About the operation and never about the block:
-   * a block on either graph keeps drawing what it
-   * did, and a replay that reused three rows did
-   * not skip three blocks.
-   */
-  reused: boolean;
-
-  /** Whether a replay may start here, and why not
-   *  when it may not. */
-  replayable: boolean;
-
-  because: string | undefined;
-
-  /** The run a fan-out item started, where it
-   *  started one. */
-  childWorkflowId: string | undefined;
-};
-
 /**
  * The one line under a trace row, in its parts.
  *
@@ -875,7 +776,37 @@ export type TraceDetail = {
  * One row of the trace: a recorded operation, and
  * the rows the SDK wrote beside it.
  */
-export type TraceRowView = TraceOpView & {
+export type TraceRowView = {
+  functionId: number;
+
+  /** The name the ledger recorded. */
+  name: string;
+
+  owner: 'node' | 'sdk' | 'unmapped';
+
+  state: 'done' | 'failed' | 'waiting';
+
+  /**
+   * Whether it was carried over from the run this
+   * one was replayed from.
+   *
+   * About the operation and never about the block:
+   * a block on either graph keeps drawing what it
+   * did, and a replay that reused three rows did
+   * not skip three blocks.
+   */
+  reused: boolean;
+
+  /** Whether a replay may start here, and why not
+   *  when it may not. */
+  replayable: boolean;
+
+  because: string | undefined;
+
+  /** The run a fan-out item started, where it
+   *  started one. */
+  childWorkflowId: string | undefined;
+
   /** The block it is drawn under, where it is drawn
    *  under one. */
   nodeId: string | undefined;
@@ -898,89 +829,6 @@ export type TraceRowView = TraceOpView & {
   /** The rows the SDK wrote beside it, in the order
    *  they ran. Always empty on one of those. */
   sdk: TraceRowView[];
-};
-
-export type SeeChip = {
-  functionId: number;
-
-  name: string;
-
-  /** Whether its output came back from Postgres
-   *  rather than from running the code again. */
-  restored: boolean;
-
-  /** Whether it was carried over from the run this
-   *  one was replayed from. */
-  reused: boolean;
-
-  failed: boolean;
-
-  /** Whether a replay may start here, and why not
-   *  when it may not. */
-  replayable: boolean;
-
-  because: string | undefined;
-};
-
-/**
- * The Gantt, in fractions of its own window.
- *
- * Fractions rather than pixels because the panel
- * is resizable and the host has no idea how wide
- * it is. The arithmetic is done once, here, rather
- * than in a renderer that would have to be given
- * the window to do it.
- */
-export type SeeTimeline = {
-  bars: SeeBar[];
-
-  /** The hatched band, when a crash could be
-   *  placed. */
-  outage: SeeOutage | undefined;
-
-  ticks: { at: number; label: string }[];
-};
-
-export type SeeBar = {
-  functionId: number;
-
-  name: string;
-
-  /** `0` is the left edge of the window, `1` the
-   *  right. Absent when DBOS did not time it. */
-  at: { from: number; width: number } | undefined;
-
-  restored: boolean;
-
-  /** Whether it was carried over from the run this
-   *  one was replayed from. */
-  reused: boolean;
-
-  failed: boolean;
-};
-
-export type SeeOutage = {
-  from: number;
-
-  width: number;
-
-  /** `process down · 2.9 s` */
-  down: string;
-
-  /** `resumed by DBOS` */
-  resumed: string;
-};
-
-export type SeeRawRow = {
-  stepId: number;
-
-  fn: string;
-
-  /** Exactly the bytes the column holds, cut to
-   *  something a cell can carry. */
-  output: string;
-
-  committedAt: string;
 };
 
 export type SeeStrings = ReturnType<typeof seeWords>;

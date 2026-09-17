@@ -226,7 +226,7 @@ describe('one run', () => {
     expect(query.values).toEqual(['wf_c9d2f3']);
   });
 
-  it('selects the columns the raw panel shows', () => {
+  it('selects the columns the run page reads', () => {
     for (const column of [
       'function_id',
       'function_name',

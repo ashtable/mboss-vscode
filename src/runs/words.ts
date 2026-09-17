@@ -157,17 +157,11 @@ export const runsWords = once(() => ({
 export const seeWords = once(() => ({
   heading: l10n.t('Run'),
   nothingSelected: l10n.t('Pick a run to see what it did.'),
-  steps: l10n.t('Steps'),
-  timeline: l10n.t('Run timeline'),
-  hatched: l10n.t('hatched = process down'),
+
+  /** On a trace row DBOS brought back from the
+   *  ledger after a crash, rather than running it
+   *  again. */
   restored: l10n.t('restored'),
-  raw: l10n.t('dbos.operation_outputs'),
-  columns: {
-    stepId: l10n.t('step'),
-    fn: l10n.t('function'),
-    output: l10n.t('output'),
-    committedAt: l10n.t('committed'),
-  },
 
   /** The two views of one run. */
   tabs: {
@@ -190,16 +184,6 @@ export const seeWords = once(() => ({
     waiting: l10n.t('waiting · refresh to check'),
     quiet: l10n.t('quiet · refresh to check'),
   },
-
-  /**
-   * On a row a replay carried over from the run it
-   * came from.
-   *
-   * The glyph is fixed and is part of the word: what
-   * it says is that the row is the earlier run's,
-   * copied rather than run a second time.
-   */
-  recorded: l10n.t('↺ recorded'),
 
   /** On a trace row a replay carried over from the
    *  run it came from, where `restored` is said of
@@ -237,21 +221,27 @@ export const seeWords = once(() => ({
    *  than read off a row. */
   derived: l10n.t('derived'),
 
-  /** The rows DBOS wrote for its own bookkeeping,
-   *  and what it means that they are here. */
-  showRaw: l10n.t('Show DBOS-owned rows'),
-  dbosOwned: l10n.t('DBOS-owned · shown in raw view · grouped by position'),
+  /** The label over the run's operations, in the
+   *  order it recorded them. */
+  trace: l10n.t('trace'),
 
-  /** A group of rows naming a block the saved
-   *  document does not have. */
-  unattributed: l10n.t('not a block in the saved workflow'),
+  /** The label over the rows that name a block the
+   *  saved document does not have, drawn apart from
+   *  the rows that belong to one. */
+  unattributed: l10n.t('unattributed'),
 
-  // On the id beside a row that started a run of
-  // its own. The row is what the parent recorded
-  // about handing the work over; everything the
-  // work itself did is on the other run's page, and
-  // the id is the only way the ledger gives there.
-  childRun: l10n.t('open the run this item started'),
+  /**
+   * How the trace is read, under it: what picking
+   * something opens, and where the SDK's own rows
+   * went. Said once for the list rather than on
+   * every row.
+   */
+  traceHint: l10n.t(
+    'select a row or a node → Run evidence in the inspector · DBOS-owned rows expand under their node',
+  ),
+
+  /** A run that has written no row yet. */
+  noOperations: l10n.t('no operations recorded'),
 
   /** The way back to Build. It opens the document
    *  and projects nothing onto it: the canvas keeps

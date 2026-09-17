@@ -19,11 +19,11 @@ import { runsWords, seeWords } from './words.js';
  *
  * The list is a view in the mBoss container, 300px
  * wide, and the detail is a page in the editor with
- * a chart and two tables on it. They are separate
- * because a webview cannot host a webview view and
- * because neither one's markup is any use to the
- * other — not because the model is split. Both draw
- * from one store and hold nothing.
+ * the run's graph and its trace on it. They are
+ * separate because a webview cannot host a webview
+ * view and because neither one's markup is any use
+ * to the other — not because the model is split.
+ * Both draw from one store and hold nothing.
  */
 
 /** The run list, in the activity bar. */
@@ -229,7 +229,6 @@ export class SeePanel {
 
         if (message.type === 'seeNode') this.store.selectNode(message.nodeId);
         if (message.type === 'seeShow') this.store.showTab(message.tab);
-        if (message.type === 'seeRaw') this.store.showRaw(message.raw);
         if (message.type === 'seeRefresh') void this.store.refreshRun();
 
         if (message.type === 'openWorkflow') {

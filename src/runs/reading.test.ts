@@ -285,8 +285,9 @@ describe('what a block recorded', () => {
    * A page that looked and found the project has no
    * document of this name knows every row names a
    * block nobody can click, and says so — which is
-   * what draws the trace as one nameless group
-   * rather than as blocks that no longer exist.
+   * what draws every row of the trace apart, under
+   * no block, rather than under blocks that no
+   * longer exist.
    */
   it('attributes nothing where the project lost the document', () => {
     const found = readRun(

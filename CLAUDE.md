@@ -384,8 +384,9 @@ none of that.
   live overlay, whose `LiveRun`/`LiveStep` are a rendering of a reading for the
   wire. What a reader knows about the drawing is three-valued (`Drawing`:
   the document, `'lost'`, `'unasked'`) because the page and the watch meant
-  opposite things by "no drawing". `operations.ts` groups a reading and reads
-  its decided arms; `timeline.ts` owns the outage inference and has one caller.
+  opposite things by "no drawing". `operations.ts` reads a sleep row's wake and
+  a reading's decided arms; `timeline.ts` owns the outage inference and has one
+  caller.
   `drawnUnder` is the one rule for which block a row — the SDK's own included
   — is drawn under, and what a row picked on the run tab selects.
   See `CONTEXT.md` for the vocabulary.

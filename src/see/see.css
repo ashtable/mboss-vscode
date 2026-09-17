@@ -4,31 +4,15 @@
  * One run, in an editor tab.
  *
  * The page's argument is that durability is rows,
- * so it is laid out as a document that quotes its
- * own sources: the graph, a strip of steps, a chart,
- * and then the table the whole thing was read out
- * of, named in the face code is read in.
+ * so it draws the workflow the rows were written by
+ * and the rows themselves, in order, once each.
  *
- * The one place boldness is spent is the hatched
- * band. Everything else is flat rectangles on
- * hairline tracks — no shadows, no motion — so that
- * the one diagonal texture on the page is
- * unmistakably the thing that went wrong.
+ * The one place colour is spent between rows is
+ * the trace's spine: the line from one operation to
+ * the next says what happened between them. The
+ * rows themselves have no ground and no edge until
+ * somebody points at one or picks it.
  */
-
-body {
-  /* The label column, named once: the band layer
-     and the time axis both have to start exactly
-     where the tracks do. */
-  --label-col: 12rem;
-
-  /* The one texture on the page, defined once. */
-  --hatch: repeating-linear-gradient(
-    45deg,
-    color-mix(in srgb, var(--fail) 26%, transparent) 0 2px,
-    transparent 2px 6px
-  );
-}
 
 /* One column: the run, and nothing beside it. What
    a run recorded about a block or about the whole
@@ -77,237 +61,6 @@ body {
    not a bug anybody has to read. */
 .see-head > .title[data-severity='cancelled'] {
   color: var(--ink-muted);
-}
-
-/* — the step strip — */
-
-.chips {
-  list-style: none;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-2) 0 0;
-  padding: 0;
-}
-
-/* The arrow between chips is the strip's only
-   punctuation, and it says the run is a sequence —
-   which it is, and which is the one thing the
-   order here carries. */
-.chips > li + li::before {
-  content: '→';
-  margin-right: var(--space-2);
-  color: color-mix(in srgb, var(--ink) 40%, transparent);
-}
-
-.chips > li {
-  display: flex;
-  align-items: center;
-}
-
-.chip {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-1);
-  border: 1px solid var(--hairline);
-  border-radius: 0;
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  font-size: var(--text-sm);
-  padding: 2px var(--space-2);
-  cursor: pointer;
-}
-
-.chip[aria-current='true'] {
-  border-color: var(--ink);
-  background: var(--surface-2);
-}
-
-.chip-mark {
-  color: var(--brand);
-}
-
-.chip[data-failed='true'] .chip-mark {
-  color: var(--fail);
-}
-
-.chip-restored {
-  font-weight: 600;
-  font-size: var(--text-xs);
-  color: var(--warn);
-}
-
-/* — the chart — */
-
-.legend {
-  margin: var(--space-1) 0 var(--space-3);
-  font-size: var(--text-sm);
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
-}
-
-.hatch-key {
-  display: inline-block;
-  width: 2.2em;
-  height: 0.8em;
-  vertical-align: -1px;
-  border: 1px solid var(--fail);
-  background: var(--hatch);
-}
-
-.chart-rows {
-  position: relative;
-}
-
-.chart-row {
-  display: grid;
-  grid-template-columns: var(--label-col) minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-3);
-  padding: 2px 0;
-}
-
-.chart-label {
-  font-size: var(--text-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.track {
-  position: relative;
-  display: block;
-  height: 14px;
-  border-top: 1px solid var(--hairline);
-}
-
-/* The layer the band lives in: exactly the tracks,
-   across every row, so a percentage here means what
-   a percentage on a bar means. */
-.band-layer {
-  position: absolute;
-  inset: 0 0 0 calc(var(--label-col) + var(--space-3));
-}
-
-/* The signature.
-
-   A hole in the record, drawn as one: diagonal
-   hatching where there is nothing to plot, a dashed
-   red edge on the side the process was last seen
-   and a dashed accent edge on the side DBOS picked
-   it back up. One rectangle down the whole chart,
-   because nothing ran anywhere in it — and behind
-   the bars, because the bars are what happened. */
-.band {
-  position: absolute;
-  inset-block: 0;
-  background: var(--hatch);
-  border-left: 1px dashed var(--fail);
-  border-right: 1px dashed var(--warn);
-}
-
-.bar {
-  position: absolute;
-  inset-block: 3px;
-  background: var(--brand);
-}
-
-/* A restored step is drawn hollow: its bar is where
-   it ran the first time, and nothing ran there
-   again. */
-.bar[data-restored='true'] {
-  background: transparent;
-  border: 1px solid var(--warn);
-}
-
-.bar[data-failed='true'] {
-  background: var(--fail);
-}
-
-.bar[aria-current='true'] {
-  outline: 1px solid var(--ink);
-  outline-offset: 1px;
-}
-
-/* Inset to match the tracks, so the percentages
-   these labels carry mean what the band's do. Not
-   uppercased, unlike every other small label here:
-   one of them ends in a unit, and `2.9 S` is not a
-   unit. */
-.band-labels {
-  position: relative;
-  height: 1.4em;
-  margin: var(--space-1) 0 0;
-  margin-left: calc(var(--label-col) + var(--space-3));
-  font-size: var(--text-sm);
-}
-
-.band-labels > span {
-  position: absolute;
-  padding: 0 var(--space-1);
-  white-space: nowrap;
-}
-
-.band-labels > .down {
-  color: var(--fail);
-}
-
-.band-labels > .resumed {
-  color: var(--warn);
-}
-
-.ticks {
-  position: relative;
-  height: 1.4em;
-  margin: var(--space-1) 0 0;
-  margin-left: calc(var(--label-col) + var(--space-3));
-}
-
-.ticks > span {
-  position: absolute;
-  transform: translateX(-50%);
-  font-size: var(--text-xs);
-  color: color-mix(in srgb, var(--ink) 50%, transparent);
-  white-space: nowrap;
-}
-
-/* — the raw table — */
-
-.raw-block > .eyebrow {
-  color: var(--brand);
-  margin-bottom: var(--space-2);
-}
-
-.raw {
-  width: 100%;
-  border-collapse: collapse;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  table-layout: fixed;
-}
-
-.raw th,
-.raw td {
-  border-top: 1px solid var(--hairline);
-  padding: var(--space-1) var(--space-2);
-  text-align: left;
-  overflow-wrap: anywhere;
-}
-
-.raw th {
-  font-weight: 600;
-  font-size: var(--text-xs);
-  color: color-mix(in srgb, var(--ink) 60%, transparent);
-}
-
-.raw tr[aria-current='true'] {
-  background: var(--brand-tint);
-}
-
-.raw .output {
-  width: 50%;
-  color: color-mix(in srgb, var(--ink) 75%, transparent);
 }
 
 /* — the two views of one run — */
@@ -365,137 +118,178 @@ body {
 
 /* — the trace — */
 
-.trace-block {
-  margin-top: var(--space-3);
-}
+/* The label, the list, the rows no block owns and
+   the line about reading them, one under the next.
+   How wide the column is belongs to whoever holds
+   it. */
+.execution-trace {
+  /* One line of an operation's name: the dot on the
+     spine is centred on it, and a row's first line
+     is this tall whatever else is on it. */
+  --trace-line: calc(var(--text-control) * 1.5);
+  --trace-dot: 9px;
+  --trace-dot-top: calc(
+    var(--space-0-5) + (var(--trace-line) - var(--trace-dot)) / 2
+  );
 
-.raw-toggle {
   display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  margin-bottom: var(--space-2);
-  cursor: pointer;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
 }
 
-.trace {
+.trace,
+.trace-sdk {
   list-style: none;
   margin: 0;
   padding: 0;
 }
 
-.trace-group {
-  border-top: 1px solid var(--hairline);
-  border-left: 2px solid transparent;
+/* The spine is laid beside the row rather than in
+   it, down the whole of it, so the line reaches
+   the next row's dot however much the row holds —
+   its SDK rows included. */
+.trace-row {
+  position: relative;
+  padding-inline-start: calc(12px + var(--space-2));
 }
 
-.trace-group[data-failed='true'] {
-  border-left-color: var(--fail);
+.trace-row:not(:last-child) {
+  padding-bottom: var(--space-2);
 }
 
-.trace-group[aria-current='true'] {
-  background: var(--surface-2);
-}
-
-.trace-head {
+.trace-spine {
+  position: absolute;
+  inset-block: 0 calc(-1 * var(--trace-dot-top));
+  inset-inline-start: 0;
+  box-sizing: border-box;
+  width: 12px;
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: var(--trace-dot-top);
+}
+
+.trace-row:last-child > .trace-spine {
+  inset-block-end: 0;
+}
+
+/* Drawn as an edge rather than a fill: a theme that
+   forces its own colours keeps an edge and paints
+   over a fill, and the spine is how the rows read
+   as one run. */
+.trace-connector {
+  flex: 1 0 10px;
+  border-inline-start: 1.5px solid var(--edge-done);
+}
+
+.trace-connector[data-tone='fail'] {
+  border-inline-start-color: var(--fail);
+}
+
+.trace-connector[data-tone='live'] {
+  border-inline-start-color: var(--hairline-strong);
+}
+
+/* A row's own words: the name and how long it took
+   on its first line, what it did under them. In
+   from the edge by what a Button is, so the name
+   starts where the control beside it starts. */
+.trace-entry {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-3);
   align-items: baseline;
-  gap: var(--space-2);
-  padding: var(--space-2);
-  cursor: pointer;
-}
-
-/* Restated after `all: unset` would take it away —
-   and asserted, because a control a keyboard cannot
-   find is a control half the people using this
-   cannot find. */
-.trace-head:focus-visible {
-  outline: 2px solid var(--vscode-focusBorder, var(--brand));
-  outline-offset: -2px;
-}
-
-.trace-title {
-  font-weight: 600;
-  font-size: var(--text-sm);
-  letter-spacing: var(--label-tracking);
-}
-
-.trace-ops {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 var(--space-2) var(--space-4);
-}
-
-.trace-op {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
   width: 100%;
-  text-align: left;
-  border: none;
-  border-radius: 0;
+  margin: 0;
+  padding: var(--space-0-5) calc(var(--space-2-5) + 1px);
+  border: 0;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--ink);
   font: inherit;
-  padding: 2px var(--space-2);
+  text-align: start;
+}
+
+.trace-op {
   cursor: pointer;
 }
 
-.trace-op:hover {
+/* The ground arrives under the pointer, and the
+   dashed outline is what a theme drawing structure
+   in lines has instead of it. Neither is a border,
+   so neither moves the row; the picked row keeps
+   its own. */
+.trace-op:not([aria-current='true']):hover:not(:focus-visible) {
   background: var(--surface-2);
+  outline: 1px dashed var(--hover-outline);
+  outline-offset: -1px;
 }
 
+/* Ringed the way anything somebody picked is
+   ringed. An edge rather than an outline, so the
+   focus ring still has somewhere to go, and rather
+   than a shadow, which a theme that forces its own
+   colours drops. Its pixel comes out of the
+   padding, so the row does not move; no edge is
+   kept at rest, because such a theme would draw
+   one round every row. */
 .trace-op[aria-current='true'] {
+  padding: 1px var(--space-2-5);
+  border: 1px solid var(--selection-ring);
   background: var(--brand-tint);
 }
 
-/* A row DBOS wrote for itself is here because it
-   fell inside what a block was doing, which is all
-   the ledger says about where it belongs. Faint,
-   and its title says so. */
-.trace-op[data-owner='sdk'] {
+.trace-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-control);
+  line-height: var(--trace-line);
+}
+
+/* Where the run is now, which is the row worth
+   finding first. */
+.trace-entry[data-state='waiting'] .trace-name {
+  font-weight: var(--w-semibold);
+}
+
+/* The SDK's rows are the ledger's bookkeeping
+   rather than the workflow's own steps. */
+.trace-entry[data-owner='sdk'] .trace-name {
+  color: var(--ink-muted);
+}
+
+.trace-branch {
+  margin-inline-end: var(--space-1);
   color: var(--ink-faint);
 }
 
-.trace-op[data-state='failed'] .trace-name {
-  color: var(--fail);
-}
-
-.trace-name {
-  overflow-wrap: anywhere;
-}
-
-.trace-error {
+.trace-duration {
   font-size: var(--text-sm);
-  color: var(--fail);
-  overflow-wrap: anywhere;
+  line-height: var(--trace-line);
+  color: var(--ink-muted);
+  white-space: nowrap;
 }
 
-/* The id of the run one item of a block started,
-   under the row that started it. Its own control
-   rather than part of that row, because the row
-   already picks the operation and one click may
-   only mean one thing. Plain ink and not a colour:
-   colour on this surface says what a run did, and
-   where a person may go is not that. */
-.trace-child {
-  display: block;
-  margin: 0 0 2px var(--space-4);
-  padding: 0 var(--space-2);
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: var(--ink);
+.trace-detail {
+  grid-column: 1 / -1;
+  margin-top: 1px;
+  overflow-wrap: anywhere;
   font-size: var(--text-sm);
-  text-align: left;
-  overflow-wrap: anywhere;
-  cursor: pointer;
+  color: var(--ink-faint);
 }
 
-.trace-child:hover {
-  text-decoration: underline;
+.trace-detail[data-tone='fail'] {
+  color: var(--state-ink, var(--fail));
 }
 
-.trace-child:focus-visible {
-  outline: 2px solid var(--vscode-focusBorder, var(--brand));
-  outline-offset: -2px;
+/* A row's other controls sit under its words, and
+   its SDK rows under those. */
+.trace-row > .btn {
+  margin-top: var(--space-0-5);
+}
+
+.trace-sdk {
+  margin-top: var(--space-0-5);
 }

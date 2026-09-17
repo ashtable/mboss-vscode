@@ -567,22 +567,6 @@ export const messages = {
   runGraphMissing: (name: string) =>
     l10n.t('no saved workflow named {0} · trace only', name),
 
-  /**
-   * When a block wakes, and when it gives up.
-   *
-   * Both are read off the sleep row the SDK writes
-   * beside a wait — and both are drawn as derived,
-   * because the moment is a deadline the SDK
-   * recorded rather than something that has
-   * happened.
-   */
-  runAsleepUntil: (at: string) => l10n.t('asleep until {0}', at),
-  runTimesOut: (at: string) => l10n.t('times out {0}', at),
-
-  /** What tells one turn of a block from another. */
-  runGroupRound: (round: number) => l10n.t('· round {0}', round),
-  runGroupItems: (items: number) => l10n.t('· {0} items', items),
-
   runFailedSummary: (node: string) => l10n.t('failed · {0}', node),
   runWaitingSummary: (node: string, at: string) =>
     l10n.t('waiting · {0} · {1}', node, at),
@@ -676,16 +660,9 @@ export const messages = {
   runLevelGaveUp: (restarts: number) =>
     l10n.t('DBOS stopped restarting it after {0} restarts', restarts),
 
-  runProcessDown: (duration: string) => l10n.t('process down · {0}', duration),
-  runResumed: () => l10n.t('resumed by DBOS'),
-
   runHeadline: (status: string, duration: string) =>
     l10n.t('{0} · {1} total', status, duration),
   runHeadlineRunning: (status: string) => l10n.t('{0} · still going', status),
-
-  runSpan: (started: string, finished: string) =>
-    l10n.t('started {0} · finished {1}', started, finished),
-  runSpanRunning: (started: string) => l10n.t('started {0}', started),
 
   runBreadcrumb: (workflow: string, id: string) =>
     l10n.t('mBoss › runs › {0} › {1}', workflow, id),

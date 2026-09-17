@@ -181,10 +181,6 @@ export type OpenRun = Disposable & {
    *  another leaves it alone. */
   tab(showing: 'graph' | 'trace'): void;
 
-  /** Whether the rows DBOS wrote for itself are
-   *  shown. */
-  raw(raw: boolean): void;
-
   /** Read again, and follow it if it is still
    *  going. */
   again(): Promise<void>;
@@ -306,7 +302,6 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
         ? {}
         : { selectedNode: reading.selectedNode }),
       ...(reading?.face === undefined ? {} : { face: reading.face }),
-      raw: reading?.raw ?? false,
       following: finished(found.run) ? 'quiet' : 'following',
       timing: dir !== undefined && recordsTimings(deps.projectSdk(dir)),
     };
@@ -405,13 +400,6 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
 
     tab: (next) => {
       showing = next;
-      changed();
-    },
-
-    raw: (raw) => {
-      if (shown === undefined) return;
-
-      shown = { ...shown, raw };
       changed();
     },
 

@@ -9,7 +9,7 @@ import type {
   SeeGraph,
   SeeInit,
   SeeRun,
-  TraceGroupView,
+  TraceRowView,
 } from '../../../src/webview/protocol.js';
 
 import { mount, type Harness, type ThemeKind } from '../harness.js';
@@ -32,8 +32,6 @@ import { canvasWords, seeWords } from '../words.js';
  * right ones is checked where the host is.
  */
 
-export const STEP_NAMES = ['parse_request', 'find_slot', 'book_appointment'];
-
 /** What the host says over a run whose workflow the
  *  project no longer has. */
 export const NO_SAVED_WORKFLOW =
@@ -49,44 +47,6 @@ export function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     breadcrumb: 'mBoss › runs › groom_booking › wf_c9d2f3',
     headline: 'SUCCESS · 8.2 s total',
     word: 'done',
-    span: 'started 14:02:11 · finished 14:02:19',
-    chips: STEP_NAMES.map((name, index) => ({
-      functionId: index,
-      name,
-      restored: index < 2,
-      reused: false,
-      failed: false,
-      replayable: true,
-      because: undefined,
-    })),
-    timeline: {
-      bars: STEP_NAMES.map((name, index) => ({
-        functionId: index,
-        name,
-        at: { from: index * 0.1, width: 0.08 },
-        restored: index < 2,
-        reused: false,
-        failed: false,
-      })),
-      outage: {
-        from: 0.2,
-        width: 0.35,
-        down: 'process down · 2.9 s',
-        resumed: 'resumed by DBOS',
-      },
-      ticks: [
-        { at: 0, label: '14:02:11' },
-        { at: 0.2, label: '14:02:15' },
-        { at: 0.55, label: '14:02:18' },
-        { at: 1, label: '14:02:19' },
-      ],
-    },
-    raw: STEP_NAMES.map((name, index) => ({
-      stepId: index,
-      fn: name,
-      output: `{"n":${index}}`,
-      committedAt: `14:02:1${index}`,
-    })),
     rail: [
       { label: 'workflow_uuid', value: 'wf_c9d2f3' },
       { label: 'status', value: 'SUCCESS' },
@@ -115,11 +75,9 @@ export function seeRun(over: Partial<SeeRun> = {}): SeeRun {
         }),
       ],
     }),
-    groups: [],
     trace: [],
     unattributed: [],
     selected: { nodeId: undefined, functionId: 2 },
-    showRaw: false,
     following: 'quiet',
     input: undefined,
     ...over,
@@ -443,136 +401,167 @@ export const QUEUE_READ: QueueEvidence = {
   recent: [{ workflowId: 'wf_child_9f21', status: 'PENDING' }],
 };
 
-/**
- * One turn of that block, as the trace draws it:
- * the row the parent wrote as it handed a page
- * over, carrying the id of the run that took it.
- */
-export const QUEUED_GROUPS: TraceGroupView[] = [
-  {
-    nodeId: 'index_pages',
-    title: 'Index each page',
-    qualifier: undefined,
-    wakes: undefined,
-    open: true,
-    failed: false,
-    operations: [
-      {
-        functionId: 0,
-        name: 'index_pages.queued.document_ingestion',
-        owner: 'node',
-        state: 'done',
-        at: '14:02:11.100',
-        output: '{}',
-        outputCut: false,
-        error: undefined,
-        restored: false,
-        reused: false,
-        replayable: true,
-        because: undefined,
-        childWorkflowId: 'wf_child_9f21',
-      },
-    ],
-  },
-];
+/** Why a row the SDK wrote is no place to start a
+ *  replay, as the host says it on the row. */
+export const SDK_OWNED =
+  'DBOS wrote this row for itself. A replay starts from a step the ' +
+  'workflow recorded.';
 
-/** The trace of the canonical run, block by block:
- *  the rows the tab draws and the Inspector reads
- *  one of, so both are about the same run. */
-export const GROUPS: TraceGroupView[] = [
-  {
+/** One recorded operation, with whatever a row
+ *  needs changed about it. */
+function traceRow(over: Partial<TraceRowView>): TraceRowView {
+  return {
+    functionId: 0,
+    name: 'parse_request',
+    owner: 'node',
+    state: 'done',
+    reused: false,
+    replayable: true,
+    because: undefined,
+    childWorkflowId: undefined,
     nodeId: 'parse_request',
-    title: 'Parse',
-    qualifier: undefined,
-    wakes: undefined,
-    open: false,
-    failed: false,
-    operations: [
-      {
-        functionId: 0,
-        name: 'parse_request',
-        owner: 'node',
-        state: 'done',
-        at: '14:02:11.100',
-        output: '{}',
-        outputCut: false,
-        error: undefined,
-        restored: false,
-        reused: false,
-        replayable: true,
-        because: undefined,
-        childWorkflowId: undefined,
-      },
-    ],
-  },
-  {
+    duration: undefined,
+    detail: { derived: undefined, plain: undefined, verbatim: undefined },
+    detailTone: 'faint',
+    sdkLabel: undefined,
+    sdk: [],
+    ...over,
+  };
+}
+
+/**
+ * The canonical run's trace, as the host sends it:
+ * a row that returned something, a round that
+ * threw, a round with the SDK's two rows beside it,
+ * and the wait the run is parked on now. In the
+ * order DBOS numbered them, with the SDK's rows
+ * under the row they ran beside.
+ */
+export const TRACE: TraceRowView[] = [
+  traceRow({
+    duration: '12 ms',
+    detail: {
+      derived: undefined,
+      plain: undefined,
+      verbatim: '{ "slots": 3 }',
+    },
+  }),
+  traceRow({
+    functionId: 1,
+    name: 'find_slot.r2',
+    state: 'failed',
     nodeId: 'find_slot',
-    title: 'Find a slot',
-    qualifier: '· round 2',
-    wakes: 'times out 14:04:11.000',
-    open: true,
-    failed: true,
-    operations: [
-      {
-        functionId: 1,
-        name: 'find_slot.r2',
-        owner: 'node',
-        state: 'failed',
-        at: '14:02:14.900',
-        output: undefined,
-        outputCut: false,
-        error: 'no slot left',
-        restored: false,
-        reused: false,
-        replayable: true,
-        because: undefined,
-        childWorkflowId: undefined,
-      },
-      {
-        functionId: 2,
+    duration: '1.2 s',
+    detail: {
+      derived: undefined,
+      plain: 'TypeError',
+      verbatim: 'no slot left',
+    },
+    detailTone: 'fail',
+  }),
+  traceRow({
+    functionId: 2,
+    name: 'find_slot.r3',
+    nodeId: 'find_slot',
+    duration: '2 m 14 s',
+    detail: {
+      derived: undefined,
+      plain: undefined,
+      verbatim: '{ "slot": "14:30" }',
+    },
+    sdkLabel: 'findSlot · 2 durable operations',
+    sdk: [
+      traceRow({
+        functionId: 3,
+        name: 'DBOS.recv',
+        owner: 'sdk',
+        nodeId: 'find_slot',
+        replayable: false,
+        because: SDK_OWNED,
+        duration: '1 h 3 m',
+        detail: {
+          derived: undefined,
+          plain: undefined,
+          verbatim: '{ "approved": true }',
+        },
+      }),
+      traceRow({
+        functionId: 4,
         name: 'DBOS.sleep',
         owner: 'sdk',
-        state: 'done',
-        at: '14:02:15.000',
-        output: '1739880139200',
-        outputCut: false,
-        error: undefined,
-        restored: false,
-        reused: false,
+        nodeId: 'find_slot',
         replayable: false,
-        because:
-          'DBOS wrote this row for itself. A replay starts from a step ' +
-          'the workflow recorded.',
-        childWorkflowId: undefined,
-      },
+        because: SDK_OWNED,
+        detail: {
+          derived: 'times out 14:04:11.000',
+          plain: undefined,
+          verbatim: undefined,
+        },
+      }),
     ],
-  },
-  {
-    nodeId: undefined,
-    title: '',
-    qualifier: undefined,
-    wakes: undefined,
-    open: false,
-    failed: false,
-    operations: [
-      {
-        functionId: 3,
-        name: 'gone_away',
-        owner: 'unmapped',
-        state: 'done',
-        at: '14:02:16.000',
-        output: '{}',
-        outputCut: false,
-        error: undefined,
-        restored: true,
-        reused: false,
-        replayable: false,
-        because: 'The run is sitting here now.',
-        childWorkflowId: undefined,
-      },
-    ],
-  },
+  }),
+  traceRow({
+    functionId: 5,
+    name: 'await_reply.register',
+    state: 'waiting',
+    nodeId: 'await_reply',
+    replayable: false,
+    because: 'The run is sitting here now.',
+    duration: '3 ms',
+    detail: {
+      derived: 'waiting since 14:02:16.000 · timeout 3 d',
+      plain: undefined,
+      verbatim: undefined,
+    },
+  }),
 ];
+
+/** A row naming a block the saved workflow no
+ *  longer has. */
+export const UNATTRIBUTED: TraceRowView[] = [
+  traceRow({
+    functionId: 6,
+    name: 'gone_away',
+    owner: 'unmapped',
+    nodeId: undefined,
+    replayable: false,
+    because: 'That row is not a point a replay can start from.',
+    duration: '40 ms',
+    detail: { derived: undefined, plain: undefined, verbatim: '{}' },
+  }),
+];
+
+/** The row a queue block wrote as it handed a page
+ *  over, carrying the id of the run that took it.
+ *  One clock read is both of its ends, so it has no
+ *  length. */
+export const QUEUED_TRACE: TraceRowView[] = [
+  traceRow({
+    name: 'index_pages.queued.document_ingestion',
+    nodeId: 'index_pages',
+    childWorkflowId: 'wf_child_9f21',
+    detail: {
+      derived: undefined,
+      plain: 'Index each page',
+      verbatim: undefined,
+    },
+  }),
+];
+
+/**
+ * The same trace after a replay: the first row was
+ * carried over from the run this one came out of,
+ * and every later row is this run's own work.
+ */
+export const REPLAYED_TRACE: TraceRowView[] = TRACE.map((row) =>
+  row.functionId === 0
+    ? {
+        ...row,
+        reused: true,
+        detail: { ...row.detail, derived: 'reused · ' },
+      }
+    : row,
+);
 
 /** The graph's viewport transform, once nothing is
  *  moving. A spec against the built bundle has no
@@ -601,20 +590,6 @@ export function transformOf(page: Page): Promise<string> {
     .locator('.react-flow__viewport')
     .evaluate((viewport) => (viewport as HTMLElement).style.transform);
 }
-
-/**
- * The same trace, after a replay: the first row was
- * carried over from the run this one came out of,
- * and every later row is this run's own work.
- */
-export const REPLAYED: TraceGroupView[] = GROUPS.map((group, at) => ({
-  ...group,
-  open: true,
-  operations: group.operations.map((one, index) => ({
-    ...one,
-    reused: at === 0 && index === 0,
-  })),
-}));
 
 /** The run the Inspector's card about a whole run
  *  is drawn from. A UUID, as DBOS mints them, so it

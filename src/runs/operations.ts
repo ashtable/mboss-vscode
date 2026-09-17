@@ -1,137 +1,31 @@
 import type { Predicate, WorkflowIR, WorkflowNode } from '../core/rules.js';
 
-import type { Operation, OperationOwner } from './reading.js';
+import type { Operation } from './reading.js';
 import { valueIn } from './rows.js';
 
 /**
- * A run's rows, grouped the way they happened, and
- * the arms it is known to have taken.
+ * What a reading says about a run's sleeps and its
+ * decisions: the moment a sleep row names, and the
+ * arms the run is known to have taken.
  *
- * Both questions are asked of a reading rather than
- * of the ledger: which block each row belongs to is
+ * Both are asked of a reading rather than of the
+ * ledger: which block each row belongs to is
  * already answered by then, and asking it twice is
  * how the two used to disagree.
  *
  * Browser-safe: no filesystem, no clock, nothing
  * about the project. Whether the project's SDK
- * records timings is the host's question, and
- * arrives as an answer.
+ * records the rows a wake is read off is the
+ * host's question, and its callers ask it.
  */
-
-/**
- * One block's turn, with whatever the SDK wrote
- * while it was taking it.
- *
- * A block that ran more than once gets a group per
- * turn, in ledger order. Folding them into one
- * would say the run did once what it did twice, and
- * reordering the ledger to put them side by side
- * would misrepresent when.
- */
-export type TraceGroup = {
-  nodeId: string | undefined;
-
-  owner: OperationOwner;
-
-  /** Which time round this was, where the rows say
-   *  so. */
-  round: number | undefined;
-
-  /** How many items a fan-out covered, where it was
-   *  one. */
-  items: number | undefined;
-
-  /**
-   * When the block wakes, or when it gives up
-   * waiting.
-   *
-   * Read off the sleep row the SDK writes: a real
-   * sleep records the wake deadline as its
-   * completion, so the row has width; a timeout
-   * marker records zero width, because its deadline
-   * may never be reached. Only ever set where the
-   * host has said the project's SDK records these
-   * at all.
-   */
-  wakesAt: Wake | undefined;
-
-  operations: Operation[];
-};
 
 /** A moment a sleep row names, and whether it is
  *  the moment the run wakes or the moment a wait
  *  gives up. */
 export type Wake = { at: number; kind: 'sleep' | 'timeout' };
 
-/**
- * The rows, in turns.
- *
- * One walk in the order DBOS numbered them. A row of
- * the block the open group belongs to joins it; any
- * other block's row closes it and opens the next.
- * A row the SDK wrote joins whatever is open,
- * because falling inside a block's turn is the only
- * thing the ledger says about where it belongs —
- * and where nothing is open it gets a group of its
- * own rather than being attached to a block that
- * had not started.
- *
- * `timing` says whether the project's SDK records
- * the timings a wait would be drawn from.
- */
-export function groupsOf(
-  operations: readonly Operation[],
-  options: { timing?: boolean } = {},
-): TraceGroup[] {
-  const groups: TraceGroup[] = [];
-  let open: TraceGroup | undefined;
-
-  for (const operation of operations) {
-    if (operation.owner === 'sdk' && open !== undefined) {
-      open.operations.push(operation);
-      continue;
-    }
-
-    const round = roundOf(operation);
-
-    if (
-      open !== undefined &&
-      open.nodeId === operation.nodeId &&
-      open.owner === operation.owner &&
-      open.round === round
-    ) {
-      open.operations.push(operation);
-      continue;
-    }
-
-    open = {
-      nodeId: operation.nodeId,
-      owner: operation.owner,
-      round,
-      items: undefined,
-      wakesAt: undefined,
-      operations: [operation],
-    };
-    groups.push(open);
-  }
-
-  return groups.map((group) => ({
-    ...group,
-    items: itemsIn(group),
-    wakesAt: options.timing === true ? wakesIn(group) : undefined,
-  }));
-}
-
 /** The name the SDK records a sleep under. */
 const SLEEP = 'DBOS.sleep';
-
-/** When a block wakes, out of the sleep row the SDK
- *  wrote inside its turn. */
-function wakesIn(group: TraceGroup): Wake | undefined {
-  const row = group.operations.find((one) => one.name === SLEEP);
-
-  return row === undefined ? undefined : wakeOf(row);
-}
 
 /**
  * The moment a sleep row names, and nothing for any
@@ -342,18 +236,4 @@ function roundOf(operation: Operation | undefined): number | undefined {
   const found = operation?.segments.find((one) => one.kind === 'round');
 
   return found?.kind === 'round' ? found.round : undefined;
-}
-
-/** How many items a fan-out covered, or nothing
- *  where it was not one. */
-function itemsIn(group: TraceGroup): number | undefined {
-  const indexes = new Set(
-    group.operations.flatMap((one) =>
-      one.segments.flatMap((segment) =>
-        segment.kind === 'item' ? [segment.index] : [],
-      ),
-    ),
-  );
-
-  return indexes.size === 0 ? undefined : indexes.size;
 }

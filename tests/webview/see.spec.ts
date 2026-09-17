@@ -1,9 +1,11 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import type { SeeRun } from '../../src/webview/protocol.js';
 
 import { GRID } from '../../src/canvas/grid.js';
+import { liveRun } from '../../src/test-support/runs.js';
 import { filled } from '../../src/webview/fill.js';
+import { shortRunId } from '../../src/webview/ids.js';
 
 import { LIBRARY_COLOURS } from './fixtures/library.js';
 import {
@@ -11,8 +13,13 @@ import {
   NO_SAVED_WORKFLOW,
   QUEUED,
   QUEUED_GRAPH,
+  QUEUED_TRACE,
+  REPLAYED_TRACE,
   RUNNING,
   RUNNING_GRAPH,
+  SDK_OWNED,
+  TRACE,
+  UNATTRIBUTED,
   graphAtRest,
   seeInit,
   seeRun,
@@ -931,6 +938,558 @@ test.describe('one run, as a graph', () => {
         0,
       );
       await expect(page.getByRole('img', { name: /Edge from/ })).toHaveCount(0);
+    });
+  }
+});
+
+/** A duration as the host words one: one unit, or
+ *  two where the second says how precise the first
+ *  is. */
+const LASTED =
+  /^(\d+ ms|\d+\.\d s|\d+ m( \d+ s)?|\d+ h( \d+ m)?|\d+ d( \d+ h)?)$/;
+
+/** The canonical run, its trace and the one row no
+ *  block owns. */
+const TRACED = seeRun({ trace: TRACE, unattributed: UNATTRIBUTED });
+
+/** The top-level rows of the trace, in order. */
+function traceRows(page: Page): Locator {
+  return page.locator('[data-trace] > li');
+}
+
+/** The colour the spine is drawn in below one row,
+ *  or nothing where the row draws none. */
+function connectorOf(row: Locator): Promise<string | undefined> {
+  return row.evaluate((li) => {
+    const line = li.querySelector(':scope > .trace-spine > .trace-connector');
+
+    return line === null ? undefined : getComputedStyle(line).borderLeftColor;
+  });
+}
+
+/**
+ * What the run did, in the order it did it.
+ *
+ * One list, one recorded operation to a row: a
+ * mark saying how it went, the name the ledger
+ * recorded, how long it took and one line about
+ * it. The graph answers where; this answers what
+ * happened, in order, and says it once.
+ */
+test.describe('the run tab’s trace', () => {
+  test('draws each operation with its mark, name, time and line', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(TRACED));
+
+    await expect(page.locator('[data-trace-op]')).toHaveCount(5);
+    await expect(page.locator('[data-trace]')).toHaveCount(1);
+
+    const rows = traceRows(page);
+    await expect(rows).toHaveCount(4);
+
+    const mono = await page
+      .locator('[data-pane="trace"] .field-hint')
+      .evaluate((hint) => getComputedStyle(hint).fontFamily);
+
+    for (const row of await rows.all()) {
+      const op = row.locator(':scope > button.trace-op');
+
+      await expect(row.locator('.status-glyph[data-glyph="dot"]')).toHaveCount(
+        1,
+      );
+      await expect(op).toHaveCount(1);
+      await expect(op.locator('.trace-name')).toHaveCount(1);
+      await expect(op.locator('.trace-name')).toHaveCSS('font-family', mono);
+      await expect(op.locator('.trace-detail')).toHaveCount(1);
+      await expect(op.locator('.trace-duration')).toHaveCount(1);
+      await expect(op.locator('.trace-duration')).toHaveText(LASTED);
+
+      // The text itself at the end of the name's own
+      // line: not under it, and not after it in a box
+      // that happens to reach the edge.
+      const { right, inside, middle, line } = await op.evaluate((button) => {
+        const style = getComputedStyle(button);
+        const box = button.getBoundingClientRect();
+        const inked = (selector: string): DOMRect => {
+          const range = document.createRange();
+          const node = button.querySelector(selector);
+
+          if (node !== null) range.selectNodeContents(node);
+
+          return range.getBoundingClientRect();
+        };
+        const time = inked('.trace-duration');
+        const name = inked('.trace-name');
+
+        return {
+          right: time.right,
+          inside:
+            box.right -
+            parseFloat(style.paddingRight) -
+            parseFloat(style.borderRightWidth),
+          middle: time.top + time.height / 2,
+          line: { top: name.top, bottom: name.bottom },
+        };
+      });
+
+      expect(Math.abs(right - inside)).toBeLessThanOrEqual(1);
+      expect(middle).toBeGreaterThan(line.top);
+      expect(middle).toBeLessThan(line.bottom);
+    }
+
+    for (const gone of [
+      '.chips',
+      '.chart',
+      'table.raw',
+      'details',
+      '[data-raw-toggle]',
+    ]) {
+      await expect(page.locator(gone)).toHaveCount(0);
+    }
+
+    await expect(page.locator('[data-owner="sdk"]')).toHaveCount(0);
+    await page.locator('[data-sdk-rows]').click();
+    await expect(page.locator('[data-owner="sdk"]')).toHaveCount(2);
+  });
+
+  /**
+   * The row is already a button that picks the
+   * operation, so the way to the run a start began
+   * and the way to the SDK's rows sit beside it: a
+   * button inside a button is one click meaning two
+   * things.
+   */
+  test('keeps a row’s other controls beside it, not inside it', async ({
+    page,
+  }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          trace: [
+            ...QUEUED_TRACE,
+            ...TRACE.filter((row) => row.sdk.length > 0),
+          ],
+        }),
+      ),
+    );
+    await page.locator('[data-sdk-rows]').click();
+
+    const rows = page.locator('[data-trace] > li');
+
+    await expect(rows.locator(':scope > button.trace-op')).toHaveCount(2);
+    await expect(rows.locator(':scope > button[data-run-select]')).toHaveCount(
+      1,
+    );
+    await expect(rows.locator(':scope > button[data-sdk-rows]')).toHaveCount(1);
+    await expect(page.locator('button')).not.toHaveCount(0);
+    await expect(page.locator('button button, button a, a button')).toHaveCount(
+      0,
+    );
+  });
+
+  /**
+   * Picking a row is picking what the Inspector
+   * draws, the SDK's own rows included. Opening a
+   * block's SDK rows is the page's own business and
+   * asks the extension for nothing; a row picked
+   * under one opens it wherever the pick came from.
+   */
+  test('picks a row, the SDK’s own included', async ({ page }) => {
+    const harness = await showRun(page, seeInit(TRACED));
+
+    await page.locator('[data-trace-op="0"]').click();
+
+    const open = page.locator('[data-sdk-rows]');
+    await expect(open).toHaveAttribute('aria-expanded', 'false');
+    await open.click();
+    await expect(open).toHaveAttribute('aria-expanded', 'true');
+
+    await page.locator('[data-trace-op="4"]').click();
+
+    expect(
+      (await harness.posted()).filter(
+        (message) => (message as { type: string }).type !== 'ready',
+      ),
+    ).toEqual([
+      { type: 'stepSelect', functionId: 0 },
+      { type: 'stepSelect', functionId: 4 },
+    ]);
+
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          ...TRACED,
+          selected: { nodeId: 'find_slot', functionId: 4 },
+        }),
+      ),
+    );
+
+    await expect(page.locator('[data-trace-op="4"]')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+    await expect(page.locator('[data-sdk-rows]')).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
+  });
+
+  /**
+   * A block picked on the graph marks the row its
+   * evidence is drawn from, and only that one. A
+   * block that wrote no row marks none.
+   */
+  test('marks only the headline row of a picked block', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          ...TRACED,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+      ),
+    );
+
+    const ops = page.locator('[data-trace-op]');
+    await expect(ops).toHaveCount(5);
+
+    const marked = page.locator('[data-trace-op][aria-current="true"]');
+    await expect(marked).toHaveCount(1);
+    await expect(marked).toHaveAttribute('data-trace-op', '1');
+
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          ...TRACED,
+          selected: { nodeId: 'booking_requested', functionId: undefined },
+        }),
+      ),
+    );
+
+    await expect(ops).toHaveCount(5);
+    await expect(marked).toHaveCount(0);
+  });
+
+  /**
+   * A row naming a block the saved workflow does not
+   * have belongs to no block, so it is drawn apart
+   * under a label that says so. It picks nothing,
+   * because there is nothing for the Inspector to
+   * draw about it — so it is text, not a control.
+   */
+  test('draws a row no block owns as text under its own label', async ({
+    page,
+  }) => {
+    const harness = await showRun(page, seeInit(TRACED));
+
+    const apart = page.locator('[data-unattributed]');
+    await expect(apart.locator('.section-label')).toHaveText(
+      seeStrings.unattributed,
+    );
+
+    const rows = apart.locator('li[data-trace-group=""]');
+    await expect(rows).toHaveCount(1);
+
+    const op = rows.locator('[data-trace-op]');
+    await expect(op).toHaveAttribute('data-trace-op', '6');
+    expect(await op.evaluate((row) => row.tagName)).not.toBe('BUTTON');
+    await expect(op).not.toHaveClass(/\btrace-op\b/);
+    await expect(page.getByRole('button', { name: /gone_away/ })).toHaveCount(
+      0,
+    );
+
+    await op.click();
+
+    expect(await harness.posted()).toEqual([{ type: 'ready' }]);
+  });
+
+  /**
+   * What the page worked out and what the run wrote
+   * down are different claims. A word the page
+   * derived says so; a value the run recorded is
+   * kept apart from the words around it.
+   */
+  test('marks worked-out words derived and a value as recorded', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ trace: REPLAYED_TRACE })));
+
+    await expect(
+      page.locator('[data-trace-op="0"] [data-provenance="derived"]'),
+    ).toHaveText(`${seeStrings.reused} ·`);
+
+    const failed = page.locator('[data-trace-op="1"] .trace-detail');
+    await expect(failed.locator('[data-verbatim]')).toHaveText('no slot left');
+    await expect(failed).toHaveText('TypeError · no slot left');
+    await expect(failed.locator('[data-verbatim]')).not.toContainText(
+      'TypeError',
+    );
+
+    await expect(page.locator('[data-provenance]')).not.toHaveCount(0);
+    await expect(page.locator('.provenance')).toHaveCount(0);
+  });
+
+  /**
+   * A timeout the SDK set is a moment the page read
+   * off a row, not something that has happened, so
+   * it is said as worked out — and said as a
+   * moment, never as the number the SDK stored.
+   */
+  test('says a parked block gives up, and that it worked it out', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(TRACED));
+    await page.locator('[data-sdk-rows]').click();
+
+    const sleep = page.locator('[data-trace-op="4"]');
+    await expect(sleep.locator('[data-provenance="derived"]')).toHaveText(
+      'times out 14:04:11.000',
+    );
+    await expect(sleep.locator('[data-verbatim]')).toHaveCount(0);
+  });
+
+  /**
+   * A row a replay carried over is the earlier run's
+   * work, kept, and the row says so before what it
+   * returned.
+   */
+  test('marks a reused row reused', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ trace: REPLAYED_TRACE })));
+
+    const carried = page.locator('[data-trace-op="0"]');
+    await expect(carried).toHaveAttribute('data-reuse', 'recorded');
+    await expect(carried).toContainText(seeStrings.reused);
+
+    await expect(page.locator('[data-trace-op="1"]')).toHaveAttribute(
+      'data-reuse',
+      'own',
+    );
+  });
+
+  /**
+   * Every row names the block it is drawn under, and
+   * whose row it is: the block's own, or the SDK's
+   * beside it.
+   */
+  test('marks the row a block belongs to', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          ...TRACED,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+      ),
+    );
+    await page.locator('[data-sdk-rows]').click();
+
+    const block = page.locator('[data-trace-group="find_slot"]');
+    await expect(block).toHaveCount(2);
+    await expect(
+      block.locator(':scope > button.trace-op[data-owner="node"]'),
+    ).toHaveCount(2);
+    await expect(block.locator('[data-owner="sdk"]')).toHaveCount(2);
+    await expect(
+      page.locator('[data-trace-group="find_slot"] [aria-current="true"]'),
+    ).toHaveAttribute('data-trace-op', '1');
+  });
+
+  /**
+   * What a queued item did is a run of its own, with
+   * its own rows and its own page. All the parent's
+   * ledger holds of it is the id, so the id is the
+   * way there — said short, and whole where a
+   * pointer asks.
+   */
+  test('offers the run a queued item started', async ({ page }) => {
+    const harness = await showRun(
+      page,
+      seeInit(seeRun({ trace: QUEUED_TRACE })),
+    );
+
+    const open = page.locator('[data-run-select="wf_child_9f21"]');
+    const short = open.locator('[data-short-run]');
+
+    await expect(short).toHaveText(shortRunId('wf_child_9f21'));
+    await expect(short).toHaveAttribute('title', 'wf_child_9f21');
+    await expect(open).toHaveAttribute('data-variant', 'quiet');
+
+    await open.click();
+
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: 'wf_child_9f21' },
+    ]);
+    expect(await harness.postedOfType('stepSelect')).toEqual([]);
+  });
+
+  /** A row that started nothing offers nothing. */
+  test('offers none where no run was started', async ({ page }) => {
+    await showRun(page, seeInit(TRACED));
+
+    await expect(traceRows(page)).toHaveCount(4);
+    await expect(page.locator('[data-run-select]')).toHaveCount(0);
+  });
+
+  /**
+   * A row that threw, a row inside a wait, a row the
+   * run is still sitting on, a row the SDK wrote:
+   * none of them is a point a replay can begin at,
+   * and each says why on the row itself.
+   */
+  test('says why a row is not offered as a boundary', async ({ page }) => {
+    await showRun(page, seeInit(TRACED));
+
+    const parked = page.locator('[data-trace-op="5"]');
+    await expect(parked).toHaveAttribute('data-replayable', 'false');
+    await expect(parked).toHaveAttribute(
+      'title',
+      'The run is sitting here now.',
+    );
+
+    const first = page.locator('[data-trace-op="0"]');
+    await expect(first).toHaveAttribute('data-replayable', 'true');
+    await expect(first).not.toHaveAttribute('title');
+
+    await page.locator('[data-sdk-rows]').click();
+
+    const sdk = page.locator('[data-trace-op="4"]');
+    await expect(sdk).toHaveAttribute('data-replayable', 'false');
+    await expect(sdk).toHaveAttribute('title', SDK_OWNED);
+  });
+
+  /**
+   * A run that wrote nothing yet says so where the
+   * rows would be, rather than drawing an empty
+   * list under a label.
+   */
+  test('says a run that recorded nothing has nothing to draw', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(seeRun({ trace: [], unattributed: [] })));
+
+    await expect(
+      page.locator('[data-pane="trace"] .empty-state .empty-title'),
+    ).toHaveText(seeStrings.noOperations);
+    await expect(page.locator('[data-trace-op]')).toHaveCount(0);
+  });
+
+  /**
+   * A block's SDK rows are there for somebody
+   * debugging the ledger, so they are folded under a
+   * quiet control that says what it holds and whether
+   * it is open. The control keeps the focus ring
+   * every control has.
+   */
+  test('folds a block’s SDK rows under a quiet, focusable control', async ({
+    page,
+  }) => {
+    const harness = await showRun(page, seeInit(TRACED));
+
+    const open = page.locator('[data-sdk-rows]');
+    await expect(open).toHaveText('findSlot · 2 durable operations');
+    await expect(open).toHaveAttribute('data-variant', 'quiet');
+    await expect(open).toHaveAttribute('data-mono', '');
+    await expect(open).toHaveAttribute('aria-expanded', 'false');
+
+    await open.focus();
+    await expect(open).not.toHaveCSS('outline-style', 'none');
+    await expect(open).toHaveCSS('letter-spacing', 'normal');
+
+    const sdk = page.locator('button.trace-op[data-owner="sdk"]');
+    await expect(sdk).toHaveCount(0);
+
+    await page.keyboard.press('Enter');
+
+    await expect(open).toHaveAttribute('aria-expanded', 'true');
+    await expect(sdk).toHaveCount(2);
+    await expect(sdk.nth(0)).toHaveText(/^├─/);
+    await expect(sdk.nth(1)).toHaveText(/^└─/);
+    expect(await harness.postedOfType('stepSelect')).toEqual([]);
+  });
+
+  for (const theme of THEMES_ALL) {
+    /**
+     * Boxes are earned: a row has no ground until it
+     * is the one picked, and a pointer over it.
+     */
+    test(`leaves a row’s ground clear until it is picked in ${theme}`, async ({
+      page,
+    }) => {
+      await showRun(page, seeInit(TRACED), theme);
+
+      const resting = page.locator(
+        'button.trace-op:not([aria-current="true"])',
+      );
+      await expect(resting).toHaveCount(3);
+
+      const grounds = await resting.evaluateAll((rows) =>
+        rows.map((row) => getComputedStyle(row).backgroundColor),
+      );
+
+      expect([...new Set(grounds)]).toEqual(['rgba(0, 0, 0, 0)']);
+    });
+
+    /**
+     * The spine between two rows says what happened
+     * between them: the failure colour below a row
+     * that threw, a pending line into a row that is
+     * still waiting and below the last row of a run
+     * that is still going, and the finished edge
+     * everywhere else. A run that is over draws
+     * nothing below its last row.
+     */
+    test(`tones the spine by what happened between rows in ${theme}`, async ({
+      page,
+    }) => {
+      await showRun(page, seeInit({ ...TRACED, live: RUNNING }), theme);
+
+      const rows = traceRows(page);
+      await expect(rows).toHaveCount(4);
+
+      const expected: (Role | undefined)[] = [
+        'edge-done',
+        'fail',
+        'hairline-strong',
+        'hairline-strong',
+      ];
+
+      for (const [at, role] of expected.entries()) {
+        const drawn = await connectorOf(rows.nth(at));
+        const wanted = role === undefined ? undefined : colourOf(theme, role);
+
+        expect(
+          drawn !== undefined &&
+            wanted !== undefined &&
+            sameColour(drawn, wanted),
+          `row ${at} in ${theme}: ${drawn} ≠ ${wanted}`,
+        ).toBe(true);
+      }
+
+      await showRun(
+        page,
+        seeInit({
+          ...TRACED,
+          trace: TRACE.map((row) =>
+            row.state === 'waiting' ? { ...row, state: 'done' } : row,
+          ),
+          live: liveRun({ ...RUNNING, status: 'SUCCESS', outcome: 'done' }),
+        }),
+        theme,
+      );
+
+      await expect(rows).toHaveCount(4);
+
+      const settled = await connectorOf(rows.nth(2));
+      expect(
+        settled !== undefined &&
+          sameColour(settled, colourOf(theme, 'edge-done')),
+        `row 2 of a finished run in ${theme}: ${settled}`,
+      ).toBe(true);
+      expect(await connectorOf(rows.nth(3))).toBeUndefined();
     });
   }
 });

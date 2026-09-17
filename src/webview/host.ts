@@ -691,13 +691,6 @@ const SeeNode = z.object({
   nodeId: z.string().nullable(),
 });
 
-/** Whether the rows DBOS wrote for itself are
- *  shown. */
-const SeeRaw = z.object({
-  type: z.literal('seeRaw'),
-  raw: z.boolean(),
-});
-
 /**
  * Somebody asked the run page to look again.
  *
@@ -813,7 +806,6 @@ const SCHEMAS = {
     RunSelect,
     SeeShow,
     SeeNode,
-    SeeRaw,
     SeeRefresh,
     OpenWorkflow,
   ]),

@@ -522,17 +522,7 @@
   "seeWords": {
     "heading": "Run",
     "nothingSelected": "Pick a run to see what it did.",
-    "steps": "Steps",
-    "timeline": "Run timeline",
-    "hatched": "hatched = process down",
     "restored": "restored",
-    "raw": "dbos.operation_outputs",
-    "columns": {
-      "stepId": "step",
-      "fn": "function",
-      "output": "output",
-      "committedAt": "committed"
-    },
     "tabs": {
       "graph": "Graph",
       "trace": "Trace"
@@ -543,7 +533,6 @@
       "waiting": "waiting · refresh to check",
       "quiet": "quiet · refresh to check"
     },
-    "recorded": "↺ recorded",
     "reused": "reused",
     "sdkRows": "{0} · {1} durable operations",
     "sdkRow": "{0} · 1 durable operation",
@@ -553,10 +542,10 @@
     "woke": "woke {0}",
     "timesOut": "times out {0}",
     "derived": "derived",
-    "showRaw": "Show DBOS-owned rows",
-    "dbosOwned": "DBOS-owned · shown in raw view · grouped by position",
-    "unattributed": "not a block in the saved workflow",
-    "childRun": "open the run this item started",
+    "trace": "trace",
+    "unattributed": "unattributed",
+    "traceHint": "select a row or a node → Run evidence in the inspector · DBOS-owned rows expand under their node",
+    "noOperations": "no operations recorded",
     "editWorkflow": "Edit workflow"
   },
   "galleryWords": {

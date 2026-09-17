@@ -23,18 +23,11 @@ import type {
   RunLevel,
   RunLineage,
   RunRow,
-  SeeBar,
-  SeeChip,
   SeeGraph,
   SeeInit,
-  SeeOutage,
-  SeeRawRow,
   SeeRun,
-  SeeTimeline,
   SessionRow,
   TraceDetail,
-  TraceGroupView,
-  TraceOpView,
   TraceRowView,
 } from '../webview/protocol.js';
 
@@ -46,13 +39,7 @@ import type {
 } from './evidence.js';
 import type { Lineage } from './openRun.js';
 import { runWords, seeWords } from './words.js';
-import {
-  decidedArms,
-  groupsOf,
-  wakeOf,
-  type TraceGroup,
-  type Wake,
-} from './operations.js';
+import { decidedArms, wakeOf, type Wake } from './operations.js';
 import { replayRowReason } from './replayZone.js';
 import {
   headlineRow,
@@ -83,13 +70,8 @@ import type { ProjectWorkflow } from './workflows.js';
  * What a person reads on a row is resolved here,
  * because a webview has no localization bundle;
  * the store that holds the rows renders the list
- * from these. And every position on the chart is
- * a fraction of its own window rather than a
- * pixel, because the panel is resizable and the
- * host has no idea how wide it is — so the
- * arithmetic is done once, in one place with a
- * test around it, instead of in a renderer that
- * would need to be handed the window to do it.
+ * from these, and the run tab draws its trace from
+ * the rows worded here.
  */
 
 /** Statuses that mean the run has not finished. */
@@ -112,10 +94,9 @@ const RESUMABLE = new Set(['CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED']);
 const GAVE_UP = 'MAX_RECOVERY_ATTEMPTS_EXCEEDED';
 
 /**
- * How much of an output one cell carries.
+ * How much of a run's input the page carries.
  *
- * The raw panel is a table, and a step that
- * returned a document would otherwise be one row a
+ * An input that is a document would otherwise be a
  * screen tall. The whole value is a click away in
  * the database this panel names.
  */
@@ -157,10 +138,6 @@ export type SeeView = {
    * person says otherwise.
    */
   face?: InspectorMode;
-
-  /** Whether the rows DBOS wrote for itself are
-   *  shown. */
-  raw?: boolean;
 
   /** Whether a watch is still reading this run. */
   following?: 'following' | 'waiting' | 'quiet';
@@ -238,10 +215,11 @@ export function seeInit(
  *
  * `lost` rather than nothing where the project no
  * longer has a document of this name: that is an
- * answer, and it is why the trace draws one
- * nameless group. One call for every reader of the
- * run page's rows, so the page, the selection and
- * the Inspector cannot attribute a row three ways.
+ * answer, and it is why the trace draws every row
+ * apart, under no block. One call for every reader
+ * of the run page's rows, so the page, the
+ * selection and the Inspector cannot attribute a
+ * row three ways.
  */
 export function readView(view: SeeView, now: number): Reading {
   return readRun(
@@ -329,11 +307,11 @@ export function runTabOf(view: SeeView, now: number): RunTab {
 }
 
 function seeRun(view: SeeView): SeeRun {
-  const { run, steps } = view;
+  const { run } = view;
 
-  // One clock for the whole page, so that a bar's
-  // end, whether a timer has run out and whether a
-  // row says the run woke are all answered about
+  // One clock for the whole page, so that where the
+  // run is, whether a timer has run out and whether
+  // a row says the run woke are all answered about
   // the same moment.
   const now = Date.now();
   const reading = readView(view, now);
@@ -347,13 +325,6 @@ function seeRun(view: SeeView): SeeRun {
   const points = boundariesOf(view);
   const page: TracePage = { view, points, now };
   const trace = traceOf(reading.steps, reading.owners);
-
-  // The chart and the strip above it are about what
-  // the workflow did, so the SDK's own rows are not
-  // drawn on either. The reading still holds them,
-  // and has to: a wait the SDK wrote is what fills a
-  // gap that would otherwise be read as a crash.
-  const drawn = reading.steps.filter((step) => step.owner !== 'sdk');
 
   return {
     workflowId: run.workflowId,
@@ -370,10 +341,6 @@ function seeRun(view: SeeView): SeeRun {
     // every row the page holds; the header says that
     // word rather than asking the steps again.
     word: reading.outcome,
-    span: spanOf(run),
-    chips: drawn.map((step) => chipOf(step, points)),
-    timeline: chartOf(reading, drawn),
-    raw: steps.map(rawRowOf),
     rail: ledgerOf(run),
     selectedStep: view.selectedStep,
     note: view.note,
@@ -383,9 +350,6 @@ function seeRun(view: SeeView): SeeRun {
     noGraph:
       graph === undefined ? messages.runGraphMissing(run.name) : undefined,
     live: liveRunOf(run, reading),
-    groups: groupsOf(reading.steps, { timing: view.timing ?? false }).map(
-      (group) => groupOf(group, view, points),
-    ),
     trace: trace.rows.map((row) =>
       traceRowOf(row.operation, row.nodeId, row.sdk, page),
     ),
@@ -396,7 +360,6 @@ function seeRun(view: SeeView): SeeRun {
       nodeId: view.selectedNode,
       functionId: markedRow(view, reading),
     },
-    showRaw: view.raw ?? false,
     following: view.following ?? 'quiet',
     input: inputOf(run),
   };
@@ -451,7 +414,13 @@ function traceRowOf(
   const beside = sdk.map((one) => traceRowOf(one, nodeId, [], page));
 
   return {
-    ...opOf(operation, page.points),
+    functionId: operation.functionId,
+    name: operation.name,
+    owner: operation.owner,
+    state: operation.state,
+    reused: operation.reused,
+    ...offerOf(page.points, operation.functionId),
+    childWorkflowId: operation.childWorkflowId,
     nodeId,
     duration: durationOf(operation),
     detail: detailOf(operation, node, page),
@@ -638,111 +607,6 @@ function graphOf(
 }
 
 /**
- * One block's turn, in the words the page draws.
- *
- * Only the document says what a block is called, so
- * a group with no block behind it is drawn nameless
- * and the `not a block in the saved workflow` badge
- * carries it. Naming such a group after its first
- * row would be a guess with nothing behind it: rows
- * with no block merge into one group whatever they
- * name, so a run whose document is gone would draw
- * as a single collapsible called after whatever
- * happened to run first.
- */
-function groupOf(
-  group: TraceGroup,
-  view: SeeView,
-  points: ReplayPoints,
-): TraceGroupView {
-  const node = view.ir?.nodes.find((one) => one.id === group.nodeId);
-  const failed = group.operations.some((one) => one.state === 'failed');
-
-  return {
-    nodeId: group.nodeId,
-    title: node?.title ?? '',
-    qualifier: qualifierOf(group),
-    wakes: wakesOf(group, view),
-    // Closed by default, and open where a person is
-    // most likely to be going: the turn that failed,
-    // and the one holding the block they picked.
-    open:
-      failed ||
-      (group.nodeId !== undefined && group.nodeId === view.selectedNode),
-    failed,
-    operations: group.operations.map((one) => opOf(one, points)),
-  };
-}
-
-/**
- * When this block wakes, in words.
- *
- * A timeout marker is drawn wherever one is
- * recorded: the block is parked and the marker says
- * when it stops being. A real sleep is drawn only
- * where the block has exactly one way onward and
- * that way is a timer wait — a bare sleep inside a
- * block that branches afterwards says nothing about
- * where the run goes next, and guessing would be
- * the page making something up.
- */
-function wakesOf(group: TraceGroup, view: SeeView): string | undefined {
-  const wakes = group.wakesAt;
-  if (wakes === undefined) return undefined;
-
-  if (wakes.kind === 'timeout') return messages.runTimesOut(fine(wakes.at));
-
-  return timerWaitAhead(group.nodeId, view)
-    ? messages.runAsleepUntil(fine(wakes.at))
-    : undefined;
-}
-
-function timerWaitAhead(nodeId: string | undefined, view: SeeView): boolean {
-  const ir = view.ir;
-  if (ir === undefined || nodeId === undefined) return false;
-
-  const onward = ir.edges.filter((edge) => edge.from.node === nodeId);
-  const [only] = onward;
-  if (onward.length !== 1 || only === undefined) return false;
-
-  const next = ir.nodes.find((node) => node.id === only.to.node);
-
-  // Timer-sourced and no other kind: a wait on a
-  // person or an event has a deadline too, but it
-  // is the moment that wait gives up rather than
-  // the moment the run comes back.
-  return next?.kind === 'durableWait' && next.config.source.kind === 'timer';
-}
-
-function qualifierOf(group: TraceGroup): string | undefined {
-  if (group.items !== undefined) return messages.runGroupItems(group.items);
-
-  return group.round === undefined
-    ? undefined
-    : messages.runGroupRound(group.round);
-}
-
-function opOf(operation: Operation, points: ReplayPoints): TraceOpView {
-  return {
-    functionId: operation.functionId,
-    name: operation.name,
-    owner: operation.owner,
-    state: operation.state,
-    at:
-      operation.completedAt === undefined
-        ? undefined
-        : fine(operation.completedAt),
-    output: operation.output === undefined ? undefined : cut(operation.output),
-    outputCut: operation.outputCut,
-    error: operation.error?.message,
-    restored: operation.restored,
-    reused: operation.reused,
-    ...offerOf(points, operation.functionId),
-    childWorkflowId: operation.childWorkflowId,
-  };
-}
-
-/**
  * Which rows a replay may start from, and why the
  * rest may not.
  *
@@ -801,7 +665,8 @@ function offerOf(
   };
 }
 
-/** What the run was started with, cut like a cell. */
+/** What the run was started with, cut where it is
+ *  long. */
 function inputOf(run: Run): { text: string; cut: boolean } | undefined {
   const input = run.input;
   if (input === undefined || input.shape === 'none') return undefined;
@@ -992,14 +857,6 @@ function whenOf(run: Run): string {
     : `${at} · ${lasted(run.completedAt - run.createdAt)}`;
 }
 
-function spanOf(run: Run): string {
-  const started = precise(run.startedAt ?? run.createdAt);
-
-  return run.completedAt === undefined
-    ? messages.runSpanRunning(started)
-    : messages.runSpan(started, precise(run.completedAt));
-}
-
 /**
  * What a recovery cost, as the Inspector's card
  * about a whole run lists it: sentence by sentence,
@@ -1115,107 +972,6 @@ export function recordedValueOf(
   );
 }
 
-function chipOf(step: Operation, points: ReplayPoints): SeeChip {
-  return {
-    functionId: step.functionId,
-    name: step.name,
-    restored: step.restored,
-    reused: step.reused,
-    failed: step.error !== undefined,
-    ...offerOf(points, step.functionId),
-  };
-}
-
-/**
- * The chart, in fractions of its own window.
- *
- * `0` is the left edge and `1` the right, rounded
- * to something a stylesheet can carry and a test
- * can state. A step DBOS did not time gets no bar
- * and is still drawn, because a step missing from
- * the chart is a step nobody knows ran.
- *
- * The window, the band and the axis come from the
- * whole reading; the bars come from `drawn`, which
- * is the rows a block owns.
- */
-function chartOf(reading: Reading, drawn: readonly Operation[]): SeeTimeline {
-  const span = reading.to - reading.from;
-  const place = (at: number): number => round((at - reading.from) / span);
-
-  const bars: SeeBar[] = drawn.map((step) => ({
-    functionId: step.functionId,
-    name: step.name,
-    at:
-      step.startedAt === undefined || step.completedAt === undefined
-        ? undefined
-        : {
-            from: place(step.startedAt),
-            // A wait on the clock records the moment
-            // the run is due to wake, which has not
-            // happened. The window closes at the
-            // moment the run was read, and a bar
-            // drawn past it would run off the chart.
-            width: round(
-              (Math.min(step.completedAt, reading.to) - step.startedAt) / span,
-            ),
-          },
-    restored: step.restored,
-    reused: step.reused,
-    failed: step.error !== undefined,
-  }));
-
-  return {
-    bars,
-    outage: bandOf(reading, place, span),
-    ticks: ticksOf(reading),
-  };
-}
-
-function bandOf(
-  reading: Reading,
-  place: (at: number) => number,
-  span: number,
-): SeeOutage | undefined {
-  const outage = reading.outage;
-  if (outage === undefined) return undefined;
-
-  return {
-    from: place(outage.from),
-    width: round((outage.to - outage.from) / span),
-    down: messages.runProcessDown(lasted(outage.to - outage.from)),
-    resumed: messages.runResumed(),
-  };
-}
-
-/** The axis: where it started, where it ended, and
- *  the two edges of the hole if there is one. */
-function ticksOf(reading: Reading): { at: number; label: string }[] {
-  const span = reading.to - reading.from;
-  const marks = [
-    reading.from,
-    ...(reading.outage === undefined
-      ? []
-      : [reading.outage.from, reading.outage.to]),
-    reading.to,
-  ];
-
-  return marks.map((at) => ({
-    at: round((at - reading.from) / span),
-    label: precise(at),
-  }));
-}
-
-function rawRowOf(step: Step): SeeRawRow {
-  return {
-    stepId: step.functionId,
-    fn: step.name,
-    output: cut(step.output ?? step.error ?? ''),
-    committedAt:
-      step.completedAt === undefined ? '' : precise(step.completedAt),
-  };
-}
-
 /**
  * The run as `dbos.workflow_status` holds it, each
  * row under its column's own name and holding the
@@ -1302,24 +1058,10 @@ function lasted(ms: number): string {
   return duration(ms, durationWords());
 }
 
-function precise(epoch: number): string {
-  return new Date(epoch).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
 function cut(value: string): string {
   return value.length <= OUTPUT_CELL
     ? value
     : `${value.slice(0, OUTPUT_CELL)}…`;
-}
-
-/** Four decimals is finer than a pixel on any
- *  panel, and keeps the numbers readable. */
-function round(fraction: number): number {
-  return Math.round(fraction * 10_000) / 10_000;
 }
 
 /**
