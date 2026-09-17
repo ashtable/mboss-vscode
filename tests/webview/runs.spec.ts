@@ -448,6 +448,7 @@ test.describe('a test run', () => {
           problem: {
             detail: 'The running app was built before this workflow.',
             rebuildToRun: true,
+            workflowId: 'wf_refused',
           },
         },
       }),
@@ -476,6 +477,7 @@ test.describe('a test run', () => {
           problem: {
             detail: 'That input is not JSON, so nothing was sent.',
             rebuildToRun: false,
+            workflowId: undefined,
           },
         },
       }),
@@ -1156,7 +1158,7 @@ test.describe('the run list', () => {
     expect(await mark('wf_ff0912')).toBe(await mark('wf_77c101'));
   });
 
-  test('opens a run when its row is clicked', async ({ page }) => {
+  test('selects a run when its row is clicked', async ({ page }) => {
     const harness = await showList(page, runsInit());
 
     await page.locator('[data-run="wf_77c101"]').click();
@@ -1166,7 +1168,7 @@ test.describe('the run list', () => {
     ]);
   });
 
-  test('opens a run when its outcome mark is clicked', async ({ page }) => {
+  test('selects a run when its outcome mark is clicked', async ({ page }) => {
     const harness = await showList(page, runsInit());
 
     await page.locator('[data-run="wf_77c101"] .run-mark').click();

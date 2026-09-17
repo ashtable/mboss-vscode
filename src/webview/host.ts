@@ -413,9 +413,16 @@ const RunFilterPicked = z.object({
 /** Somebody wants the list read again. */
 const RunRefresh = z.object({ type: z.literal('runRefresh') });
 
-/** Somebody opened a run — from a row of the list,
- *  or from the id of the run an item started, on
- *  the run page. */
+/**
+ * Somebody picked a run by its id.
+ *
+ * The same kind means two things on the two
+ * surfaces that send it. On the list it marks a row
+ * and opens it out, and opens nothing; on the run
+ * page, from the id of a run an item started or a
+ * replay's lineage, it opens that run in the tab
+ * already showing one.
+ */
 const RunSelect = z.object({
   type: z.literal('runSelect'),
   workflowId: z.string(),
@@ -540,6 +547,15 @@ const OpenRun = z.object({
  */
 const OpenProduction = z.object({ type: z.literal('openProduction') });
 
+/**
+ * Somebody with no console wants to read about
+ * Conductor.
+ *
+ * No address travels here either: the page is the
+ * extension's to name.
+ */
+const LearnConductor = z.object({ type: z.literal('learnConductor') });
+
 /** Somebody picked a step on the run page. */
 const StepSelect = z.object({
   type: z.literal('stepSelect'),
@@ -583,12 +599,22 @@ const ReplayFrom = z
     'a replay starts from a block, a row it recorded or its start',
   );
 
-/** The same, from wherever the run's own default
- *  point is: the list draws no rows and no blocks,
- *  so it names neither. */
+/**
+ * The same, from the list.
+ *
+ * The list draws no rows and no blocks, so it names
+ * the step its line says a run failed at, or the
+ * run's start. Both are optional and neither is
+ * required: a bundle from before the list named
+ * either still asks for the run's own default. The
+ * start wins where both are sent, as it does for
+ * `replayFrom`, because one reader answers both.
+ */
 const ReplayRun = z.object({
   type: z.literal('replayRun'),
   workflowId: z.string(),
+  functionId: z.number().int().optional(),
+  from: z.literal('start').optional(),
 });
 
 /**
@@ -792,6 +818,7 @@ const SCHEMAS = {
     AskAgent,
     OpenRun,
     OpenProduction,
+    LearnConductor,
     CopyRunId,
     ReplayRun,
     CancelRun,

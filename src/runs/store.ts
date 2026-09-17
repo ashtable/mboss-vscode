@@ -57,6 +57,16 @@ export type { StackAction } from './stack.js';
 export type { ReplayPick } from './replayZone.js';
 
 /**
+ * Where DBOS documents Conductor, for a window with
+ * no console of its own to open.
+ *
+ * A constant rather than a setting: it is the
+ * vendor's page about the product, the same for
+ * every project, and nobody's own address.
+ */
+export const CONDUCTOR_DOCS_URL = 'https://docs.dbos.dev/production/conductor';
+
+/**
  * What the window knows about a project's runs,
  * behind one door.
  *
@@ -262,6 +272,22 @@ export type RunsStore = Disposable & {
   refresh(): Promise<void>;
 
   setFilter(filter: RunFilter): Promise<void>;
+
+  /**
+   * Marks a row of the list, which the view opens
+   * out to show its actions. Nothing is opened: the
+   * list is the only thing that moves its own mark.
+   */
+  selectRow(workflowId: string): void;
+
+  /**
+   * Opens a run in its tab.
+   *
+   * Asked by every surface that means "show me this
+   * run" — the run tab's own ids, the Inspector, the
+   * transcript, the list's Open on canvas — and none
+   * of them moves the row the list has marked.
+   */
   select(workflowId: string): Promise<void>;
 
   /** Re-reads the project's saved workflows off
@@ -287,10 +313,17 @@ export type RunsStore = Disposable & {
    */
   replay(workflowId: string, picked: ReplayPick): Promise<void>;
 
-  /** The same, from wherever the run's own default
-   *  boundary is — where it failed, else where it
-   *  began. */
-  replayRun(workflowId: string): Promise<void>;
+  /**
+   * The same, from the list: from the step the list
+   * says the run failed at, or from its start.
+   *
+   * A pick of neither is the run's own default —
+   * where it failed, else where it began. A step
+   * named that is no place to start is answered
+   * with why, and where to go instead, rather than
+   * with a replay from somewhere else.
+   */
+  replayRun(workflowId: string, picked?: ReplayPick): Promise<void>;
 
   /**
    * Stops a run, and picks a stopped one back up.
@@ -396,6 +429,10 @@ export type RunsStore = Disposable & {
    * buys one — the local loop is whole without it.
    */
   openProduction(): Promise<void>;
+
+  /** Opens where DBOS documents Conductor, for
+   *  whoever has no console to open. */
+  learnConductor(): Promise<void>;
 
   /** The run page: which block, which view, and
    *  reading it again. */
@@ -524,6 +561,34 @@ export function runsStore(deps: RunsDeps): RunsStore {
     zone.onChanged(changes.fire),
   );
 
+  /**
+   * Where each run this window set going last got
+   * to, as its watch reported it.
+   *
+   * The list is read on request, and a run somebody
+   * has just started, forked or picked back up is
+   * one they are looking for: the first report
+   * about it reads the list under All with that run
+   * marked. Later reports read it again only when
+   * the status or the word moved, because a watch
+   * ticks twice a second whether anything changed
+   * or not — and a resumed run sits enqueued until a
+   * worker claims it, which no other read would
+   * show. A run somebody merely opened is followed
+   * too, and is not this window's to put first.
+   */
+  const lastReported = new Map<string, string>();
+  const reported = follow.onRun((run) => {
+    if (deps.sessionLog.find(run.workflowId) === undefined) return;
+
+    const now = `${run.status} ${run.outcome}`;
+    const before = lastReported.get(run.workflowId);
+    lastReported.set(run.workflowId, now);
+
+    if (before === undefined) void history.started(run.workflowId);
+    else if (before !== now) void history.refresh();
+  });
+
   const project = (): string | undefined => deps.host.projects()[0];
 
   /**
@@ -589,12 +654,36 @@ export function runsStore(deps: RunsDeps): RunsStore {
     return opened?.workflowId === workflowId ? opened.input : undefined;
   };
 
-  /** A stack command, with the problem under the
-   *  input box let go of first: Rebuild is what one
-   *  of those problems asks for. */
+  /**
+   * Everything read again once the stack has been
+   * asked: the saved workflows, the list, and what
+   * is worth following.
+   *
+   * The watch owner goes last, so that what is worth
+   * following is composed from what the two zones
+   * have just read rather than from what they held
+   * before.
+   */
+  const readAfterStack = async (): Promise<void> => {
+    testRun.refresh();
+    await history.refresh();
+    follow.rewatch();
+  };
+
+  /**
+   * A stack command, with the problem under the
+   * input box let go of first — Rebuild is what one
+   * of those problems asks for — and the reads a
+   * refresh makes after it: a database that would
+   * not answer is often the stack's own, and an app
+   * rebuilt runs workflows the last read never saw.
+   * The title bar's Start and Stop call these same
+   * verbs.
+   */
   const stacking = async (command: () => Promise<void>): Promise<void> => {
     testRun.clearProblem();
     await command();
+    await readAfterStack();
   };
 
   /**
@@ -712,10 +801,6 @@ export function runsStore(deps: RunsDeps): RunsStore {
         strings: runsWords(),
         project: dir === undefined ? undefined : basename(dir),
         ...history.render(),
-        // Which row the list marks is the open run's
-        // answer, composed here rather than read by
-        // the zone that draws the rows.
-        selected: openRun.workflowId(),
         stack: stack.render(),
         ...testRun.render(),
         // Whether, not where: the address stays on
@@ -729,10 +814,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
      * block of the run it is showing put back on
      * the run it draws.
      *
-     * Composed here for the reason the list's
-     * marked row is: the read is the store's and
-     * the projection is the zone's, and the zone
-     * that owns the page never asked the question.
+     * Composed here because the read is the
+     * store's and the projection is the zone's, and
+     * the zone that owns the page never asked the
+     * question.
      */
     see: () => {
       const page = openRun.see();
@@ -817,25 +902,20 @@ export function runsStore(deps: RunsDeps): RunsStore {
 
     refresh: async () => {
       await stack.read();
-      testRun.refresh();
-      await history.refresh();
-
-      // Last, so that what is worth following is
-      // composed from what the two zones have just
-      // read rather than from what they held before.
-      follow.rewatch();
+      await readAfterStack();
     },
 
     // Only the list: which tab somebody is on says
     // nothing about the stack, and reading it would
     // shell out to compose on every click.
     setFilter: history.setFilter,
+    selectRow: history.selectRow,
     select: openRun.open,
     refreshWorkflows: testRun.refreshWorkflows,
     selectStep: openRun.step,
 
     replay,
-    replayRun: (workflowId) => replay(workflowId),
+    replayRun: (workflowId, picked) => replay(workflowId, picked),
 
     /**
      * Cancelling changes what is worth following:
@@ -937,6 +1017,11 @@ export function runsStore(deps: RunsDeps): RunsStore {
       await deps.host.openExternal(url);
     },
 
+    // Asked in any window: a page of documentation
+    // reads nothing of the folder and runs nothing
+    // in it.
+    learnConductor: () => deps.host.openExternal(CONDUCTOR_DOCS_URL),
+
     selectNode: openRun.node,
     chooseFace: openRun.face,
     showTab: openRun.tab,
@@ -947,6 +1032,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
 
     dispose: () => {
       for (const subscription of followed) subscription.dispose();
+      reported.dispose();
       // Before the zones, so nothing is still being
       // told about a run while it is being taken
       // apart.

@@ -194,6 +194,9 @@ describe('what each view may say', () => {
     askAboutBlock: ['inspector'],
     openRun: ['runs', 'canvas', 'sidebar', 'inspector'],
     openProduction: ['runs'],
+    // Where to read about Conductor, offered by the
+    // list's footer in a window with no console.
+    learnConductor: ['runs'],
     replayRun: ['runs'],
 
     // Distinct from `cancel`, which is the side
@@ -300,6 +303,7 @@ describe('what each view may say', () => {
     },
     openRun: { workflowId: 'wf_c9d2f3' },
     openProduction: {},
+    learnConductor: {},
     replayRun: { workflowId: 'wf_c9d2f3' },
     cancelRun: { workflowId: 'wf_c9d2f3' },
     resumeRun: { workflowId: 'wf_c9d2f3' },
@@ -364,6 +368,30 @@ describe('what each view may say', () => {
       true,
     );
     expect(inspector.safeParse({ ...replay, from: 'end' }).success).toBe(false);
+  });
+
+  /**
+   * The list offers a replay from the step a run
+   * failed at or from its start, and says which. A
+   * list that names neither still asks for the
+   * run's own default, and a point that is neither
+   * is not one.
+   */
+  it('carries a list replay’s pick', () => {
+    const runs = messageSchemaFor('runs');
+    const replay = { type: 'replayRun', workflowId: 'wf_c9d2f3' };
+
+    expect(runs.parse({ ...replay, functionId: 3 })).toEqual({
+      ...replay,
+      functionId: 3,
+    });
+    expect(runs.parse({ ...replay, from: 'start' })).toEqual({
+      ...replay,
+      from: 'start',
+    });
+    expect(runs.safeParse({ ...replay, from: 'end' }).success).toBe(false);
+    expect(runs.safeParse({ ...replay, functionId: 1.5 }).success).toBe(false);
+    expect(runs.parse(replay)).toEqual(replay);
   });
 
   /**

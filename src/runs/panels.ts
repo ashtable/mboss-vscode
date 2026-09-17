@@ -11,6 +11,7 @@ import {
 import type { InspectorFocus } from '../inspector/focus.js';
 import { mountWebview, type Mount } from '../webview/host.js';
 
+import { pointIn } from './replayZone.js';
 import type { RunsStore } from './store.js';
 import { seeTitle } from './view.js';
 import { runsWords, seeWords } from './words.js';
@@ -81,11 +82,19 @@ export class RunsListView implements WebviewViewProvider {
           void this.store.setFilter(message.filter);
         }
 
-        // Both open the flight recorder: one from
-        // the history list, one from a row of what
-        // this session started.
-        if (message.type === 'runSelect' || message.type === 'openRun') {
-          void this.see.open(message.workflowId);
+        // A row picked on the list is marked and
+        // opened out, and nothing is opened: the
+        // list's mark is its own.
+        if (message.type === 'runSelect') {
+          this.store.selectRow(message.workflowId);
+        }
+
+        // Open on canvas, from the list or from a row
+        // of what this session started: the run in
+        // its tab, on its graph whichever view the
+        // tab was last on.
+        if (message.type === 'openRun') {
+          void this.see.open(message.workflowId, 'graph');
         }
 
         if (message.type === 'stackUp') void this.store.stackUp();
@@ -115,8 +124,11 @@ export class RunsListView implements WebviewViewProvider {
           void this.store.copyRunId(message.workflowId);
         }
 
+        // The point the list names — the step its
+        // line says the run failed at, or the start
+        // — or none, for the run's own default.
         if (message.type === 'replayRun') {
-          void this.store.replayRun(message.workflowId);
+          void this.store.replayRun(message.workflowId, pointIn(message));
         }
 
         // By id, because the row that sent this may
@@ -132,6 +144,10 @@ export class RunsListView implements WebviewViewProvider {
 
         if (message.type === 'openProduction') {
           void this.store.openProduction();
+        }
+
+        if (message.type === 'learnConductor') {
+          void this.store.learnConductor();
         }
       },
     });
@@ -164,8 +180,8 @@ export class SeePanel {
   ) {}
 
   /**
-   * Reads one run and puts the tab in front, in that
-   * order.
+   * Reads one run, turns the tab to the view asked
+   * for, and puts the tab in front, in that order.
    *
    * The order is a fact whoever follows both leans
    * on: the store says the run moved before the tab
@@ -175,9 +191,15 @@ export class SeePanel {
    * the list and three callers outside it used to
    * spell the pair themselves and nothing said which
    * half came first.
+   *
+   * The view is turned before the tab is shown so
+   * the first picture is the one asked for. No view
+   * asked for leaves the tab on whichever one
+   * somebody last chose.
    */
-  async open(workflowId: string): Promise<void> {
+  async open(workflowId: string, tab?: 'graph' | 'trace'): Promise<void> {
     await this.store.select(workflowId);
+    if (tab !== undefined) this.store.showTab(tab);
     this.show();
   }
 
@@ -220,10 +242,12 @@ export class SeePanel {
           this.store.selectStep(message.functionId);
         }
 
-        // The id of the run an item started. The same
-        // verb the list's rows use, because it is the
-        // same thing to have asked for — this panel
-        // is already the one that would show it.
+        // The id of the run an item started, or of a
+        // replay's lineage: opened here, in the tab
+        // already showing a run. The same kind only
+        // marks a row on the list, which is a
+        // different surface asking a different
+        // thing.
         if (message.type === 'runSelect') {
           void this.store.select(message.workflowId);
         }

@@ -251,6 +251,9 @@ describe('starting a run', () => {
     expect(ingress.requests).toEqual([]);
     expect(shown.render().testRun.problem).toBeDefined();
     expect(shown.render().testRun.problem?.rebuildToRun).toBe(false);
+    // Nothing was filed, so there is no run for the
+    // agent to be asked about.
+    expect(shown.render().testRun.problem?.workflowId).toBeUndefined();
     expect(shown.render().session).toEqual([]);
   });
 
@@ -268,9 +271,13 @@ describe('starting a run', () => {
 
     expect(row?.outcome).toBe('failed');
     expect(row?.error).toBe('the app is not up');
+    // Under the id the session log filed it by, which
+    // is what asking the agent about it needs.
+    expect(row?.workflowId).toBeDefined();
     expect(shown.render().testRun.problem).toEqual({
       detail: 'the app is not up',
       rebuildToRun: false,
+      workflowId: row?.workflowId,
     });
   });
 
@@ -310,6 +317,7 @@ describe('starting a run', () => {
 
     expect(row?.workflowId.startsWith('refused_')).toBe(true);
     expect(row?.error).toBe('no EVENTS_SECRET');
+    expect(shown.render().testRun.problem?.workflowId).toBe(row?.workflowId);
   });
 
   it('does not start a workflow that runs on a schedule', async () => {

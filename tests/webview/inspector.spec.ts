@@ -6271,7 +6271,7 @@ test.describe('a trigger block', () => {
     page,
   }) => {
     const detail = 'The app did not answer on :3000. Start the stack.';
-    const problem = { detail, rebuildToRun: false };
+    const problem = { detail, rebuildToRun: false, workflowId: 'wf_refused' };
     const harness = await openInspector(
       page,
       blockInit(triggerSubject(MANUAL, { text: '{}', problem })),

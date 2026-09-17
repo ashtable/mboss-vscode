@@ -139,6 +139,7 @@ export function database(): Database & {
   rows: unknown[];
   steps: unknown[];
   forks: unknown[];
+  counts: typeof COUNTS_ROW;
   fail: string | undefined;
 } {
   const state = {
@@ -147,6 +148,7 @@ export function database(): Database & {
     rows: [RUN_ROW] as unknown[],
     steps: [STEP_ROW] as unknown[],
     forks: [] as unknown[],
+    counts: COUNTS_ROW,
     fail: undefined as string | undefined,
     query: async <Row>(text: string, values: unknown[]): Promise<Row[]> => {
       state.asked.push(text);
@@ -161,7 +163,7 @@ export function database(): Database & {
       // `operation_outputs` and `AS last_reused` all
       // appear inside a statement that is none of
       // these.
-      if (text.startsWith('SELECT count(*)')) return [COUNTS_ROW] as Row[];
+      if (text.startsWith('SELECT count(*)')) return [state.counts] as Row[];
       if (text.startsWith('SELECT function_id')) return state.steps as Row[];
       if (text.includes('WHERE f.forked_from = $1')) {
         return state.forks as Row[];

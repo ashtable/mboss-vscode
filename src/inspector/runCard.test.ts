@@ -98,7 +98,11 @@ describe('what the card says beside the sample', () => {
    *  set to, which is this card's only when it is
    *  this workflow. */
   it('says why the last start was refused only where it was a start of this workflow', () => {
-    const problem = { detail: 'The app is not up.', rebuildToRun: false };
+    const problem = {
+      detail: 'The app is not up.',
+      rebuildToRun: false,
+      workflowId: 'wf_refused',
+    };
 
     expect(card({ problem }).refused).toBe('The app is not up.');
     expect(

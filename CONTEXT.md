@@ -96,6 +96,20 @@ had heard of: one ticked it as done, two said it was still going.
 
 `src/webview/states.ts:runWord`
 
+### selected row
+
+The row the Runs list has marked and opened out to show its actions. The
+list's own: only a row picked on the list moves it, the newest run is marked
+until somebody picks another, and a read that no longer holds the marked run
+marks the newest instead.
+
+Not the run somebody has open. Opening a run is what the run tab, the
+Inspector, the transcript and the list's Open on canvas all ask for, and none
+of them moves the mark. The two used to be one, so a click on a row opened a
+tab.
+
+`src/runs/history.ts:selectRow`
+
 ## The Inspector
 
 ### surface

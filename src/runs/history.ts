@@ -67,6 +67,13 @@ import { rowOf } from './view.js';
  * run the run page has open — so the zone that owns
  * the list, and the by-id read every caller already
  * goes through, is where they belong.
+ *
+ * So does the row the list has marked. It is the
+ * list's own and not the run somebody has open in
+ * its tab, which other surfaces open too: only the
+ * list moves it, and it is settled inside every
+ * read, because a read is what can take the marked
+ * run off the page.
  */
 
 /** The slice of the editor the history needs. */
@@ -113,7 +120,7 @@ export type Controlled = { at: 'asked'; run: Run } | { at: 'nothing' };
 /** What the list draws of the history. */
 export type HistoryZone = Pick<
   RunsInit,
-  'state' | 'detail' | 'source' | 'filter' | 'counts' | 'rows'
+  'state' | 'detail' | 'source' | 'filter' | 'counts' | 'rows' | 'selected'
 >;
 
 export type History = Disposable & {
@@ -169,6 +176,26 @@ export type History = Disposable & {
 
   setFilter(filter: RunFilter): Promise<void>;
 
+  /**
+   * Marks a row of the list, which the view opens
+   * out; nothing is read and nothing is opened.
+   *
+   * An id the page does not hold marks the newest
+   * run instead, as a read that dropped it would.
+   */
+  selectRow(workflowId: string): void;
+
+  /**
+   * The list read again for a run this window has
+   * just set going, under All and with that run
+   * marked.
+   *
+   * All, because a run started while the list shows
+   * Failed is not on that page, and the person who
+   * started it is the one looking for it.
+   */
+  started(workflowId: string): Promise<void>;
+
   render(): HistoryZone;
 
   onChanged(listener: () => void): Disposable;
@@ -185,6 +212,7 @@ export function runHistory(deps: HistoryDeps): History {
   let database: string | undefined;
   let runs: Run[] = [];
   let counts: RunCounts = EMPTY;
+  let selected: string | undefined;
 
   /** The ids this window asked to cancel and then
    *  read back as cancelled. Nothing is persisted;
@@ -267,31 +295,48 @@ export function runHistory(deps: HistoryDeps): History {
     }
   };
 
+  /** The marked run where the page still holds it,
+   *  else the newest, else none. */
+  const settleSelection = (): void => {
+    if (runs.some((run) => run.workflowId === selected)) return;
+
+    selected = runs[0]?.workflowId;
+  };
+
+  /**
+   * The page, read again.
+   *
+   * What was drawn stays until the new page is in
+   * hand. The list is read again while a run this
+   * window started moves, and the rest of the window
+   * draws in the meantime; a page emptied for the
+   * length of every read would blink, and a row
+   * picked meanwhile would be checked against
+   * nothing.
+   */
   const readRuns = async (): Promise<void> => {
-    runs = [];
-    counts = EMPTY;
-
     const url = connection();
-    if (url === undefined) return void changed();
 
-    const page = await read(url, async (db) => {
-      const list = runsQuery(filter, MAX_RUNS);
-      const totals = countsQuery();
+    const page =
+      url === undefined
+        ? undefined
+        : await read(url, async (db) => {
+            const list = runsQuery(filter, MAX_RUNS);
+            const totals = countsQuery();
 
-      return {
-        runs: (await db.query<WorkflowStatusRow>(list.text, list.values)).map(
-          toRun,
-        ),
-        counts: toCounts(
-          (await db.query<CountsRow>(totals.text, totals.values))[0],
-        ),
-      };
-    });
+            return {
+              runs: (
+                await db.query<WorkflowStatusRow>(list.text, list.values)
+              ).map(toRun),
+              counts: toCounts(
+                (await db.query<CountsRow>(totals.text, totals.values))[0],
+              ),
+            };
+          });
 
-    if (page !== undefined) {
-      runs = page.runs;
-      counts = page.counts;
-    }
+    runs = page?.runs ?? [];
+    counts = page?.counts ?? EMPTY;
+    settleSelection();
 
     changed();
   };
@@ -500,6 +545,18 @@ export function runHistory(deps: HistoryDeps): History {
       await readRuns();
     },
 
+    selectRow: (workflowId) => {
+      selected = workflowId;
+      settleSelection();
+      changed();
+    },
+
+    started: async (workflowId) => {
+      filter = 'all';
+      selected = workflowId;
+      await readRuns();
+    },
+
     render: () => {
       // One moment and one language for the whole
       // page, as the run page reads one clock: a
@@ -517,6 +574,7 @@ export function runHistory(deps: HistoryDeps): History {
         filter,
         counts,
         rows: runs.map((run) => rowOf(run, runs, now, locale)),
+        selected,
       };
     },
 

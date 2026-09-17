@@ -327,14 +327,20 @@ export function testRunZone(deps: TestRunDeps): TestRun {
   const reports = deps.following.onRun(heard);
 
   /** What the zone says when a start did not
-   *  happen, and whether the same Rebuild action
-   *  the stack zone offers fixes it. */
-  const problemOf = (answer: RunStart & { ok: false }): TestRunProblem => ({
+   *  happen, whether the same Rebuild action the
+   *  stack zone offers fixes it, and the id the
+   *  session log filed the refusal under — which is
+   *  what asking the agent about it takes. */
+  const problemOf = (
+    answer: RunStart & { ok: false },
+    workflowId: string,
+  ): TestRunProblem => ({
     detail:
       answer.because === 'rebuild-to-run'
         ? messages.runRebuildToRun()
         : answer.detail,
     rebuildToRun: answer.because === 'rebuild-to-run',
+    workflowId,
   });
 
   const row = (
@@ -406,7 +412,7 @@ export function testRunZone(deps: TestRunDeps): TestRun {
           outcome: 'failed',
           error: answer.detail,
         });
-        problem = problemOf(answer);
+        problem = problemOf(answer, workflowId);
       }
 
       return void changed();
@@ -424,13 +430,15 @@ export function testRunZone(deps: TestRunDeps): TestRun {
       // the same way a refused one is: the row and
       // its input are the only trace of it, and
       // the sentence on the row says which it was.
+      const refused = refusedRunId();
+
       deps.sessionLog.record(
-        row(refusedRunId(), flow.name, payload, {
+        row(refused, flow.name, payload, {
           outcome: 'failed',
           error: answer.detail,
         }),
       );
-      problem = problemOf(answer);
+      problem = problemOf(answer, refused);
 
       return void changed();
     }
@@ -576,8 +584,14 @@ export function testRunZone(deps: TestRunDeps): TestRun {
 
       const payload = payloadIn(input);
 
+      // Refused before anything was sent, so nothing
+      // was filed to ask the agent about.
       if (!payload.ok) {
-        problem = { detail: messages.runNotJson(), rebuildToRun: false };
+        problem = {
+          detail: messages.runNotJson(),
+          rebuildToRun: false,
+          workflowId: undefined,
+        };
 
         return void changed();
       }

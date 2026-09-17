@@ -395,7 +395,9 @@ export type RunsInit = {
 
   rows: RunRow[];
 
-  /** Which run the detail tab is showing. */
+  /** The row the list has marked and opened out:
+   *  the list's own, and not whichever run the
+   *  run tab is showing. */
   selected: string | undefined;
 
   /** The project's own containers. */
@@ -474,6 +476,12 @@ export type TestRunProblem = {
   detail: string;
 
   rebuildToRun: boolean;
+
+  /** The id the session log filed the refused
+   *  start under, which is what asking the agent
+   *  about it names. None where the start was
+   *  refused before anything was filed. */
+  workflowId: string | undefined;
 };
 
 export type RunnableWorkflow = {

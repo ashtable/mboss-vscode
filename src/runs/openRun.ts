@@ -212,8 +212,10 @@ export type OpenRun = Disposable & {
    */
   reading(): SeeView | undefined;
 
-  /** The run being shown, for the row the list
-   *  marks and for the tab's own title. */
+  /** The run being shown, for whoever has
+   *  something to say on its page. The row the
+   *  list marks is the list's own, and is not
+   *  this. */
   workflowId(): string | undefined;
 
   /** It, when the ledger says it has not ended — for

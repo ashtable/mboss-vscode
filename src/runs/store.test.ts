@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -16,8 +16,10 @@ import {
   liveRun,
   project,
   runner,
+  savedWorkflow,
   stack,
   watcher,
+  RUNNING,
   RUN_ROW,
   STEP_ROW,
 } from '../test-support/runs.js';
@@ -25,7 +27,9 @@ import {
 import type { ReplayQuestion } from './replayZone.js';
 import type { ProjectSdk } from './sdk.js';
 import { sessionLog } from './sessionLog.js';
+import type { StackController, StackStatus } from './stack.js';
 import {
+  CONDUCTOR_DOCS_URL,
   runsStore,
   type RunsDeps,
   type RunsHost,
@@ -46,6 +50,18 @@ import {
  * that letting go of the door lets go of everything
  * behind it.
  */
+
+/** How many times the list itself was read, apart
+ *  from the counts beside it and any one run. */
+function listReads(db: ReturnType<typeof database>): number {
+  return db.asked.filter((text) => text.includes('AS last_operation')).length;
+}
+
+/** Everything already on its way has landed: every
+ *  read the doubles answer settles in microtasks. */
+function flushed(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 function deps(over: Partial<RunsDeps> = {}): RunsDeps {
   return {
@@ -158,6 +174,91 @@ describe('one door for three zones', () => {
     await store.stackRebuild();
 
     expect(store.list().testRun.problem).toBeUndefined();
+  });
+
+  /**
+   * A stack command changes what the ledger can be
+   * asked and what the app can run, so each one is
+   * followed by the reads a refresh makes — whether
+   * it came from the view or from the title bar,
+   * which call the same verbs.
+   */
+  it('reads the ledger and the workflows again after every stack command', async () => {
+    const dir = project({ workflows: ['groom_booking'] });
+    const db = database();
+    const store = runsStore(
+      deps({ host: host({ projects: () => [dir] }), open: async () => db }),
+    );
+    const commands: [() => Promise<void>, string][] = [
+      [store.stackUp, 'saved_before_up'],
+      [store.stackDown, 'saved_before_down'],
+      [store.stackRebuild, 'saved_before_rebuild'],
+    ];
+
+    for (const [command, name] of commands) {
+      const before = listReads(db);
+      writeFileSync(
+        join(dir, '.mboss', 'workflows', `${name}.workflow.json`),
+        savedWorkflow(name, { mode: 'manual' }),
+        'utf8',
+      );
+
+      await command();
+
+      expect({ name, reads: listReads(db) }).toEqual({
+        name,
+        reads: before + 1,
+      });
+      expect(store.list().testRun.workflows.map((one) => one.name)).toContain(
+        name,
+      );
+    }
+  });
+
+  /**
+   * The database a list could not reach is often
+   * the stack's own, stopped. Starting it is the
+   * answer, and the list says so without anybody
+   * asking for it again.
+   */
+  it('leaves a refused database once Start app brings the stack up', async () => {
+    const db = database();
+    db.fail = 'ECONNREFUSED 127.0.0.1:5432';
+
+    const stopped: StackStatus = {
+      available: true,
+      services: [
+        { service: 'postgres', state: 'exited', health: 'none', detail: '' },
+        { service: 'app', state: 'exited', health: 'none', detail: '' },
+      ],
+      detail: undefined,
+    };
+    const compose = stack(stopped);
+    const controller: StackController = {
+      ...compose.controller,
+      up: async (dir) => {
+        await compose.controller.up(dir);
+        compose.status = RUNNING;
+        db.fail = undefined;
+        db.rows = [];
+        db.counts = { all_runs: '0', active_runs: '0', failed_runs: '0' };
+      },
+    };
+    const store = runsStore(deps({ open: async () => db, stack: controller }));
+
+    await store.refresh();
+    expect(store.list().state).toBe('unreachable');
+
+    await store.stackUp();
+    const shown = store.list();
+
+    expect(shown.state).toBe('ok');
+    expect(shown.counts).toEqual({ all: 0, active: 0, failed: 0 });
+    expect(shown.rows).toEqual([]);
+    expect(shown.stack.services.map((one) => one.state)).toEqual([
+      'running',
+      'running',
+    ]);
   });
 
   /** A watch reads the run from the ledger the
@@ -308,6 +409,203 @@ describe('one door for three zones', () => {
     await store.openRunInput();
 
     expect(shown).toEqual([{ content: '{"n":1}', language: 'json' }]);
+  });
+});
+
+/**
+ * Marking a row and opening a run are two things.
+ *
+ * The list marks and opens out a row, and nothing
+ * else moves that mark. Opening a run is what the
+ * run tab, the Inspector, the transcript and the
+ * list's Open on canvas all ask for, and none of
+ * them is a reason for the list to mark another
+ * row.
+ */
+describe('the list’s mark and the run tab', () => {
+  function twoRuns(): RunsStore {
+    const db = database();
+    db.rows = [
+      RUN_ROW,
+      { ...RUN_ROW, workflow_uuid: 'wf_older', created_at: '500' },
+    ];
+
+    return runsStore(deps({ open: async () => db }));
+  }
+
+  it('marks a row without opening it', async () => {
+    const store = twoRuns();
+
+    await store.refresh();
+    store.selectRow('wf_older');
+
+    expect(store.list().selected).toBe('wf_older');
+    expect(store.detail()).toBeUndefined();
+  });
+
+  it('opens a run without moving the list’s mark', async () => {
+    const store = twoRuns();
+
+    await store.refresh();
+    expect(store.list().selected).toBe('wf_c9d2f3');
+
+    await store.select('wf_older');
+
+    expect(store.detail()?.run.workflowId).toBe('wf_older');
+    expect(store.list().selected).toBe('wf_c9d2f3');
+  });
+
+  it('shows a run opened from the list on its graph', async () => {
+    const store = twoRuns();
+
+    store.showTab('trace');
+    await store.select('wf_c9d2f3');
+    expect(store.see().showing).toBe('trace');
+
+    store.showTab('graph');
+
+    expect(store.see().showing).toBe('graph');
+  });
+});
+
+/**
+ * A run this window set going, as the list shows
+ * it.
+ *
+ * The list is read when somebody asks, and a run
+ * started a moment ago is a run somebody is
+ * looking for — so the first report about it reads
+ * the list again under All with that run marked.
+ * After that the list is read again only when the
+ * run moves: a resumed run sits enqueued until a
+ * worker claims it, and a watch ticks twice a
+ * second whether or not anything changed.
+ */
+describe('a run this window set going', () => {
+  function starting(db = database()) {
+    const watch = watcher();
+    const log = sessionLog();
+    const store = runsStore(
+      deps({
+        open: async () => db,
+        runner: echoing().start,
+        watch: watch.watch,
+        sessionLog: log,
+      }),
+    );
+
+    return { db, log, store, watch };
+  }
+
+  /** A run started under Failed, reported once. */
+  async function startedAndReported() {
+    const { db, log, store, watch } = starting();
+
+    await store.refresh();
+    await store.setFilter('failed');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
+
+    const id = log.list()[0]?.workflowId ?? '';
+    db.rows = [{ ...RUN_ROW, workflow_uuid: id, status: 'PENDING' }, RUN_ROW];
+    const before = listReads(db);
+
+    watch.say(
+      id,
+      liveRun({ workflowId: id, status: 'PENDING', outcome: 'running' }),
+    );
+    await vi.waitFor(() =>
+      expect(store.list().rows.map((row) => row.workflowId)).toContain(id),
+    );
+
+    return { db, id, before, store, watch };
+  }
+
+  it('reads the list again under All once the run is first reported, and selects it', async () => {
+    const { db, id, before, store } = await startedAndReported();
+
+    expect(store.list().selected).toBe(id);
+    expect(store.list().filter).toBe('all');
+    expect(listReads(db)).toBe(before + 1);
+  });
+
+  it('reads it again when the run moves, and not when it does not', async () => {
+    const { db, id, store, watch } = await startedAndReported();
+    const first = listReads(db);
+
+    watch.say(
+      id,
+      liveRun({ workflowId: id, status: 'PENDING', outcome: 'running' }),
+    );
+    await flushed();
+
+    expect(listReads(db)).toBe(first);
+
+    db.rows = [{ ...RUN_ROW, workflow_uuid: id }, RUN_ROW];
+    watch.say(
+      id,
+      liveRun({ workflowId: id, status: 'SUCCESS', outcome: 'done' }),
+    );
+    await vi.waitFor(() => expect(listReads(db)).toBe(first + 1));
+    await flushed();
+
+    expect(store.list().selected).toBe(id);
+    expect(store.list().rows[0]?.state).toBe('done');
+  });
+
+  it('selects a run it picked back up once that run is reported', async () => {
+    const db = database();
+    const STOPPED_RUN = {
+      ...RUN_ROW,
+      workflow_uuid: 'wf_stopped',
+      status: 'CANCELLED',
+    };
+    db.rows = [RUN_ROW, STOPPED_RUN];
+    const { store, watch } = starting(db);
+
+    await store.refresh();
+    await store.setFilter('failed');
+    await store.resume('wf_stopped');
+
+    // Picking it back up reads the list, and marks
+    // nothing new by itself.
+    expect(store.list().selected).toBe('wf_c9d2f3');
+
+    db.rows = [{ ...STOPPED_RUN, status: 'ENQUEUED' }, RUN_ROW];
+    watch.say(
+      'wf_stopped',
+      liveRun({
+        workflowId: 'wf_stopped',
+        status: 'ENQUEUED',
+        outcome: 'queued',
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(store.list().rows[0]?.workflowId).toBe('wf_stopped'),
+    );
+
+    expect(store.list().selected).toBe('wf_stopped');
+    expect(store.list().filter).toBe('all');
+  });
+
+  /** A run somebody merely opened is followed too,
+   *  and it is not this window's to put first. */
+  it('reads nothing for a report about a run it did not set going', async () => {
+    const db = database();
+    db.rows = [{ ...RUN_ROW, status: 'PENDING', completed_at: null }];
+    const { store, watch } = starting(db);
+
+    await store.select('wf_c9d2f3');
+    expect(watch.armed).toHaveLength(1);
+
+    const before = listReads(db);
+    watch.say(
+      'wf_c9d2f3',
+      liveRun({ workflowId: 'wf_c9d2f3', status: 'SUCCESS', outcome: 'done' }),
+    );
+    await flushed();
+
+    expect(listReads(db)).toBe(before);
   });
 });
 
@@ -621,6 +919,30 @@ describe('the console for what is deployed', () => {
 });
 
 /**
+ * Where to read about Conductor, for somebody who
+ * has not got a console.
+ *
+ * A page of documentation reads nothing of the
+ * folder and runs nothing in it, so it is offered
+ * in a window nobody has trusted too.
+ */
+describe('where to read about DBOS Conductor', () => {
+  it('opens the Conductor docs from Learn about Conductor', async () => {
+    const untrusted = recording(project(), '');
+    const store = runsStore(
+      deps({ host: untrusted.host, trust: fakeTrust(false) }),
+    );
+
+    await store.learnConductor();
+
+    expect(CONDUCTOR_DOCS_URL).toBe(
+      'https://docs.dbos.dev/production/conductor',
+    );
+    expect(untrusted.calls).toEqual([`openExternal ${CONDUCTOR_DOCS_URL}`]);
+  });
+});
+
+/**
  * A host that writes down what it was asked to do.
  *
  * The answer `conductorConsoleUrl` gives is the one
@@ -657,6 +979,7 @@ function recording(
 async function exercise(store: RunsStore): Promise<void> {
   await store.refresh();
   await store.setFilter('failed');
+  store.selectRow('wf_c9d2f3');
   await store.select('wf_c9d2f3');
   await store.openWorkflow('wf_c9d2f3');
   store.setInput('{}');
@@ -670,6 +993,7 @@ async function exercise(store: RunsStore): Promise<void> {
   await store.stackRebuild();
   await store.stackDown();
   await store.refreshRun();
+  await store.learnConductor();
   store.list();
   store.see();
   store.dispose();
@@ -751,6 +1075,84 @@ describe('the doors a replay comes through', () => {
     expect(list.asked.map((one) => one.detail)).toEqual(
       canvas.asked.map((one) => one.detail),
     );
+  });
+
+  /**
+   * The list offers Replay from where a run failed
+   * or from its start, and says which it means.
+   * Either way the question is the one the page
+   * asks about the same point.
+   */
+  it('carries the list’s pick to the decision the page reaches', async () => {
+    const bare = asking();
+    await bare.store.replayRun('wf_c9d2f3');
+
+    for (const picked of [{ functionId: 0 }, { from: 'start' }] as const) {
+      const page = asking();
+      const list = asking();
+
+      await page.store.replay('wf_c9d2f3', picked);
+      await list.store.replayRun('wf_c9d2f3', picked);
+
+      expect(page.asked).toHaveLength(1);
+      expect(list.asked).toEqual(page.asked);
+    }
+
+    // The start is a point the run's own default is
+    // not, so the case cannot pass by dropping it.
+    const fromStart = asking();
+    await fromStart.store.replayRun('wf_c9d2f3', { from: 'start' });
+
+    expect(fromStart.asked[0]?.detail).not.toBe(bare.asked[0]?.detail);
+  });
+
+  /**
+   * A failure on a row no replay may start from —
+   * the park a form's link opens — is answered with
+   * why, and with the block to go back to, rather
+   * than with a replay from some other point.
+   */
+  it('says why a named step is no place to start, rather than starting somewhere else', async () => {
+    const dir = project({ workflows: [] });
+    writeWorkflow(dir, 'form_intake');
+
+    const db = database();
+    db.rows = [{ ...RUN_ROW, name: 'form_intake', status: 'ERROR' }];
+    db.steps = [
+      { ...STEP_ROW, function_id: 0, function_name: 'ask_details' },
+      {
+        ...STEP_ROW,
+        function_id: 1,
+        function_name: 'await_details.register',
+        error: '{"message":"mailbox full"}',
+      },
+    ];
+
+    const asked: ReplayQuestion[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          projects: () => [dir],
+          confirm: async (question) => {
+            asked.push(question);
+
+            return { at: 'nothing' };
+          },
+        }),
+        open: async () => db,
+      }),
+    );
+
+    await store.replayRun('wf_c9d2f3', { functionId: 1 });
+    await store.replayRun('wf_c9d2f3');
+
+    const [named, whole] = asked;
+
+    expect(named?.detail).toBe(
+      messages.replayRowLinkScoped('Ask for the details'),
+    );
+    expect(whole?.detail).toBeDefined();
+    expect(whole?.detail).not.toBe(named?.detail);
   });
 
   /** Forking writes into the project's database and

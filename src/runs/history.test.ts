@@ -204,6 +204,157 @@ describe('reading a project run history', () => {
 });
 
 /**
+ * The row the list has marked and opened out.
+ *
+ * The list's own mark, and nothing to do with the
+ * run somebody has open in its tab: only the list
+ * moves it, the newest run is marked until
+ * somebody picks another, and a read that no
+ * longer holds the marked run marks the newest
+ * instead.
+ */
+describe('the row the list has selected', () => {
+  const NEWER = { ...RUN_ROW, workflow_uuid: 'wf_newer' };
+  const OLDER = { ...RUN_ROW, workflow_uuid: 'wf_older', created_at: '500' };
+
+  /** A history over a ledger holding both, newest
+   *  first as the list reads them. */
+  function listing(): { db: ReturnType<typeof database>; read: History } {
+    const db = database();
+    db.rows = [NEWER, OLDER];
+
+    return { db, read: reading(db) };
+  }
+
+  /** How many times the list itself was read, apart
+   *  from the counts beside it. */
+  const listReads = (db: ReturnType<typeof database>): number =>
+    db.asked.filter((text) => text.includes('AS last_operation')).length;
+
+  it('selects the newest run once the list is read', async () => {
+    const { read } = listing();
+
+    expect(read.render().selected).toBeUndefined();
+
+    await read.refresh();
+
+    expect(read.render().selected).toBe('wf_newer');
+  });
+
+  it('keeps the selected run across a read that still has it', async () => {
+    const { read } = listing();
+    const changed = vi.fn();
+
+    await read.refresh();
+    read.onChanged(changed);
+    read.selectRow('wf_older');
+
+    expect(read.render().selected).toBe('wf_older');
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    await read.refresh();
+
+    expect(read.render().selected).toBe('wf_older');
+  });
+
+  it('falls back to the newest run when a read drops the selected one', async () => {
+    const { db, read } = listing();
+
+    await read.refresh();
+    read.selectRow('wf_older');
+    db.rows = [NEWER];
+    await read.setFilter('failed');
+
+    expect(read.render().selected).toBe('wf_newer');
+  });
+
+  it('selects nothing on an empty page', async () => {
+    const { db, read } = listing();
+
+    await read.refresh();
+    expect(read.render().selected).toBe('wf_newer');
+
+    db.rows = [];
+    await read.refresh();
+
+    expect(read.render().selected).toBeUndefined();
+  });
+
+  it('selects the newest run for an id the page does not hold', async () => {
+    const { read } = listing();
+
+    await read.refresh();
+    read.selectRow('wf_older');
+    read.selectRow('wf_nowhere');
+
+    expect(read.render().selected).toBe('wf_newer');
+  });
+
+  /**
+   * A run started under Failed is not on a page of
+   * failed runs yet, and the person who started it
+   * is looking for it.
+   */
+  it('reads a run this window started under All, and selects it', async () => {
+    const { db, read } = listing();
+
+    await read.setFilter('failed');
+    db.rows = [{ ...RUN_ROW, workflow_uuid: 'wf_started' }, NEWER];
+    const before = listReads(db);
+
+    await read.started('wf_started');
+
+    expect(read.render().filter).toBe('all');
+    expect(read.render().selected).toBe('wf_started');
+    expect(listReads(db)).toBe(before + 1);
+  });
+
+  /**
+   * The list is read again whenever a run this
+   * window started moves, and whatever else the
+   * window draws in the meantime still draws the
+   * page somebody is looking at — which is also the
+   * page a row picked meanwhile was picked on.
+   */
+  it('keeps the page and a row picked on it while it reads again', async () => {
+    const { db } = listing();
+    let waiting = 0;
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holding = false;
+    const read = reading({
+      ...db,
+      query: async <Row>(text: string, values: unknown[]) => {
+        if (holding) {
+          waiting += 1;
+          await gate;
+        }
+
+        return await db.query<Row>(text, values);
+      },
+    });
+
+    await read.refresh();
+    holding = true;
+    const again = read.refresh();
+    await vi.waitFor(() => expect(waiting).toBe(1));
+
+    expect(read.render().rows.map((row) => row.workflowId)).toEqual([
+      'wf_newer',
+      'wf_older',
+    ]);
+
+    read.selectRow('wf_older');
+    release();
+    await again;
+
+    expect(read.render().selected).toBe('wf_older');
+  });
+});
+
+/**
  * Stopping a run, and picking a stopped one back up.
  *
  * Both are by id rather than by whatever is on

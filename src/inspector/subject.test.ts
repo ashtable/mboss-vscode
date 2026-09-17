@@ -568,7 +568,11 @@ describe('a block picked on the run tab', () => {
  * since reading them reads every document on disk.
  */
 describe('what a trigger block knows of the Runs input', () => {
-  const PROBLEM = { detail: 'The app is not up.', rebuildToRun: false };
+  const PROBLEM = {
+    detail: 'The app is not up.',
+    rebuildToRun: false,
+    workflowId: 'wf_refused',
+  };
 
   /** What the Runs view answers about this document,
    *  whatever it is asked, with every path it was

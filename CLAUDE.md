@@ -363,10 +363,14 @@ none of that.
   the same ledger as the list and **borrows the connection** rather than
   opening one: what a read learns about somebody's database is a fact about
   the project, so `history.connection()`/`read()` are lent and the list is
-  what says it. `list()` composes their renders into `RunsInit`, adding which
-  row is marked from the open run; `store.see()` is the whole run page, tab
-  and all, so nothing carries the tab separately. `view.ts` turns a row into
-  words. Each zone's spec builds only that zone's
+  what says it. `list()` composes their renders into `RunsInit`; the row the
+  list marks is `history.ts`'s own (`selectRow`), never the run `select`
+  opens. A stack command is followed by the reads `refresh()` makes, and a
+  run this window set going is marked and the list read again when its watch
+  first reports it, then whenever its status or word moves.
+  `store.see()` is the whole run page, tab and all, so nothing carries the
+  tab separately. `view.ts` turns a row into words.
+  Each zone's spec builds only that zone's
   collaborators from `src/test-support/runs.ts`. Hand-composed parameterised
   `SELECT`s over `dbos.workflow_status` / `dbos.operation_outputs` via `pg`
   (`queries.test.ts` enforces SELECT-only, the `dbos.` prefix and `$n` binds);
