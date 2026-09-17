@@ -369,6 +369,118 @@ export function drawnUnder(
  *  that times the wait out. */
 const PARKS: readonly string[] = ['DBOS.recv', 'DBOS.sleep'];
 
+/** One row of a run's trace, with the rows the SDK
+ *  wrote beside it, in the order they ran. */
+export type TraceRow = {
+  operation: Operation;
+
+  /** The block it is drawn under. */
+  nodeId: string;
+
+  sdk: Operation[];
+};
+
+/** A run's rows as the trace lays them out, and the
+ *  rows no block is drawn under. */
+export type Trace = {
+  rows: TraceRow[];
+
+  unattributed: Operation[];
+};
+
+/**
+ * The rows, laid out the way the run tab's trace
+ * draws them.
+ *
+ * Nested by `drawnUnder` rather than by where a row
+ * happens to fall. An SDK row filed under whatever
+ * block row came just before it could sit under one
+ * block while picking it selects another; so it
+ * sits beside the last row of its own block before
+ * it, or the first one after it where its block had
+ * not written one yet.
+ *
+ * Nothing is dropped. An SDK row whose block wrote
+ * no row of its own is a row of the trace in its
+ * own right, and a row drawn under no block — one
+ * naming a block the document lost, or an SDK row
+ * before any block row — is kept apart rather than
+ * filed under a block it did not run in.
+ */
+export function traceOf(
+  steps: readonly Operation[],
+  owners: ReadonlyMap<number, string>,
+): Trace {
+  const placed = drawnUnder(steps, owners);
+  const written = new Set(
+    steps.flatMap((step) =>
+      step.owner === 'node' && step.nodeId !== undefined ? [step.nodeId] : [],
+    ),
+  );
+
+  const rows: TraceRow[] = [];
+  const unattributed: Operation[] = [];
+
+  // The latest row of each block so far, and the
+  // SDK rows waiting for their block's first row.
+  const latest = new Map<string, TraceRow>();
+  const early = new Map<string, Operation[]>();
+
+  for (const step of steps) {
+    const nodeId = placed.get(step.functionId);
+
+    if (nodeId === undefined) {
+      unattributed.push(step);
+      continue;
+    }
+
+    if (step.owner === 'node' || !written.has(nodeId)) {
+      const row = { operation: step, nodeId, sdk: early.get(nodeId) ?? [] };
+
+      early.delete(nodeId);
+      latest.set(nodeId, row);
+      rows.push(row);
+      continue;
+    }
+
+    const beside = latest.get(nodeId);
+
+    if (beside !== undefined) {
+      beside.sdk.push(step);
+    } else {
+      early.set(nodeId, [...(early.get(nodeId) ?? []), step]);
+    }
+  }
+
+  return { rows, unattributed };
+}
+
+/**
+ * The row a block is headed by: its latest failure,
+ * else its latest row.
+ *
+ * A block that failed on its third item is being
+ * looked at because of that item, and burying it
+ * under two that worked would answer a question
+ * nobody asked. A row the SDK wrote under the block
+ * is never it: that row is the machinery a block
+ * runs on, drawn when somebody picks it in the
+ * trace, and a block headed by it would lead with a
+ * `DBOS.sleep` rather than with what the block did.
+ *
+ * Here beside `drawnUnder` rather than with either
+ * reader, because the pane's face and the row the
+ * run tab marks for a picked block both ask it, and
+ * two copies could come to mark different rows.
+ */
+export function headlineRow<Row extends { state: StepState; sdk?: boolean }>(
+  rows: readonly Row[],
+): Row | undefined {
+  const own = rows.filter((row) => row.sdk !== true);
+
+  return own.findLast((row) => row.state === 'failed') ?? own.at(-1);
+}
+
 /**
  * One row, attributed.
  *

@@ -1,6 +1,7 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { vi } from 'vitest';
 
@@ -554,6 +555,31 @@ export function timerThenAnswerRun(
     ],
   });
 }
+
+/**
+ * The intake form's own document: a form sent, a
+ * wait on the answer that gives up after three
+ * days, and a step that records it.
+ *
+ * Core's fixture rather than a copy, because core's
+ * walk is what gives the wait the `DBOS.recv` and
+ * `DBOS.sleep` it parks on, and a copy that drifted
+ * from the plan the emitter writes would be a
+ * document the walk no longer describes.
+ */
+export const FORM_INTAKE: WorkflowIR = WorkflowIRSchema.parse(
+  JSON.parse(
+    readFileSync(
+      fileURLToPath(
+        new URL(
+          '../../mboss-core/fixtures/ir/form_intake.workflow.json',
+          import.meta.url,
+        ),
+      ),
+      'utf8',
+    ),
+  ),
+);
 
 /**
  * The rows a tick would have read to produce a

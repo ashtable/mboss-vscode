@@ -1,16 +1,22 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-
 import { describe, expect, it } from 'vitest';
 
 import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
 import {
+  FORM_INTAKE,
   TIMER_THEN_ANSWER,
   TIMER_WAKES_AT,
   timerThenAnswerRows,
 } from '../test-support/runs.js';
 
-import { drawnUnder, readRun, type Operation } from './reading.js';
+import {
+  drawnUnder,
+  headlineRow,
+  readRun,
+  traceOf,
+  type Operation,
+  type StepState,
+  type Trace,
+} from './reading.js';
 import { errorIn, OUTPUT_KEPT, type Run, type Step } from './rows.js';
 
 /**
@@ -331,23 +337,6 @@ describe('what a block recorded', () => {
  * rather than about the ledger.
  */
 describe('a wait the run is sitting out on the clock', () => {
-  /** The intake form's own document, which core's
-   *  walk gives its park's `DBOS.recv` and
-   *  `DBOS.sleep` to the wait. */
-  const FORM_INTAKE = WorkflowIRSchema.parse(
-    JSON.parse(
-      readFileSync(
-        fileURLToPath(
-          new URL(
-            '../../mboss-core/fixtures/ir/form_intake.workflow.json',
-            import.meta.url,
-          ),
-        ),
-        'utf8',
-      ),
-    ),
-  );
-
   /** The same timer document with a second way out
    *  of its trigger, which the compiler refuses to
    *  describe: it follows one wire out of a block. */
@@ -660,6 +649,139 @@ describe('which block a row is drawn under', () => {
     expect(drawnUnder(rows, new Map())).toEqual(
       new Map([[2, 'record_intake']]),
     );
+  });
+
+  /**
+   * The trace draws a block's own rows in the order
+   * they ran, and each row the SDK wrote beside the
+   * row of that block it ran after. Nothing is
+   * dropped on the way: a row drawn under no block
+   * is kept apart, and an SDK row whose block wrote
+   * no row of its own is a row of the trace itself.
+   */
+  describe('and which of that block’s rows it sits beside', () => {
+    /** The trace by handles: each row, its block and
+     *  the SDK rows beside it, then the rows apart. */
+    function handles(trace: Trace) {
+      return {
+        rows: trace.rows.map((one) => [
+          one.operation.functionId,
+          one.nodeId,
+          one.sdk.map((sdk) => sdk.functionId),
+        ]),
+        apart: trace.unattributed.map((one) => one.functionId),
+      };
+    }
+
+    it('keeps a block’s rows in order, the SDK’s beside the one before', () => {
+      const rows = [
+        row(0, 'ask_details', 'node', 'ask_details'),
+        row(1, 'await_details.register', 'node', 'await_details'),
+        row(2, 'DBOS.recv', 'sdk'),
+        row(3, 'DBOS.sleep', 'sdk'),
+        row(4, 'await_details.clear', 'node', 'await_details'),
+        row(5, 'record_intake', 'node', 'record_intake'),
+      ];
+
+      expect(handles(traceOf(rows, new Map()))).toEqual({
+        rows: [
+          [0, 'ask_details', []],
+          [1, 'await_details', [2, 3]],
+          [4, 'await_details', []],
+          [5, 'record_intake', []],
+        ],
+        apart: [],
+      });
+    });
+
+    it('puts an SDK row beside its own block’s row, not just the last', () => {
+      const rows = [
+        row(0, 'await_details.register', 'node', 'await_details'),
+        row(1, 'record_intake', 'node', 'record_intake'),
+        row(2, 'DBOS.recv', 'sdk'),
+      ];
+
+      expect(handles(traceOf(rows, new Map([[2, 'await_details']])))).toEqual({
+        rows: [
+          [0, 'await_details', [2]],
+          [1, 'record_intake', []],
+        ],
+        apart: [],
+      });
+    });
+
+    it('puts one that ran before its block’s first row beside that row', () => {
+      const rows = [
+        row(0, 'DBOS.recv', 'sdk'),
+        row(1, 'DBOS.sleep', 'sdk'),
+        row(2, 'await_details.register', 'node', 'await_details'),
+      ];
+      const owners = new Map([
+        [0, 'await_details'],
+        [1, 'await_details'],
+      ]);
+
+      expect(handles(traceOf(rows, owners))).toEqual({
+        rows: [[2, 'await_details', [0, 1]]],
+        apart: [],
+      });
+    });
+
+    it('draws one whose block wrote no row as a row of its own', () => {
+      const rows = [
+        row(0, 'ask_details', 'node', 'ask_details'),
+        row(1, 'DBOS.sleep', 'sdk'),
+      ];
+      const trace = traceOf(rows, new Map([[1, 'let_it_wait']]));
+
+      expect(handles(trace)).toEqual({
+        rows: [
+          [0, 'ask_details', []],
+          [1, 'let_it_wait', []],
+        ],
+        apart: [],
+      });
+      expect(trace.rows[1]?.operation.owner).toBe('sdk');
+    });
+
+    it('keeps apart every row drawn under no block', () => {
+      const rows = [
+        row(0, 'DBOS.recv', 'sdk'),
+        row(1, 'deleted_block', 'unmapped'),
+        row(2, 'record_intake', 'node', 'record_intake'),
+        row(3, 'Not A Name', 'unmapped'),
+      ];
+
+      expect(handles(traceOf(rows, new Map()))).toEqual({
+        rows: [[2, 'record_intake', []]],
+        apart: [0, 1, 3],
+      });
+    });
+  });
+});
+
+/**
+ * The row a block leads with, wherever a block is
+ * shown with its rows: the pane's face, and the row
+ * the run tab marks for a block picked on its graph.
+ * One rule for both, so the two cannot mark
+ * different rows for the same pick.
+ */
+describe('the row a block is headed by', () => {
+  const row = (
+    functionId: number,
+    state: StepState = 'done',
+    sdk?: boolean,
+  ) => ({ functionId, state, ...(sdk === undefined ? {} : { sdk }) });
+
+  it('is the last failure, else the last row, and never an SDK row', () => {
+    const failed = row(1, 'failed');
+
+    expect(headlineRow([row(0), failed, row(2)])).toBe(failed);
+    expect(headlineRow([row(0), row(1)])?.functionId).toBe(1);
+    expect(headlineRow([row(0), row(1, 'failed', true)])?.functionId).toBe(0);
+    expect(headlineRow([])).toBeUndefined();
+    expect(headlineRow([row(0, 'done', true)])).toBeUndefined();
   });
 });
 

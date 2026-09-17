@@ -12,9 +12,11 @@ import {
   type WorkflowIR,
 } from '../core/rules.js';
 import type { QueueEvidence } from '../runs/queueEvidence.js';
-import { INLINE_LIMIT, stepError } from '../runs/rows.js';
+import { INLINE_LIMIT, stepError, type Run, type Step } from '../runs/rows.js';
+import { runTabOf, seeInit, type SeeView } from '../runs/view.js';
 import type { LiveStep, QueueCounts } from '../runs/watch.js';
 import {
+  FORM_INTAKE,
   TIMER_THEN_ANSWER,
   TIMER_WAKES_AT,
   liveRun,
@@ -420,6 +422,99 @@ describe('the row a block is headed by', () => {
     expect(found.rows.map((one) => one.functionId)).toEqual([4, 5]);
     expect(found.drawn?.functionId).toBe(4);
     expect(found.rows.map((one) => one.sdk)).toEqual([false, true]);
+  });
+});
+
+/**
+ * The run tab marks a row for a block picked on its
+ * graph, and the pane draws a row for the same pick.
+ * They are one row, or the trace would point at one
+ * thing while the pane described another.
+ */
+describe('the row the run tab marks for a block picked on its graph', () => {
+  const RUN_OF: Run = {
+    workflowId: 'wf_intake',
+    name: FORM_INTAKE.name,
+    status: 'SUCCESS',
+    recoveryAttempts: 1,
+    executorId: 'local',
+    applicationVersion: undefined,
+    createdAt: 1000,
+    startedAt: 1000,
+    completedAt: 5000,
+    error: undefined,
+    forkedFrom: undefined,
+    wasForkedFrom: false,
+  };
+
+  /** The intake form's rows, in the order given,
+   *  with a failure where a case asks for one. */
+  function rows(...names: (string | [string, 'failed'])[]): Step[] {
+    return names.map((one, index) => {
+      const name = typeof one === 'string' ? one : one[0];
+
+      return {
+        functionId: index,
+        name,
+        startedAt: 1000 + index * 100,
+        completedAt: 1050 + index * 100,
+        output: '{}',
+        error: undefined,
+        childWorkflowId: undefined,
+        ...(typeof one === 'string' ? {} : { failure: { message: 'refused' } }),
+      };
+    });
+  }
+
+  const PARKED = [
+    'ask_details',
+    'await_details.register',
+    'DBOS.recv',
+    'DBOS.sleep',
+    'await_details.clear',
+  ];
+
+  it('is the row the pane draws for that block', () => {
+    const now = Date.now();
+    const cases: [Step[], (number | undefined)[]][] = [
+      [rows(...PARKED, 'record_intake'), [undefined, 0, 4, 5]],
+      [
+        rows(...PARKED, ['record_intake', 'failed'], 'record_intake'),
+        [undefined, 0, 4, 5],
+      ],
+    ];
+
+    for (const [steps, expected] of cases) {
+      const view: SeeView = {
+        run: RUN_OF,
+        steps,
+        selectedStep: undefined,
+        note: undefined,
+        ir: FORM_INTAKE,
+      };
+      const ids = FORM_INTAKE.nodes.map((node) => node.id);
+
+      const marked = ids.map(
+        (nodeId) =>
+          seeInit({ ...view, selectedNode: nodeId }).run?.selected.functionId,
+      );
+      const drawn = ids.map(
+        (nodeId) =>
+          blockEvidenceOf(
+            {
+              run: runTabOf(view, now).inspected,
+              document: FORM_INTAKE,
+              nodeId,
+              decided: {},
+              functionId: undefined,
+            },
+            strings,
+          ).drawn?.functionId,
+      );
+
+      expect(marked).toEqual(expected);
+      expect(marked).toEqual(drawn);
+    }
   });
 });
 

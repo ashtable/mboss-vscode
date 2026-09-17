@@ -7,7 +7,7 @@ import {
   timerThenAnswerRows,
 } from '../test-support/runs.js';
 
-import { decidedArms, groupsOf } from './operations.js';
+import { decidedArms, groupsOf, wakeOf } from './operations.js';
 import { readRun, type Operation } from './reading.js';
 import { errorIn, type Run, type Step } from './rows.js';
 
@@ -258,20 +258,13 @@ describe('how the rows group', () => {
   });
 
   /**
-   * The option is declared and threaded here and
-   * changes nothing yet. What separates the two
-   * answers is a group drawn from a sleep row, and
-   * that is only drawn where the project's SDK
-   * records one.
-   */
-  /**
    * The moment a block wakes is read off a row the
    * SDK writes beside a wait, and an older SDK
    * writes no such row — so whether it may be read
    * at all is the host's answer, and this file
    * cannot ask.
    */
-  it('says when a sleeping block wakes, where it may read timings', () => {
+  it('says nothing about a wake in a group where it may not', () => {
     const found = operationsOf(
       RUN,
       [
@@ -287,30 +280,45 @@ describe('how the rows group', () => {
       IR,
     );
 
-    expect(groupsOf(found, { timing: true })[0]?.wakesAt).toEqual({
+    expect(groupsOf(found, { timing: true })[0]?.wakesAt).toBeDefined();
+    expect(groupsOf(found, { timing: false })[0]?.wakesAt).toBeUndefined();
+    expect(groupsOf(found)[0]?.wakesAt).toBeUndefined();
+  });
+});
+
+/**
+ * When a sleep row says the run wakes, asked of the
+ * row itself: the trace draws the moment on the row
+ * that recorded it, whichever block it sits under.
+ */
+describe('the moment a sleep row names', () => {
+  /** The wake off one of the rows a case read. */
+  function wakeIn(row: Operation | undefined) {
+    if (row === undefined) throw new Error('no such row');
+
+    return wakeOf(row);
+  }
+
+  it('is when a sleeping block wakes', () => {
+    const [, sleep] = operationsOf(
+      RUN,
+      [
+        step({ functionId: 0, name: 'charge_each' }),
+        step({
+          functionId: 1,
+          name: 'DBOS.sleep',
+          startedAt: 1000,
+          completedAt: 90_000,
+          output: '90000',
+        }),
+      ],
+      IR,
+    );
+
+    expect(wakeIn(sleep)).toEqual({
       at: 90_000,
       kind: 'sleep',
     });
-  });
-
-  it('says nothing about it where it may not', () => {
-    const found = operationsOf(
-      RUN,
-      [
-        step({ functionId: 0, name: 'charge_each' }),
-        step({
-          functionId: 1,
-          name: 'DBOS.sleep',
-          startedAt: 1000,
-          completedAt: 90_000,
-          output: '90000',
-        }),
-      ],
-      IR,
-    );
-
-    expect(groupsOf(found, { timing: false })[0]?.wakesAt).toBeUndefined();
-    expect(groupsOf(found)[0]?.wakesAt).toBeUndefined();
   });
 
   /**
@@ -321,12 +329,14 @@ describe('how the rows group', () => {
    * row rather than off what it is called would
    * lose it exactly where the block is drawn.
    */
-  it('reads the wake off a row a wait on the clock owns', () => {
-    const found = operationsOf(RUN, timerThenAnswerRows(), TIMER_THEN_ANSWER);
-    const [first] = groupsOf(found, { timing: true });
+  it('is read off a row a wait on the clock owns', () => {
+    const [sleep] = operationsOf(RUN, timerThenAnswerRows(), TIMER_THEN_ANSWER);
 
-    expect(first?.nodeId).toBe('let_it_wait');
-    expect(first?.wakesAt).toEqual({ at: TIMER_WAKES_AT, kind: 'sleep' });
+    expect(sleep?.nodeId).toBe('let_it_wait');
+    expect(wakeIn(sleep)).toEqual({
+      at: TIMER_WAKES_AT,
+      kind: 'sleep',
+    });
   });
 
   /**
@@ -335,7 +345,7 @@ describe('how the rows group', () => {
    * because the run wakes when somebody answers.
    */
   it('tells a timeout marker from a sleep by its width', () => {
-    const found = operationsOf(
+    const [, sleep] = operationsOf(
       RUN,
       [
         step({ functionId: 0, name: 'manager_ok.register' }),
@@ -350,10 +360,26 @@ describe('how the rows group', () => {
       IR,
     );
 
-    expect(groupsOf(found, { timing: true })[0]?.wakesAt).toEqual({
+    expect(wakeIn(sleep)).toEqual({
       at: 90_000,
       kind: 'timeout',
     });
+  });
+
+  it('is nothing for any other row, or a deadline that is no number', () => {
+    const [own, sleep] = operationsOf(
+      RUN,
+      [
+        step({ functionId: 0, name: 'charge_each', output: '90000' }),
+        step({ functionId: 1, name: 'DBOS.sleep', output: 'soon' }),
+      ],
+      IR,
+    );
+
+    expect(own?.name).toBe('charge_each');
+    expect(sleep?.name).toBe('DBOS.sleep');
+    expect(wakeIn(own)).toBeUndefined();
+    expect(wakeIn(sleep)).toBeUndefined();
   });
 });
 

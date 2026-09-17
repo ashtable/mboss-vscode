@@ -2,10 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import type { WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
-import { TIMER_THEN_ANSWER } from '../test-support/runs.js';
+import { FORM_INTAKE, TIMER_THEN_ANSWER } from '../test-support/runs.js';
 import { shortRunId } from '../webview/ids.js';
-import type { SeeRun } from '../webview/protocol.js';
+import type { SeeRun, TraceRowView } from '../webview/protocol.js';
 import type { RunWord } from '../webview/states.js';
+import { fine } from '../webview/time.js';
 
 import type { RecordedRunEvidence } from './evidence.js';
 import type { Run, Step } from './rows.js';
@@ -930,6 +931,24 @@ describe('one run, as the run page draws it', () => {
     return shown;
   }
 
+  /** Every row the trace carries: the SDK's under
+   *  their block rows, then the ones nothing owns. */
+  function rows(run: SeeRun): TraceRowView[] {
+    return [
+      ...run.trace.flatMap((row) => [row, ...row.sdk]),
+      ...run.unattributed,
+    ];
+  }
+
+  /** The trace row a case is about, by the number
+   *  DBOS gave it. */
+  function rowAt(run: SeeRun, functionId: number): TraceRowView {
+    const found = rows(run).find((one) => one.functionId === functionId);
+    if (found === undefined) throw new Error(`no row ${functionId}`);
+
+    return found;
+  }
+
   /**
    * Every row a person can see carries whether a
    * replay may begin there, so a chip or a trace row
@@ -939,11 +958,7 @@ describe('one run, as the run page draws it', () => {
   it('says which rows a replay could start from', () => {
     const shown = page();
 
-    expect(
-      shown.groups
-        .flatMap((group) => group.operations)
-        .map((one) => [one.name, one.replayable]),
-    ).toEqual([
+    expect(rows(shown).map((one) => [one.name, one.replayable])).toEqual([
       ['parse_request', true],
       ['find_slot', true],
     ]);
@@ -1003,17 +1018,18 @@ describe('one run, as the run page draws it', () => {
   it('marks a reused chip and bar reused, and an own row not', () => {
     const shown = page({ run: REPLAY });
 
+    expect(rows(shown).map((one) => one.reused)).toEqual([true, false]);
     expect(shown.chips.map((chip) => chip.reused)).toEqual([true, false]);
     expect(shown.timeline.bars.map((bar) => bar.reused)).toEqual([true, false]);
   });
 
-  it('carries the groups, the graph, the selection and the input', () => {
+  it('carries the trace, the graph, the selection and the input', () => {
     const shown = page({ selectedNode: 'find_slot', following: 'following' });
 
     expect(shown.graph?.caption).toBe('workflow as saved · revision 4');
     expect(shown.noGraph).toBeUndefined();
     expect(shown.graph?.ir.name).toBe('groom_booking');
-    expect(shown.groups.map((group) => group.nodeId)).toEqual([
+    expect(shown.trace.map((row) => row.nodeId)).toEqual([
       'parse_request',
       'find_slot',
     ]);
@@ -1052,6 +1068,11 @@ describe('one run, as the run page draws it', () => {
     expect(shown.groups[0]?.title).toBe('');
   });
 
+  /**
+   * Times are read in whatever zone the machine is
+   * in, so the moment is asked of the same clock the
+   * page uses rather than typed.
+   */
   it('projects a group of one own row as that row', () => {
     const [first] = page().groups;
 
@@ -1059,7 +1080,18 @@ describe('one run, as the run page draws it', () => {
     expect(first?.qualifier).toBeUndefined();
     expect(first?.operations).toHaveLength(1);
     expect(first?.operations[0]?.owner).toBe('node');
-    expect(first?.operations[0]?.at).toMatch(/\d{2}:\d{2}:\d{2}\.\d{3}/);
+    expect(first?.operations[0]?.at).toBe(fine(1000));
+  });
+
+  it('draws a block’s own row as one trace row', () => {
+    const [first] = page().trace;
+
+    expect(first?.name).toBe('parse_request');
+    expect(first?.owner).toBe('node');
+    expect(first?.nodeId).toBe('parse_request');
+    expect(first?.at).toBe(fine(1000));
+    expect(first?.duration).toBe('1.0 s');
+    expect(first?.sdk).toEqual([]);
   });
 
   /**
@@ -1085,6 +1117,410 @@ describe('one run, as the run page draws it', () => {
       ],
     });
     expect(broken.groups.map((group) => group.open)).toEqual([false, true]);
+  });
+
+  /**
+   * The trace, one recorded operation to a row, in
+   * the order DBOS numbered them: how long each
+   * took, one line about what it did, the SDK's own
+   * rows under the block row they ran beside, and a
+   * row no block owns kept apart rather than filed
+   * under a block it did not run in.
+   */
+  describe('a run’s trace, row by row', () => {
+    const DAY = 86_400_000;
+
+    /** When the intake form's wait gives up, three
+     *  days after the page is read. */
+    const DEADLINE = Date.now() + 3 * DAY;
+
+    /** What a `void` step leaves: `null`, with the
+     *  serializer's note that it was nothing. */
+    const RETURNED_NOTHING =
+      '{"json":null,"meta":{"values":["undefined"]},' +
+      '"__dbos_serializer":"superjson"}';
+
+    /** A run of a document, still going on its first
+     *  dispatch, with the rows it has written. */
+    function running(
+      ir: WorkflowIR | undefined,
+      steps: Step[],
+      over: Partial<SeeView> = {},
+    ): SeeRun {
+      return page({
+        run: {
+          ...RUN,
+          status: 'PENDING',
+          recoveryAttempts: 1,
+          completedAt: undefined,
+        },
+        steps,
+        selectedStep: undefined,
+        ir,
+        boxes: undefined,
+        ...over,
+      });
+    }
+
+    /** Rows in the order DBOS numbered them, a tenth
+     *  of a second apart. */
+    function named(...names: string[]): Step[] {
+      return names.map((name, index) => ({
+        ...step(index, 1000 + index * 100, 1050 + index * 100),
+        name,
+      }));
+    }
+
+    /** The intake form parked on its answer: the
+     *  message is not in yet, so only the sleep that
+     *  times the wait out is recorded, and it has no
+     *  width. */
+    const PARKED: Step[] = [
+      { ...step(0, 4000, 4100), name: 'ask_details' },
+      { ...step(1, 4900, 5000), name: 'await_details.register' },
+      {
+        ...step(3, 5100, 5100),
+        name: 'DBOS.sleep',
+        output: String(DEADLINE),
+      },
+    ];
+
+    /** The sleep a wait on the clock writes, due at
+     *  `at`. */
+    function sleepUntil(at: number): Step {
+      return { ...step(0, 1000, at), name: 'DBOS.sleep', output: String(at) };
+    }
+
+    /** Every part of a row's line that says anything. */
+    function said(row: TraceRowView): string[] {
+      const { derived, plain, verbatim } = row.detail;
+
+      return [derived, plain, verbatim].flatMap((part) =>
+        part === undefined ? [] : [part],
+      );
+    }
+
+    /**
+     * A child start is written with one clock read
+     * for both ends, so its length is always nothing;
+     * a sleep's end is a deadline, not something that
+     * happened.
+     */
+    it('times each row it can, and no child start and no sleep', () => {
+      const shown = page({
+        steps: [
+          { ...step(0, 0, 1000), name: 'parse_request' },
+          { ...step(1, 1000, 2000), name: 'find_slot' },
+          {
+            ...step(2, 2000, 2000),
+            name: 'find_slot',
+            childWorkflowId: 'wf_child',
+          },
+          { ...step(3, 2000, 90_000), name: 'DBOS.sleep', output: '90000' },
+          { ...step(4, 0, 2100), name: 'find_slot', startedAt: undefined },
+        ],
+      });
+
+      expect([0, 1, 2, 3, 4].map((id) => rowAt(shown, id).duration)).toEqual([
+        '1.0 s',
+        '1.0 s',
+        undefined,
+        undefined,
+        undefined,
+      ]);
+    });
+
+    it('says what a row returned, and that it was reused first', () => {
+      const shown = page({ run: { ...REPLAY, recoveryAttempts: 1 } });
+
+      expect(rowAt(shown, 0).detail).toEqual({
+        derived: 'reused · ',
+        plain: undefined,
+        verbatim: '{ "n": 0 }',
+      });
+      expect(rowAt(shown, 1).detail).toEqual({
+        derived: undefined,
+        plain: undefined,
+        verbatim: '{ "n": 1 }',
+      });
+    });
+
+    /**
+     * The recovered run's widest hole comes after its
+     * first two rows, which therefore came back from
+     * the ledger. A replay created after the first
+     * finished carried that one over as well.
+     */
+    it('says a row was restored before it says it was reused', () => {
+      const recovered = page({ steps: STEPS, ir: undefined, boxes: undefined });
+      const replayed = page({
+        run: { ...RUN, createdAt: 1500 },
+        steps: STEPS,
+        ir: undefined,
+        boxes: undefined,
+      });
+
+      expect([0, 1, 2].map((id) => rowAt(recovered, id).detail)).toEqual([
+        { derived: 'restored · ', plain: undefined, verbatim: '{ "n": 0 }' },
+        { derived: 'restored · ', plain: undefined, verbatim: '{ "n": 1 }' },
+        { derived: undefined, plain: undefined, verbatim: '{ "n": 2 }' },
+      ]);
+      expect(rowAt(replayed, 0).detail.derived).toBe('restored · reused · ');
+    });
+
+    it('names the block where a row returned nothing', () => {
+      const shown = page({
+        steps: [
+          {
+            ...step(0, 0, 1000),
+            name: 'parse_request',
+            output: RETURNED_NOTHING,
+          },
+          { ...step(1, 1000, 2000), name: 'find_slot', output: undefined },
+        ],
+      });
+
+      expect(rowAt(shown, 0).detail).toEqual({
+        derived: undefined,
+        plain: 'Parse',
+        verbatim: undefined,
+      });
+      expect(rowAt(shown, 1).detail).toEqual({
+        derived: undefined,
+        plain: 'Find a slot',
+        verbatim: undefined,
+      });
+    });
+
+    it('says what a failed row threw, the message as recorded', () => {
+      const shown = page({
+        steps: [
+          {
+            ...step(0, 0, 1000),
+            name: 'parse_request',
+            failure: { message: 'no body' },
+          },
+          {
+            ...step(1, 1000, 2000),
+            name: 'find_slot',
+            failure: { name: 'TypeError', message: 'no slot' },
+          },
+          { ...step(2, 2000, 2100), name: 'find_slot' },
+        ],
+      });
+
+      expect(rowAt(shown, 1).detail).toEqual({
+        derived: undefined,
+        plain: 'TypeError',
+        verbatim: 'no slot',
+      });
+      expect(rowAt(shown, 0).detail).toEqual({
+        derived: undefined,
+        plain: undefined,
+        verbatim: 'no body',
+      });
+      expect([0, 1, 2].map((id) => rowAt(shown, id).detailTone)).toEqual([
+        'fail',
+        'fail',
+        'faint',
+      ]);
+    });
+
+    /**
+     * Only while it is parked: once the answer is in,
+     * the registration is a row like any other and
+     * says what it returned.
+     */
+    it('says when a parked wait began and gives up, only while parked', () => {
+      const untimed = structuredClone(FORM_INTAKE);
+      for (const node of untimed.nodes) {
+        if (node.kind === 'durableWait') delete node.config.timeoutDays;
+      }
+
+      const shown = running(FORM_INTAKE, PARKED, { timing: true });
+      const bare = running(untimed, PARKED, { timing: true });
+      const answered = running(FORM_INTAKE, [
+        ...PARKED,
+        { ...step(4, 6000, 6100), name: 'await_details.clear' },
+      ]);
+
+      expect(rowAt(answered, 1).state).toBe('done');
+      expect(rowAt(answered, 1).detail).toEqual({
+        derived: undefined,
+        plain: undefined,
+        verbatim: '{ "n": 1 }',
+      });
+
+      expect(rowAt(shown, 1).state).toBe('waiting');
+      expect(rowAt(shown, 1).detail).toEqual({
+        derived: `waiting since ${fine(5000)} · timeout 3 d`,
+        plain: undefined,
+        verbatim: undefined,
+      });
+      expect(rowAt(bare, 1).detail.derived).toBe(`waiting since ${fine(5000)}`);
+    });
+
+    /**
+     * The deadline is the one the SDK wrote, and it
+     * is said as a moment: the number itself is the
+     * ledger's, never the page's.
+     */
+    it('says when a sleeping wait wakes or woke, under the gate', () => {
+      const ahead = Date.now() + DAY;
+      const asleep = running(TIMER_THEN_ANSWER, [sleepUntil(ahead)], {
+        timing: true,
+      });
+      const woken = running(TIMER_THEN_ANSWER, [sleepUntil(90_000)], {
+        timing: true,
+      });
+      const parked = running(FORM_INTAKE, PARKED, { timing: true });
+
+      expect(rowAt(asleep, 0).detail.derived).toBe(`wakes ${fine(ahead)}`);
+      expect(rowAt(woken, 0).detail.derived).toBe(`woke ${fine(90_000)}`);
+      expect(rowAt(parked, 3).detail.derived).toBe(
+        `times out ${fine(DEADLINE)}`,
+      );
+
+      expect(said(rowAt(asleep, 0)).join()).not.toContain(String(ahead));
+      expect(said(rowAt(woken, 0)).join()).not.toContain('90000');
+      expect(said(rowAt(parked, 3)).join()).not.toContain(String(DEADLINE));
+    });
+
+    /**
+     * An older SDK does not write the row the moment
+     * is read from, so where the host has not said it
+     * does, the row names its block instead.
+     */
+    it('says no wake and no deadline below the gate', () => {
+      const ahead = Date.now() + DAY;
+
+      for (const over of [{ timing: false }, {}]) {
+        const shown = running(TIMER_THEN_ANSWER, [sleepUntil(ahead)], over);
+
+        expect(rowAt(shown, 0).detail).toEqual({
+          derived: undefined,
+          plain: 'Let it wait',
+          verbatim: undefined,
+        });
+      }
+
+      expect(
+        rowAt(running(FORM_INTAKE, PARKED, { timing: false }), 3).detail,
+      ).toEqual({
+        derived: undefined,
+        plain: 'Wait for the details',
+        verbatim: undefined,
+      });
+    });
+
+    it('puts the SDK’s rows under the block row they ran beside', () => {
+      const shown = running(
+        FORM_INTAKE,
+        named(
+          'ask_details',
+          'await_details.register',
+          'DBOS.recv',
+          'DBOS.sleep',
+          'await_details.clear',
+          'record_intake',
+        ),
+      );
+
+      expect(
+        shown.trace.map((row) => [
+          row.functionId,
+          row.nodeId,
+          row.sdk.map((one) => one.functionId),
+          row.sdkLabel,
+        ]),
+      ).toEqual([
+        [0, 'ask_details', [], undefined],
+        [
+          1,
+          'await_details',
+          [2, 3],
+          'await_details.register · 2 durable operations',
+        ],
+        [4, 'await_details', [], undefined],
+        [5, 'record_intake', [], undefined],
+      ]);
+      expect(
+        shown.trace[1]?.sdk.map((one) => [
+          one.nodeId,
+          one.owner,
+          one.sdk,
+          one.sdkLabel,
+        ]),
+      ).toEqual([
+        ['await_details', 'sdk', [], undefined],
+        ['await_details', 'sdk', [], undefined],
+      ]);
+      expect(shown.unattributed).toEqual([]);
+    });
+
+    /**
+     * Named after the function the block runs where
+     * it runs one, since that is where those rows
+     * came from; after the row itself where it runs
+     * none. One operation is said as one.
+     */
+    it('puts an SDK row nobody placed under the block row before it', () => {
+      const steps = named('parse_request', 'DBOS.getStatus', 'find_slot');
+      const handled = {
+        ...IR,
+        nodes: IR.nodes.map((node) =>
+          node.id === 'parse_request'
+            ? { ...node, handler: { export: 'parseRequest' } }
+            : node,
+        ),
+      };
+
+      const plain = page({ steps });
+
+      expect(
+        plain.trace.map((row) => [
+          row.functionId,
+          row.sdk.map((one) => [one.functionId, one.nodeId]),
+        ]),
+      ).toEqual([
+        [0, [[1, 'parse_request']]],
+        [2, []],
+      ]);
+      expect(plain.trace[0]?.sdkLabel).toBe(
+        'parse_request · 1 durable operation',
+      );
+      expect(page({ steps, ir: handled }).trace[0]?.sdkLabel).toBe(
+        'parseRequest · 1 durable operation',
+      );
+    });
+
+    it('keeps a row no block owns apart', () => {
+      const deleted = page({ steps: named('deleted_block', 'parse_request') });
+      const early = page({ steps: named('DBOS.getEvent', 'parse_request') });
+      const lost = page({ ir: undefined, boxes: undefined });
+
+      expect(
+        deleted.unattributed.map((row) => [row.functionId, row.owner]),
+      ).toEqual([[0, 'unmapped']]);
+      expect(deleted.trace.map((row) => [row.functionId, row.sdk])).toEqual([
+        [1, []],
+      ]);
+      expect(
+        early.unattributed.map((row) => [row.functionId, row.owner]),
+      ).toEqual([[0, 'sdk']]);
+      expect(early.trace.map((row) => [row.functionId, row.sdk])).toEqual([
+        [1, []],
+      ]);
+      expect(lost.trace).toEqual([]);
+      expect(lost.unattributed.map((row) => row.name)).toEqual([
+        'parse_request',
+        'find_slot',
+      ]);
+      expect(lost.unattributed.map((row) => row.nodeId)).toEqual([
+        undefined,
+        undefined,
+      ]);
+    });
   });
 });
 

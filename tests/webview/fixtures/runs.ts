@@ -116,6 +116,8 @@ export function seeRun(over: Partial<SeeRun> = {}): SeeRun {
       ],
     }),
     groups: [],
+    trace: [],
+    unattributed: [],
     selected: { nodeId: undefined, functionId: 2 },
     showRaw: false,
     following: 'quiet',

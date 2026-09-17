@@ -6,8 +6,14 @@ import {
   sizeWords,
 } from '../canvas/words.js';
 import { replayBoundaries, type Unoffered } from '../core/index.js';
-import { ownerOf, type NodeBox, type WorkflowIR } from '../core/rules.js';
+import {
+  ownerOf,
+  type NodeBox,
+  type WorkflowIR,
+  type WorkflowNode,
+} from '../core/rules.js';
 import { messages } from '../messages.js';
+import { filled } from '../webview/fill.js';
 import { shortRunId } from '../webview/ids.js';
 import { inFlight, runWord, settled, type RunWord } from '../webview/states.js';
 import { clock, duration, fine } from '../webview/time.js';
@@ -26,8 +32,10 @@ import type {
   SeeRun,
   SeeTimeline,
   SessionRow,
+  TraceDetail,
   TraceGroupView,
   TraceOpView,
+  TraceRowView,
 } from '../webview/protocol.js';
 
 import type {
@@ -38,9 +46,21 @@ import type {
 } from './evidence.js';
 import type { Lineage } from './openRun.js';
 import { runWords, seeWords } from './words.js';
-import { decidedArms, groupsOf, type TraceGroup } from './operations.js';
+import {
+  decidedArms,
+  groupsOf,
+  wakeOf,
+  type TraceGroup,
+  type Wake,
+} from './operations.js';
 import { replayRowReason } from './replayZone.js';
-import { readRun, type Operation, type Reading } from './reading.js';
+import {
+  headlineRow,
+  readRun,
+  traceOf,
+  type Operation,
+  type Reading,
+} from './reading.js';
 import {
   hasRecovered,
   inlineJson,
@@ -312,9 +332,11 @@ function seeRun(view: SeeView): SeeRun {
   const { run, steps } = view;
 
   // One clock for the whole page, so that a bar's
-  // end and whether a timer has run out are answered
-  // about the same moment.
-  const reading = readView(view, Date.now());
+  // end, whether a timer has run out and whether a
+  // row says the run woke are all answered about
+  // the same moment.
+  const now = Date.now();
+  const reading = readView(view, now);
   const graph = graphOf(view, reading.steps);
 
   // Which rows a replay could start from, asked once
@@ -323,6 +345,8 @@ function seeRun(view: SeeView): SeeRun {
   // whose workflow is gone offers nothing rather
   // than everything.
   const points = boundariesOf(view);
+  const page: TracePage = { view, points, now };
+  const trace = traceOf(reading.steps, reading.owners);
 
   // The chart and the strip above it are about what
   // the workflow did, so the SDK's own rows are not
@@ -362,14 +386,224 @@ function seeRun(view: SeeView): SeeRun {
     groups: groupsOf(reading.steps, { timing: view.timing ?? false }).map(
       (group) => groupOf(group, view, points),
     ),
+    trace: trace.rows.map((row) =>
+      traceRowOf(row.operation, row.nodeId, row.sdk, page),
+    ),
+    unattributed: trace.unattributed.map((one) =>
+      traceRowOf(one, undefined, [], page),
+    ),
     selected: {
       nodeId: view.selectedNode,
-      functionId: view.selectedStep,
+      functionId: markedRow(view, reading),
     },
     showRaw: view.raw ?? false,
     following: view.following ?? 'quiet',
     input: inputOf(run),
   };
+}
+
+/**
+ * The row the trace marks: the one picked, else the
+ * one the picked block is headed by.
+ *
+ * Asked of the rows the Inspector is handed for the
+ * same run, by the same rule, so the row marked in
+ * the trace is the row the pane draws in full.
+ */
+function markedRow(view: SeeView, reading: Reading): number | undefined {
+  if (view.selectedStep !== undefined) return view.selectedStep;
+  if (view.selectedNode === undefined) return undefined;
+
+  const rows = inspectedRunOf(view.run, reading).steps.filter(
+    (step) => step.nodeId === view.selectedNode,
+  );
+
+  return headlineRow(rows)?.functionId;
+}
+
+/** What every row of the trace is worded against:
+ *  the page, the rows a replay may start from, and
+ *  the page's one clock. */
+type TracePage = {
+  view: SeeView;
+  points: ReplayPoints;
+  now: number;
+};
+
+/** The name the SDK records a sleep under. */
+const SLEEP = 'DBOS.sleep';
+
+/**
+ * One row of the trace, in the words it is drawn
+ * in, with the SDK's rows beside it.
+ *
+ * Every row carries the block it is drawn under, so
+ * the line under an SDK row can name the block it
+ * ran in, and picking any row selects that block.
+ */
+function traceRowOf(
+  operation: Operation,
+  nodeId: string | undefined,
+  sdk: readonly Operation[],
+  page: TracePage,
+): TraceRowView {
+  const node = page.view.ir?.nodes.find((one) => one.id === nodeId);
+  const beside = sdk.map((one) => traceRowOf(one, nodeId, [], page));
+
+  return {
+    ...opOf(operation, page.points),
+    nodeId,
+    duration: durationOf(operation),
+    detail: detailOf(operation, node, page),
+    detailTone: operation.state === 'failed' ? 'fail' : 'faint',
+    sdkLabel:
+      beside.length === 0
+        ? undefined
+        : sdkLabelOf(operation, node, beside.length),
+    sdk: beside,
+  };
+}
+
+/**
+ * How long a row took, where that is a length of
+ * time at all.
+ *
+ * A child start is written with one clock read for
+ * both ends, so its length would always read as
+ * none; a sleep's end is the deadline it was given,
+ * which may not have come yet.
+ */
+function durationOf(operation: Operation): string | undefined {
+  const { startedAt, completedAt } = operation;
+
+  if (startedAt === undefined || completedAt === undefined) return undefined;
+  if (operation.childWorkflowId !== undefined) return undefined;
+  if (operation.name === SLEEP) return undefined;
+
+  return lasted(completedAt - startedAt);
+}
+
+/**
+ * The line under a trace row. The first rule that
+ * fits is the line.
+ *
+ * A row that threw says what it threw. A wait still
+ * registered says since when, and when it gives up
+ * where the document says. A sleep says when the
+ * run wakes, or woke, or when a wait times out —
+ * only where the host has said the project's SDK
+ * writes the row that is read from, and always as a
+ * moment rather than the number the SDK stored.
+ * Anything else says what it returned, after
+ * whether it came back from the ledger or from the
+ * run it was replayed from; and where it returned
+ * nothing, the block it ran in.
+ */
+function detailOf(
+  operation: Operation,
+  node: WorkflowNode | undefined,
+  page: TracePage,
+): TraceDetail {
+  const words = seeWords();
+
+  if (operation.state === 'failed') {
+    return {
+      derived: undefined,
+      plain: operation.error?.name,
+      verbatim: operation.error?.message,
+    };
+  }
+
+  if (
+    operation.state === 'waiting' &&
+    operation.segments.at(-1)?.kind === 'register'
+  ) {
+    return {
+      derived: parkedLine(operation, node),
+      plain: undefined,
+      verbatim: undefined,
+    };
+  }
+
+  if (operation.name === SLEEP) {
+    const wake = page.view.timing === true ? wakeOf(operation) : undefined;
+
+    return {
+      derived: wake === undefined ? undefined : wakeLine(wake, page.now),
+      plain: wake === undefined ? node?.title : undefined,
+      verbatim: undefined,
+    };
+  }
+
+  const copied = [
+    ...(operation.restored ? [words.restored] : []),
+    ...(operation.reused ? [words.reused] : []),
+  ];
+  const returned = operation.absent ? undefined : operation.shown;
+
+  return {
+    derived:
+      copied.length === 0
+        ? undefined
+        : copied.map((word) => `${word} · `).join(''),
+    plain: returned === undefined ? node?.title : undefined,
+    verbatim: returned,
+  };
+}
+
+/** Since when a wait has been registered, and after
+ *  how long it gives up, where either is known. */
+function parkedLine(
+  operation: Operation,
+  node: WorkflowNode | undefined,
+): string | undefined {
+  const words = seeWords();
+
+  // The rule the pane reads a wait's since by, so
+  // the two say the same moment.
+  const since = operation.completedAt ?? operation.startedAt;
+  const days =
+    node?.kind === 'durableWait' || node?.kind === 'approval'
+      ? node.config.timeoutDays
+      : undefined;
+
+  const parts = [
+    ...(since === undefined ? [] : [filled(words.waitingSince, fine(since))]),
+    ...(days === undefined ? [] : [filled(words.timeout, String(days))]),
+  ];
+
+  return parts.length === 0 ? undefined : parts.join(' · ');
+}
+
+/** A sleep row's moment, said against the page's
+ *  clock. */
+function wakeLine(wake: Wake, now: number): string {
+  const words = seeWords();
+  const at = fine(wake.at);
+
+  if (wake.kind === 'timeout') return filled(words.timesOut, at);
+
+  return filled(wake.at > now ? words.wakes : words.woke, at);
+}
+
+/**
+ * What opens the SDK's rows beside a block row.
+ *
+ * Named after the function the block runs, since
+ * that is the code those rows were written for, and
+ * after the row itself where the block runs none.
+ */
+function sdkLabelOf(
+  operation: Operation,
+  node: WorkflowNode | undefined,
+  count: number,
+): string {
+  const words = seeWords();
+  const named = node?.handler?.export ?? operation.name;
+
+  return count === 1
+    ? filled(words.sdkRow, named)
+    : filled(words.sdkRows, named, String(count));
 }
 
 /**

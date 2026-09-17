@@ -53,10 +53,15 @@ export type TraceGroup = {
    * host has said the project's SDK records these
    * at all.
    */
-  wakesAt: { at: number; kind: 'sleep' | 'timeout' } | undefined;
+  wakesAt: Wake | undefined;
 
   operations: Operation[];
 };
+
+/** A moment a sleep row names, and whether it is
+ *  the moment the run wakes or the moment a wait
+ *  gives up. */
+export type Wake = { at: number; kind: 'sleep' | 'timeout' };
 
 /**
  * The rows, in turns.
@@ -117,12 +122,20 @@ export function groupsOf(
   }));
 }
 
-/** The moment a sleep row in this group names. */
+/** The name the SDK records a sleep under. */
 const SLEEP = 'DBOS.sleep';
 
+/** When a block wakes, out of the sleep row the SDK
+ *  wrote inside its turn. */
+function wakesIn(group: TraceGroup): Wake | undefined {
+  const row = group.operations.find((one) => one.name === SLEEP);
+
+  return row === undefined ? undefined : wakeOf(row);
+}
+
 /**
- * When a block wakes, out of the sleep row the SDK
- * wrote inside its turn.
+ * The moment a sleep row names, and nothing for any
+ * other row.
  *
  * A real sleep records the wake deadline as its
  * completion, so the row has width. A timeout
@@ -139,15 +152,14 @@ const SLEEP = 'DBOS.sleep';
  * configured, so the column holds the number and
  * nothing around it.
  *
- * Found by name and not by owner. A wait on the
- * clock writes no row of its own, so the reading
+ * Told by its name and not by its owner. A wait on
+ * the clock writes no row of its own, so the reading
  * hands it this one — and asking whose it is would
  * lose the wake at the one block whose whole state
  * is the wake.
  */
-function wakesIn(group: TraceGroup): TraceGroup['wakesAt'] {
-  const row = group.operations.find((one) => one.name === SLEEP);
-  if (row === undefined) return undefined;
+export function wakeOf(row: Operation): Wake | undefined {
+  if (row.name !== SLEEP) return undefined;
 
   const at = Number(row.output);
   if (!Number.isFinite(at)) return undefined;

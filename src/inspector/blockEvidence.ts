@@ -6,6 +6,7 @@ import {
   type WorkflowNode,
 } from '../core/rules.js';
 import type { QueueEvidence } from '../runs/queueEvidence.js';
+import { headlineRow } from '../runs/reading.js';
 import {
   recordedValue,
   type RecordedValue,
@@ -105,7 +106,7 @@ export function blockEvidenceOf(
     .filter((step) => step.nodeId === nodeId)
     .map((step) => rowOf(step, nodeId));
   const drawn =
-    rows.find((row) => row.functionId === functionId) ?? headlineOf(rows);
+    rows.find((row) => row.functionId === functionId) ?? headlineRow(rows);
 
   // A wait on the clock records its wake-up time as
   // what it returned, and the face already says that
@@ -175,25 +176,6 @@ function stateOf(
   return walked === undefined
     ? undefined
     : { word: walked, read: 'derived', derived: 'running' };
-}
-
-/**
- * The row a block is headed by: its latest failure,
- * else its latest row.
- *
- * A block that failed on its third item is being
- * looked at because of that item, and burying it
- * under two that worked would answer a question
- * nobody asked. A row the SDK wrote under the block
- * is never it: that row is the machinery a block
- * runs on, drawn when somebody picks it in the
- * trace, and a block headed by it would lead with a
- * `DBOS.sleep` rather than with what the block did.
- */
-function headlineOf(rows: readonly EvidenceRow[]): EvidenceRow | undefined {
-  const own = rows.filter((row) => !row.sdk);
-
-  return own.findLast((row) => row.state === 'failed') ?? own.at(-1);
 }
 
 /**

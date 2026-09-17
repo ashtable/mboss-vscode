@@ -698,8 +698,22 @@ export type SeeRun = {
   /** The trace, in the turns each block took. */
   groups: TraceGroupView[];
 
-  /** The block and the operation a person picked,
-   *  shared by both views of the run. */
+  /** The trace, one recorded operation to a row, in
+   *  the order DBOS numbered them, with the SDK's
+   *  own rows under the block row they ran beside. */
+  trace: TraceRowView[];
+
+  /** The rows drawn under no block: a block the
+   *  saved document no longer has, or an SDK row
+   *  before any block's. */
+  unattributed: TraceRowView[];
+
+  /**
+   * The block a person picked, shared by both views
+   * of the run, and the row the trace marks: the row
+   * picked, else the row the picked block is headed
+   * by.
+   */
   selected: { nodeId: string | undefined; functionId: number | undefined };
 
   /** Whether the rows DBOS wrote for itself are
@@ -831,6 +845,59 @@ export type TraceOpView = {
   /** The run a fan-out item started, where it
    *  started one. */
   childWorkflowId: string | undefined;
+};
+
+/**
+ * The one line under a trace row, in its parts.
+ *
+ * Kept apart rather than joined because each part
+ * is a different kind of claim, and the view draws
+ * each its own way, in this order: what the page
+ * worked out (a wake, a wait, a copy), what it
+ * names (a block, an error's class), and what the
+ * run recorded, exactly.
+ */
+export type TraceDetail = {
+  /** `wakes 14:04:11.000`, `restored · `: worked
+   *  out rather than read off the row. */
+  derived: string | undefined;
+
+  /** The block's title, or the class of what the
+   *  row threw. */
+  plain: string | undefined;
+
+  /** What the row returned or the message it threw,
+   *  on one line, as recorded. */
+  verbatim: string | undefined;
+};
+
+/**
+ * One row of the trace: a recorded operation, and
+ * the rows the SDK wrote beside it.
+ */
+export type TraceRowView = TraceOpView & {
+  /** The block it is drawn under, where it is drawn
+   *  under one. */
+  nodeId: string | undefined;
+
+  /** `1.2 s`, where DBOS timed both ends and the
+   *  two are a length of time. A child start is
+   *  written with one clock read for both, and a
+   *  sleep's end is a deadline, so neither has one. */
+  duration: string | undefined;
+
+  detail: TraceDetail;
+
+  /** `fail` on a row that threw, `faint` otherwise. */
+  detailTone: 'fail' | 'faint';
+
+  /** `recordIntake · 2 durable operations`: what
+   *  opens the rows under it, where there are any. */
+  sdkLabel: string | undefined;
+
+  /** The rows the SDK wrote beside it, in the order
+   *  they ran. Always empty on one of those. */
+  sdk: TraceRowView[];
 };
 
 export type SeeChip = {

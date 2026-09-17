@@ -201,6 +201,38 @@ export const seeWords = once(() => ({
    */
   recorded: l10n.t('↺ recorded'),
 
+  /** On a trace row a replay carried over from the
+   *  run it came from, where `restored` is said of
+   *  one DBOS brought back after a crash. */
+  reused: l10n.t('reused'),
+
+  /**
+   * What opens the rows the SDK wrote beside a block
+   * row, `{0}` being the function the block runs.
+   *
+   * "Durable operations" because that is what those
+   * rows are to somebody reading a run — the sleeps,
+   * messages and results a durable run is made of —
+   * rather than whose table they sit in. One row is
+   * a word of its own, so a lone status read is
+   * never "1 durable operations".
+   */
+  sdkRows: l10n.t('{0} · {1} durable operations'),
+  sdkRow: l10n.t('{0} · 1 durable operation'),
+
+  /**
+   * A wait's moments, each said as the moment it is
+   * and never as time elapsed: the page is drawn
+   * again only when something changes, so "for 3 m"
+   * would go stale on a page nobody touched, where a
+   * moment stays true.
+   */
+  waitingSince: l10n.t('waiting since {0}'),
+  timeout: l10n.t('timeout {0} d'),
+  wakes: l10n.t('wakes {0}'),
+  woke: l10n.t('woke {0}'),
+  timesOut: l10n.t('times out {0}'),
+
   /** Said on anything the page worked out rather
    *  than read off a row. */
   derived: l10n.t('derived'),

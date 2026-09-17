@@ -1,12 +1,12 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
 import { fakeTrust } from '../../test/doubles/trust.js';
-import { WorkflowIRSchema, type WorkflowIR } from '../core/rules.js';
+import type { WorkflowIR } from '../core/rules.js';
 import {
+  FORM_INTAKE,
   RUN_ROW,
   STEP_ROW,
   TIMER_THEN_ANSWER,
@@ -43,23 +43,6 @@ import type { RunsHost } from './store.js';
 /** The database double, with the rows and steps a
  *  case can set. */
 type Fake = ReturnType<typeof database>;
-
-/** The intake form's own document. Core's walk
- *  gives its park's `DBOS.recv` and `DBOS.sleep`
- *  to the wait that sat in it. */
-const FORM_INTAKE: WorkflowIR = WorkflowIRSchema.parse(
-  JSON.parse(
-    readFileSync(
-      fileURLToPath(
-        new URL(
-          '../../mboss-core/fixtures/ir/form_intake.workflow.json',
-          import.meta.url,
-        ),
-      ),
-      'utf8',
-    ),
-  ),
-);
 
 /** The one watch owner, over a watcher a case can
  *  speak through. */
@@ -594,6 +577,76 @@ describe('what a person has picked on the run tab', () => {
     open.step(0);
 
     expect(picked(open)).toEqual({ node: undefined, step: 0 });
+  });
+
+  /**
+   * What the run tab marks is the page's to say, so
+   * these ask the page rather than the record.
+   */
+  it('marks the row picked under a block, the SDK’s own included', async () => {
+    const { open } = await intake();
+
+    open.step(2);
+    const run = open.see().run;
+
+    expect(run?.selected).toEqual({ nodeId: 'await_details', functionId: 2 });
+    expect(
+      run?.trace
+        .find((row) => row.functionId === 1)
+        ?.sdk.map((one) => one.functionId),
+    ).toEqual([2, 3]);
+  });
+
+  /**
+   * A block picked on the graph is marked in the
+   * trace by the row it is headed by, which is never
+   * a row the SDK wrote under it — even where that
+   * row is the block's latest.
+   */
+  it('marks the row a picked block is headed by, not an SDK row', async () => {
+    const { open } = await intake();
+
+    open.node('await_details');
+    expect(open.see().run?.selected).toEqual({
+      nodeId: 'await_details',
+      functionId: 4,
+    });
+
+    open.node('intake_requested');
+    expect(open.see().run?.selected).toEqual({
+      nodeId: 'intake_requested',
+      functionId: undefined,
+    });
+
+    open.node(null);
+    expect(open.see().run?.selected).toEqual({
+      nodeId: undefined,
+      functionId: undefined,
+    });
+
+    const parked = reading(FORM_INTAKE, [
+      { name: 'ask_details' },
+      { name: 'await_details.register' },
+      { name: 'DBOS.sleep' },
+    ]);
+    const { open: waiting } = page(parked, {
+      host: host({ projects: () => [projectHolding(FORM_INTAKE)] }),
+    });
+
+    await waiting.open('wf_c9d2f3');
+    waiting.node('await_details');
+
+    expect(waiting.see().run?.selected.functionId).toBe(1);
+  });
+
+  it('keeps a row no block owns out of every block', async () => {
+    const { open } = await intake([{ name: 'deleted_block' }]);
+    const run = open.see().run;
+
+    expect(run?.unattributed.map((row) => row.functionId)).toEqual([0]);
+    expect(
+      run?.trace.flatMap((row) => row.sdk.map((one) => one.functionId)),
+    ).toEqual([3, 4]);
   });
 
   it('holds the face somebody picked across rows of one block', async () => {
