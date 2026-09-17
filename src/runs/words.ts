@@ -155,8 +155,14 @@ export const runsWords = once(() => ({
 }));
 
 export const seeWords = once(() => ({
+  /** The tab's title before any run is known, and
+   *  the name of the strip that switches its views. */
   heading: l10n.t('Run'),
-  nothingSelected: l10n.t('Pick a run to see what it did.'),
+  nothingSelected: l10n.t('Pick a run to see what it did'),
+
+  /** Before the short id on the header, which is
+   *  otherwise a bare `#7089`. */
+  run: l10n.t('run'),
 
   /** On a trace row DBOS brought back from the
    *  ledger after a crash, rather than running it
@@ -169,11 +175,11 @@ export const seeWords = once(() => ({
     trace: l10n.t('Trace'),
   },
 
-  refresh: l10n.t('Refresh'),
-
   /**
    * Whether anything is still reading this run, and
-   * what it would take to find out if not.
+   * what it would take to find out if not — the
+   * name of the header's refresh Button, which is a
+   * glyph with nothing else to say it.
    *
    * Said in full rather than as one word, because
    * "waiting" and "quiet" are both stopped watches

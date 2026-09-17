@@ -162,7 +162,10 @@ describe('reading a run', () => {
 
     await open.open('wf_c9d2f3');
 
-    expect(open.see().run?.input).toBeDefined();
+    expect(open.reading()?.run.input).toEqual({
+      shape: 'payload',
+      value: { email: 'ada@example.com' },
+    });
   });
 
   /**
@@ -714,7 +717,7 @@ describe('what a replay left on the page', () => {
     await open.open('wf_c9d2f3');
     open.note('Replaying as wf_fork1.');
 
-    expect(open.see().run?.note).toBe('Replaying as wf_fork1.');
+    expect(open.reading()?.note).toBe('Replaying as wf_fork1.');
   });
 
   it('keeps it when the same run is read again', async () => {
@@ -724,7 +727,7 @@ describe('what a replay left on the page', () => {
     open.note('Replaying as wf_fork1.');
     await open.again();
 
-    expect(open.see().run?.note).toBe('Replaying as wf_fork1.');
+    expect(open.reading()?.note).toBe('Replaying as wf_fork1.');
   });
 
   it('says nothing before a run has been picked', () => {

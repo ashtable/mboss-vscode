@@ -12,7 +12,12 @@ import type {
   TraceRowView,
 } from '../../../src/webview/protocol.js';
 
-import { mount, type Harness, type ThemeKind } from '../harness.js';
+import {
+  mount,
+  type Harness,
+  type MountOptions,
+  type ThemeKind,
+} from '../harness.js';
 import { canvasWords, seeWords } from '../words.js';
 
 /**
@@ -43,18 +48,10 @@ export const NO_SAVED_WORKFLOW =
 export function seeRun(over: Partial<SeeRun> = {}): SeeRun {
   return {
     workflowId: 'wf_c9d2f3',
+    short: shortRunId('wf_c9d2f3'),
     name: 'groom_booking',
-    breadcrumb: 'mBoss › runs › groom_booking › wf_c9d2f3',
-    headline: 'SUCCESS · 8.2 s total',
-    word: 'done',
-    rail: [
-      { label: 'workflow_uuid', value: 'wf_c9d2f3' },
-      { label: 'status', value: 'SUCCESS' },
-      { label: 'recovery_attempts', value: '2' },
-      { label: 'executor_id', value: 'local-dev' },
-    ],
-    selectedStep: 2,
-    note: undefined,
+    state: 'done',
+    line: 'groom_booking · done · 8.2 s',
     graph: undefined,
     // Set to match, the way the host sets it: the
     // sentence is there exactly where the picture
@@ -79,7 +76,6 @@ export function seeRun(over: Partial<SeeRun> = {}): SeeRun {
     unattributed: [],
     selected: { nodeId: undefined, functionId: 2 },
     following: 'quiet',
-    input: undefined,
     ...over,
   };
 }
@@ -121,8 +117,9 @@ export async function showRun(
   page: Page,
   init: SeeInit,
   theme: ThemeKind = 'light',
+  options: MountOptions = {},
 ): Promise<Harness> {
-  const harness = await mount(page, 'see', theme);
+  const harness = await mount(page, 'see', theme, options);
   await harness.show(init);
 
   return harness;

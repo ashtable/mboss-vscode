@@ -1416,21 +1416,6 @@ button.lib-fn {
   font-size: var(--text-sm);
 }
 
-/* — controls — */
-
-/* What a run is doing, wherever a run is named. The
-   colour is set by whoever knows the outcome — this
-   only fixes the shape, so the word does not move
-   between two panels showing the same run. */
-.run-status {
-  display: inline-flex;
-  align-items: baseline;
-  gap: var(--space-1);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: var(--label-tracking);
-}
-
 /* — one block — */
 
 /* The face a block wears, moved here from the

@@ -17,11 +17,13 @@ import {
   REPLAYED_TRACE,
   RUNNING,
   RUNNING_GRAPH,
+  RUN_ID,
   SDK_OWNED,
   TRACE,
   UNATTRIBUTED,
   graphAtRest,
   seeInit,
+  seeNothing,
   seeRun,
   showRun,
   transformOf,
@@ -90,6 +92,612 @@ function strokeOf(page: Page, edge: string): Promise<string> {
     .locator(`.react-flow__edge[data-id="${edge}"] .wire`)
     .evaluate((wire) => getComputedStyle(wire).stroke);
 }
+
+/** A tab wide enough to hold the trace beside the
+ *  graph, and one that is not. */
+const WIDE = 1400;
+const NARROW = 800;
+
+/** A run named by a UUID, as DBOS mints them, so it
+ *  has the short id a person reads a run by. */
+const MINTED = seeRun({
+  workflowId: RUN_ID,
+  short: shortRunId(RUN_ID),
+  graph: GRAPH,
+  trace: TRACE,
+  unattributed: UNATTRIBUTED,
+});
+
+/** Where an element sits on the page, by its middle. */
+async function centreOf(target: Locator): Promise<{ x: number; y: number }> {
+  const box = await target.boundingBox();
+  if (box === null) throw new Error('nothing drawn to find the middle of');
+
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+/** Moves the board somewhere a fresh one would not
+ *  open: dragged up and left, then zoomed in. */
+async function moveTheBoard(page: Page): Promise<void> {
+  const box = await page.locator('.run-flow').boundingBox();
+  if (box === null) throw new Error('the graph pane has no box');
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 60, box.y + 40);
+  await page.mouse.up();
+  await page.mouse.wheel(0, -120);
+
+  await graphAtRest(page);
+}
+
+/** How wide the tab is, which the layout is sized
+ *  against. */
+function tabWidth(page: Page): Promise<number> {
+  return page.evaluate(() => document.documentElement.clientWidth);
+}
+
+/**
+ * One row over the run: which run it is and how it
+ * went, the two views of it, and a way to look
+ * again. Everything else a run page used to say
+ * above its graph is the editor tab's or the
+ * Inspector's.
+ */
+test.describe('the run tab’s header', () => {
+  for (const theme of THEMES_ALL) {
+    test(`says in one row which run it is and how it went in ${theme}`, async ({
+      page,
+    }) => {
+      await showRun(page, seeInit(MINTED, 'graph'), theme);
+
+      const header = page.locator('.run-header');
+      await expect(header).toHaveCount(1);
+
+      const parts = [
+        header.locator('.status-glyph[data-glyph="dot"]'),
+        header.locator('.run-line'),
+        header.getByRole('tablist'),
+        header.locator('[data-see-refresh]'),
+      ];
+
+      for (const part of parts) await expect(part).toHaveCount(1);
+
+      const box = await header.boundingBox();
+      if (box === null) throw new Error('the header drew nothing');
+      expect(box.height, `header ${box.height}px`).toBeLessThanOrEqual(44);
+
+      const middles = await Promise.all(
+        parts.map(async (part) => (await centreOf(part)).y),
+      );
+      expect(
+        Math.max(...middles) - Math.min(...middles),
+        `middles ${middles.join(', ')}`,
+      ).toBeLessThanOrEqual(2);
+
+      const line = header.locator('.run-line');
+      await expect(line).toHaveText(
+        `${seeStrings.run} ${shortRunId(RUN_ID)} · ` +
+          'groom_booking · done · 8.2 s',
+      );
+
+      const short = line.locator('[data-short-run]');
+      await expect(short).toHaveText(shortRunId(RUN_ID));
+      await expect(short).toHaveAttribute('title', RUN_ID);
+
+      const refresh = header.locator('[data-see-refresh]');
+      await expect(refresh).toHaveAttribute('data-variant', 'quiet');
+      await expect(refresh).toHaveAttribute('data-icon', 'refresh');
+      await expect(refresh).toHaveAccessibleName(/\S/);
+
+      const drawn = await line.evaluate((element) => {
+        const probe = document.createElement('span');
+        probe.style.fontSize = 'var(--text-sm)';
+        document.body.append(probe);
+        const small = parseFloat(getComputedStyle(probe).fontSize);
+        probe.remove();
+
+        const style = getComputedStyle(element);
+
+        return {
+          colour: style.color,
+          size: parseFloat(style.fontSize),
+          small,
+        };
+      });
+      const soft = colourOf(theme, 'ink-soft');
+
+      expect(
+        sameColour(drawn.colour, soft),
+        `line in ${theme}: ${drawn.colour} ≠ ${soft}`,
+      ).toBe(true);
+      expect(Math.abs(drawn.size - drawn.small)).toBeLessThanOrEqual(0.05);
+    });
+  }
+
+  /**
+   * The dot moves only while something is reading
+   * the run, and a run nobody is reading any more
+   * that was not over is drawn hollow: it may have
+   * moved on since, and a filled dot would say it
+   * had not. Read with motion reduced, so the dot is
+   * read at rest rather than mid-pulse.
+   */
+  test('shows a watched run moving and an unwatched one hollow', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
+    const dot = page.locator('.run-header .status-glyph[data-glyph="dot"]');
+    const ground = (): Promise<string> =>
+      dot.evaluate((glyph) => getComputedStyle(glyph).backgroundColor);
+
+    await showRun(
+      page,
+      seeInit(seeRun({ state: 'running', following: 'following' })),
+    );
+    await expect(dot).toHaveCount(1);
+    await expect(dot).toHaveAttribute('data-pulse', '');
+    expect(await ground()).not.toBe('rgba(0, 0, 0, 0)');
+
+    await showRun(
+      page,
+      seeInit(seeRun({ state: 'running', following: 'quiet' })),
+    );
+    await expect(dot).toHaveCount(1);
+    await expect(dot).not.toHaveAttribute('data-pulse');
+    expect(await ground()).toBe('rgba(0, 0, 0, 0)');
+
+    await showRun(
+      page,
+      seeInit(seeRun({ state: 'running', following: 'quiet' })),
+      'high-contrast-light',
+    );
+    await expect(dot).toHaveCount(1);
+
+    const ring = await dot.evaluate(
+      (glyph) => getComputedStyle(glyph).borderTopColor,
+    );
+    const ink = colourOf('high-contrast-light', 'ink');
+
+    expect(sameColour(ring, ink), `${ring} ≠ ${ink}`).toBe(true);
+  });
+
+  /**
+   * The breadcrumb's whole id is the editor tab's
+   * title now, the ledger's status word is the
+   * Inspector's, and whether the run is still being
+   * read is the refresh Button's name. Nothing in the
+   * header is set larger than a control.
+   */
+  test('leaves out the breadcrumb, the status and the follow line', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(MINTED));
+
+    const header = page.locator('.run-header');
+    await expect(header).toHaveCount(1);
+
+    await expect(page.locator('.crumb')).toHaveCount(0);
+    await expect(page.getByText('mBoss ›')).toHaveCount(0);
+    await expect(page.getByText(/refresh to check/)).toHaveCount(0);
+    await expect(page.getByText('SUCCESS')).toHaveCount(0);
+
+    const sizes = await header.evaluate((element) =>
+      [element, ...element.querySelectorAll('*')].map((one) =>
+        parseFloat(getComputedStyle(one).fontSize),
+      ),
+    );
+
+    expect(sizes.length).toBeGreaterThan(4);
+    expect(sizes.filter((size) => size >= 16)).toEqual([]);
+  });
+
+  /**
+   * A glyph with no label, so its name is what a
+   * pointer and a screen reader are told: whether
+   * anything is still reading the run, and what it
+   * would take to find out if not.
+   */
+  test('names the refresh Button by what the watch is doing', async ({
+    page,
+  }) => {
+    for (const state of ['following', 'waiting', 'quiet'] as const) {
+      const harness = await showRun(
+        page,
+        seeInit(seeRun({ following: state })),
+      );
+      const refresh = page.locator('[data-see-refresh]');
+      const said = seeStrings.following[state];
+
+      await expect(refresh).toHaveAccessibleName(said);
+      await expect(refresh).toHaveAttribute('title', said);
+
+      await refresh.click();
+
+      expect(await harness.postedOfType('seeRefresh')).toEqual([
+        { type: 'seeRefresh' },
+      ]);
+    }
+  });
+
+  /**
+   * The pane is the strip's panel: the tab names the
+   * pane it opens and the pane names the tab that
+   * opened it. Only one pane is ever on the page, so
+   * only the tab that is on points at anything.
+   */
+  test('makes the pane that is showing the tab’s panel', async ({ page }) => {
+    for (const [on, off] of [
+      ['graph', 'trace'],
+      ['trace', 'graph'],
+    ] as const) {
+      await showRun(page, seeInit(MINTED, on));
+
+      const pane = page.locator('[data-pane]');
+      await expect(pane).toHaveCount(1);
+      await expect(pane).toHaveAttribute('data-pane', on);
+      await expect(pane).toHaveAttribute('data-showing', 'true');
+      await expect(pane).toHaveAttribute('role', 'tabpanel');
+
+      const labelled = await pane.getAttribute('aria-labelledby');
+      const tab = page.locator(`[data-see-tab="${on}"]`);
+
+      expect(labelled).not.toBeNull();
+      await expect(tab).toHaveAttribute('id', labelled ?? '');
+      await expect(tab).toHaveAttribute('aria-selected', 'true');
+      await expect(tab).toHaveAttribute(
+        'aria-controls',
+        (await pane.getAttribute('id')) ?? '',
+      );
+      await expect(page.locator(`[data-see-tab="${off}"]`)).not.toHaveAttribute(
+        'aria-controls',
+      );
+    }
+  });
+
+  /**
+   * The keyboard's way through a run is the trace, so
+   * from the strip it reaches the refresh Button, the
+   * way back to the document, and then the rows,
+   * without stopping on anything the graph draws.
+   */
+  test('reaches refresh, Edit workflow and the first row by keyboard', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(MINTED, 'graph'), 'light', { width: WIDE });
+    await graphAtRest(page);
+
+    await expect(page.locator('[data-trace-op]')).not.toHaveCount(0);
+
+    const onTheGraph = (): Promise<boolean> =>
+      page.evaluate(
+        () =>
+          document.activeElement?.closest(
+            '.react-flow__node, .react-flow__edge',
+          ) != null,
+      );
+
+    await page.locator('[data-see-tab][aria-selected="true"]').focus();
+
+    for (const next of [
+      page.locator('[data-see-refresh]'),
+      page.locator('[data-edit-workflow]'),
+      page.locator('[data-trace-op]').first(),
+    ]) {
+      await page.keyboard.press('Tab');
+      await expect(next).toBeFocused();
+      expect(await onTheGraph()).toBe(false);
+    }
+  });
+});
+
+/**
+ * What is under the header, and only what is being
+ * read. A pane that is not showing is not on the
+ * page at all: hidden, the graph's blocks still
+ * painted over the trace, because the library draws
+ * each one visible whatever its pane says.
+ */
+test.describe('the run tab’s panes', () => {
+  test('gives the graph most of a wide tab and the trace the rest', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(MINTED, 'graph'), 'light', { width: WIDE });
+    await graphAtRest(page);
+
+    const column = page.locator('.trace-column');
+    await expect(column).toHaveCount(1);
+    await expect(column.locator('[data-trace]')).toHaveCount(1);
+    await expect(column).toHaveCSS('box-sizing', 'border-box');
+
+    const canvas = await page.locator('.run-flow').boundingBox();
+    if (canvas === null) throw new Error('the graph pane has no box');
+
+    const share = canvas.width / (await tabWidth(page));
+    expect(Math.abs(share - 0.62), `share ${share}`).toBeLessThanOrEqual(0.01);
+
+    await showRun(page, seeInit(MINTED, 'graph'), 'light', { width: 2000 });
+    await graphAtRest(page);
+    await expect(column).toHaveCount(1);
+
+    const widest = await column.boundingBox();
+    expect(widest?.width).toBe(640);
+
+    await showRun(page, seeInit(MINTED, 'graph'), 'light', { width: NARROW });
+    await graphAtRest(page);
+
+    await expect(page.locator('[data-node]')).toHaveCount(3);
+    await expect(page.locator('[data-trace]')).toHaveCount(0);
+  });
+
+  test('keeps the trace to a readable width on its own tab', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(MINTED, 'trace'), 'light', { width: 1900 });
+
+    const list = page.locator('[data-pane="trace"] [data-trace]');
+    await expect(list).toHaveCount(1);
+
+    const box = await list.boundingBox();
+    if (box === null) throw new Error('the trace drew nothing');
+
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.width).toBeLessThanOrEqual(640);
+  });
+
+  for (const width of [NARROW, WIDE]) {
+    test(`unmounts the graph while the trace shows, ${width}px wide`, async ({
+      page,
+    }) => {
+      const harness = await showRun(page, seeInit(MINTED, 'graph'), 'light', {
+        width,
+      });
+      await graphAtRest(page);
+
+      const blocks = page.locator('[data-node]');
+      await expect(blocks).toHaveCount(3);
+
+      await moveTheBoard(page);
+      const before = await transformOf(page);
+      const centres = await Promise.all(
+        (await blocks.all()).map((block) => centreOf(block)),
+      );
+
+      await page.locator('[data-see-tab="trace"]').click();
+      await harness.show(seeInit(MINTED, 'trace'));
+
+      await expect(page.locator('[data-pane="trace"]')).toHaveCount(1);
+      await expect(blocks).toHaveCount(0);
+      await expect(page.locator('[data-run-node]')).toHaveCount(0);
+      await expect(page.locator('.react-flow__node')).toHaveCount(0);
+
+      for (const at of centres) {
+        const found = await page.evaluate(
+          ({ x, y }) =>
+            document.elementFromPoint(x, y)?.closest('[data-node]') != null,
+          at,
+        );
+
+        expect(found, `a block at ${at.x},${at.y}`).toBe(false);
+        await page.mouse.click(at.x, at.y);
+      }
+
+      expect(await harness.postedOfType('seeNode')).toEqual([]);
+
+      await page.locator('[data-see-tab="graph"]').click();
+      await harness.show(seeInit(MINTED, 'graph'));
+      await graphAtRest(page);
+
+      await expect(blocks).toHaveCount(3);
+      expect(await transformOf(page)).toBe(before);
+    });
+  }
+
+  /**
+   * A person who panned and zoomed to look at
+   * something is still looking at it after they
+   * check the trace and come back. The graph is put
+   * away while the trace shows and drawn again on the
+   * way back, and it is handed the view it reported
+   * last rather than opening at its first block.
+   * Another run is another picture, and opens where
+   * any run does.
+   */
+  test('keeps the graph where it was left when the tabs change', async ({
+    page,
+  }) => {
+    const harness = await showRun(
+      page,
+      seeInit(seeRun({ graph: GRAPH }), 'graph'),
+    );
+    await graphAtRest(page);
+
+    await moveTheBoard(page);
+    const before = await transformOf(page);
+
+    // The host answers a tab press with a fresh
+    // init, the way the extension does. One mount
+    // throughout: a second would be a new page
+    // rather than a tab change.
+    for (let round = 0; round < 2; round += 1) {
+      await page.locator('[data-see-tab="trace"]').click();
+      await harness.show(seeInit(seeRun({ graph: GRAPH }), 'trace'));
+      await page.locator('[data-see-tab="graph"]').click();
+      await harness.show(seeInit(seeRun({ graph: GRAPH }), 'graph'));
+      await graphAtRest(page);
+    }
+
+    expect(await transformOf(page)).toBe(before);
+
+    await harness.show(
+      seeInit(
+        seeRun({
+          workflowId: 'wf_other',
+          short: shortRunId('wf_other'),
+          graph: GRAPH,
+        }),
+        'graph',
+      ),
+    );
+    await graphAtRest(page);
+
+    // The top-left block is 160 above the origin.
+    expect(await transformOf(page)).toBe(
+      `translate(${INSET.left}px, ${INSET.top + 160}px) scale(1)`,
+    );
+  });
+
+  test('moves only the trace column as the tab narrows and widens', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(MINTED, 'graph'), 'light', { width: WIDE });
+    await graphAtRest(page);
+
+    const blocks = page.locator('[data-node]');
+    const trace = page.locator('[data-trace]');
+
+    await expect(blocks).toHaveCount(3);
+    await expect(trace).toHaveCount(1);
+
+    await moveTheBoard(page);
+    const before = await transformOf(page);
+
+    // Marked, so a board drawn afresh would be a
+    // board without the mark.
+    await page
+      .locator('.react-flow')
+      .evaluate((board) => board.setAttribute('data-kept', ''));
+
+    await page.setViewportSize({ width: NARROW, height: 1800 });
+
+    await expect(trace).toHaveCount(0);
+    await expect(blocks).toHaveCount(3);
+    await expect(page.locator('.react-flow[data-kept]')).toHaveCount(1);
+    expect(await transformOf(page)).toBe(before);
+
+    await page.setViewportSize({ width: WIDE, height: 1800 });
+
+    await expect(trace).toHaveCount(1);
+    await expect(page.locator('.react-flow[data-kept]')).toHaveCount(1);
+    expect(await transformOf(page)).toBe(before);
+  });
+
+  /**
+   * Where the project has no document of the run's
+   * name, the pane says so in place of the picture,
+   * rather than leaving a blank board that reads as
+   * broken.
+   */
+  test('draws a run whose workflow is gone as a sentence', async ({ page }) => {
+    await showRun(page, seeInit(seeRun({ graph: undefined }), 'graph'));
+
+    const said = page.locator('.empty-state[data-graph-caption]');
+
+    await expect(said).toHaveCount(1);
+    await expect(said.locator('.empty-title')).toHaveText(NO_SAVED_WORKFLOW);
+    await expect(page.locator('[data-run-node]')).toHaveCount(0);
+    await expect(page.locator('.react-flow')).toHaveCount(0);
+  });
+
+  test('has nothing to draw before a run is picked', async ({ page }) => {
+    await showRun(page, seeNothing());
+
+    await expect(page.locator('.empty-state .empty-title')).toHaveText(
+      seeStrings.nothingSelected,
+    );
+    expect(seeStrings.nothingSelected).toBe('Pick a run to see what it did');
+    await expect(page.locator('.state')).toHaveCount(0);
+  });
+
+  /**
+   * The page quotes its sources; it does not
+   * decorate them. Asked of the sections this tab
+   * actually draws, each counted first, since a check
+   * over nothing is as true of a blank page.
+   */
+  test('frames its sections without ornament', async ({ page }) => {
+    for (const [showing, sections] of [
+      ['graph', ['.see', '.run-header', '[data-pane]', '.trace-column']],
+      ['trace', ['.see', '.run-header', '[data-pane]', '.trace-pane']],
+    ] as const) {
+      await showRun(page, seeInit(MINTED, showing));
+
+      for (const section of sections) {
+        await expect(page.locator(section), section).toHaveCount(1);
+      }
+
+      const drawn = await page.evaluate(
+        (selectors) =>
+          selectors.flatMap((selector) => {
+            const element = document.querySelector(selector);
+            if (element === null) return [`${selector} missing`];
+
+            const style = getComputedStyle(element);
+            const parts = ['::before', '::after'].map((part) => {
+              const pseudo = getComputedStyle(element, part);
+
+              return `${pseudo.content} ${pseudo.backgroundImage}`;
+            });
+
+            return [
+              `image ${style.backgroundImage}`,
+              `radius ${style.borderTopLeftRadius} ` +
+                style.borderBottomRightRadius,
+              `shadow ${style.boxShadow}`,
+              ...parts,
+            ];
+          }),
+        [...sections],
+      );
+
+      expect([...new Set(drawn)].sort()).toEqual(
+        ['image none', 'none none', 'radius 0px 0px', 'shadow none'].sort(),
+      );
+    }
+  });
+
+  /**
+   * The run tab is the run and nothing beside it.
+   * What a run recorded about a block, or about the
+   * whole run, is the Inspector's to say, in the side
+   * bar, so the panes keep the tab's whole width.
+   */
+  test('draws no rail beside the run', async ({ page }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          graph: GRAPH,
+          selected: { nodeId: 'find_slot', functionId: 1 },
+        }),
+        'graph',
+      ),
+    );
+    await graphAtRest(page);
+
+    await expect(page.locator('[data-run-node]')).toHaveCount(3);
+
+    for (const hook of [
+      '.rail',
+      '[data-evidence]',
+      '[data-inspector-tab]',
+      '[data-inspector-mode]',
+    ]) {
+      await expect(page.locator(hook)).toHaveCount(0);
+    }
+
+    const { pane, tab } = await page.evaluate(() => ({
+      pane:
+        document.querySelector('[data-pane="graph"]')?.getBoundingClientRect()
+          .width ?? 0,
+      tab: document.querySelector('.see')?.clientWidth ?? -1,
+    }));
+
+    expect(pane).toBeGreaterThan(0);
+    expect(Math.abs(pane - tab)).toBeLessThanOrEqual(1);
+  });
+});
 
 /**
  * The saved workflow, and the run drawn onto it.
@@ -185,54 +793,6 @@ test.describe('one run, as a graph', () => {
   });
 
   /**
-   * A person who panned and zoomed to look at
-   * something has to still be looking at it after
-   * they check the trace and come back. The inactive
-   * pane keeps its layout box and is hidden with
-   * `visibility`, never with `display`: the graph
-   * library measures its own pane, and a pane with
-   * no box comes back zero by zero and re-frames
-   * itself.
-   */
-  test('keeps the graph where it was left when the tabs change', async ({
-    page,
-  }) => {
-    const harness = await showRun(
-      page,
-      seeInit(seeRun({ graph: GRAPH }), 'graph'),
-    );
-    await graphAtRest(page);
-
-    const pane = page.locator('.run-flow');
-    const box = await pane.boundingBox();
-    if (box === null) throw new Error('the graph pane has no box');
-
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 - 60, box.y + 40);
-    await page.mouse.up();
-    await page.mouse.wheel(0, -120);
-
-    await graphAtRest(page);
-    const before = await transformOf(page);
-
-    // The host answers a tab press with a fresh
-    // init, the way the extension does. One mount
-    // throughout: a second would be a new page
-    // rather than a tab change.
-    for (let round = 0; round < 2; round += 1) {
-      await page.locator('[data-see-tab="trace"]').click();
-      await harness.show(seeInit(seeRun({ graph: GRAPH }), 'trace'));
-      await page.locator('[data-see-tab="graph"]').click();
-      await harness.show(seeInit(seeRun({ graph: GRAPH }), 'graph'));
-    }
-
-    await graphAtRest(page);
-
-    expect(await transformOf(page)).toBe(before);
-  });
-
-  /**
    * One block on the page for every block in the
    * document, and nothing else on the board: the
    * run's end is the last block, not a pill of its
@@ -256,17 +816,6 @@ test.describe('one run, as a graph', () => {
     );
     await expect(page.locator('[data-graph-caption]')).toHaveText(
       'workflow as saved · revision 4',
-    );
-  });
-
-  test('says a run whose workflow the project lost has no picture', async ({
-    page,
-  }) => {
-    await showRun(page, seeInit(seeRun({ graph: undefined }), 'graph'));
-
-    await expect(page.locator('[data-run-node]')).toHaveCount(0);
-    await expect(page.locator('[data-graph-caption]')).toHaveText(
-      NO_SAVED_WORKFLOW,
     );
   });
 

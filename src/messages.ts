@@ -660,12 +660,15 @@ export const messages = {
   runLevelGaveUp: (restarts: number) =>
     l10n.t('DBOS stopped restarting it after {0} restarts', restarts),
 
-  runHeadline: (status: string, duration: string) =>
-    l10n.t('{0} · {1} total', status, duration),
-  runHeadlineRunning: (status: string) => l10n.t('{0} · still going', status),
-
-  runBreadcrumb: (workflow: string, id: string) =>
-    l10n.t('mBoss › runs › {0} › {1}', workflow, id),
+  /**
+   * A run tab's name for its run: the workflow, then
+   * what is said about the run — the whole id in the
+   * editor tab's title, the line a run is summed up
+   * in on the header. One template for both, so a
+   * translator moves the workflow in both at once.
+   */
+  runTabLine: (workflow: string, said: string) =>
+    l10n.t('{0} · {1}', workflow, said),
 
   /**
    * A fork, from the list.

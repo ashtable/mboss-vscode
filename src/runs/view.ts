@@ -15,7 +15,13 @@ import {
 import { messages } from '../messages.js';
 import { filled } from '../webview/fill.js';
 import { shortRunId } from '../webview/ids.js';
-import { inFlight, runWord, settled, type RunWord } from '../webview/states.js';
+import {
+  glyphStateOf,
+  inFlight,
+  runWord,
+  settled,
+  type RunWord,
+} from '../webview/states.js';
 import { clock, duration, fine } from '../webview/time.js';
 import type {
   InspectorMode,
@@ -92,15 +98,6 @@ const RESUMABLE = new Set(['CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED']);
 /** What DBOS writes when it stops restarting a run:
  *  it dead-letters it, and writes no error row. */
 const GAVE_UP = 'MAX_RECOVERY_ATTEMPTS_EXCEEDED';
-
-/**
- * How much of a run's input the page carries.
- *
- * An input that is a document would otherwise be a
- * screen tall. The whole value is a click away in
- * the database this panel names.
- */
-const OUTPUT_CELL = 120;
 
 export type SeeView = {
   run: Run;
@@ -194,6 +191,19 @@ function sessionWhen(run: SessionRun): string {
   return run.durationMs === undefined
     ? at
     : `${at} · ${lasted(run.durationMs)}`;
+}
+
+/**
+ * The editor tab's title for a run: the workflow
+ * and the whole id.
+ *
+ * The one place the whole id is read on the run
+ * tab, where it costs the page nothing and can be
+ * copied; the header names the run by its short
+ * id.
+ */
+export function seeTitle(run: Pick<SeeRun, 'name' | 'workflowId'>): string {
+  return messages.runTabLine(run.name, run.workflowId);
 }
 
 export function seeInit(
@@ -328,22 +338,22 @@ function seeRun(view: SeeView): SeeRun {
 
   return {
     workflowId: run.workflowId,
+    short: shortRunId(run.workflowId),
     name: run.name,
-    breadcrumb: messages.runBreadcrumb(run.name, run.workflowId),
-    headline:
-      run.completedAt === undefined
-        ? messages.runHeadlineRunning(run.status)
-        : messages.runHeadline(
-            run.status,
-            lasted(run.completedAt - run.createdAt),
-          ),
     // The reading answered where the run is, with
     // every row the page holds; the header says that
-    // word rather than asking the steps again.
-    word: reading.outcome,
-    rail: ledgerOf(run),
-    selectedStep: view.selectedStep,
-    note: view.note,
+    // word rather than asking the steps again, in
+    // the line the Inspector's card says it in.
+    state: glyphStateOf(reading.outcome),
+    line: messages.runTabLine(
+      run.name,
+      runLine({
+        word: reading.outcome,
+        createdAt: run.createdAt,
+        completedAt: run.completedAt,
+        recovered: reading.recovered,
+      }),
+    ),
     graph,
     // Decided by the same call, so the sentence is
     // there exactly when the picture is not.
@@ -361,7 +371,6 @@ function seeRun(view: SeeView): SeeRun {
       functionId: markedRow(view, reading),
     },
     following: view.following ?? 'quiet',
-    input: inputOf(run),
   };
 }
 
@@ -663,20 +672,6 @@ function offerOf(
         ? messages.replayNotOffered()
         : replayRowReason(withheld, points.ir),
   };
-}
-
-/** What the run was started with, cut where it is
- *  long. */
-function inputOf(run: Run): { text: string; cut: boolean } | undefined {
-  const input = run.input;
-  if (input === undefined || input.shape === 'none') return undefined;
-
-  const text =
-    input.shape === 'payload'
-      ? JSON.stringify(input.value, null, 2)
-      : input.text;
-
-  return { text: cut(text), cut: text.length > OUTPUT_CELL };
 }
 
 /**
@@ -1056,12 +1051,6 @@ export function runControlsOf(
  *  the frame that draws its own. */
 function lasted(ms: number): string {
   return duration(ms, durationWords());
-}
-
-function cut(value: string): string {
-  return value.length <= OUTPUT_CELL
-    ? value
-    : `${value.slice(0, OUTPUT_CELL)}…`;
 }
 
 /**

@@ -12,6 +12,7 @@ import type { InspectorFocus } from '../inspector/focus.js';
 import { mountWebview, type Mount } from '../webview/host.js';
 
 import type { RunsStore } from './store.js';
+import { seeTitle } from './view.js';
 import { runsWords, seeWords } from './words.js';
 
 /**
@@ -250,12 +251,14 @@ export class SeePanel {
 
   /** The tab says which run it is showing, which is
    *  the one thing about a webview panel an
-   *  extension does own. */
+   *  extension does own — and it is where the whole
+   *  id is read, since the page's header names the
+   *  run by its short one. */
   private retitle(): void {
     const shown = this.store.see().run;
 
     if (this.panel !== undefined && shown !== undefined) {
-      this.panel.title = shown.workflowId;
+      this.panel.title = seeTitle(shown);
     }
   }
 }

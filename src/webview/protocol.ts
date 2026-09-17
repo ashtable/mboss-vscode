@@ -631,28 +631,23 @@ export type SeeInit = {
 };
 
 export type SeeRun = {
+  /** The whole id, which the header gives only to a
+   *  pointer: the editor tab's title carries it. */
   workflowId: string;
 
+  /** `#7089`, the id a person reads a run by. */
+  short: string;
+
+  /** The workflow it is a run of. */
   name: string;
 
-  /** `mBoss › runs › groom_booking › wf_c9d2f3` */
-  breadcrumb: string;
+  /** Where it has got to, as the header's dot draws
+   *  it. */
+  state: GlyphState;
 
-  /** `SUCCESS · 8.2 s total` */
-  headline: string;
-
-  /** Where it has got to, in the one word every
-   *  surface says it in. */
-  word: RunWord;
-
-  /** `dbos.workflow_status`, row by row. */
-  rail: { label: string; value: string }[];
-
-  /** The step a person picked. */
-  selectedStep: number | undefined;
-
-  /** What the last replay did, or would not do. */
-  note: string | undefined;
+  /** `groom_booking · done · 1.6 s`: the workflow,
+   *  then the line every surface sums a run up in. */
+  line: string;
 
   /**
    * The workflow as it is saved, laid out, with what
@@ -704,9 +699,6 @@ export type SeeRun = {
   /** Whether a watch is still reading this run, and
    *  what it would take to find out if not. */
   following: 'following' | 'waiting' | 'quiet';
-
-  /** What the run was started with, as recorded. */
-  input: { text: string; cut: boolean } | undefined;
 };
 
 /**

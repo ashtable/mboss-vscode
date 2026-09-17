@@ -4,28 +4,17 @@ import type { RunRow, RunsInit } from '../../src/webview/protocol.js';
 
 import { liveStep } from '../../src/test-support/runs.js';
 
-import {
-  GRAPH,
-  WARN,
-  graphAtRest,
-  seeInit,
-  seeNothing,
-  seeRun,
-  showRun,
-} from './fixtures/runs.js';
+import { WARN } from './fixtures/runs.js';
 import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
-import { runsWords as runsStrings, seeWords as seeStrings } from './words.js';
+import { runsWords as runsStrings } from './words.js';
 
 /**
  * A run history, on screen.
  *
- * Two surfaces. The list is a ledger read top to
- * bottom, where a failure says what it was on its
- * own row. The detail is the page that makes this
- * product's argument: a workflow survived a crash
- * because its steps are rows in Postgres, so the
- * page shows the rows and marks the steps that came
- * back from them rather than running again.
+ * The list is a ledger read top to bottom, where a
+ * failure says what it was on its own row. The run
+ * a row opens is drawn in an editor tab of its own,
+ * and its cases are in that tab's spec.
  *
  * The words are the ones sent in, as everywhere in
  * these specs; that the extension resolves the
@@ -1237,51 +1226,6 @@ test.describe('the run list', () => {
 });
 
 test.describe('one run in detail', () => {
-  test('says which run it is and how it went', async ({ page }) => {
-    await showRun(page, seeInit());
-
-    await expect(page.locator('.crumb')).toHaveText(
-      'mBoss › runs › groom_booking › wf_c9d2f3',
-    );
-    await expect(page.locator('.see-head .title')).toHaveText(
-      'SUCCESS · 8.2 s total',
-    );
-  });
-
-  /**
-   * The page quotes its sources; it does not
-   * decorate them.
-   *
-   * Asked of the sections this view actually draws
-   * rather than of the class names an earlier one
-   * decorated with. A check for a name nothing
-   * renders is equally true of a blank page, of this
-   * page, and of a page covered in corner marks
-   * under some other name.
-   */
-  test('frames its sections without ornament', async ({ page }) => {
-    await showRun(page, seeInit());
-
-    const sections = page.locator('section');
-
-    // The pane on screen, so the page has drawn every
-    // section before any is read.
-    await expect(page.locator('section[data-pane="trace"]')).toBeVisible();
-
-    const drawn = await sections.evaluateAll((all) =>
-      all.flatMap((element) => [
-        getComputedStyle(element).backgroundImage,
-        ...['::before', '::after'].map((part) => {
-          const style = getComputedStyle(element, part);
-
-          return `${style.content} ${style.backgroundImage}`;
-        }),
-      ]),
-    );
-
-    expect([...new Set(drawn)].sort()).toEqual(['none', 'none none']);
-  });
-
   test('replays a whole run from the list', async ({ page }) => {
     const harness = await showList(page, runsInit());
 
@@ -1291,62 +1235,6 @@ test.describe('one run in detail', () => {
     expect(await harness.postedOfType('replayRun')).toEqual([
       { type: 'replayRun', workflowId: 'wf_c9d2f3' },
     ]);
-  });
-
-  test('has nothing to draw before a run is picked', async ({ page }) => {
-    await showRun(page, seeNothing());
-
-    await expect(page.locator('.state')).toHaveText(
-      'Pick a run to see what it did.',
-    );
-  });
-
-  /**
-   * The run tab is the run and nothing beside it.
-   * What a run recorded about a block, or about the
-   * whole run, is the Inspector's to say, in the side
-   * bar, so the graph keeps the page's width.
-   */
-  test('draws no rail beside the run', async ({ page }) => {
-    await showRun(
-      page,
-      seeInit(
-        seeRun({
-          graph: GRAPH,
-          selected: { nodeId: 'find_slot', functionId: 1 },
-        }),
-        'graph',
-      ),
-    );
-    await graphAtRest(page);
-
-    await expect(page.locator('[data-run-node]')).toHaveCount(3);
-
-    for (const hook of [
-      '.rail',
-      '[data-evidence]',
-      '[data-inspector-tab]',
-      '[data-inspector-mode]',
-    ]) {
-      await expect(page.locator(hook)).toHaveCount(0);
-    }
-
-    const { pane, room } = await page.evaluate(() => {
-      const see = document.querySelector('.see') as HTMLElement;
-      const style = getComputedStyle(see);
-      const graph = document.querySelector('[data-pane="graph"]');
-
-      return {
-        pane: graph?.getBoundingClientRect().width ?? 0,
-        room:
-          see.clientWidth -
-          parseFloat(style.paddingLeft) -
-          parseFloat(style.paddingRight),
-      };
-    });
-
-    expect(pane).toBeGreaterThan(0);
-    expect(Math.abs(pane - room)).toBeLessThanOrEqual(1);
   });
 });
 
@@ -1372,28 +1260,4 @@ test.describe('in every theme', () => {
       expect(ground).not.toBe('rgba(0, 0, 0, 0)');
     });
   }
-});
-
-test.describe('what the run page says about itself', () => {
-  for (const [state, said] of [
-    ['following', seeStrings.following.following],
-    ['waiting', seeStrings.following.waiting],
-    ['quiet', seeStrings.following.quiet],
-  ] as const) {
-    test(`says it is ${state}`, async ({ page }) => {
-      await showRun(page, seeInit(seeRun({ following: state })));
-
-      await expect(page.locator('[data-following]')).toContainText(said);
-    });
-  }
-
-  test('offers a way to look again', async ({ page }) => {
-    const harness = await showRun(page, seeInit());
-
-    await page.locator('[data-see-refresh]').click();
-
-    expect(await harness.postedOfType('seeRefresh')).toEqual([
-      { type: 'seeRefresh' },
-    ]);
-  });
 });

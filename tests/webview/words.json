@@ -521,13 +521,13 @@
   },
   "seeWords": {
     "heading": "Run",
-    "nothingSelected": "Pick a run to see what it did.",
+    "nothingSelected": "Pick a run to see what it did",
+    "run": "run",
     "restored": "restored",
     "tabs": {
       "graph": "Graph",
       "trace": "Trace"
     },
-    "refresh": "Refresh",
     "following": {
       "following": "following · every 0.5 s · stops on its own",
       "waiting": "waiting · refresh to check",

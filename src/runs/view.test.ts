@@ -5,7 +5,7 @@ import { messages } from '../messages.js';
 import { FORM_INTAKE, TIMER_THEN_ANSWER } from '../test-support/runs.js';
 import { shortRunId } from '../webview/ids.js';
 import type { SeeRun, TraceDetail, TraceRowView } from '../webview/protocol.js';
-import type { RunWord } from '../webview/states.js';
+import { glyphStateOf, type RunWord } from '../webview/states.js';
 import { fine } from '../webview/time.js';
 
 import type { RecordedRunEvidence } from './evidence.js';
@@ -18,9 +18,11 @@ import {
   rowOf,
   runLine,
   seeInit,
+  seeTitle,
   sessionRowOf,
   type SeeView,
 } from './view.js';
+import { runWords } from './words.js';
 import type { ProjectWorkflow } from './workflows.js';
 
 /**
@@ -416,56 +418,82 @@ describe('one run in detail', () => {
     ).toEqual([]);
   });
 
-  it('says what it is and how long it took', () => {
-    expect(run?.headline).toBe('SUCCESS · 10.0 s total');
-    expect(run?.breadcrumb).toBe('mBoss › runs › groom_booking › wf_c9d2f3');
-  });
-
   /**
-   * The exact four rows the design asks for. They
-   * are the run as Postgres holds it, which is what
-   * the line under them says.
+   * The ledger, the input and what the last replay
+   * did are the Inspector's card about the whole
+   * run, so the page is sent none of them: the
+   * header says which run it is and where it got
+   * to, and nothing else.
    */
-  it('shows the ledger the design names, row for row', () => {
-    expect(run?.rail.map((row) => row.label)).toEqual([
-      'workflow_uuid',
-      'status',
-      'recovery_attempts',
-      'executor_id',
-      'application_version',
-    ]);
-
-    expect(run?.rail.map((row) => row.value)).toEqual([
-      'wf_c9d2f3',
-      'SUCCESS',
-      '2',
-      'local-dev',
-      'v0.4.1',
-    ]);
-  });
-
-  it('leaves out a column DBOS never filled in', () => {
-    const bare = seeInit({
-      run: { ...RUN, applicationVersion: undefined },
-      steps: STEPS,
-      selectedStep: undefined,
-      note: undefined,
-    });
-
-    expect(bare.run?.rail.map((row) => row.label)).not.toContain(
-      'application_version',
-    );
+  it('carries no ledger, input, note or headline of its own', () => {
+    expect(
+      Object.keys(run ?? {}).filter((field) =>
+        [
+          'breadcrumb',
+          'headline',
+          'word',
+          'rail',
+          'selectedStep',
+          'note',
+          'input',
+        ].includes(field),
+      ),
+    ).toEqual([]);
   });
 
   it('carries the step a replay would fork from', () => {
-    expect(run?.selectedStep).toBe(2);
+    expect(run?.selected.functionId).toBe(2);
   });
 
   it('has nothing to draw before a run is picked', () => {
     const empty = seeInit(undefined);
 
     expect(empty.run).toBeUndefined();
-    expect(empty.strings.nothingSelected).toBeTypeOf('string');
+    expect(empty.strings.nothingSelected).toBe('Pick a run to see what it did');
+  });
+});
+
+/**
+ * Which run the tab is, said twice and differently.
+ *
+ * The header is one row, so it names the run by the
+ * short id a person reads a run by and sums it up in
+ * the line every surface uses. The whole id is the
+ * editor tab's, where it can be read and copied
+ * without costing the page a line.
+ */
+describe('the run tab’s title and line', () => {
+  const run = seeInit({
+    run: RUN,
+    steps: STEPS,
+    selectedStep: undefined,
+    note: undefined,
+  }).run;
+
+  it('titles the tab with the workflow and the whole id', () => {
+    if (run === undefined) throw new Error('no run to title');
+
+    expect(seeTitle(run)).toBe('groom_booking · wf_c9d2f3');
+  });
+
+  /** `recovery_attempts` is two, so DBOS picked this
+   *  run back up once and the line says so. */
+  it('sums the run up after the workflow it is a run of', () => {
+    expect(run?.line).toBe('groom_booking · done · 10.0 s · ↻ recovered');
+    expect(run?.short).toBe(shortRunId('wf_c9d2f3'));
+    expect(run?.state).toBe('done');
+  });
+
+  it('says a run still going in its word alone', () => {
+    const going = seeInit({
+      run: { ...RUN, status: 'PENDING', completedAt: undefined },
+      steps: STEPS,
+      selectedStep: undefined,
+      note: undefined,
+    }).run;
+
+    expect(going?.line).toBe('groom_booking · recovering');
+    expect(going?.state).toBe('recovering');
   });
 });
 
@@ -625,7 +653,7 @@ describe('a run waiting on a person', () => {
       note: undefined,
     };
 
-    expect(seeInit(parked).run?.word).toBe('waiting');
+    expect(seeInit(parked).run?.state).toBe('waiting');
   });
 
   it('says a run whose blocks all cleared is running', () => {
@@ -644,7 +672,7 @@ describe('a run waiting on a person', () => {
       note: undefined,
     };
 
-    expect(seeInit(woken).run?.word).toBe('running');
+    expect(seeInit(woken).run?.state).toBe('running');
   });
 });
 
@@ -682,14 +710,19 @@ describe('one word for one run', () => {
     for (const status of statuses) {
       const run = { ...RUN, status, completedAt: undefined };
 
-      expect(rowOf(run).word, status).toBe(seeInit(page(run)).run?.word);
+      expect(glyphStateOf(rowOf(run).word), status).toBe(
+        seeInit(page(run)).run?.state,
+      );
     }
   });
 
   it('says a run DBOS gave up on gave up, on the page as well', () => {
     const dead = { ...RUN, status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED' };
 
-    expect(seeInit(page(dead)).run?.word).toBe('gaveUp');
+    const shown = seeInit(page(dead)).run;
+
+    expect(shown?.state).toBe(glyphStateOf('gaveUp'));
+    expect(shown?.line).toContain(runWords().gaveUp);
   });
 
   /** A status this build has never seen is a run
@@ -700,7 +733,7 @@ describe('one word for one run', () => {
     const odd = { ...RUN, status: 'PAUSED', recoveryAttempts: 1 };
 
     expect(rowOf(odd).word).toBe('running');
-    expect(seeInit(page(odd)).run?.word).toBe('running');
+    expect(seeInit(page(odd)).run?.state).toBe('running');
   });
 });
 
@@ -753,8 +786,8 @@ describe('the line a run is summed up in', () => {
 
 /**
  * The run page's own half of the message: the
- * saved workflow, the trace grouped as it happened,
- * and what the run was started with.
+ * saved workflow and the trace, one recorded
+ * operation to a row.
  */
 describe('one run, as the run page draws it', () => {
   const IR = {
@@ -881,7 +914,7 @@ describe('one run, as the run page draws it', () => {
     expect(seeInit(undefined).strings.reused).toBe('reused');
   });
 
-  it('carries the trace, the graph, the selection and the input', () => {
+  it('carries the trace, the graph and the selection', () => {
     const shown = page({ selectedNode: 'find_slot', following: 'following' });
 
     expect(shown.graph?.caption).toBe('workflow as saved · revision 4');
@@ -896,7 +929,6 @@ describe('one run, as the run page draws it', () => {
       functionId: 1,
     });
     expect(shown.following).toBe('following');
-    expect(shown.input?.text).toContain('ada@example.com');
   });
 
   /**

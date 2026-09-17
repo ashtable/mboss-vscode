@@ -14,94 +14,115 @@
  * somebody points at one or picks it.
  */
 
-/* One column: the run, and nothing beside it. What
-   a run recorded about a block or about the whole
-   run is the Inspector's, in the side bar. */
+/* The header, then whichever view is being read,
+   filling the tab edge to edge. Nothing is inset
+   or framed: the board is the tab's own ground, and
+   a board that pans inside a border slides its
+   blocks under a line that means nothing. */
 .see {
   box-sizing: border-box;
-  min-height: 100vh;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  padding: var(--space-6);
-  align-items: start;
+  grid-template-rows: auto 1fr;
+  height: 100vh;
 }
 
-.see-main {
+/* — the header — */
+
+/* One row. The tabs carry their own air above and
+   below their words, so the row adds only a
+   little of its own. The line takes whatever the
+   strip and the Button leave, so the strip sits at
+   the right whatever the run is called. */
+.run-header {
+  box-sizing: border-box;
   display: flex;
-  flex-direction: column;
-  gap: var(--space-6);
+  align-items: center;
+  gap: var(--space-2);
   min-width: 0;
+  padding-block: var(--space-1);
+  padding-inline: var(--space-3-5) var(--space-2);
+  border-bottom: 1px solid var(--hairline);
 }
 
-.state {
+/* Machine evidence, a step quieter than the ink: it
+   names the run rather than saying anything new.
+   One line, cut at the end, because a second line
+   would be a second row. */
+.run-line {
+  flex: 1;
+  min-width: 0;
   margin: 0;
+  overflow: hidden;
   font-size: var(--text-sm);
-  color: color-mix(in srgb, var(--ink) 70%, transparent);
+  color: var(--ink-soft);
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-/* — the head — */
-
-.crumb {
-  margin: 0 0 var(--space-1);
-  font-size: var(--text-sm);
-  color: color-mix(in srgb, var(--ink) 55%, transparent);
-}
-
-.see-head > .title[data-severity='failed'],
-.see-head > .title[data-severity='gaveUp'] {
-  color: var(--fail);
-}
-
-.see-head > .title[data-severity='running'],
-.see-head > .title[data-severity='recovering'] {
-  color: var(--warn);
-}
-
-/* Not the failure colour: a run somebody stopped is
-   not a bug anybody has to read. */
-.see-head > .title[data-severity='cancelled'] {
-  color: var(--ink-muted);
+/* The strip's hairline is its own, under the tabs
+   rather than across the page, and the Button
+   stands clear of it. */
+.run-header > .btn {
+  margin-inline-start: var(--space-2);
 }
 
 /* — the two views of one run — */
 
-/* Both panes in one grid cell, so the one not being
-   read keeps its layout box. The graph library
-   measures its own pane: with no box it comes back
-   zero by zero and re-frames itself, and what a
-   person panned to would be lost every time the tab
-   changed. */
-.tab-panes {
+/* The one view being read, as tall as the tab
+   leaves it. A grid of one is what hands that
+   height to what is inside. */
+.see > .tabpanel {
   display: grid;
   min-height: 0;
-}
-
-.tab-pane {
-  grid-area: 1 / 1;
   min-width: 0;
+}
+
+/* The graph, and on a wide tab the trace beside
+   it. */
+.graph-pane {
+  display: flex;
   min-height: 0;
+  min-width: 0;
 }
 
-.tab-pane[data-showing='false'] {
-  visibility: hidden;
-  pointer-events: none;
+.graph-pane > .empty-state {
+  flex: 1;
 }
 
-/* The graph, at a height of its own: a pane that
-   sized itself to its content would be nothing tall
-   before the graph had drawn. No frame: the board
-   is the tab's own ground, and a board that pans
-   inside a border slides its blocks under a line
-   that means nothing. */
 .run-flow {
   position: relative;
-  height: 60vh;
-  min-height: 260px;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
 }
 
 .run-flow .node {
   cursor: pointer;
+}
+
+/* Wide enough to read a row on its own line, never
+   so wide the graph loses the room it is there for,
+   and never wider than a line of the trace is worth
+   reading across. The border and the inset are
+   inside that width. */
+.trace-column {
+  flex: none;
+  box-sizing: border-box;
+  width: clamp(270px, 38%, 640px);
+  padding: var(--space-3-5);
+  border-left: 1px solid var(--hairline);
+  overflow-y: auto;
+}
+
+/* The trace on its own tab keeps the width it has
+   beside the graph: a row stretched across a wide
+   editor puts its time a long way from its name. */
+.trace-pane {
+  box-sizing: border-box;
+  max-width: 640px;
+  min-height: 0;
+  padding: var(--space-3-5);
+  overflow-y: auto;
 }
 
 /* The revision the graph draws and the way back to

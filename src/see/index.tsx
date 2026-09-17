@@ -7,7 +7,14 @@ import {
   type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useEffect, useMemo } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type RefObject,
+} from 'react';
 
 import { RunNode } from '../canvas/RunNode.js';
 import { Wire, WireMarkers } from '../canvas/Wire.js';
@@ -21,9 +28,12 @@ import type {
   SeeStrings,
 } from '../webview/protocol.js';
 import { Button } from '../webview/signal/Button.js';
+import { EmptyState } from '../webview/signal/EmptyState.js';
 import { FieldHint } from '../webview/signal/FieldHint.js';
+import { TabPanel } from '../webview/signal/Tabs.js';
 
 import { ExecutionTrace, useDisclosures } from './ExecutionTrace.js';
+import { RunHeader, SEE_PANE } from './RunHeader.js';
 import './see.css';
 
 /** Defined once. React Flow remounts every node
@@ -44,14 +54,6 @@ const nodeTypes: NodeTypes = {
 
 const edgeTypes: EdgeTypes = { wire: Wire };
 
-/** One mark per follow state, in place of an icon
- *  set the extension would have to ship. */
-const FOLLOW_MARK: Record<SeeRun['following'], string> = {
-  following: '●',
-  waiting: '◐',
-  quiet: '○',
-};
-
 /**
  * One run, as Postgres holds it.
  *
@@ -67,13 +69,22 @@ function See(state: SeeInit) {
   if (state.run === undefined) {
     return (
       <div className="see">
-        <p className="state">{state.strings.nothingSelected}</p>
+        <EmptyState kind="empty" title={state.strings.nothingSelected} />
       </div>
     );
   }
 
+  // Keyed on the run, so another run is another
+  // page: its graph opens at its own first block and
+  // nothing somebody opened on the last one stays
+  // open.
   return (
-    <Run run={state.run} strings={state.strings} showing={state.showing} />
+    <Run
+      key={state.run.workflowId}
+      run={state.run}
+      strings={state.strings}
+      showing={state.showing}
+    />
   );
 }
 
@@ -86,6 +97,16 @@ function See(state: SeeInit) {
  * surface the run was picked on. A second copy
  * here would be a second place to read one fact,
  * and the graph would lose the room it took.
+ *
+ * Only the view being read is on the page. A pane
+ * that was merely hidden kept its graph's blocks
+ * painting over the trace, because the library
+ * styles every block visible on the block itself;
+ * one that is not there has nothing to paint. What
+ * the page would otherwise lose by putting the
+ * graph away — where somebody had moved it to, and
+ * which rows they had opened — is held here, above
+ * both views.
  */
 function Run({
   run,
@@ -97,86 +118,79 @@ function Run({
   showing: 'graph' | 'trace';
 }) {
   const { expanded, toggle } = useDisclosures(run);
+  const left = useRef<Viewport | undefined>(undefined);
+  const wide = useWide();
+
+  const trace = (
+    <ExecutionTrace
+      run={run}
+      strings={strings}
+      expanded={expanded}
+      onToggle={toggle}
+    />
+  );
 
   return (
     <div className="see" data-run={run.workflowId}>
-      <main className="see-main">
-        <header className="see-head">
-          <p className="mono crumb">{run.breadcrumb}</p>
-          <p className="title" data-severity={run.word}>
-            {run.headline}
-          </p>
+      <RunHeader run={run} strings={strings} showing={showing} />
 
-          <p className="run-status" data-following={run.following}>
-            <span className="glyph" aria-hidden="true">
-              {FOLLOW_MARK[run.following]}
-            </span>
-            {strings.following[run.following]}
-          </p>
-
-          <button
-            type="button"
-            className="btn secondary"
-            data-see-refresh
-            onClick={() => postToHost({ type: 'seeRefresh' })}
-          >
-            {strings.refresh}
-          </button>
-        </header>
-
-        {/* Both views of one run. Which one is on
-            screen is the extension's: a view is
-            disposed the moment it is hidden, and a
-            tab a person chose has to survive that. */}
-        <div className="tabs" role="tablist">
-          {(['graph', 'trace'] as const).map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              className="tab"
-              role="tab"
-              data-see-tab={tab}
-              aria-selected={showing === tab}
-              onClick={() => postToHost({ type: 'seeShow', tab })}
-            >
-              {strings.tabs[tab]}
-            </button>
-          ))}
-        </div>
-
-        {/* Both panes keep their layout box, and
-            the one not being read is hidden with
-            `visibility` rather than `display`. The
-            graph library measures its own pane: with
-            no box it comes back zero by zero and
-            re-frames itself, so what a person panned
-            to would be lost every time the tab
-            changed. */}
-        <div className="tab-panes">
-          <section
-            className="tab-pane"
-            data-pane="graph"
-            data-showing={String(showing === 'graph')}
-          >
-            <RunGraph graph={run.graph} run={run} strings={strings} />
-          </section>
-
-          <section
-            className="tab-pane"
-            data-pane="trace"
-            data-showing={String(showing === 'trace')}
-          >
-            <ExecutionTrace
+      <TabPanel
+        panel={SEE_PANE}
+        active={showing}
+        hook={{ pane: showing, showing: 'true' }}
+      >
+        {showing === 'graph' ? (
+          // The graph first and the trace to its
+          // right, so the keyboard reaches the way
+          // back to the document before the rows.
+          // The column comes and goes as the tab is
+          // resized; the graph beside it stays drawn.
+          <div className="graph-pane">
+            <RunGraph
+              graph={run.graph}
               run={run}
               strings={strings}
-              expanded={expanded}
-              onToggle={toggle}
+              left={left}
             />
-          </section>
-        </div>
-      </main>
+            {wide ? <aside className="trace-column">{trace}</aside> : null}
+          </div>
+        ) : (
+          <div className="trace-pane">{trace}</div>
+        )}
+      </TabPanel>
     </div>
   );
+}
+
+/**
+ * Whether the tab has room for the trace beside the
+ * graph.
+ *
+ * Asked of the tab itself, which is the whole of
+ * this page's window, rather than of the screen: an
+ * editor split in two is two narrow tabs on a wide
+ * one. Below 900px a column of the trace would
+ * leave a graph too narrow to read, so the trace is
+ * its own tab there.
+ */
+const WIDE = '(width >= 900px)';
+
+function useWide(): boolean {
+  return useSyncExternalStore(onResized, isWide);
+}
+
+/** Outside the hook, so the page listens once
+ *  rather than again on every drawing. */
+function onResized(changed: () => void): () => void {
+  const query = window.matchMedia(WIDE);
+
+  query.addEventListener('change', changed);
+
+  return () => query.removeEventListener('change', changed);
+}
+
+function isWide(): boolean {
+  return window.matchMedia(WIDE).matches;
 }
 
 /** How far in from the board's edges the top-left
@@ -236,12 +250,32 @@ function RunGraph({
   graph,
   run,
   strings,
+  left,
 }: {
   graph: SeeGraph | undefined;
   run: SeeRun;
   strings: SeeStrings;
+
+  /**
+   * Where somebody left the board, the last time it
+   * was drawn for this run.
+   *
+   * Written on every move rather than when a move
+   * ends: the library says a wheel's zoom has ended
+   * a moment after its last notch, and a tab changed
+   * inside that moment would bring the board back
+   * without the zoom. Held outside anything drawn,
+   * because nothing reads it until the board is
+   * drawn again, and a page redrawn on every frame of
+   * a pan would redraw the trace beside it too.
+   */
+  left: RefObject<Viewport | undefined>;
 }) {
   const picked = run.selected.nodeId;
+
+  // Where the board opens, read once as it is drawn:
+  // the library reads its opening view only then.
+  const [opening] = useState(() => left.current);
 
   const drawn = useMemo(() => {
     if (graph === undefined) return undefined;
@@ -292,9 +326,11 @@ function RunGraph({
 
   if (graph === undefined || drawn === undefined) {
     return (
-      <p className="state" data-graph-caption>
-        {run.noGraph}
-      </p>
+      <EmptyState
+        kind="empty"
+        title={run.noGraph ?? ''}
+        hook={{ 'graph-caption': '' }}
+      />
     );
   }
 
@@ -325,7 +361,11 @@ function RunGraph({
           // leave the clicks nowhere to land.
           // Nothing here edits the document.
           elementsSelectable
-          defaultViewport={anchored(graph.boxes)}
+          // Where it was left, else its first block.
+          defaultViewport={opening ?? anchored(graph.boxes)}
+          onMove={(_event, next) => {
+            left.current = next;
+          }}
           onNodeClick={(_event, node) =>
             postToHost({ type: 'seeNode', nodeId: node.id })
           }
