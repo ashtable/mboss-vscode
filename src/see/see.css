@@ -336,13 +336,14 @@ body {
 
 /* The graph, at a height of its own: a pane that
    sized itself to its content would be nothing tall
-   before the graph had drawn. */
+   before the graph had drawn. No frame: the board
+   is the tab's own ground, and a board that pans
+   inside a border slides its blocks under a line
+   that means nothing. */
 .run-flow {
   position: relative;
   height: 60vh;
   min-height: 260px;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-md);
   overflow: hidden;
 }
 

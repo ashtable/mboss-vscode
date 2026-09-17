@@ -4,9 +4,10 @@ import {
   ReactFlowProvider,
   type EdgeTypes,
   type NodeTypes,
+  type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 
 import { RunNode } from '../canvas/RunNode.js';
 import { Wire, WireMarkers } from '../canvas/Wire.js';
@@ -386,6 +387,35 @@ function wide(fraction: number): string {
   return `${Math.max(fraction * 100, 0.4)}%`;
 }
 
+/** How far in from the board's edges the top-left
+ *  block sits: far enough that nothing drawn at a
+ *  block's edge, the port a wire hangs from or the
+ *  ring round a pick, is cut by the board. */
+const INSET = { left: 26, top: 22 };
+
+/**
+ * Where the graph opens: its top-left block at the
+ * board's top left, at the size it was drawn at.
+ *
+ * Fitting it to the board put a run of three blocks
+ * in the middle of a field of dots and shrank a run
+ * of thirty until nothing on it could be read. The
+ * layout can put a block left of or above the
+ * origin, so the corner is read off the boxes
+ * rather than assumed to be zero. A document with
+ * no blocks starts where a first block would.
+ */
+function anchored(boxes: SeeGraph['boxes']): Viewport {
+  const all = Object.values(boxes);
+
+  if (all.length === 0) return { x: INSET.left, y: INSET.top, zoom: 1 };
+
+  const left = Math.min(...all.map((box) => box.x));
+  const top = Math.min(...all.map((box) => box.y));
+
+  return { x: INSET.left - left, y: INSET.top - top, zoom: 1 };
+}
+
 /**
  * The workflow the run was a run of, with what the
  * run did to each block.
@@ -395,6 +425,13 @@ function wide(fraction: number): string {
  * configuration is edited in the Inspector, against
  * the document buffer. The way to the document
  * itself is Edit workflow, in the graph's corner.
+ *
+ * It is read with a pointer. A block is picked by a
+ * click the graph hears, and put down by a click on
+ * the board between the blocks or by Escape; the
+ * keyboard's way through a run is the trace, where
+ * every row is a control, so no block or wire here
+ * is a tab stop on the way to it.
  *
  * The caption says which revision is drawn, because
  * the document may have moved on since the run —
@@ -412,23 +449,54 @@ function RunGraph({
   run: SeeRun;
   strings: SeeStrings;
 }) {
-  const drawn = useMemo(
-    () =>
-      graph === undefined
-        ? undefined
-        : toReactFlow(graph.ir, graph.boxes, {
-            kindWords: graph.kindWords,
-            triggerPhrases: graph.triggerPhrases,
-            unassigned: graph.unassigned,
-            runningDerived: strings.derived,
-            queueCounts: graph.queueCounts,
-            derived: strings.derived,
-            selected: run.selected.nodeId,
-            run: run.live,
-            decided: new Map(Object.entries(graph.decided)),
-          }),
-    [graph, run.live, run.selected.nodeId, strings.derived],
-  );
+  const picked = run.selected.nodeId;
+
+  const drawn = useMemo(() => {
+    if (graph === undefined) return undefined;
+
+    const board = toReactFlow(graph.ir, graph.boxes, {
+      kindWords: graph.kindWords,
+      triggerPhrases: graph.triggerPhrases,
+      unassigned: graph.unassigned,
+      runningDerived: strings.derived,
+      queueCounts: graph.queueCounts,
+      derived: strings.derived,
+      selected: picked,
+      run: run.live,
+      decided: new Map(Object.entries(graph.decided)),
+    });
+
+    // A wire says nothing a screen reader needs:
+    // the blocks and the trace carry the run's
+    // shape, and left alone the library names each
+    // wire in its own English, "Edge from" one id
+    // to another.
+    return {
+      nodes: board.nodes,
+      edges: board.edges.map((edge) => ({
+        ...edge,
+        domAttributes: { 'aria-hidden': true },
+      })),
+    };
+  }, [graph, run.live, picked, strings.derived]);
+
+  // Heard on the document, because nothing inside
+  // the graph ever has focus to hear it; and only
+  // while a block is picked, so the key says
+  // nothing over a board with nothing to put down.
+  useEffect(() => {
+    if (picked === undefined) return;
+
+    const keyed = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        postToHost({ type: 'seeNode', nodeId: null });
+      }
+    };
+
+    document.addEventListener('keydown', keyed);
+
+    return () => document.removeEventListener('keydown', keyed);
+  }, [picked]);
 
   if (graph === undefined || drawn === undefined) {
     return (
@@ -450,6 +518,13 @@ function RunGraph({
           edgeTypes={edgeTypes}
           nodesDraggable={false}
           nodesConnectable={false}
+          nodesFocusable={false}
+          edgesFocusable={false}
+          // The library's keyboard handling selects
+          // and deletes, and its description tells
+          // a screen reader to; neither is true of
+          // a board that edits nothing.
+          disableKeyboardA11y
           // Selectable, because picking a block is
           // how somebody says which one they are
           // reading about — and the graph library
@@ -458,12 +533,11 @@ function RunGraph({
           // leave the clicks nowhere to land.
           // Nothing here edits the document.
           elementsSelectable
-          fitView
-          // Never zoomed past its natural size: a
-          // run of two blocks blown up to twice
-          // scale is a graph with one block on
-          // screen.
-          fitViewOptions={{ padding: 0.15, maxZoom: 1 }}
+          defaultViewport={anchored(graph.boxes)}
+          onNodeClick={(_event, node) =>
+            postToHost({ type: 'seeNode', nodeId: node.id })
+          }
+          onPaneClick={() => postToHost({ type: 'seeNode', nodeId: null })}
           proOptions={{ hideAttribution: true }}
         >
           {/* In the graph's own corner rather than

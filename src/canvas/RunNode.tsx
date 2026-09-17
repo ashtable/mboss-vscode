@@ -1,7 +1,5 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 
-import { postToHost } from '../webview/client.js';
-
 import { BlockFace } from './Node.js';
 import { SOURCE_PORT, TARGET_PORT, wantsHandler } from './graph.js';
 import type { CanvasNode } from './graph.js';
@@ -20,6 +18,12 @@ import type { CanvasNode } from './graph.js';
  * blocks are drawn between them — a wire with
  * nowhere to attach is a wire drawn from the top
  * left corner.
+ *
+ * The block takes no click of its own. Picking it
+ * is the graph's to hear, once, through its node
+ * handler; a click here as well would say the same
+ * pick twice, and on a plain element it is a way in
+ * that no key reaches.
  */
 export function RunNode({ data }: NodeProps<CanvasNode>) {
   const { node } = data;
@@ -28,9 +32,9 @@ export function RunNode({ data }: NodeProps<CanvasNode>) {
     <div
       className="node"
       data-run-node={node.id}
+      data-node={node.id}
       data-node-kind={node.kind}
       data-state={data.state}
-      onClick={() => postToHost({ type: 'seeNode', nodeId: node.id })}
     >
       <Handle
         type="target"

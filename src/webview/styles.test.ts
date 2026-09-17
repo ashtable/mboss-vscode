@@ -102,6 +102,13 @@ const TRACKING = ['var(--label-tracking)', 'var(--state-tracking)', 'normal'];
 
 const FACES = ['var(--font-body)', 'var(--font-mono)'];
 
+/** The elements that are only boxes and text: none
+ *  of them is announced as something to press, and
+ *  none of them takes a key. */
+const PLAIN = /^<(?:div|span|p|li)\b/;
+
+const CLICKED = /\bonClick=/;
+
 function named(path: string): string {
   return relative(REPO_ROOT, path);
 }
@@ -630,5 +637,34 @@ describe('the stylesheets this extension ships', () => {
         .filter((one) => !one.tag.includes('ink="brand"'))
         .map((one) => one.name),
     ).toEqual([]);
+  });
+});
+
+describe('the views this extension ships', () => {
+  /**
+   * What a person clicks is a Button, or a handler
+   * the graph library calls for its own nodes, and
+   * never a plain element with a click on it. A
+   * plain element tells a screen reader nothing about
+   * being pressable and takes no key, so a click on
+   * one is a way in that a keyboard does not have.
+   */
+  it('take no click on a plain element', () => {
+    // The reader first: a tag written over several
+    // lines, with an arrow inside it, is one tag and
+    // the whole of it.
+    const sample = '<div\n  a={1}\n  onClick={() => x}\n';
+
+    expect(tagsOf(`${sample}>`)).toEqual([sample]);
+    expect(PLAIN.test(sample) && CLICKED.test(sample)).toBe(true);
+    expect(components).not.toEqual([]);
+
+    const clicked = components.flatMap((file) =>
+      tagsOf(withoutNotes(file.text))
+        .filter((tag) => PLAIN.test(tag) && CLICKED.test(tag))
+        .map(() => file.name),
+    );
+
+    expect(clicked).toEqual([]);
   });
 });
