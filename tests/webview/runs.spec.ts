@@ -377,6 +377,38 @@ test.describe('the panel frame', () => {
   });
 
   /**
+   * And what is pinned is capped at half the pane,
+   * so a long refusal above the list cannot leave a
+   * short pane with no runs in it at all.
+   */
+  test('keeps what is pinned to half the pane', async ({ page }) => {
+    await showList(
+      page,
+      frameInit({
+        testRun: byHand(MANUAL.name, {
+          detail:
+            'The app refused that start: no route answered POST /runs, ' +
+            'and the container was built before this workflow was saved, ' +
+            'so rebuilding it is what makes the route exist.',
+          rebuildToRun: true,
+          workflowId: 'wf_refused',
+        }),
+      }),
+      'light',
+      { width: 400 },
+    );
+    await page.setViewportSize({ width: 400, height: 320 });
+
+    const pinned = page.locator('.runs-controls');
+
+    expect(await heightOf(pinned)).toBeLessThanOrEqual(160);
+    expect(
+      await pinned.evaluate((node) => node.scrollHeight > node.clientHeight),
+    ).toBe(true);
+    await expect(page.locator('li[data-run]')).toHaveCount(9);
+  });
+
+  /**
    * A start that was refused is filed under an id
    * like any other, so the agent can be handed the
    * whole of it. A refusal checked before anything
