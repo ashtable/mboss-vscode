@@ -1780,6 +1780,46 @@ test.describe('the run tab’s trace', () => {
   });
 
   /**
+   * A pick can arrive after the page is drawn: the
+   * extension answers a block picked somewhere else
+   * with a repaint naming one of its rows. Where that
+   * row is folded away, the fold holding it opens,
+   * because a row marked as the one being read inside
+   * a closed disclosure is a mark nobody can find.
+   */
+  test('opens the fold holding a row picked after the page is drawn', async ({
+    page,
+  }) => {
+    const harness = await showRun(
+      page,
+      seeInit(
+        seeRun({
+          ...TRACED,
+          selected: { nodeId: 'parse_request', functionId: 0 },
+        }),
+      ),
+    );
+
+    const open = page.locator('[data-sdk-rows]');
+    await expect(open).toHaveAttribute('aria-expanded', 'false');
+
+    await harness.show(
+      seeInit(
+        seeRun({
+          ...TRACED,
+          selected: { nodeId: 'find_slot', functionId: 4 },
+        }),
+      ),
+    );
+
+    await expect(open).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('[data-trace-op="4"]')).toHaveAttribute(
+      'aria-current',
+      'true',
+    );
+  });
+
+  /**
    * A block picked on the graph marks the row its
    * evidence is drawn from, and only that one. A
    * block that wrote no row marks none.

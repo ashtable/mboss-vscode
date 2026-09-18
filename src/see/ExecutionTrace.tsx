@@ -172,8 +172,10 @@ export function ExecutionTrace({
  * opens it, wherever the pick came from, since the
  * row picked is the one somebody has to be able to
  * see; folding it again afterwards is theirs to do.
- * Another run starts with every one folded: the
- * numbers are that run's.
+ * Another run is another page and starts with every
+ * one folded, which the key on the run above this
+ * hook is what does: nothing here has to remember
+ * which run the numbers belong to.
  */
 export function useDisclosures(run: SeeRun): {
   expanded: ReadonlySet<number>;
@@ -182,7 +184,6 @@ export function useDisclosures(run: SeeRun): {
   const picked = run.selected.functionId;
 
   const [held, setHeld] = useState(() => ({
-    run: run.workflowId,
     picked,
     open: opening(new Set(), run.trace, picked),
   }));
@@ -192,14 +193,8 @@ export function useDisclosures(run: SeeRun): {
   // Worked out while drawing rather than after, so
   // the page never paints the picked row folded away
   // for a frame first.
-  if (held.run !== run.workflowId || held.picked !== picked) {
-    const kept = held.run === run.workflowId ? held.open : new Set<number>();
-
-    current = {
-      run: run.workflowId,
-      picked,
-      open: opening(kept, run.trace, picked),
-    };
+  if (held.picked !== picked) {
+    current = { picked, open: opening(held.open, run.trace, picked) };
     setHeld(current);
   }
 
