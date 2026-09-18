@@ -118,6 +118,35 @@ describe('what the list draws', () => {
     expect(started.list().state).toBe('ok');
   });
 
+  /**
+   * The read that ends the loading paint is also
+   * the one that fires the panel's change, so a
+   * subscriber told about it while the list still
+   * counted as unread would draw the header and
+   * nothing under it until somebody asked again.
+   * What a subscriber was handed is the question,
+   * not what the store says once the read has
+   * settled.
+   */
+  it('hands its first reader the page it has just read', async () => {
+    const store = runsStore(deps());
+    const painted: string[] = [];
+
+    store.onChanged(() => painted.push(store.list().state));
+    await store.refresh();
+
+    expect(painted.length).toBeGreaterThan(0);
+    expect(painted.at(-1)).toBe('ok');
+
+    // And the extra repaint is the first read's
+    // alone: every later refresh costs what it
+    // always did.
+    const first = painted.length;
+    await store.refresh();
+
+    expect(painted.length - first).toBe(first - 1);
+  });
+
   it('draws the three zones as one picture', async () => {
     const dir = project();
     const store = runsStore(deps({ host: host({ projects: () => [dir] }) }));

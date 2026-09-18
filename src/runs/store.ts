@@ -672,12 +672,26 @@ export function runsStore(deps: RunsDeps): RunsStore {
    * following is composed from what the two zones
    * have just read rather than from what they held
    * before.
+   *
+   * The first of these reads says so again once it
+   * is over. The read is what fires the change, and
+   * it fired while the list still counted as unread,
+   * so whoever drew on it drew the header and
+   * nothing under it — and nothing would have asked
+   * again. Only the first, because every later
+   * refresh already ends on a page somebody can
+   * draw, and after `rewatch()`, so the one extra
+   * repaint carries the watch too.
    */
   const readAfterStack = async (): Promise<void> => {
+    const first = !loaded;
+
     testRun.refresh();
     await history.refresh();
     loaded = true;
     follow.rewatch();
+
+    if (first) changes.fire();
   };
 
   /**
