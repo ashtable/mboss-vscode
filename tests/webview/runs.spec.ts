@@ -891,111 +891,118 @@ test.describe('the filters', () => {
         ),
       ).toBe(true);
     });
+
+    /**
+     * The read stops at a page; the count behind the
+     * tab does not. So a list that is shorter than
+     * its tab says so, and compares with the tab it
+     * is under rather than with every run there is.
+     */
+    test(`says how many of how many it shows once the list is capped in ${theme}`, async ({
+      page,
+    }) => {
+      const fifty = Array.from({ length: 50 }, (_, at) =>
+        listRow({
+          workflowId: `${String(at).padStart(8, '0')}-0000-4000-8000-${'0'.repeat(12)}`,
+        }),
+      );
+
+      const harness = await showList(
+        page,
+        runsInit({ rows: fifty, counts: { all: 51, active: 0, failed: 0 } }),
+        theme,
+        { width: 300 },
+      );
+
+      const panel = page.getByRole('tabpanel');
+      await expect(panel.locator('li[data-run]')).toHaveCount(50);
+      const last = panel.locator(':scope > :last-child');
+      await expect(last).toHaveClass(/field-hint/);
+      await expect(last).toHaveText(filled(runsStrings.capped, '50', '51'));
+      expect(
+        sameColour(await style(last, 'color'), colourOf(theme, 'ink-faint')),
+      ).toBe(true);
+
+      await harness.show(
+        runsInit({ rows: SIX_DONE, counts: { all: 6, active: 0, failed: 0 } }),
+      );
+      await expect(panel.locator('li[data-run]')).toHaveCount(6);
+      await expect(panel.locator(':scope > .field-hint')).toHaveCount(0);
+
+      await harness.show(
+        runsInit({
+          filter: 'failed',
+          rows: [BY_STATE.failed],
+          counts: { all: 60, active: 0, failed: 1 },
+        }),
+      );
+      await expect(panel.locator('li[data-run]')).toHaveCount(1);
+      await expect(panel.locator(':scope > .field-hint')).toHaveCount(0);
+    });
+
+    test(`says an empty filter is empty in ${theme}`, async ({ page }) => {
+      const harness = await showList(
+        page,
+        runsInit({
+          filter: 'failed',
+          rows: [],
+          counts: { all: 6, active: 0, failed: 0 },
+        }),
+        theme,
+        { width: 300 },
+      );
+
+      const panel = page.getByRole('tabpanel');
+      await expect(page.getByRole('tab')).toHaveCount(3);
+      await expect(page.locator('.empty-state')).toHaveCount(1);
+      await expect(panel.locator('.empty-title')).toHaveText(
+        runsStrings.noFailed,
+      );
+
+      await harness.show(
+        runsInit({
+          filter: 'active',
+          rows: [],
+          counts: { all: 6, active: 0, failed: 0 },
+        }),
+      );
+      await expect(page.locator('.empty-state')).toHaveCount(1);
+      await expect(panel.locator('.empty-title')).toHaveText(
+        runsStrings.noActive,
+      );
+
+      // With the app down the panel already says why
+      // in a card of its own, so an empty filter is a
+      // line under the tabs rather than a second card.
+      await harness.show(
+        runsInit({
+          filter: 'failed',
+          rows: [],
+          counts: { all: 6, active: 0, failed: 0 },
+          stack: {
+            available: true,
+            answered: true,
+            services: [
+              {
+                service: 'app',
+                state: 'exited',
+                health: 'none',
+                ports: [],
+                detail: '',
+              },
+            ],
+            busy: undefined,
+            detail: undefined,
+          },
+        }),
+      );
+      await expect(page.getByRole('tab')).toHaveCount(3);
+      await expect(panel.locator('.empty-state')).toHaveCount(0);
+      await expect(panel.locator(':scope > .field-hint')).toHaveText(
+        runsStrings.noFailed,
+      );
+    });
   }
-
-  /**
-   * The read stops at a page; the count behind the
-   * tab does not. So a list that is shorter than
-   * its tab says so, and compares with the tab it is
-   * under rather than with every run there is.
-   */
-  test('says how many of how many it shows once the list is capped', async ({
-    page,
-  }) => {
-    const fifty = Array.from({ length: 50 }, (_, at) =>
-      listRow({
-        workflowId: `${String(at).padStart(8, '0')}-0000-4000-8000-${'0'.repeat(12)}`,
-      }),
-    );
-
-    const harness = await showList(
-      page,
-      runsInit({ rows: fifty, counts: { all: 51, active: 0, failed: 0 } }),
-    );
-
-    const panel = page.getByRole('tabpanel');
-    await expect(panel.locator('li[data-run]')).toHaveCount(50);
-    const last = panel.locator(':scope > :last-child');
-    await expect(last).toHaveClass(/field-hint/);
-    await expect(last).toHaveText(filled(runsStrings.capped, '50', '51'));
-
-    await harness.show(
-      runsInit({ rows: SIX_DONE, counts: { all: 6, active: 0, failed: 0 } }),
-    );
-    await expect(panel.locator('li[data-run]')).toHaveCount(6);
-    await expect(panel.locator(':scope > .field-hint')).toHaveCount(0);
-
-    await harness.show(
-      runsInit({
-        filter: 'failed',
-        rows: [BY_STATE.failed],
-        counts: { all: 60, active: 0, failed: 1 },
-      }),
-    );
-    await expect(panel.locator('li[data-run]')).toHaveCount(1);
-    await expect(panel.locator(':scope > .field-hint')).toHaveCount(0);
-  });
-
-  test('says an empty filter is empty', async ({ page }) => {
-    const harness = await showList(
-      page,
-      runsInit({
-        filter: 'failed',
-        rows: [],
-        counts: { all: 6, active: 0, failed: 0 },
-      }),
-    );
-
-    const panel = page.getByRole('tabpanel');
-    await expect(page.getByRole('tab')).toHaveCount(3);
-    await expect(page.locator('.empty-state')).toHaveCount(1);
-    await expect(panel.locator('.empty-title')).toHaveText(
-      runsStrings.noFailed,
-    );
-
-    await harness.show(
-      runsInit({
-        filter: 'active',
-        rows: [],
-        counts: { all: 6, active: 0, failed: 0 },
-      }),
-    );
-    await expect(page.locator('.empty-state')).toHaveCount(1);
-    await expect(panel.locator('.empty-title')).toHaveText(
-      runsStrings.noActive,
-    );
-
-    // With the app down the panel already says why
-    // in a card of its own, so an empty filter is a
-    // line under the tabs rather than a second card.
-    await harness.show(
-      runsInit({
-        filter: 'failed',
-        rows: [],
-        counts: { all: 6, active: 0, failed: 0 },
-        stack: {
-          available: true,
-          answered: true,
-          services: [
-            {
-              service: 'app',
-              state: 'exited',
-              health: 'none',
-              ports: [],
-              detail: '',
-            },
-          ],
-          busy: undefined,
-          detail: undefined,
-        },
-      }),
-    );
-    await expect(page.getByRole('tab')).toHaveCount(3);
-    await expect(panel.locator('.empty-state')).toHaveCount(0);
-    await expect(panel.locator(':scope > .field-hint')).toHaveText(
-      runsStrings.noFailed,
-    );
-  });
 });
 
 test.describe('a run, collapsed', () => {
