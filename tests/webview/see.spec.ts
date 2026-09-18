@@ -1038,6 +1038,17 @@ test.describe('one run, as a graph', () => {
     // The host answers with the block put down, the
     // way the extension does.
     await harness.show(seeInit(seeRun({ graph: GRAPH }), 'graph'));
+
+    // The board redraws with nothing picked before
+    // it stops listening for the key: the listener
+    // goes with the effect's cleanup, which runs
+    // after the paint the count reads. Settling the
+    // graph is what waits for that cleanup.
+    await expect(
+      page.locator('[data-run-node][data-state="selected"]'),
+    ).toHaveCount(0);
+    await graphAtRest(page);
+
     await page.keyboard.press('Escape');
 
     expect(await harness.postedOfType('seeNode')).toEqual([
