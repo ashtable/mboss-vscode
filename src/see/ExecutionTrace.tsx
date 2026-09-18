@@ -89,7 +89,16 @@ export function ExecutionTrace({
 
   return (
     <div className="execution-trace">
-      <SectionLabel id={named}>{strings.trace}</SectionLabel>
+      {/* Both belong to the list of a block's rows, so
+          both go where that list does. A run whose
+          document the project has lost has rows and
+          no block to draw them under: a heading over
+          nothing, above a line asking for a row to be
+          picked, would promise a list that is not
+          there and a pick nothing here answers. */}
+      {trace.length === 0 ? null : (
+        <SectionLabel id={named}>{strings.trace}</SectionLabel>
+      )}
 
       {trace.length === 0 ? null : (
         <ol className="trace" data-trace aria-labelledby={named}>
@@ -147,7 +156,7 @@ export function ExecutionTrace({
         </section>
       )}
 
-      <FieldHint>{strings.traceHint}</FieldHint>
+      {trace.length === 0 ? null : <FieldHint>{strings.traceHint}</FieldHint>}
     </div>
   );
 }

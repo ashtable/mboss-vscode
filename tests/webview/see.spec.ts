@@ -1850,6 +1850,44 @@ test.describe('the run tab’s trace', () => {
   });
 
   /**
+   * A run whose workflow the project has lost wrote
+   * rows, but there is no block left to draw any of
+   * them under. Heading an empty list "trace", over a
+   * line telling the reader to pick a row, promises
+   * two things that are not there: the rows that
+   * exist are the ones no block owns, and they pick
+   * nothing. So the label the rows are under is the
+   * only label, and the line about picking is gone
+   * with the rows it was about.
+   */
+  test('draws a run whose document is gone as its unattributed rows alone', async ({
+    page,
+  }) => {
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          trace: [],
+          unattributed: UNATTRIBUTED.flatMap((row) => [
+            row,
+            { ...row, functionId: row.functionId + 1, name: 'also_gone' },
+          ]),
+        }),
+      ),
+    );
+
+    await expect(
+      page.locator('[data-unattributed] [data-trace-op]'),
+    ).toHaveCount(2);
+
+    await expect(page.locator('.execution-trace .section-label')).toHaveText([
+      seeStrings.unattributed,
+    ]);
+    await expect(page.getByText(seeStrings.traceHint)).toHaveCount(0);
+    await expect(page.locator('[data-trace]')).toHaveCount(0);
+  });
+
+  /**
    * What the page worked out and what the run wrote
    * down are different claims. A word the page
    * derived says so; a value the run recorded is
