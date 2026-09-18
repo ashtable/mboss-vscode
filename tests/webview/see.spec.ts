@@ -547,6 +547,31 @@ test.describe('the run tab’s panes', () => {
     }
   });
 
+  /**
+   * The trace beside a wide graph is part of the
+   * graph's pane rather than a pane of its own, so
+   * picking the Trace tab puts one trace on screen
+   * and never a second beside the first.
+   */
+  test('keeps the trace inside the graph pane when the tab is wide enough for both', async ({
+    page,
+  }) => {
+    await showRun(page, seeInit(MINTED, 'graph'), 'light', { width: WIDE });
+    await graphAtRest(page);
+
+    await expect(page.locator('[data-trace]')).toHaveCount(1);
+    await expect(page.locator('[data-pane="graph"] [data-trace]')).toHaveCount(
+      1,
+    );
+
+    await showRun(page, seeInit(MINTED, 'graph'), 'light', { width: NARROW });
+    await graphAtRest(page);
+
+    await expect(page.locator('[data-pane="graph"] [data-trace]')).toHaveCount(
+      0,
+    );
+  });
+
   test('keeps the trace to a readable width on its own tab', async ({
     page,
   }) => {

@@ -9,16 +9,39 @@ import {
   blockInit,
   blockSubject,
   canvasInit,
+  clickWire,
   openCanvas,
   openInspector,
 } from './fixtures/canvas.js';
-import { APP_DOWN, runsInit } from './fixtures/list.js';
+import { LIBRARY_COLOURS } from './fixtures/library.js';
+import { APP_DOWN, listRow, runsInit } from './fixtures/list.js';
 import { painted } from './fixtures/paint.js';
-import { GRAPH, seeInit, seeRun, TRACE } from './fixtures/runs.js';
+import { GRAPH, graphAtRest, seeInit, seeRun, TRACE } from './fixtures/runs.js';
+import { SCENES, type Scene } from './fixtures/scenes.js';
 import { fileEntry, sidebarInit } from './fixtures/sidebar.js';
-import { mount, THEMES_ALL } from './harness.js';
+import {
+  mount,
+  THEMES_ALL,
+  type Harness,
+  type MountOptions,
+  type ThemeKind,
+} from './harness.js';
 import { colourOf, ROLES, sameColour, type Role } from './palette.js';
-import { durationsOf, STILL } from './sweep.js';
+import {
+  contrastOn,
+  durationsOf,
+  settled,
+  misformedOn,
+  misspoken,
+  paintsOn,
+  pressablesOn,
+  shouting,
+  STILL,
+  unaskedMachineFace,
+  underTen,
+  writtenOn,
+  type Reading,
+} from './sweep.js';
 import { canvasWords, inspectorWords } from './words.js';
 
 /**
@@ -1096,3 +1119,831 @@ test.describe('the fields every form is filled in with', () => {
     ).toBe(0);
   });
 });
+
+/**
+ * A scene on the page, at the editor's type size
+ * the case asks for, once nothing on it is still
+ * settling: the gesture it needs made, the fonts in
+ * and a graph done fitting itself to its pane.
+ */
+async function showScene(
+  page: Page,
+  scene: Scene,
+  theme: ThemeKind,
+  options: MountOptions = {},
+): Promise<Harness> {
+  const harness = await mount(page, scene.view, theme, {
+    width: scene.width,
+    ...options,
+  });
+
+  await harness.show(scene.init());
+  await scene.after?.(page);
+  await expect(page.locator('#root > *').first()).toBeVisible();
+
+  if ((await page.locator('.react-flow__viewport').count()) > 0) {
+    await graphAtRest(page);
+  }
+
+  await settled(page);
+
+  return harness;
+}
+
+/** Every error the page threw, from here on. */
+function thrownOn(page: Page): string[] {
+  const thrown: string[] = [];
+
+  page.on('pageerror', (error) => thrown.push(error.message));
+
+  return thrown;
+}
+
+/** A reading held to finding nothing, having looked
+ *  at something. Soft, so one run of a scene lists
+ *  every rule its page breaks. */
+function holdsNone(reading: Reading, rule: string): void {
+  expect.soft(reading.measured, `${rule}: read nothing`).toBeGreaterThan(0);
+  expect.soft(reading.found, rule).toEqual([]);
+}
+
+/** A colour held to a role, softly. */
+function paints(actual: string, expected: string, what: string): void {
+  expect
+    .soft(sameColour(actual, expected), `${what}: ${actual} ≠ ${expected}`)
+    .toBe(true);
+}
+
+/** One computed property of the first element a
+ *  selector finds. */
+function styleOf(page: Page, selector: string, property: string) {
+  return page
+    .locator(selector)
+    .first()
+    .evaluate(
+      (element, name) => getComputedStyle(element).getPropertyValue(name),
+      property,
+    );
+}
+
+/** Whether the page draws anything the selector
+ *  finds. */
+async function draws(page: Page, selector: string): Promise<boolean> {
+  return (await page.locator(selector).count()) > 0;
+}
+
+/** Whether a theme is one of the two dark ones. */
+function darkIn(theme: ThemeKind): boolean {
+  return theme === 'dark' || theme === 'high-contrast';
+}
+
+/** The two themes that draw structure in lines. */
+const HIGH_CONTRAST = ['high-contrast', 'high-contrast-light'] as const;
+
+/** A view docked in the side bar stands on the side
+ *  bar's ground; the rest are editor panels. */
+function groundOf(scene: Scene): Role {
+  return ['sidebar', 'runs', 'inspector'].includes(scene.view)
+    ? 'side-bar'
+    : 'canvas';
+}
+
+/**
+ * Focuses what a selector finds the way a keyboard
+ * would: a key first, so the browser treats the
+ * focus as one a keyboard made and draws the ring it
+ * draws for one.
+ */
+async function focusByKeyboard(page: Page, selector: string): Promise<void> {
+  await page.keyboard.press('Shift');
+  await page.locator(selector).first().focus();
+  await settled(page);
+}
+
+/**
+ * The colours a view is drawn in that a theme picks
+ * outright, wherever the scene draws the element
+ * that carries them: the ground, and the parts of
+ * each view that are clear on it, washed, toned or
+ * edged in a role of their own.
+ */
+async function standsOnItsGround(
+  page: Page,
+  scene: Scene,
+  theme: ThemeKind,
+): Promise<void> {
+  const body = await page.evaluate(() => {
+    const style = getComputedStyle(document.body);
+
+    return { ground: style.backgroundColor, scheme: style.colorScheme };
+  });
+
+  paints(body.ground, colourOf(theme, groundOf(scene)), 'the ground');
+  expect.soft(body.scheme).toBe(darkIn(theme) ? 'dark' : 'light');
+
+  const clear = [
+    '[data-agent-head]',
+    '.agent-foot',
+    '.runs-head',
+    '[data-zone="stack"]',
+    '.runs-foot',
+    'li[data-run]:not(:has(> [aria-current="true"]))',
+  ];
+
+  for (const selector of clear) {
+    if (!(await draws(page, selector))) continue;
+
+    const ground = await styleOf(page, selector, 'background-color');
+
+    expect.soft(ground, `${selector} stands clear`).toBe('rgba(0, 0, 0, 0)');
+  }
+
+  const toned: [string, string, Role][] = [
+    ['.composer', 'background-color', 'surface'],
+    ['.diff-line[data-kind="add"]', 'background-color', 'diff-add-bg'],
+    [
+      'li[data-run]:has(> [aria-current="true"])',
+      'background-color',
+      'brand-tint',
+    ],
+    [
+      'li[data-run]:has(> [aria-current="true"])',
+      'border-top-color',
+      'selection-ring',
+    ],
+    ['.field-input', 'border-top-color', 'rest-border'],
+  ];
+
+  for (const [selector, property, role] of toned) {
+    if (!(await draws(page, selector))) continue;
+
+    paints(
+      await styleOf(page, selector, property),
+      colourOf(theme, role),
+      `${selector} ${property}`,
+    );
+  }
+
+  if (await draws(page, '.field-input')) {
+    const ground = await styleOf(page, '.field-input', 'background-color');
+
+    expect.soft(ground, 'a field at rest').toBe('rgba(0, 0, 0, 0)');
+  }
+
+  if (await draws(page, '.state-word[data-tone="ok"]')) {
+    paints(
+      await styleOf(page, '.state-word[data-tone="ok"]', 'color'),
+      colourOf(theme, 'state-ink') || colourOf(theme, 'ok'),
+      'a finished state word',
+    );
+  }
+
+  if (await draws(page, '.btn[data-variant="quiet"]')) {
+    await focusByKeyboard(page, '.btn[data-variant="quiet"]');
+
+    const ring = page.locator('.btn[data-variant="quiet"]').first();
+
+    await expect.soft(ring).toHaveCSS('outline-style', 'solid');
+    paints(
+      await ring.evaluate((element) => getComputedStyle(element).outlineColor),
+      colourOf(theme, 'focus-ring'),
+      'a quiet Button with the keyboard on it',
+    );
+    await ring.blur();
+    await settled(page);
+  }
+}
+
+/** What a panel may not carry once the Inspector is
+ *  a pane of its own and the run tab gave its rail
+ *  to it. */
+const GONE: Partial<Record<Scene['view'], string>> = {
+  canvas: '.inspector, [data-inspector-mode], [data-inspector-tab]',
+  see: '.rail, [data-evidence]',
+};
+
+/**
+ * Whether the view's outermost frame is flat: no
+ * corner and no shadow on it or on the landmarks
+ * directly inside it, which are the panels a view
+ * is divided into. A section inside is content, and
+ * the one kind of content allowed to float as a
+ * card is the gallery's.
+ */
+function unflatOn(page: Page): Promise<Reading> {
+  return page.evaluate(() => {
+    const LANDMARKS = ['HEADER', 'MAIN', 'FOOTER', 'NAV', 'ASIDE'];
+    const outer = [...document.querySelectorAll('#root > *')].flatMap(
+      (frame) => [
+        frame,
+        ...[...frame.children].filter((child) =>
+          LANDMARKS.includes(child.tagName),
+        ),
+      ],
+    );
+
+    return {
+      measured: outer.length,
+      found: outer
+        .filter((element) => {
+          const style = getComputedStyle(element);
+
+          return style.borderRadius !== '0px' || style.boxShadow !== 'none';
+        })
+        .map(
+          (element) => `${element.tagName.toLowerCase()}.${element.className}`,
+        ),
+    };
+  });
+}
+
+/**
+ * The colour roles a theme picks outright that a
+ * view is drawn in, read on the page as it stands:
+ * after a theme switch, these are what a fresh mount
+ * in the new theme would read.
+ */
+async function literalsHold(
+  page: Page,
+  scene: Scene,
+  theme: ThemeKind,
+): Promise<void> {
+  const ground = await page.evaluate(
+    () => getComputedStyle(document.body).backgroundColor,
+  );
+
+  paints(ground, colourOf(theme, groundOf(scene)), `the ground in ${theme}`);
+
+  const parts: [string, string, Role][] = [
+    [
+      'li[data-run]:has(> [aria-current="true"])',
+      'background-color',
+      'brand-tint',
+    ],
+    ['.diff-line[data-kind="add"]', 'background-color', 'diff-add-bg'],
+    ['.field-input', 'border-top-color', 'rest-border'],
+  ];
+
+  for (const [selector, property, role] of parts) {
+    if (!(await draws(page, selector))) continue;
+
+    paints(
+      await styleOf(page, selector, property),
+      colourOf(theme, role),
+      `${selector} ${property} in ${theme}`,
+    );
+  }
+}
+
+/**
+ * Every view, held to the rules every view keeps.
+ *
+ * Each view's own spec asks what that view draws.
+ * These ask what none of them may do — shout, press
+ * anything but a Button, set type too small to
+ * read, reach for the machine face unasked, say a
+ * whole id, a twelve-hour time or a raw status,
+ * show the serializer's wrapping, or paint a colour
+ * its theme did not give it — of every element on a
+ * page built from the fixtures those specs draw.
+ *
+ * One test per scene and theme with a step per rule
+ * and a soft assertion in each, so one run lists
+ * every rule a page breaks rather than the first.
+ */
+test.describe('every view, in every theme', () => {
+  for (const scene of SCENES) {
+    for (const theme of THEMES_ALL) {
+      test(`${scene.name}, in ${theme}`, async ({ page }) => {
+        const thrown = thrownOn(page);
+
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await showScene(page, scene, theme, { fontSize: '12px' });
+
+        await test.step('shouts only in a state word, at 12px', async () => {
+          holdsNone(shouting(await writtenOn(page), 12), 'capitals');
+        });
+
+        await test.step('sets nothing below ten pixels, at 12px', async () => {
+          holdsNone(underTen(await writtenOn(page)), 'under ten pixels');
+        });
+
+        await test.step("sets its body in the editor's size", async () => {
+          expect.soft(await styleOf(page, 'body', 'font-size')).toBe('12px');
+        });
+
+        await showScene(page, scene, theme, { fontSize: '13px' });
+
+        await test.step('draws what the scene was built to draw', async () => {
+          for (const selector of scene.draws) {
+            expect
+              .soft(await page.locator(selector).count(), selector)
+              .toBeGreaterThan(0);
+          }
+
+          expect.soft(await styleOf(page, 'body', 'font-size')).toBe('13px');
+        });
+
+        await test.step('shouts only in a state word, at 13px', async () => {
+          holdsNone(shouting(await writtenOn(page), 13), 'capitals');
+        });
+
+        await test.step('presses nothing but a Button', async () => {
+          holdsNone(await pressablesOn(page), 'pressables');
+        });
+
+        await test.step('sets the machine face only where a hook asks for it', async () => {
+          holdsNone(unaskedMachineFace(await writtenOn(page)), 'machine face');
+        });
+
+        await test.step('names every field it offers', async () => {
+          const fields = page.locator(
+            '[data-property] :is(input, select, textarea)',
+          );
+
+          // A folded group's fields are out of the
+          // accessibility tree until it is opened, so
+          // they have no name to be read yet.
+          for (const field of await fields.all()) {
+            if (!(await field.isVisible())) continue;
+
+            await expect.soft(field).toHaveAccessibleName(/\S/);
+          }
+        });
+
+        await test.step('shows a run by its short id, a time by the 24-hour clock and a state in its own words', async () => {
+          const said = misspoken(await writtenOn(page));
+
+          holdsNone(said.id, 'a whole run id');
+          holdsNone(said.clock, 'a twelve-hour time');
+          holdsNone(said.status, "the ledger's own status");
+          expect
+            .soft((await misformedOn(page)).found, 'out of its one form')
+            .toEqual([]);
+        });
+
+        await test.step("never shows the serializer's envelope", async () => {
+          holdsNone(misspoken(await writtenOn(page)).envelope, 'envelope');
+        });
+
+        await test.step('draws no provenance chip', async () => {
+          await expect.soft(page.locator('.provenance')).toHaveCount(0);
+        });
+
+        await test.step('lays each panel flat', async () => {
+          holdsNone(await unflatOn(page), 'a corner or a shadow');
+
+          const gone = GONE[scene.view];
+
+          if (gone !== undefined) {
+            await expect.soft(page.locator(gone)).toHaveCount(0);
+          }
+
+          if (scene.view === 'inspector') {
+            await expect.soft(page.locator('[data-inspector]')).toHaveCount(1);
+          }
+        });
+
+        await test.step('stands on its own ground and says which scheme it is', async () => {
+          await standsOnItsGround(page, scene, theme);
+        });
+
+        if (theme === 'high-contrast' || theme === 'high-contrast-light') {
+          await test.step('reads at 4.5:1 or better', async () => {
+            const read = await contrastOn(page);
+
+            holdsNone(read, 'under 4.5:1');
+
+            if (theme !== 'high-contrast-light') return;
+
+            // A light theme in high contrast keeps the
+            // light voice and carries state in the ink,
+            // so no word is drawn in a voice colour
+            // chosen to sit under one.
+            // A probe is a new element, which would
+            // fade in from the ink it inherits.
+            await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+            const [brand = '', ok = ''] = await painted(page, [
+              ROLES.brand,
+              ROLES.ok,
+            ]);
+
+            await page.emulateMedia({ reducedMotion: 'reduce' });
+
+            paints(brand, colourOf('light', 'brand'), 'the brand');
+            paints(ok, colourOf('light', 'ok'), 'the finished voice');
+
+            for (const role of [
+              'ok',
+              'warn',
+              'fail',
+              'agent',
+              'info',
+            ] as const) {
+              const voice = colourOf('light', role);
+
+              expect
+                .soft(
+                  read.inks.filter((ink) => sameColour(ink, voice)),
+                  `text drawn in the light ${role}`,
+                )
+                .toEqual([]);
+            }
+          });
+        }
+
+        await showScene(page, scene, theme, { fontSize: '16px' });
+
+        await test.step('shouts only in a state word, at 16px', async () => {
+          holdsNone(shouting(await writtenOn(page), 16), 'capitals');
+        });
+
+        expect(thrown).toEqual([]);
+      });
+    }
+  }
+
+  for (const scene of SCENES) {
+    test(`${scene.name}: changes every colour it paints between light and dark`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await showScene(page, scene, 'light');
+
+      const light = await paintsOn(page);
+
+      await showScene(page, scene, 'dark');
+
+      const dark = await paintsOn(page);
+      const same = Object.entries(light)
+        .filter(([key, colour]) => dark[key] === colour)
+        .map(([key, colour]) => `${key} ${colour}`);
+
+      expect(Object.keys(light).length).toBeGreaterThan(0);
+      expect(same).toEqual([]);
+    });
+  }
+
+  /** One scene per view, the one drawing the most of
+   *  what a theme picks outright. */
+  const TOGGLED = [
+    'the canvas following a failed run',
+    'the agent at work',
+    'the runs list',
+    "a run's trace",
+    'a queue block being set up',
+    'the patterns to start from',
+  ].map((name) => SCENES.find((scene) => scene.name === name)!);
+
+  for (const scene of TOGGLED) {
+    test(`${scene.view}: follows a theme switch without being drawn again`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+
+      const harness = await showScene(page, scene, 'light');
+      const first = await paintsOn(page);
+
+      await literalsHold(page, scene, 'light');
+
+      for (const theme of [
+        'dark',
+        'high-contrast',
+        'high-contrast-light',
+        'light',
+      ] as const) {
+        await harness.retheme(theme);
+        await settled(page);
+        await literalsHold(page, scene, theme);
+      }
+
+      expect(Object.keys(first).length).toBeGreaterThan(0);
+      expect(await paintsOn(page)).toEqual(first);
+    });
+  }
+
+  for (const scene of SCENES) {
+    test(`${scene.name}: holds still for somebody who asked for less movement`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await showScene(page, scene, 'light');
+
+      const asked = await durationsOf(page);
+
+      await page.emulateMedia({ reducedMotion: 'no-preference' });
+      await showScene(page, scene, 'light', {
+        bodyClass: 'vscode-reduce-motion',
+      });
+
+      const set = await durationsOf(page);
+
+      expect(asked.length).toBeGreaterThan(0);
+      expect(Math.max(...asked)).toBeLessThanOrEqual(STILL);
+      expect(Math.max(...set)).toBeLessThanOrEqual(STILL);
+    });
+  }
+
+  for (const theme of HIGH_CONTRAST) {
+    test(`keeps its structure in lines in ${theme}`, async ({ page }) => {
+      const edgeOf = async (selector: string, role: Role) => {
+        const drawn = page.locator(selector).first();
+
+        await expect.soft(drawn).toHaveCSS('border-top-style', 'solid');
+        paints(
+          await styleOf(page, selector, 'border-top-color'),
+          colourOf(theme, role),
+          `${selector} edge`,
+        );
+      };
+
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await showScene(page, sceneNamed('the agent at work'), theme);
+      await edgeOf('.btn[data-variant="quiet"]', 'control-edge');
+      await edgeOf('.btn[data-variant="stop"]', 'control-edge');
+      await edgeOf('.said[data-from="user"]', 'control-edge');
+
+      await showScene(page, sceneNamed('a queue block being set up'), theme);
+      await edgeOf('.field-input', 'rest-border');
+
+      await showScene(page, sceneNamed('what a failed step recorded'), theme);
+      await edgeOf('.callout', 'control-edge');
+
+      await showScene(
+        page,
+        sceneNamed('what a step returned, still wrapped'),
+        theme,
+      );
+      await edgeOf('.inline-chip', 'control-edge');
+
+      await showScene(page, sceneNamed('the runs list'), theme);
+
+      const other = page
+        .locator('li[data-run]:not(:has(> [aria-current="true"])) > .run-head')
+        .first();
+
+      // Under the pointer, a theme drawing in lines
+      // outlines what is being acted on in the colour
+      // it draws the picked thing in.
+      await other.hover();
+      await settled(page);
+      await expect.soft(other).toHaveCSS('outline-style', 'dashed');
+      paints(
+        await other.evaluate(
+          (element) => getComputedStyle(element).outlineColor,
+        ),
+        colourOf(theme, 'selection-ring'),
+        'a run under the pointer',
+      );
+
+      const picked = 'li[data-run]:has(> [aria-current="true"])';
+
+      await edgeOf(picked, 'selection-ring');
+      await focusByKeyboard(page, `${picked} > .run-head`);
+
+      const head = page.locator(`${picked} > .run-head`);
+
+      await expect.soft(head).toHaveCSS('outline-style', 'solid');
+      paints(
+        await head.evaluate(
+          (element) => getComputedStyle(element).outlineColor,
+        ),
+        colourOf(theme, 'focus-ring'),
+        'the picked run with the keyboard on it',
+      );
+      await edgeOf(picked, 'selection-ring');
+    });
+  }
+
+  test('keeps the picked run and Stop outlined when the system forces its colours', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+
+    const lined = async (selector: string) => {
+      const style = await page
+        .locator(selector)
+        .first()
+        .evaluate((element) => {
+          const read = getComputedStyle(element);
+
+          return { border: read.borderTopStyle, outline: read.outlineStyle };
+        });
+
+      expect
+        .soft(
+          style.border !== 'none' || style.outline !== 'none',
+          `${selector}: ${JSON.stringify(style)}`,
+        )
+        .toBe(true);
+    };
+
+    await showScene(page, sceneNamed('the runs list'), 'high-contrast');
+    await lined('li[data-run]:has(> [aria-current="true"])');
+
+    await showScene(page, sceneNamed('the agent at work'), 'high-contrast');
+    await lined('.btn[data-variant="stop"]');
+  });
+
+  /** The role a wire is drawn in, by what is
+   *  happening along it. */
+  const STROKE: Record<string, Role> = {
+    idle: 'hairline-strong',
+    active: 'ok',
+    done: 'edge-done',
+    waiting: 'warn',
+    failed: 'fail',
+  };
+
+  for (const theme of THEMES_ALL) {
+    test(`draws the graphs in the extension's colours, never the library's, in ${theme}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+
+      const graphs = [
+        sceneNamed('the canvas following a failed run'),
+        sceneNamed("a run's graph"),
+      ];
+
+      for (const scene of graphs) {
+        await showScene(page, scene, theme);
+
+        const read = await page.evaluate(() => {
+          const paint = (selector: string, property: string) => {
+            const element = document.querySelector(selector);
+
+            return element === null
+              ? ''
+              : getComputedStyle(element).getPropertyValue(property);
+          };
+
+          return {
+            leaves: paint('.react-flow__handle-bottom', 'background-color'),
+            arrives: paint('.react-flow__handle-top', 'border-top-color'),
+            wires: [
+              ...document.querySelectorAll('.react-flow__edge .wire'),
+            ].map((wire) => ({
+              state: wire.getAttribute('data-state') ?? '',
+              stroke: getComputedStyle(wire).stroke,
+            })),
+            dot: paint('.react-flow__background-pattern.dots', 'fill'),
+          };
+        });
+        expect.soft(read.wires.length, scene.name).toBeGreaterThan(0);
+        paints(read.leaves, colourOf(theme, 'brand'), 'a handle a wire leaves');
+        paints(
+          read.arrives,
+          colourOf(theme, 'brand'),
+          'a handle one arrives at',
+        );
+
+        for (const wire of read.wires) {
+          paints(
+            wire.stroke,
+            colourOf(theme, STROKE[wire.state] ?? 'hairline-strong'),
+            `a ${wire.state} wire`,
+          );
+        }
+
+        if (scene.view === 'canvas') {
+          paints(read.dot, colourOf(theme, 'grid-dot'), 'a background dot');
+        }
+
+        const colours = [
+          read.leaves,
+          read.arrives,
+          read.dot,
+          ...read.wires.map((wire) => wire.stroke),
+        ].filter((colour) => colour !== '');
+
+        expect
+          .soft(colours.filter((colour) => LIBRARY_COLOURS.includes(colour)))
+          .toEqual([]);
+
+        if (darkIn(theme)) {
+          expect.soft(colours).not.toContain('rgb(255, 255, 255)');
+        }
+
+        if (scene.view !== 'canvas') continue;
+
+        await clickWire(page, 'e11');
+        await expect(
+          page.locator('.react-flow__edge[data-id="e11"]'),
+        ).toHaveClass(/selected/);
+        await settled(page);
+
+        // A wire keeps the colour of what is
+        // happening along it when it is picked: the
+        // stroke is set on the line itself, so its
+        // arrowhead cannot disagree with it.
+        const picked = page.locator('.react-flow__edge.selected .wire');
+        const stroke = await picked.evaluate(
+          (wire) => getComputedStyle(wire).stroke,
+        );
+        const state = (await picked.getAttribute('data-state')) ?? 'idle';
+
+        paints(stroke, colourOf(theme, STROKE[state]!), 'a picked wire');
+        expect.soft(LIBRARY_COLOURS).not.toContain(stroke);
+      }
+    });
+  }
+
+  for (const theme of THEMES_ALL) {
+    test(`takes no stop on the run graph, and rings a focused block on the canvas, in ${theme}`, async ({
+      page,
+    }) => {
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await showScene(page, sceneNamed("a run's graph"), theme);
+
+      const graph = page.locator('[data-pane="graph"]');
+
+      expect(await graph.locator('.react-flow__node').count()).toBeGreaterThan(
+        0,
+      );
+      await expect(
+        graph.locator(':is(.react-flow__node, .react-flow__edge)[tabindex]'),
+      ).toHaveCount(0);
+
+      await showScene(
+        page,
+        sceneNamed('the canvas offering blocks for a held wire'),
+        theme,
+      );
+      await page.keyboard.press('Escape');
+
+      const block = page.locator('.react-flow__node[data-id="find_slot"]');
+
+      await focusByKeyboard(page, '.react-flow__node[data-id="find_slot"]');
+      await expect(block).toHaveCSS('outline-style', 'solid');
+      paints(
+        await block.evaluate(
+          (element) => getComputedStyle(element).outlineColor,
+        ),
+        colourOf(theme, 'focus-ring'),
+        'a block with the keyboard on it',
+      );
+    });
+  }
+
+  /**
+   * What a run recorded is shown as it was written,
+   * and may say anything — a whole id, the ledger's
+   * own status, a twelve-hour time. The rule is about
+   * what the view says in its own voice, so these
+   * pass where they sit inside what was recorded.
+   */
+  test('leaves a recorded id, status and time as they were written', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await showScene(page, sceneNamed('the agent at work'), 'light');
+
+    const typed = page.locator('.said-typed[data-verbatim]');
+    const values = page.locator('.tool-body [data-verbatim]');
+
+    await expect(typed).toHaveCount(1);
+    await expect(values).toHaveCount(2);
+    await expect(typed).toContainText(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+    await expect(typed).toContainText('SUCCESS');
+    await expect(typed).toContainText('PM');
+    await expect(values.first()).toContainText(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+
+    const said = misspoken(await writtenOn(page));
+
+    expect(said.id.found).toEqual([]);
+    expect(said.status.found).toEqual([]);
+    expect(said.clock.found).toEqual([]);
+  });
+
+  /** And the same three, drawn by a view in its own
+   *  voice, are each caught. */
+  test('still catches an id, a status and a time drawn outside what was recorded', async ({
+    page,
+  }) => {
+    const id = '7089cd29-5b5e-4a4c-9c3e-6c8d1b2f4a10';
+    const harness = await mount(page, 'runs', 'light', { width: 300 });
+
+    await harness.show(
+      runsInit({ rows: [listRow({ name: `${id} SUCCESS 3 PM` })] }),
+    );
+    await expect(page.locator('li[data-run]')).toHaveCount(1);
+
+    const said = misspoken(await writtenOn(page));
+
+    expect(said.id.found).not.toEqual([]);
+    expect(said.status.found).not.toEqual([]);
+    expect(said.clock.found).not.toEqual([]);
+  });
+});
+
+/** A scene by its name, for a case about one of
+ *  them. */
+function sceneNamed(name: string): Scene {
+  const scene = SCENES.find((one) => one.name === name);
+
+  if (scene === undefined) throw new Error(`no scene named ${name}`);
+
+  return scene;
+}

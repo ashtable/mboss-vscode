@@ -28,6 +28,7 @@ import {
   RECORDED_AT,
   boxes,
   canvasInit,
+  clickWire,
   holdWire,
   ir,
   manifest,
@@ -3617,23 +3618,6 @@ async function dragBetween(
     steps: 12,
   });
   await page.mouse.up();
-}
-
-/**
- * Clicks a wire on its own hit area.
- *
- * By the middle of the box rather than by the
- * element, because a straight vertical line has a
- * bounding box no wider than nothing and there is no
- * point in it Playwright will consent to click.
- */
-async function clickWire(page: Page, edge: string): Promise<void> {
-  const hit = page.locator(
-    `.react-flow__edge[data-id="${edge}"] .react-flow__edge-interaction`,
-  );
-  const box = (await hit.boundingBox())!;
-
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 }
 
 /**

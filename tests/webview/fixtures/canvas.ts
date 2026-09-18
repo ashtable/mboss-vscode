@@ -171,6 +171,23 @@ export async function holdWire(page: Page, from: string): Promise<void> {
   await page.mouse.move(at.x, at.y + 30, { steps: 4 });
 }
 
+/**
+ * Clicks a wire on its own hit area.
+ *
+ * By the middle of the box rather than by the
+ * element, because a straight vertical line has a
+ * bounding box no wider than nothing and there is no
+ * point in it Playwright will consent to click.
+ */
+export async function clickWire(page: Page, edge: string): Promise<void> {
+  const hit = page.locator(
+    `.react-flow__edge[data-id="${edge}"] .react-flow__edge-interaction`,
+  );
+  const box = (await hit.boundingBox())!;
+
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 /** Drops a wire held off the fixture's `find_slot`
  *  on empty board, which is what opens the blocks
  *  that could take it, and waits for them. */
