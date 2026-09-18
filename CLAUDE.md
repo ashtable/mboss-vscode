@@ -532,14 +532,15 @@ value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
 
 The style fences read source rather than a rendered page, so a rule holds in
 views no spec mounts. `src/webview/styles.test.ts` reads every stylesheet and
-component: a colour literal, a `color-mix()` or a theme class only in
-`tokens.css`'s theme blocks, and no colour in a style prop; nothing on the root
-worked out from a value a theme re-points; one uppercase rule (the state word)
-and tracking only on a label and a state word; every face through one of the two
-font tokens, and the machine face only where an element asks for it with `.mono`
-or `data-mono`, which every shared component taking a `mono` prop writes; where
-a value came from as a word or a title, never a `provenance` class; no word of
-its own in a shared component, and a view's sheet only placing one; a card only
+component: a colour literal only in `tokens.css`'s `:root` scale and theme
+blocks, a `color-mix()` or a theme class only in `tokens.css`, and no colour in
+a style prop; nothing on the root worked out from a value a theme re-points; one
+uppercase rule (the state word) and tracking only on a label and a state word;
+every face through one of the two font tokens, and the machine face defined
+once, on the root, and read only where an element asks for it with `.mono` or
+`data-mono`, which every shared component taking a `mono` prop writes; where a
+value came from as a word or a title, never a `provenance` class; no word of its
+own in a shared component, and a view's sheet only placing one; a card only
 where something floats; a bordered Button only in the brand ink; and no click on
 a plain element. `src/words.test.ts` holds the copy: no word in capitals but an
 allowed acronym or a ledger status, anywhere in the bundle or the bags, and no
