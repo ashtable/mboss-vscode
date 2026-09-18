@@ -106,9 +106,12 @@ const FACES = ['var(--font-body)', 'var(--font-mono)'];
  *  face: a view's class, a component's attribute. */
 const MONO_HOOK = /\.mono(?![\w-])|\[data-mono(?![\w-])/;
 
-/** A component's props offering the machine face,
- *  and its markup asking for it because of them. */
-const TAKES_MONO = /\bmono\?:/;
+/** A component taking the machine face out of its
+ *  props, and its markup asking for it because of
+ *  them. Taking is a name among the ones it
+ *  unpacks, so a `mono` class or a `data-mono` of
+ *  its own is not mistaken for one. */
+const DESTRUCTURES_MONO = /[{,]\s*mono\s*[,}=]/;
 const WRITES_MONO = /\bdata-mono=\{[^}]*\bmono\b/;
 
 /** Provenance as a class of its own, so not the
@@ -376,6 +379,17 @@ function tagsOf(tsx: string): string[] {
   }
 
   return tags;
+}
+
+/** Each component one file exports, from its own
+ *  `export function` to the next one's. */
+function componentsIn(tsx: string): { name: string; text: string }[] {
+  const starts = [...tsx.matchAll(/export function (\w+)/g)];
+
+  return starts.map((found, at) => ({
+    name: found[1] ?? '',
+    text: tsx.slice(found.index, starts[at + 1]?.index ?? tsx.length),
+  }));
 }
 
 /** The text of every `style=` prop in one file. */
@@ -667,18 +681,62 @@ describe('the stylesheets this extension ships', () => {
    * prop turns it into the hook on its own markup,
    * so the one rule above answers it and a view
    * never reaches inside a component to say so.
+   * A file can export several, and each is read on
+   * its own: the hook one of them writes says
+   * nothing about its neighbour's markup.
    */
   it('write the machine face into every shared component that takes it', () => {
+    // The reader first: one file, three components,
+    // and the one that takes the face without
+    // writing the hook is found by its own name.
+    const sample = [
+      'export function Written({ label, mono }: P) {',
+      "  return <b data-mono={mono ? '' : undefined}>{label}</b>;",
+      '}',
+      'export function Dropped({',
+      '  label,',
+      '  mono,',
+      '}: P) {',
+      '  return <i>{label}</i>;',
+      '}',
+      'export function Classed({ label }: P) {',
+      '  return <span className="x mono">{label}</span>;',
+      '}',
+    ].join('\n');
+    const sampled = componentsIn(sample);
+
+    expect(sampled.map((one) => one.name)).toEqual([
+      'Written',
+      'Dropped',
+      'Classed',
+    ]);
+    expect(
+      sampled
+        .filter((one) => DESTRUCTURES_MONO.test(one.text))
+        .filter((one) => !WRITES_MONO.test(one.text))
+        .map((one) => one.name),
+    ).toEqual(['Dropped']);
+
     const taking = components
       .filter((file) => file.name.startsWith(SIGNAL))
-      .map((file) => ({ ...file, text: withoutNotes(file.text) }))
-      .filter((file) => TAKES_MONO.test(file.text));
+      .flatMap((file) =>
+        componentsIn(withoutNotes(file.text)).map((one) => ({
+          name: `${file.name} ${one.name}`,
+          text: one.text,
+        })),
+      )
+      .filter((one) => DESTRUCTURES_MONO.test(one.text));
 
-    expect(taking.map((file) => file.name)).toContain(`${SIGNAL}Button.tsx`);
+    expect(taking.map((one) => one.name)).toEqual(
+      expect.arrayContaining([
+        `${SIGNAL}Button.tsx Button`,
+        `${SIGNAL}Field.tsx TextArea`,
+      ]),
+    );
     expect(
       taking
-        .filter((file) => !WRITES_MONO.test(file.text))
-        .map((file) => file.name),
+        .filter((one) => !WRITES_MONO.test(one.text))
+        .map((one) => one.name),
     ).toEqual([]);
   });
 
