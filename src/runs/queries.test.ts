@@ -351,10 +351,25 @@ describe('the run list', () => {
   it('counts the blocks a run ran rather than the rows it wrote', () => {
     const text = runsQuery('all', MAX_RUNS).text;
 
-    expect(text).toContain(
+    expect(text).toContain('AS operation_count');
+
+    const counted = text.slice(
+      text.lastIndexOf('(SELECT', text.indexOf('AS operation_count')),
+      text.indexOf('AS operation_count'),
+    );
+
+    expect(counted).toContain(
       `count(DISTINCT substring(o.function_name FROM '${BLOCK_NAME}'))`,
     );
-    expect(text).toContain('AS operation_count');
+
+    // Counted over the run's own rows alone:
+    // `getStatus` is recorded without the SDK's
+    // prefix and is a valid block id, so a run that
+    // only asked DBOS how it was doing would
+    // otherwise read as having run one block.
+    expect(counted).toContain('function_name NOT LIKE $1');
+    expect(counted).toContain('o.function_name <> ALL($2)');
+
     expect(text).not.toContain('SELECT count(*) FROM dbos.operation_outputs');
   });
 
@@ -365,6 +380,10 @@ describe('the run list', () => {
       'await_details.register',
       'await_details.clear',
       'index_pages.queued.document_ingestion',
+      // The one recorded form whose separator is a
+      // bracket rather than a dot, so widening the
+      // pattern past the bracket is caught here.
+      'index_pages[0]',
       'reminder.resend.2',
       'charge_card',
     ];
