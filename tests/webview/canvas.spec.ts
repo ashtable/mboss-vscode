@@ -1534,6 +1534,38 @@ test.describe('the colour a wire is drawn in', () => {
     await expect(wireBody(page, 'e5')).toHaveCSS('stroke', 'rgb(23, 184, 144)');
   });
 
+  /**
+   * The name of a port on a live wire is a word, and
+   * a theme that carries state in the ink draws every
+   * state word in it: the colour the line takes is
+   * picked to be seen as a line, and is too light to
+   * be read as text there.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`names a port on a live wire in the colour a theme gives state words (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, { run: runOf(IN_FLIGHT) }, theme);
+
+      const port = page.locator('[data-edge-port="e5"]');
+
+      await expect(port).toHaveText('no');
+      await expect(wireBody(page, 'e5')).toHaveAttribute(
+        'data-state',
+        'active',
+      );
+
+      const colour = await port.evaluate(
+        (element) => getComputedStyle(element).color,
+      );
+      const expected = colourOf(theme, 'state-ink') || colourOf(theme, 'ok');
+
+      expect(sameColour(colour, expected), `${colour} ≠ ${expected}`).toBe(
+        true,
+      );
+    });
+  }
+
   /** Behind the run, and faded: it says where the
    *  run has been rather than where it is. */
   test('fades the one a run has already come down', async ({ page }) => {

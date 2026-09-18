@@ -66,7 +66,12 @@ export function Wire(props: EdgeProps<CanvasEdge>) {
             data-edge-port={props.id}
             style={{
               transform: beside({ ...props, back }, props.data?.blocks ?? []),
-              color: state === 'idle' ? undefined : STROKE[state],
+              // A word rather than a line, so a theme that
+              // carries state in the ink draws it in the ink.
+              color:
+                state === 'idle'
+                  ? undefined
+                  : `var(--state-ink, ${STROKE[state]})`,
             }}
           >
             {port}
