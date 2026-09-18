@@ -223,6 +223,38 @@ test.describe('the panel frame', () => {
   });
 
   /**
+   * A project whose every saved workflow runs on a
+   * schedule is the shape that sentence exists for.
+   * The host picks nothing in it, so the panel has
+   * to read the list rather than the pick, or it
+   * offers a box that can start nothing.
+   */
+  test('says a schedule workflow runs itself, whichever one is saved', async ({
+    page,
+  }) => {
+    await showList(
+      page,
+      frameInit({
+        testRun: {
+          workflows: [SCHEDULE],
+          selected: undefined,
+          input: '',
+          hint: undefined,
+          problem: undefined,
+        },
+      }),
+      'light',
+      { width: 300 },
+    );
+
+    await expect(page.locator('.runs-input')).toContainText(
+      runsStrings.scheduledNotRunnable,
+    );
+    await expect(page.locator('[data-input]')).toHaveCount(0);
+    await expect(page.locator('[data-run-workflow]')).toHaveCount(0);
+  });
+
+  /**
    * A run this window started is the top row of the
    * list, marked and opened out, rather than a card
    * of its own above it.

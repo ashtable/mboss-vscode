@@ -41,7 +41,18 @@ export function InputRow({
     (flow) => flow.name === testRun.selected,
   );
 
-  if (picked?.mode === 'schedule') {
+  // A box that can start nothing is worse than no
+  // box, so the sentence stands in for it wherever
+  // nothing here could be started by hand: the
+  // workflow somebody picked runs on a schedule, or
+  // every workflow the project saved does and there
+  // was nothing else to pick.
+  const byHand = testRun.workflows.filter((flow) => flow.mode !== 'schedule');
+  const scheduled =
+    picked?.mode === 'schedule' ||
+    (testRun.workflows.length > 0 && byHand.length === 0);
+
+  if (scheduled) {
     return (
       <div className="runs-input">
         <FieldHint>{strings.scheduledNotRunnable}</FieldHint>
