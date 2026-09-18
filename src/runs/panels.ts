@@ -25,7 +25,10 @@ import { runsWords, seeWords } from './words.js';
  * separate because a webview cannot host a webview
  * view and because neither one's markup is any use
  * to the other — not because the model is split.
- * Both draw from one store and hold nothing.
+ * Both draw from one store and hold only what may
+ * be lost with their page: VS Code throws a hidden
+ * webview's page away, and the store is what
+ * remembers.
  */
 
 /** The run list, in the activity bar. */
@@ -233,7 +236,8 @@ export class SeePanel {
       title: seeWords().heading,
       init: () => this.store.see(),
       // Redrawn whenever the store moves, so the
-      // panel holds nothing of its own.
+      // panel holds nothing it cannot afford to
+      // lose.
       follows: [
         (repaint) =>
           this.store.onChanged(() => {

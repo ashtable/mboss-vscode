@@ -11,8 +11,8 @@ import type { DecisionOutcome } from '../webview/protocol.js';
  * a form: a form is only ever handed one node.
  *
  * The word for an outcome nothing is wired to is
- * the column's, not this. This says which block, or
- * none, and the column draws it.
+ * the Inspector's, not this. This says which
+ * block, or none, and the Inspector draws it.
  */
 export function outcomesOf(
   ir: WorkflowIR,

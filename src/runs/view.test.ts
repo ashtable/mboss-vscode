@@ -944,9 +944,8 @@ describe('one run, as the run page draws it', () => {
 
   /**
    * Every row a person can see carries whether a
-   * replay may begin there, so a chip or a trace row
-   * with no button says why instead of leaving a
-   * gap.
+   * replay may begin there, so a trace row where
+   * one may not says why instead of leaving a gap.
    */
   it('says which rows a replay could start from', () => {
     const shown = page();

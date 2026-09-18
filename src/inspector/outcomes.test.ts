@@ -31,8 +31,8 @@ describe('where a decision’s outcomes lead', () => {
    * A decision can bring more ways out than the
    * branch has wires — three outcomes onto a branch
    * somebody has wired twice. The unwired one names
-   * no block, and the column is what says the run
-   * stops there. Naming a block for it would be a
+   * no block, and the Inspector is what says the
+   * run stops there. Naming a block for it would be a
    * lie, and leaving it out altogether would hide a
    * way out that exists.
    */

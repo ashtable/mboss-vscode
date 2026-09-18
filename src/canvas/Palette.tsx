@@ -61,8 +61,8 @@ export type PaletteProps = {
   labels: Record<NodeKind, string>;
   lib: LibFunction[] | undefined;
 
-  /** The block the Inspector column is showing,
-   *  which is what a row is judged against. */
+  /** The block selected on the canvas, which is
+   *  what a row is judged against. */
   selected: WorkflowNode | undefined;
 
   /** Which row is on its way to a block, if one

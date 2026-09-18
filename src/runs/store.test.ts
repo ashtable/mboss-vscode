@@ -722,9 +722,9 @@ describe('a run this window set going', () => {
  * own share of it.
  *
  * One read, held by the store rather than by either
- * zone, because both surfaces that draw the card
- * ask the same question about the same run — the
- * canvas' column and the run page's rail.
+ * zone, because the card asks the same question
+ * about the same run whichever surface the block
+ * was picked on — a canvas or the run tab.
  */
 describe('what a queue block is doing', () => {
   /** The ledger, answering the three statements a

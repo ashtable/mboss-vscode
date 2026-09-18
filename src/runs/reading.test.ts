@@ -909,7 +909,7 @@ describe('where the run is', () => {
   });
 });
 
-describe('the window a run is drawn in', () => {
+describe('the span a run covers', () => {
   it('opens where the run started and closes at the last thing that happened', () => {
     const reading = readRun(
       RUN,
@@ -929,8 +929,8 @@ describe('the window a run is drawn in', () => {
    * Never later than the moment it is being read: a
    * sleeping run records a wake deadline in the
    * future, and taken as the right edge it would
-   * squeeze everything that has happened into a
-   * sliver.
+   * say the run had been going for a day when it
+   * had been going a second.
    */
   it('never closes later than the moment it was read', () => {
     const reading = readRun(

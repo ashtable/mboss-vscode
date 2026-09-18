@@ -55,10 +55,12 @@ import './sidebar.css';
  * validates, a person approves — and a stream of
  * speech bubbles would hide the half that matters.
  *
- * The panel holds nothing. It is handed the whole
- * picture every time anything moves, because the
- * view is disposed whenever it is hidden and the
- * extension is what remembers.
+ * The panel holds nothing it cannot afford to lose
+ * — a draft not yet sent, a tool row opened out. It
+ * is handed the whole picture every time anything
+ * moves, because its page is thrown away whenever
+ * it is hidden and the extension is what
+ * remembers.
  */
 
 /** One row of the transcript, or the summary that

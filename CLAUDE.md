@@ -9,10 +9,11 @@ React webviews — the **workflow canvas** (a custom editor for
 `**/.mboss/workflows/*.workflow.json`), the **agent sidebar** (an Agent Client
 Protocol client that drives claude-code / codex / gemini / a custom command), the
 **Runs** list (a project's DBOS run history read from the project's own Postgres),
-the **See** panel (one run in detail), the **Inspector** (a side-bar pane about
-whichever canvas or run tab was last in front) and the **gallery** (the patterns a
-workflow can be started from) — and it ships an MCP server bundle plus
-an Agent Skill that it copies into every project it creates or refreshes.
+the **run tab** (the `see` view: one run in detail, as a graph and a trace), the
+**Inspector** (a side-bar pane about whichever canvas or run tab was last in
+front) and the **gallery** (the patterns a workflow can be started from) — and
+it ships an MCP server bundle plus an Agent Skill that it copies into every
+project it creates or refreshes.
 
 Three nested git submodules, each pinned to a version branch in `.gitmodules`
 (asserted by `src/pins.test.ts`):
@@ -86,14 +87,17 @@ typed against `WebviewName` in `src/webview/entry.ts`.
 - `.tsx` means webview-side React, nothing else. `.ts` is host or isomorphic.
   No host `.ts` imports a `.tsx`.
 - A webview may value-import only browser-safe modules: `src/core/rules.ts`,
-  `src/webview/{client,fill,ids,protocol}.ts`, `src/webview/mount.tsx`,
-  `src/runs/queries.ts` (+ `rows.ts`), `src/runs/state.ts` (the table that
-  decides what the Runs view draws in each state), `src/acp/evidenceRow.ts`,
-  `src/sidebar/{markdown,naming}.ts` and the pure `src/canvas/**/*.ts`
-  modules. It must never value-import
-  `vscode`, `@mboss/core`, `src/messages.ts`, `src/webview/host.ts`, a `node:`
-  builtin or `process.env`. Enforcement is the browser esbuild call failing to
-  resolve, plus `src/build.test.ts` scanning the output.
+  `src/webview/{client,fill,ids,protocol,states,time}.ts`,
+  `src/webview/mount.tsx`, the shared components in `src/webview/signal/`
+  (with their `hook.ts`), `src/runs/queries.ts` (+ `rows.ts` and the
+  `frames.ts` it reads), `src/runs/state.ts` (the table that decides what the
+  Runs view draws in each state), `src/acp/evidenceRow.ts`,
+  `src/sidebar/{markdown,naming}.ts`, `src/inspector/{forms,lens,schedule}.ts`
+  (the fields Configure draws) and the pure `src/canvas/**/*.ts` modules. It
+  must never value-import `vscode`, `@mboss/core`, `src/messages.ts`,
+  `src/webview/host.ts`, a `node:` builtin or `process.env`. Enforcement is the
+  browser esbuild call failing to resolve, plus `src/build.test.ts` scanning
+  the output.
 - `dist/` also carries assets the host needs beside the bundle: `webview/fonts`
   (the CSP allows only self-hosted fonts), `app/` + `workflows/index.ts` +
   `library/` (core's scaffold templates and its pattern library, read via
@@ -209,6 +213,17 @@ behaviour modules take the editor as an argument:
   which `src/words.test.ts` holds equal to the host's. Rewording a view's copy
   therefore touches its `words.ts`, the bundle and that fixture; a host
   sentence touches `messages.ts`, the bundle and whichever spec pinned it.
+- The bundle is keyed by the literal, so two `l10n.t` calls with the same
+  literal are one entry, translated once for both. The bare `'{0} · {1}'` is
+  shared on purpose: `messages.runTabLine` (a run tab's title and its header
+  line) and `runsWords().serviceLabel` (a service beside its dot) both say a
+  name and then what is said about it. A new bare template joins that entry;
+  give it words of its own unless it joins the same two things the same way.
+- Some of a view's words are filled on the host, also on purpose:
+  `seeWords()`'s `restored`, `reused`, two durable-operations counts and a
+  wait's five moments are what the run tab says, but the trace row's line
+  they go into is composed in `runs/view.ts`. They live in the run tab's bag
+  with the rest of what it says, and ride in its init unread by the view.
 
 ### Webview protocol
 
@@ -230,10 +245,15 @@ behaviour modules take the editor as an argument:
   a type it needs must come from a module that does not import it back, which
   is why `StackAction` lives in `runs/stack.ts` beside the commands it names
   rather than beside the zone that tracks one. Views render from the last
-  message and **hold nothing**: an activity-bar view is disposed the moment it
-  is hidden, so all state lives in stores constructed once in `extension.ts`
-  (`agentPanel`, `previewStore`, `runsStore`, `SeePanel`). Stores publish
-  through `src/emitter.ts` (`fire`, `on` returning a `Disposable`, `dispose`).
+  message and **hold only what may be lost with their page** — the run tab's
+  open folds and where its graph was moved to, the composer's unsent text, a
+  tool row opened out, the Inspector's folded groups and the field being typed
+  in, a picker left open, the canvas's JSON face. No view keeps its context
+  while hidden, so VS Code throws the page away and the next one starts from
+  `init`; everything that must outlive that lives in stores constructed once
+  in `extension.ts` (`agentPanel`, `previewStore`, `runsStore`, `SeePanel`).
+  Stores publish through `src/emitter.ts` (`fire`, `on` returning a
+  `Disposable`, `dispose`).
 - Every entry is `mountView('<name>', <Component>)` plus
   `import './<name>.css'`, and every per-view stylesheet starts with
   `@import '../webview/tokens.css'`.
@@ -293,7 +313,8 @@ none of that.
   drawn in the Inspector pane (`src/inspector/`): `subject.ts` builds a
   `BlockSubject` from what a **surface** holds (`inspector/surface.ts`:
   `BlockSurface`, the one interface a canvas session and the run tab's
-  adapter in `inspector/runTab.ts` both answer), `inspector/blockEvidence.ts`
+  adapter in `inspector/runTab.ts` both answer; the Inspector reads a canvas
+  through `CanvasSession.block()`), `inspector/blockEvidence.ts`
   finishes what the run a surface follows recorded about the block — its
   rows, the row drawn, where it got to by the board's own rule — and
   `subject.ts` finishes the rest the same way (the block itself, its
@@ -420,7 +441,12 @@ none of that.
   a reading's decided arms; `timeline.ts` owns the outage inference and has one
   caller.
   `drawnUnder` is the one rule for which block a row — the SDK's own included
-  — is drawn under, and what a row picked on the run tab selects.
+  — is drawn under, and what a row picked on the run tab selects. `traceOf`
+  lays the run tab's trace out by it: each block row with the SDK rows it ran
+  beside, and apart from them the rows drawn under no block. `headlineRow` is
+  the row a block is headed by — its latest failure, else its latest row,
+  never one the SDK wrote — asked by both the Inspector's evidence and the
+  trace's mark for a picked block, so the two cannot mark different rows.
   See `CONTEXT.md` for the vocabulary.
 - **`watchers/`** — per folder: globs for workflow documents, `lib/**` and
   proposals, plus `onDidSaveTextDocument` (a watcher can be silenced by
@@ -460,15 +486,29 @@ Three tiers, three configs, and placement decides which runs:
   DBOS, `fileParallelism: false` (DBOS is a process singleton).
 - **Playwright**: `tests/webview/*.spec.ts` — the built bundles on a page with
   no VS Code; `harness.ts` serves `dist/` through `page.route` and stubs
-  `acquireVsCodeApi`. `retries: 0`. Colour assertions are literal Chromium
-  serialisations on purpose (reading the token back would pass any value).
-  Never measure the graph before a locator expectation or `graphAtRest()` has
-  settled it. A spec may import no `src` module whose transitive graph value-imports
-  `vscode`: nothing aliases it in this tier and there is no `vscode` on disk, so
-  the import fails to resolve and Playwright reports "No tests found" rather than
-  a failing assertion. `@mboss/core` does resolve here — Playwright honours
-  `tsconfig.json` `paths` — but reaching for it pulls elkjs and ts-morph into a
-  spec, so the browser-safe `src/core/rules.ts` is what a spec should use.
+  `acquireVsCodeApi`. `retries: 0`. A colour's expected value is never read back
+  from the page, which would pass whatever the token was changed to. A
+  four-theme case takes it from `tests/webview/palette.ts`: `colourOf` works it
+  out from the two sources the stylesheet does — the harness's `THEMES` maps for
+  the editor's chrome, `tokens.css`'s source hex for Signal's voice — mixing in
+  sRGB the way `color-mix()` does, and `sameColour` compares within ±1/255 a
+  channel, because Chromium spells a hex `rgb()` and a mix `color(srgb …)`.
+  `gallery.spec.ts` holds `palette.ts` to what each theme paints. Some
+  single-theme cases still pin a literal Chromium serialisation; a four-theme
+  case never does. A spec cannot import another spec, so what two specs draw is
+  built in `tests/webview/fixtures/`. `signal.spec.ts`'s "every view, in every
+  theme" mounts each scene in `fixtures/scenes.ts` in the four themes at 12, 13
+  and 16 px and holds it to the rules every view keeps (among them capitals, the
+  ten-pixel floor, the machine face, contrast, a recorded id, status or time
+  left as written); it reads only what a scene draws, so a new kind of element
+  is covered once a scene draws it. Never measure the graph before a locator
+  expectation or `graphAtRest()` has settled it. A spec may import no `src`
+  module whose transitive graph value-imports `vscode`: nothing aliases it in
+  this tier and there is no `vscode` on disk, so the import fails to resolve and
+  Playwright reports "No tests found" rather than a failing assertion.
+  `@mboss/core` does resolve here — Playwright honours `tsconfig.json` `paths` —
+  but reaching for it pulls elkjs and ts-morph into a spec, so the browser-safe
+  `src/core/rules.ts` is what a spec should use.
 
 Doubles and helpers: `test/doubles/vscode.ts` (fails loudly for anything not
 added on purpose), `trust.ts`, `agent.ts`, `watchHost.ts`, `webview.ts`; `src/test-support/` (exempt
@@ -489,6 +529,22 @@ Other content-regex fences: `@agentclientprotocol/sdk` may appear only in
 `from 'node:fs'` in files directly under `src/acp`; `canvas/edits.ts`
 value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
 `messages` or `core/index` (`canvas/edits.test.ts`).
+
+The style fences read source rather than a rendered page, so a rule holds in
+views no spec mounts. `src/webview/styles.test.ts` reads every stylesheet and
+component: a colour literal, a `color-mix()` or a theme class only in
+`tokens.css`'s theme blocks, and no colour in a style prop; nothing on the root
+worked out from a value a theme re-points; one uppercase rule (the state word)
+and tracking only on a label and a state word; every face through one of the two
+font tokens, and the machine face only where an element asks for it with `.mono`
+or `data-mono`, which every shared component taking a `mono` prop writes; where
+a value came from as a word or a title, never a `provenance` class; no word of
+its own in a shared component, and a view's sheet only placing one; a card only
+where something floats; a bordered Button only in the brand ink; and no click on
+a plain element. `src/words.test.ts` holds the copy: no word in capitals but an
+allowed acronym or a ledger status, anywhere in the bundle or the bags, and no
+label in title case in the bags or in the `messages` sentences a view draws,
+which it lists by module and by key.
 
 ## Conventions
 

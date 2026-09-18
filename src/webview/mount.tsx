@@ -10,9 +10,10 @@ import type { HostMessage } from './protocol.js';
  * Every entry does the same thing: put a root in the
  * page, draw the view from whatever init message
  * last arrived, and say it has mounted so that the
- * host sends the first one. A view holds nothing of
- * its own — the host re-sends the whole picture on
- * every change — so drawing is the whole of it.
+ * host sends the first one. A view holds nothing it
+ * cannot afford to lose — the host re-sends the
+ * whole picture on every change — so drawing is the
+ * whole of it.
  *
  * The stylesheet is imported by the entry itself
  * rather than from here, because the build emits one

@@ -170,10 +170,11 @@ export function reusedRow(step: Step, createdAt: number): boolean {
  * Whoever draws only a workflow's own work filters
  * on `owner`.
  *
- * `from`, `to` and `outage` are the window those
- * rows are drawn in, spelled the way `runTimeline`
- * answers them, because that is the module that owns
- * the outage inference and this one only asks it.
+ * `from`, `to` and `outage` are the span those
+ * rows cover and where in it the process was down,
+ * spelled the way `runTimeline` answers them,
+ * because that is the module that owns the outage
+ * inference and this one only asks it.
  */
 export type Reading = {
   steps: Operation[];

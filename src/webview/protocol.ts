@@ -59,8 +59,9 @@ import type { GlyphState, StepWord } from './states.js';
  * file edited elsewhere, a manifest that finished
  * scanning, a different node selected. A view
  * therefore renders from whatever last arrived and
- * holds nothing of its own that it could not
- * rebuild.
+ * holds nothing of its own it cannot afford to
+ * lose — a fold left open, a word half typed —
+ * which goes with its page when it is hidden.
  */
 
 /**
@@ -837,7 +838,9 @@ export type SeeStrings = ReturnType<typeof seeWords>;
  * picked it, and the run tab has room for its
  * graph and its trace. The host decides what the
  * pane is about and sends the whole of it; the
- * pane holds nothing, like every other view.
+ * pane, like every other view, holds nothing it
+ * cannot afford to lose — a group folded, a field
+ * being typed in.
  */
 export type InspectorInit = {
   type: 'init';

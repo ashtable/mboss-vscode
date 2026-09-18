@@ -237,9 +237,9 @@ export type RunsStore = Disposable & {
    *
    * Asked once, when somebody opens the block's
    * card. Held here rather than in either zone
-   * because one read answers both surfaces that
-   * draw that card — the canvas' column and the run
-   * page's rail — and reading it twice would be two
+   * because one read answers the card whichever
+   * surface the block was picked on — a canvas or
+   * the run tab — and reading it twice would be two
    * answers to one question.
    */
   inspectQueue(workflowId: string, nodeId: string): Promise<void>;
@@ -291,8 +291,9 @@ export type RunsStore = Disposable & {
    *  them yet. */
   refreshWorkflows(): void;
 
-  /** Which step the rail describes and a replay
-   *  would fork from. */
+  /** A row picked in the run tab's trace: the one
+   *  it marks, the Inspector draws in full and a
+   *  replay from here would fork from. */
   selectStep(functionId: number): void;
 
   /**

@@ -543,7 +543,7 @@ describe('a queue block', () => {
 
   /**
    * One field committed on its own, which is what
-   * the column does: a menu writes the moment it
+   * the Inspector does: a menu writes the moment it
    * changes, and the rest of the form does not go
    * with it.
    */

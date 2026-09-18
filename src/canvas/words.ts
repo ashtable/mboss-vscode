@@ -7,8 +7,8 @@ import { runWords, runsWords } from '../runs/words.js';
 import type { DurationWords } from '../webview/time.js';
 
 /**
- * Every word the canvas and its Inspector column
- * draw, resolved here and sent whole.
+ * Every word the canvas and the Inspector draw,
+ * resolved here and sent whole.
  *
  * A webview has no `vscode.l10n`, so its words are
  * resolved on the host and travel in the init
@@ -118,13 +118,12 @@ export const misfitWords = once((): Record<HandlerMisfit['kind'], string> => ({
  * The units a length of time is said in.
  *
  * Its own bag because every surface that draws one
- * reads it — the run page's own panel, the column
- * beside the canvas, the list of runs — and the
- * scale that picks between them is `webview/
- * time.ts`, which resolves no words of its own.
- * Two bags would let a step that took a second read
- * as `1.0 s` on one panel and `1000 ms` on the one
- * beside it.
+ * reads it — the run tab, the Inspector, the list
+ * of runs — and the scale that picks between them
+ * is `webview/time.ts`, which resolves no words of
+ * its own. Two bags would let a step that took a
+ * second read as `1.0 s` on one panel and
+ * `1000 ms` on the one beside it.
  *
  * A template each, because where the number goes is
  * the language's business.
@@ -344,15 +343,9 @@ function boardLabels(): Record<string, string> {
 }
 
 /**
- * Everything the third column says, kept apart
- * from the canvas' own words even though both
- * ride in the same message.
- *
- * They are not one group because they are not
- * one thing on the wire: the canvas' words are
- * its chrome and stand whatever is selected,
- * while these travel beside the block the column
- * is showing, so the column arrives whole. One
+ * Everything the Inspector says, in its own
+ * message: the pane is a view of its own in the
+ * side bar, sent whole whatever it is about. One
  * string is borrowed rather than written twice —
  * the picker and the palette have to say the
  * same sentence about a project whose code has
@@ -399,14 +392,14 @@ export const inspectorWords = once(() => ({
 
   /* — what a run recorded about the block — */
 
-  // Said on anything the column worked out rather
+  // Said on anything the pane worked out rather
   // than read off a row, and on the one thing that
   // is neither: a policy somebody set. A card about
   // a run is worth nothing if a person cannot tell
   // the three apart at a glance. The first is
-  // borrowed rather than written again: both bags
-  // ride in one message, and a canvas that said it
-  // two ways would be saying it twice on one screen.
+  // borrowed rather than written again: the canvas
+  // and the pane sit on one screen, and saying it
+  // two ways would be saying it twice there.
   derived: canvasWords().derived,
   configured: l10n.t('configured'),
 

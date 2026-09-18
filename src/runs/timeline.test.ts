@@ -76,10 +76,10 @@ describe('a run that never recovered', () => {
   /**
    * A workflow that waits — for a form, for a
    * timer, for a person — has holes in it that mean
-   * nothing went wrong. Drawing a crash across one
+   * nothing went wrong. Reading a crash into one
    * of those would be asserting something false
    * about a run that worked, so the only runs that
-   * can carry a band are the ones DBOS says were
+   * can have an outage are the ones DBOS says were
    * picked back up.
    */
   it('has no outage however long its gaps are', () => {
@@ -118,10 +118,10 @@ describe('a run that recovered', () => {
   });
 
   /**
-   * A run still going has no end, and a bar drawn
-   * against an unknown end would be drawn against
-   * nothing. The last thing that happened is the
-   * right edge until something later happens.
+   * A run still going has no end yet, and the last
+   * thing that happened is as far as anything
+   * recorded reaches. It is the right edge until
+   * something later happens.
    */
   it('ends at the last thing that happened while it is still going', () => {
     const going = runTimeline(
@@ -139,11 +139,10 @@ describe('what the rule cannot answer', () => {
    * `recovery_attempts` is a count, not a list of
    * moments. A run picked back up twice has two
    * outages in it and the schema records neither,
-   * so one band is drawn and the count in the rail
-   * is what says there were more. The timeline
-   * never claims to show every one.
+   * so one is found, and the timeline never claims
+   * it is the only one.
    */
-  it('draws one band however many times a run recovered', () => {
+  it('finds one outage however many times a run recovered', () => {
     const twice = runTimeline(
       { ...RUN, recoveryAttempts: 3 },
       CRASHED,
@@ -153,7 +152,7 @@ describe('what the rule cannot answer', () => {
     expect(twice.outage).toEqual({ from: 1500, to: 4400 });
   });
 
-  it('draws none when there is no hole to put one in', () => {
+  it('finds none when there is no hole to put one in', () => {
     const unbroken = [step(0, 1000, 1200), step(1, 1200, 1500)];
 
     const timeline = runTimeline(RUN, unbroken, READ_AT);
@@ -162,7 +161,7 @@ describe('what the rule cannot answer', () => {
     expect(timeline.steps.every((one) => !one.restored)).toBe(true);
   });
 
-  it('draws none when there is only one step to hold it', () => {
+  it('finds none when there is only one step to hold it', () => {
     const timeline = runTimeline(RUN, [step(0, 1000, 1200)], READ_AT);
 
     expect(timeline.outage).toBeUndefined();
@@ -170,10 +169,9 @@ describe('what the rule cannot answer', () => {
 
   /**
    * A step still in flight, or one DBOS has not
-   * timed, cannot bound a hole. It is drawn without
-   * a bar rather than dropped, because a step
-   * missing from the strip is a step nobody knows
-   * ran.
+   * timed, cannot bound a hole. It is kept rather
+   * than dropped, because a step left out is a step
+   * nobody knows ran.
    */
   it('keeps an untimed step and lets it bound nothing', () => {
     const untimed: Step = {
@@ -193,7 +191,7 @@ describe('what the rule cannot answer', () => {
     expect(timeline.outage).toEqual({ from: 1200, to: 4400 });
   });
 
-  it('draws nothing at all for a run with no steps', () => {
+  it('finds nothing at all for a run with no steps', () => {
     const timeline = runTimeline(RUN, [], READ_AT);
 
     expect(timeline.steps).toEqual([]);
@@ -204,11 +202,9 @@ describe('what the rule cannot answer', () => {
   /**
    * A sleeping run records the moment it means to
    * wake as the sleep row's completion, and that
-   * moment is in the future. Drawn as the right
-   * edge it would push every bar that has actually
-   * happened into a sliver on the left, and say the
-   * run had been going for a day when it had been
-   * going a second.
+   * moment is in the future. Taken as the right
+   * edge it would say the run had been going for a
+   * day when it had been going a second.
    */
   it('does not stretch an unfinished run to a deadline in the future', () => {
     const now = 6000;
