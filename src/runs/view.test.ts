@@ -1,8 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { WorkflowIR } from '../core/rules.js';
 import { messages } from '../messages.js';
-import { FORM_INTAKE, TIMER_THEN_ANSWER } from '../test-support/runs.js';
+import {
+  APPROVAL_FLOW,
+  FORM_INTAKE,
+  TIMER_THEN_ANSWER,
+} from '../test-support/runs.js';
 import { shortRunId } from '../webview/ids.js';
 import type {
   RunRow,
@@ -502,9 +506,14 @@ describe('the line a listed run is summed up in', () => {
     }
   });
 
+  /** The clock is when the run began, not when it
+   *  last recorded anything: those are two moments,
+   *  and the line names the first. */
   it('says which block a failure stopped at', () => {
-    const failed = { ...TODAY, status: 'ERROR' };
+    const lastAt = NOW - 60_000;
+    const failed = { ...TODAY, status: 'ERROR', lastOperationAt: lastAt };
 
+    expect(when(lastAt, NOW, 'en-US')).not.toBe(TODAY_AT);
     expect(listed({ ...failed, lastOperation: 'charge_card.r2' }).line).toBe(
       `failed · charge_card · ${TODAY_AT} · 10.0 s`,
     );
@@ -1326,6 +1335,31 @@ describe('one run, as the run page draws it', () => {
     });
 
     /**
+     * An approval declares how long it waits the
+     * same way a wait on a form does, so the line
+     * under a parked one says when it gives up too.
+     */
+    it('says when a parked approval gives up', () => {
+      const shown = running(
+        APPROVAL_FLOW,
+        [
+          { ...step(0, 4900, 5000), name: 'manager_ok.register' },
+          {
+            ...step(1, 5100, 5100),
+            name: 'DBOS.sleep',
+            output: String(DEADLINE),
+          },
+        ],
+        { timing: true },
+      );
+
+      expect(rowAt(shown, 0).state).toBe('waiting');
+      expect(rowAt(shown, 0).detail.derived).toBe(
+        `waiting since ${fine(5000)} · timeout 4 d`,
+      );
+    });
+
+    /**
      * The deadline is the one the SDK wrote, and it
      * is said as a moment: the number itself is the
      * ledger's, never the page's.
@@ -1349,6 +1383,27 @@ describe('one run, as the run page draws it', () => {
       expect(said(rowAt(asleep, 0)).join()).not.toContain(String(ahead));
       expect(said(rowAt(woken, 0)).join()).not.toContain('90000');
       expect(said(rowAt(parked, 3)).join()).not.toContain(String(DEADLINE));
+    });
+
+    /**
+     * The deadline is the moment the run wakes, not
+     * a moment still to come: the row is in the past
+     * from the instant the clock reaches it.
+     */
+    it('says a run woke the instant its deadline is reached', () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(50_000);
+
+      try {
+        const shown = running(TIMER_THEN_ANSWER, [sleepUntil(50_000)], {
+          timing: true,
+        });
+
+        expect(rowAt(shown, 0).state).toBe('done');
+        expect(rowAt(shown, 0).detail.derived).toBe(`woke ${fine(50_000)}`);
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     /**

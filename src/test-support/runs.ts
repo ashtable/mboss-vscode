@@ -571,29 +571,39 @@ export function timerThenAnswerRun(
 }
 
 /**
- * The intake form's own document: a form sent, a
- * wait on the answer that gives up after three
- * days, and a step that records it.
+ * One of core's own fixture documents.
  *
- * Core's fixture rather than a copy, because core's
- * walk is what gives the wait the `DBOS.recv` and
- * `DBOS.sleep` it parks on, and a copy that drifted
- * from the plan the emitter writes would be a
- * document the walk no longer describes.
+ * Core's copy rather than one of ours, because
+ * core's walk is what gives a wait the `DBOS.recv`
+ * and `DBOS.sleep` it parks on, and a copy that
+ * drifted from the plan the emitter writes would be
+ * a document the walk no longer describes.
  */
-export const FORM_INTAKE: WorkflowIR = WorkflowIRSchema.parse(
-  JSON.parse(
-    readFileSync(
-      fileURLToPath(
-        new URL(
-          '../../mboss-core/fixtures/ir/form_intake.workflow.json',
-          import.meta.url,
+function coreFixture(name: string): WorkflowIR {
+  return WorkflowIRSchema.parse(
+    JSON.parse(
+      readFileSync(
+        fileURLToPath(
+          new URL(
+            `../../mboss-core/fixtures/ir/${name}.workflow.json`,
+            import.meta.url,
+          ),
         ),
+        'utf8',
       ),
-      'utf8',
     ),
-  ),
-);
+  );
+}
+
+/** The intake form's own document: a form sent, a
+ *  wait on the answer that gives up after three
+ *  days, and a step that records it. */
+export const FORM_INTAKE: WorkflowIR = coreFixture('form_intake');
+
+/** An expense claim's own document: an approval a
+ *  manager answers, which gives up after four days,
+ *  and the two ways out of it. */
+export const APPROVAL_FLOW: WorkflowIR = coreFixture('approval_flow');
 
 /**
  * The rows a tick would have read to produce a
