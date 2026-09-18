@@ -1583,9 +1583,27 @@ test.describe('the run tab’s trace', () => {
     const rows = traceRows(page);
     await expect(rows).toHaveCount(4);
 
-    const mono = await page
-      .locator('[data-pane="trace"] .field-hint')
-      .evaluate((hint) => getComputedStyle(hint).fontFamily);
+    await expect(page.locator('.execution-trace > .section-label')).toHaveText(
+      seeStrings.trace,
+    );
+    await expect(page.locator('[data-pane="trace"] .field-hint')).toHaveText(
+      seeStrings.traceHint,
+    );
+
+    // Asked of the face itself rather than of
+    // whichever element on the page happens to be
+    // wearing it, which would pass whatever that
+    // element was changed to.
+    const mono = await page.evaluate(() => {
+      const probe = document.createElement('span');
+
+      probe.style.fontFamily = 'var(--font-mono)';
+      document.body.append(probe);
+      const face = getComputedStyle(probe).fontFamily;
+      probe.remove();
+
+      return face;
+    });
 
     for (const row of await rows.all()) {
       const op = row.locator(':scope > button.trace-op');
@@ -1633,6 +1651,67 @@ test.describe('the run tab’s trace', () => {
       expect(middle).toBeLessThan(line.bottom);
     }
 
+    // Each row's mark says how that row went, so a
+    // spine of dots that all say the same thing says
+    // the wrong thing about most of them. Nothing has
+    // happened yet at the row the run is sitting on,
+    // which is what the hollow shape is for.
+    const marked = await rows.evaluateAll((all) =>
+      all.map((li) => {
+        const dot = li.querySelector(
+          ':scope > .trace-spine > .status-glyph[data-glyph="dot"]',
+        );
+        const entry = li.querySelector(':scope > .trace-entry');
+
+        return {
+          dot: dot?.getAttribute('data-state') ?? 'no dot',
+          row: entry?.getAttribute('data-state') ?? 'no row',
+          hollow: dot?.hasAttribute('data-hollow') ?? false,
+        };
+      }),
+    );
+
+    expect(marked.map((one) => one.dot)).toEqual([
+      'done',
+      'failed',
+      'done',
+      'waiting',
+    ]);
+    expect(marked.map((one) => one.dot)).toEqual(marked.map((one) => one.row));
+    expect(marked.map((one) => one.hollow)).toEqual([
+      false,
+      false,
+      false,
+      true,
+    ]);
+
+    // Where the run is now is the row worth finding
+    // first, and how long a row took is evidence
+    // beside its name rather than a second name.
+    const said = await rows.evaluateAll((all) =>
+      all.map((li) => {
+        const name = li.querySelector(':scope > .trace-entry > .trace-name');
+        const time = li.querySelector(
+          ':scope > .trace-entry > .trace-duration',
+        );
+
+        return {
+          weight: name === null ? 'no name' : getComputedStyle(name).fontWeight,
+          colour: time === null ? '' : getComputedStyle(time).color,
+        };
+      }),
+    );
+    const muted = colourOf('light', 'ink-muted');
+
+    expect(said.map((one) => one.weight)).toEqual(['400', '400', '400', '600']);
+
+    for (const [at, one] of said.entries()) {
+      expect(
+        sameColour(one.colour, muted),
+        `row ${at}’s time: ${one.colour} ≠ ${muted}`,
+      ).toBe(true);
+    }
+
     for (const gone of [
       '.chips',
       '.chart',
@@ -1646,6 +1725,29 @@ test.describe('the run tab’s trace', () => {
     await expect(page.locator('[data-owner="sdk"]')).toHaveCount(0);
     await page.locator('[data-sdk-rows]').click();
     await expect(page.locator('[data-owner="sdk"]')).toHaveCount(2);
+
+    // The SDK's rows are the ledger's bookkeeping
+    // rather than the workflow's own steps, so their
+    // names stand a step back from the block rows'.
+    const names = await page.evaluate(() => {
+      const read = (selector: string): string => {
+        const found = document.querySelector(selector);
+
+        return found === null ? '' : getComputedStyle(found).color;
+      };
+
+      return {
+        sdk: read('[data-owner="sdk"] .trace-name'),
+        own: read('[data-trace-op="0"] .trace-name'),
+      };
+    });
+
+    expect(sameColour(names.sdk, muted), `an SDK name: ${names.sdk}`).toBe(
+      true,
+    );
+    expect(sameColour(names.own, muted), `a block name: ${names.own}`).toBe(
+      false,
+    );
   });
 
   /**
@@ -1876,6 +1978,11 @@ test.describe('the run tab’s trace', () => {
     const rows = apart.locator('li[data-trace-group=""]');
     await expect(rows).toHaveCount(1);
 
+    // It is still one of the run's operations, and
+    // still went whichever way it went, so it keeps
+    // the mark every row carries.
+    await expect(rows.locator('.status-glyph')).toHaveCount(1);
+
     const op = rows.locator('[data-trace-op]');
     await expect(op).toHaveAttribute('data-trace-op', '6');
     expect(await op.evaluate((row) => row.tagName)).not.toBe('BUTTON');
@@ -1936,11 +2043,44 @@ test.describe('the run tab’s trace', () => {
   test('marks worked-out words derived and a value as recorded', async ({
     page,
   }) => {
-    await showRun(page, seeInit(seeRun({ trace: REPLAYED_TRACE })));
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          // The one row carrying both kinds of claim,
+          // so the line can be read for which comes
+          // first.
+          trace: REPLAYED_TRACE.map((row) =>
+            row.functionId === 0
+              ? {
+                  ...row,
+                  detail: {
+                    ...row.detail,
+                    plain: 'Parse',
+                    verbatim: undefined,
+                  },
+                }
+              : row,
+          ),
+        }),
+      ),
+    );
 
     await expect(
       page.locator('[data-trace-op="0"] [data-provenance="derived"]'),
     ).toHaveText(`${seeStrings.reused} ·`);
+
+    // What the page worked out leads, because it
+    // qualifies what the run recorded after it.
+    const carried = page.locator('[data-trace-op="0"] .trace-detail');
+    await expect(carried).toHaveText(`${seeStrings.reused} · Parse`);
+    expect(
+      await carried.evaluate((line) =>
+        [...line.children].map(
+          (part) => part.getAttribute('data-provenance') ?? 'plain',
+        ),
+      ),
+    ).toEqual(['derived', 'plain']);
 
     const failed = page.locator('[data-trace-op="1"] .trace-detail');
     await expect(failed.locator('[data-verbatim]')).toHaveText('no slot left');
@@ -2095,6 +2235,12 @@ test.describe('the run tab’s trace', () => {
       page.locator('[data-pane="trace"] .empty-state .empty-title'),
     ).toHaveText(seeStrings.noOperations);
     await expect(page.locator('[data-trace-op]')).toHaveCount(0);
+
+    // The sentence stands where the rows would be, so
+    // the label over it is still the one naming them.
+    await expect(page.locator('.execution-trace > .section-label')).toHaveText(
+      seeStrings.trace,
+    );
   });
 
   /**
@@ -2151,6 +2297,51 @@ test.describe('the run tab’s trace', () => {
       );
 
       expect([...new Set(grounds)]).toEqual(['rgba(0, 0, 0, 0)']);
+    });
+
+    /**
+     * What a row that threw says under it is the
+     * failure itself — the error's name and what it
+     * said — so the line is toned as one, while the
+     * line under a row that returned stays the
+     * quietest ink there is. A theme that carries
+     * state in its own ink draws both in that ink,
+     * which is the theme saying it spends no colour
+     * on state, not this rule going missing.
+     */
+    test(`tones a failed row’s line as a failure in ${theme}`, async ({
+      page,
+    }) => {
+      await showRun(page, seeInit(TRACED), theme);
+
+      for (const at of ['0', '1']) {
+        await expect(
+          page.locator(`[data-trace-op="${at}"] .trace-detail`),
+        ).toHaveCount(1);
+      }
+
+      const drawn = await page.evaluate(() => {
+        const read = (at: string): string => {
+          const line = document.querySelector(
+            `[data-trace-op="${at}"] .trace-detail`,
+          );
+
+          return line === null ? '' : getComputedStyle(line).color;
+        };
+
+        return { threw: read('1'), returned: read('0') };
+      });
+      const wrong = colourOf(theme, 'state-ink') || colourOf(theme, 'fail');
+      const quiet = colourOf(theme, 'ink-faint');
+
+      expect(
+        sameColour(drawn.threw, wrong),
+        `the failed row in ${theme}: ${drawn.threw} ≠ ${wrong}`,
+      ).toBe(true);
+      expect(
+        sameColour(drawn.returned, quiet),
+        `a row that returned in ${theme}: ${drawn.returned} ≠ ${quiet}`,
+      ).toBe(true);
     });
 
     /**
