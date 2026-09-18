@@ -361,7 +361,11 @@ none of that.
   frame round one list — a header, a pinned Run row with its input and the
   tabs, and a scrolling body — with no card of its own for the stack, a test
   run, the run being followed or this session; a run this window started is
-  the top row of the ledger, marked and opened out. Stopping the stack is the
+  the top row of the ledger, marked and opened out. What it draws below the
+  header is `state.ts`'s answer read region by region: the services compose
+  declares while the app is down, the one card saying why there is no list and
+  the single way out it offers, and the Conductor section, which is drawn in
+  the no-runs state and nowhere else. Stopping the stack is the
   view's title action (`mboss.stopStack` → `RunsStore.stackDown`) and no
   webview message. The run input has
   one writer: the Runs view's box posts every change (`runInput` →

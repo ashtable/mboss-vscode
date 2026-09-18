@@ -127,9 +127,61 @@ export const runsWords = once(() => ({
   replayTo: l10n.t('└ replay {0} → {1} · {2}'),
   fromStep: l10n.t('from step {0}'),
 
+  /**
+   * Why there is nothing to read, one state per
+   * line: what is true, and under it the sentence
+   * the host already writes about that state.
+   *
+   * A title says the fact and nothing else. Which
+   * folder, which file and what the database
+   * actually said are the host's to fill, because
+   * only the host knows them — so a title here is
+   * the same words in every window and the line
+   * under it is this window's own.
+   */
+  untrustedTitle: l10n.t('This folder is not trusted'),
+  noProjectTitle: l10n.t('Open an mBoss project'),
+  noDatabaseTitle: l10n.t('No database to read'),
+  noDockerTitle: l10n.t('Docker is not available'),
+  databaseRefusedTitle: l10n.t('The database would not answer'),
+
   untrusted: messages.runsNeedTrust(),
   noProject: messages.runsNoProject(),
-  empty: messages.runsEmpty(),
+
+  /** A daemon that is installed and not running
+   *  lists no containers, which is the same silence
+   *  as a project nobody has started — so the panel
+   *  says which it is, and asking again is the whole
+   *  of what to do about it. */
+  dockerSilentTitle: l10n.t('Docker is not answering'),
+  dockerSilentDetail: l10n.t('Start Docker, then refresh.'),
+  refresh: l10n.t('Refresh'),
+
+  /** The one way out of a stack that is down, and
+   *  what it says while it is going. The label stays
+   *  a label: a control that swapped its words for a
+   *  spinner leaves nobody able to say what they
+   *  pressed. */
+  startApp: l10n.t('Start app'),
+  starting: l10n.t('Starting…'),
+
+  /** A service beside its dot, for somebody who
+   *  cannot see the dot. */
+  serviceLabel: l10n.t('{0} · {1}'),
+
+  appDownTitle: l10n.t('The app is not running'),
+  appDownDetail: l10n.t(
+    'Runs need the local DBOS app. Start it, then run a workflow.',
+  ),
+
+  /** A ledger nobody has written to yet. The app is
+   *  already up by the time this is said, so what is
+   *  left to do is set a workflow going. */
+  emptyTitle: l10n.t('No runs recorded yet'),
+  emptyDetail: l10n.t(
+    'Set a workflow going. Runs appear here as DBOS records them.',
+  ),
+  runNamed: l10n.t('Run {0}'),
 
   /** What the list is: a projection over two tables
    *  in the project's own database, named so nobody
@@ -138,9 +190,24 @@ export const runsWords = once(() => ({
     'local only · projected from dbos.workflow_status + dbos.operation_outputs',
   ),
 
-  /** Where the runs that are not these live. Drawn
-   *  only where a console is configured, and the
-   *  link is the whole of the integration. */
+  /**
+   * Where the runs that are not these live.
+   *
+   * Named once, in the one state with no local run
+   * to look at instead, and stated rather than
+   * sold: a window that deploys nowhere is told
+   * what Conductor is for and that nothing here
+   * depends on it. Everywhere else the link is the
+   * whole of the integration, and only where a
+   * console is configured.
+   */
+  production: l10n.t('production'),
+  conductorUnconfigured: l10n.t('Not connected to DBOS Conductor'),
+  conductorSetting: l10n.t('{0} is empty', 'mboss.conductor.consoleUrl'),
+  conductorDetail: l10n.t(
+    'mBoss local development is unaffected. Conductor manages deployed applications in production.',
+  ),
+  learnConductor: l10n.t('Learn about Conductor'),
   conductorConfigured: l10n.t('DBOS Conductor · configured'),
   openProduction: l10n.t('Open production in Conductor ↗'),
 

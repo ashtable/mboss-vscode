@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { BUNDLE_PATH } from './bundle.js';
 import { canvasWords, inspectorWords, paletteLabels } from './canvas/words.js';
 import { FIXTURE_PATH, fixtureText } from './fixture.js';
 import { galleryWords } from './gallery/words.js';
@@ -59,3 +60,55 @@ describe('a word said around something drawn', () => {
     expect(inspectorWords().runKind).toContain('{0}');
   });
 });
+
+/**
+ * A panel with nothing in it is a panel with
+ * nothing in it.
+ *
+ * Every state this product draws where a list would
+ * be says what is true and what would change it.
+ * None of them says that a payment would, because
+ * none of them would: an empty state that sells
+ * something is the one place a person cannot tell
+ * a missing feature from a missing file.
+ *
+ * Read over the bags and the bundle both, because a
+ * sentence the host composes and a panel shows is
+ * in neither of the other's reach.
+ */
+const SELLING = /upgrade|unlock/i;
+
+describe('the words the product says about itself', () => {
+  it('never sells an upgrade', () => {
+    const said = [
+      paletteLabels(),
+      canvasWords(),
+      inspectorWords(),
+      sidebarWords(),
+      runsWords(),
+      seeWords(),
+      galleryWords(),
+    ].flatMap(everyWord);
+
+    const bundled = Object.keys(
+      JSON.parse(readFileSync(join(REPO_ROOT, BUNDLE_PATH), 'utf8')) as Record<
+        string,
+        string
+      >,
+    );
+
+    expect(said.length).toBeGreaterThan(0);
+    expect(bundled.length).toBeGreaterThan(0);
+    expect(said.filter((one) => SELLING.test(one))).toEqual([]);
+    expect(bundled.filter((one) => SELLING.test(one))).toEqual([]);
+  });
+});
+
+/** Every string a bag carries, however deep its
+ *  sections go. */
+function everyWord(bag: unknown): string[] {
+  if (typeof bag === 'string') return [bag];
+  if (typeof bag !== 'object' || bag === null) return [];
+
+  return Object.values(bag).flatMap(everyWord);
+}

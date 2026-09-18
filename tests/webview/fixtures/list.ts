@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 
+import type { RunCounts } from '../../../src/runs/rows.js';
 import type { ServiceHealth } from '../../../src/runs/stack.js';
 import { shortRunId } from '../../../src/webview/ids.js';
 import type {
@@ -7,6 +8,7 @@ import type {
   RunnableWorkflow,
   RunRow,
   RunsInit,
+  StackZone,
 } from '../../../src/webview/protocol.js';
 
 import {
@@ -365,3 +367,166 @@ export async function showList(
 
   return harness;
 }
+
+/**
+ * The panel before there is a list, one fixture per
+ * state it can be in.
+ *
+ * Each changes only the facts the state table reads,
+ * so what a case proves is that the panel drew what
+ * the table named and nothing beside it. The
+ * sentences under the titles are the host's, written
+ * here the way the host writes them.
+ */
+
+const NOTHING: RunCounts = { all: 0, active: 0, failed: 0 };
+
+/** Compose as it stands before anybody could ask
+ *  it anything. */
+const UNASKED: StackZone = {
+  available: false,
+  answered: false,
+  services: [],
+  busy: undefined,
+  detail: undefined,
+};
+
+/** A project whose compose file and daemon are both
+ *  there, with whatever a state changes about what
+ *  it found. */
+function asked(over: Partial<StackZone> = {}): StackZone {
+  return { ...UNASKED, available: true, answered: true, ...over };
+}
+
+const POSTGRES_UP = SERVICES[0]!;
+const APP_UP = SERVICES[1]!;
+
+const POSTGRES_STOPPED: ServiceHealth = {
+  service: 'postgres',
+  state: 'exited',
+  health: 'none',
+  ports: [],
+  detail: 'postgres:17',
+};
+
+const APP_STOPPED: ServiceHealth = {
+  service: 'app',
+  state: 'exited',
+  health: 'none',
+  ports: [],
+  detail: 'built 4 m ago',
+};
+
+/** A service the compose file declares that no
+ *  container was ever made for. */
+export const WORKER_ABSENT: ServiceHealth = {
+  service: 'worker',
+  state: 'absent',
+  health: 'none',
+  ports: [],
+  detail: '',
+};
+
+/** The first paint of a panel whose store has not
+ *  finished reading anything. */
+export const FIRST_PAINT: RunsInit = runsInit({
+  state: 'loading',
+  rows: [],
+  counts: NOTHING,
+  stack: UNASKED,
+});
+
+export const UNTRUSTED: RunsInit = runsInit({
+  state: 'untrusted',
+  source: undefined,
+  rows: [],
+  counts: NOTHING,
+  stack: UNASKED,
+});
+
+export const NO_PROJECT: RunsInit = runsInit({
+  state: 'no-project',
+  project: undefined,
+  source: undefined,
+  rows: [],
+  counts: NOTHING,
+  stack: UNASKED,
+});
+
+export const NO_DATABASE: RunsInit = runsInit({
+  state: 'no-database',
+  detail:
+    '/demo/.env is not readable, so there is no database to read. ' +
+    'A scaffolded project writes one; copy .env.example if it is missing.',
+  source: undefined,
+  rows: [],
+  counts: NOTHING,
+  stack: UNASKED,
+});
+
+/** Docker is not on this machine, so the project
+ *  has no local stack at all. */
+export const NO_DOCKER: RunsInit = runsInit({
+  rows: [],
+  counts: NOTHING,
+  stack: {
+    ...UNASKED,
+    detail: 'Docker is not on the PATH, so there is no local stack.',
+  },
+});
+
+/** Docker is installed and its daemon is not
+ *  running, so compose listed nothing. */
+export const DAEMON_DOWN: RunsInit = runsInit({
+  rows: [],
+  counts: NOTHING,
+  stack: asked({ answered: false }),
+});
+
+export const DATABASE_REFUSED: RunsInit = runsInit({
+  state: 'unreachable',
+  detail: 'That database would not answer: ECONNREFUSED 127.0.0.1:5432',
+  rows: [],
+  counts: NOTHING,
+  stack: asked({ services: [POSTGRES_STOPPED, APP_STOPPED] }),
+});
+
+/** The ledger reads fine and the container the
+ *  workflows run in is stopped. */
+export const APP_DOWN: RunsInit = runsInit({
+  rows: SIX_DONE,
+  counts: { all: 6, active: 0, failed: 0 },
+  stack: asked({ services: [POSTGRES_UP, APP_STOPPED] }),
+  testRun: {
+    workflows: [MANUAL],
+    selected: MANUAL.name,
+    input: '',
+    hint: undefined,
+    problem: undefined,
+  },
+});
+
+/** A project that is up and declares a third
+ *  service nobody has started. */
+export const THIRD_SERVICE: RunsInit = frameInit();
+
+/** Everything is up and the ledger has nothing in
+ *  it yet. */
+export const NO_RUNS: RunsInit = runsInit({
+  rows: [],
+  counts: NOTHING,
+  stack: asked({ services: [POSTGRES_UP, APP_UP] }),
+  testRun: {
+    workflows: [MANUAL, SCHEDULE],
+    selected: MANUAL.name,
+    input: '',
+    hint: undefined,
+    problem: undefined,
+  },
+});
+
+/** The same window, with a console to deploy to. */
+export const NO_RUNS_CONFIGURED: RunsInit = {
+  ...NO_RUNS,
+  production: { configured: true },
+};

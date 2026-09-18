@@ -1,4 +1,4 @@
-import { Fragment } from 'react';
+import { Fragment, type ReactNode } from 'react';
 
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
@@ -11,8 +11,10 @@ import { FieldHint } from '../webview/signal/FieldHint.js';
 import { TabPanel, Tabs } from '../webview/signal/Tabs.js';
 
 import { InputRow } from './InputRow.js';
+import { ProductionState } from './ProductionState.js';
 import { RUN_FILTERS, type RunFilter } from './queries.js';
 import { RunHistoryItem } from './RunHistoryItem.js';
+import { ServiceHealthItem } from './ServiceHealthItem.js';
 import { runsState, type RunsView, type StateRow } from './state.js';
 
 import './runs.css';
@@ -55,6 +57,16 @@ function Runs(state: RunsInit) {
     <Filters state={state} />
   ) : null;
 
+  // The one card the table names, and where it
+  // goes: a card about a filter somebody picked
+  // belongs under the tabs that picked it, and
+  // every other one is about the whole panel and
+  // sits above them.
+  const card = view.regions.includes('state') ? (
+    <BoundaryState state={state} view={view} />
+  ) : null;
+  const filtered = view.row === 'empty-filter';
+
   return (
     <div className="runs">
       <header className="runs-head">
@@ -79,14 +91,37 @@ function Runs(state: RunsInit) {
           moment later. */}
       {view.row === 'loading' ? null : (
         <div className="runs-body">
+          {view.regions.includes('services') ? (
+            <ul className="services">
+              {state.stack.services.map((service) => (
+                <ServiceHealthItem
+                  key={service.service}
+                  service={service}
+                  strings={strings}
+                />
+              ))}
+            </ul>
+          ) : null}
+
+          {filtered ? null : card}
+
           {pinned ? null : filters}
 
-          <Listing state={state} view={view} />
+          {view.regions.includes('tabs') ? (
+            <Listing state={state} view={view} card={filtered ? card : null} />
+          ) : null}
 
           {view.regions.includes('footer') ? (
             <footer className="runs-foot">
               <FieldHint title={state.source}>{strings.projection}</FieldHint>
             </footer>
+          ) : null}
+
+          {view.regions.includes('production') ? (
+            <ProductionState
+              configured={state.production.configured}
+              strings={strings}
+            />
           ) : null}
 
           {view.regions.includes('production-button') ? (
@@ -224,33 +259,38 @@ function Filters({ state }: { state: RunsInit }) {
 }
 
 /**
- * What the table gives the view where the list
- * would be: the rows, a line in place of them, or a
- * sentence saying why there are none at all.
+ * The page of the ledger, or the line that stands
+ * in for it.
+ *
+ * Drawn only where there are tabs to filter it:
+ * without them the table's card is about the whole
+ * panel, not about a filter, and is drawn above.
  *
  * Under the panel's own card — the app is down and
  * the card says so — an empty filter is a line
- * rather than a second card.
+ * rather than a second card, because two cards on
+ * one panel read as two things being wrong.
  */
-function Listing({ state, view }: { state: RunsInit; view: RunsView }) {
-  const { strings, filter } = state;
+function Listing({
+  state,
+  view,
+  card,
+}: {
+  state: RunsInit;
+  view: RunsView;
 
-  if (!view.regions.includes('tabs')) {
-    const said = blockedBy(state, view.row);
-
-    return said === undefined ? null : <p className="state">{said}</p>;
-  }
-
-  const empty = filter === 'active' ? strings.noActive : strings.noFailed;
-
+  /** The table's card, where this filter is what
+   *  it is about. */
+  card: ReactNode;
+}) {
   return (
-    <TabPanel panel={LIST} active={filter}>
+    <TabPanel panel={LIST} active={state.filter}>
       {view.regions.includes('rows') ? (
         <Rows state={state} />
       ) : view.regions.includes('filter-hint') ? (
-        <FieldHint>{empty}</FieldHint>
+        <FieldHint>{emptyFilter(state)}</FieldHint>
       ) : (
-        <EmptyState kind="empty" title={empty} />
+        card
       )}
     </TabPanel>
   );
@@ -292,34 +332,136 @@ function Rows({ state }: { state: RunsInit }) {
 }
 
 /**
- * Why there is no list, where the state table gives
- * the view none. A missing database and one that
- * would not answer each say which in the detail, and
- * a missing Docker in the stack's. A daemon that did
- * not answer has nothing true to add to the stack
- * above it.
+ * The one card, and the one way out it offers.
+ *
+ * Which states draw a card is the table's answer;
+ * this is what each of them says. A title is the
+ * fact and nothing else, and the line under it is
+ * the sentence the host already writes about that
+ * state, because which folder, which file and what
+ * the database actually said are things only the
+ * host knows.
  */
-function blockedBy(state: RunsInit, row: StateRow): string | undefined {
+function BoundaryState({ state, view }: { state: RunsInit; view: RunsView }) {
+  const said = saidBy(state, view.row);
+
+  if (said === undefined) return null;
+
+  return (
+    <EmptyState
+      kind={said.kind}
+      title={said.title}
+      detail={said.detail}
+      action={wayOutOf(state, view)}
+    />
+  );
+}
+
+/** What a card says, and whose doing it is: `error`
+ *  where the panel asked and was refused, `empty`
+ *  where nothing has happened yet. */
+type Said = {
+  kind: 'empty' | 'error';
+  title: string;
+  detail: string | undefined;
+};
+
+function saidBy(state: RunsInit, row: StateRow): Said | undefined {
   const { strings } = state;
 
   switch (row) {
     case 'untrusted':
-      return strings.untrusted;
+      return card('empty', strings.untrustedTitle, strings.untrusted);
     case 'no-project':
-      return strings.noProject;
-    case 'no-docker':
-      return state.stack.detail;
-    case 'docker-silent':
-    case 'loading':
-      return undefined;
+      return card('empty', strings.noProjectTitle, strings.noProject);
     case 'no-database':
+      return card('error', strings.noDatabaseTitle, state.detail);
+    case 'no-docker':
+      return card('error', strings.noDockerTitle, state.stack.detail);
+    case 'docker-silent':
+      return card(
+        'error',
+        strings.dockerSilentTitle,
+        strings.dockerSilentDetail,
+      );
     case 'database-refused':
+      return card('error', strings.databaseRefusedTitle, state.detail);
     case 'app-down':
+      return card('error', strings.appDownTitle, strings.appDownDetail);
     case 'no-runs':
+      return card('empty', strings.emptyTitle, strings.emptyDetail);
     case 'empty-filter':
+      return card('empty', emptyFilter(state), undefined);
+    case 'loading':
     case 'populated':
-      return state.detail ?? strings.empty;
+      return undefined;
   }
+}
+
+function card(
+  kind: Said['kind'],
+  title: string,
+  detail: string | undefined,
+): Said {
+  return { kind, title, detail };
+}
+
+/**
+ * The single thing that would change the state, as
+ * a Button under the card.
+ *
+ * Which of them is on offer is the table's answer
+ * too, so a state with nothing to offer offers
+ * nothing rather than a control that would do
+ * nothing.
+ */
+function wayOutOf(
+  state: RunsInit,
+  view: RunsView,
+): Parameters<typeof EmptyState>[0]['action'] {
+  const { strings, testRun } = state;
+
+  switch (view.action) {
+    case 'refresh':
+      return {
+        label: strings.refresh,
+        onClick: () => postToHost({ type: 'runRefresh' }),
+      };
+
+    case 'start-app': {
+      // The label stays a label while it is going:
+      // a control that swapped its words for a
+      // spinner leaves nobody able to say what they
+      // pressed.
+      const starting = state.stack.busy === 'up';
+
+      return {
+        label: starting ? strings.starting : strings.startApp,
+        busy: starting,
+        hook: { 'stack-up': '' },
+        onClick: () => postToHost({ type: 'stackUp' }),
+      };
+    }
+
+    case 'run-named': {
+      const workflow = testRun.selected;
+
+      return workflow === undefined
+        ? undefined
+        : {
+            label: filled(strings.runNamed, workflow),
+            onClick: () => postToHost({ type: 'runWorkflow', workflow }),
+          };
+    }
+
+    case undefined:
+      return undefined;
+  }
+}
+
+/** What a filter with nothing behind it says. */
+function emptyFilter({ strings, filter }: RunsInit): string {
+  return filter === 'active' ? strings.noActive : strings.noFailed;
 }
 
 mountView('runs', Runs);

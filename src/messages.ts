@@ -178,9 +178,6 @@ export const messages = {
   runsNoProject: () =>
     l10n.t('Open an mBoss project to see how its runs went.'),
 
-  runsEmpty: () =>
-    l10n.t('No runs recorded yet. Start the app and set a workflow going.'),
-
   /**
    * The two ways there is nothing to read, kept
    * apart because what a person does about them is

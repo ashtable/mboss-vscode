@@ -327,9 +327,45 @@ body {
 
 /* — what is shown instead of a list — */
 
-.state {
+/* What compose declares, while the app is down.
+   Its own block above the card that says what that
+   means, so the facts and the one way out do not
+   read as one paragraph. */
+.services {
+  list-style: none;
   margin: 0;
-  padding: var(--space-2) var(--space-3-5);
+  padding: var(--space-2-5) var(--space-3-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* One service. The 5px has no step of its own: it
+   is what gives a line of type room to sit in
+   without making a list of three services as tall
+   as the card under it. */
+.service-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 5px 0;
+}
+
+.service-name {
+  font-size: var(--text-control);
+  color: var(--ink);
+}
+
+/* What compose said about it, pushed to the far end
+   and cut there: an image tag and a port list are
+   both longer than a narrow pane. */
+.service-detail {
+  margin-inline-start: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--text-sm);
   color: var(--ink-muted);
 }
@@ -350,4 +386,29 @@ body {
 .runs-production {
   display: flex;
   padding: 0 var(--space-3-5) var(--space-2);
+}
+
+/* The same fact, said in full in the one state with
+   no runs to read instead. Under a rule of its own,
+   because what it is about is not this project. */
+.production {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-3-5);
+  border-top: 1px solid var(--hairline);
+}
+
+.production-title {
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--w-semibold);
+}
+
+.production-detail {
+  margin: 0;
+  font-size: var(--text-control);
+  line-height: var(--leading-body);
+  color: var(--ink-soft);
 }

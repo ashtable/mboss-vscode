@@ -3,6 +3,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import type {
   RunByHand,
   RunRow,
+  RunsInit,
   TestRunProblem,
 } from '../../src/webview/protocol.js';
 
@@ -12,17 +13,29 @@ import { glyphOf, type GlyphState } from '../../src/webview/states.js';
 import { when } from '../../src/webview/time.js';
 
 import {
+  APP_DOWN,
   BY_STATE,
+  DAEMON_DOWN,
+  DATABASE_REFUSED,
+  FIRST_PAINT,
   frameInit,
   LINEAGE,
   LIST_ROWS,
   listRow,
   MANUAL,
+  NO_DATABASE,
+  NO_DOCKER,
+  NO_PROJECT,
+  NO_RUNS,
+  NO_RUNS_CONFIGURED,
   OFF_THE_PAGE,
   runsInit,
   SCHEDULE,
   showList,
   SIX_DONE,
+  THIRD_SERVICE,
+  UNTRUSTED,
+  WORKER_ABSENT,
 } from './fixtures/list.js';
 import { mount, THEMES_ALL, type ThemeKind } from './harness.js';
 import { labelBeforeValue } from './labels.js';
@@ -1590,71 +1603,588 @@ test.describe('six runs on one screen', () => {
   });
 });
 
-test.describe('the run list', () => {
-  test('says why there is no list, when there is none', async ({ page }) => {
-    await showList(
+/**
+ * Every state the panel can be in short of a list,
+ * and what it says in each.
+ *
+ * One card at a time and one way out at most: the
+ * fact first, then the single thing that would
+ * change it. Which states these are is the table's
+ * answer, and the cases here are about what gets
+ * drawn for one — that a stopped database is never
+ * told as a stopped app, and that a state with
+ * nothing to offer offers nothing.
+ */
+test.describe('what the panel says when there is no list', () => {
+  for (const theme of THEMES_ALL) {
+    test(`draws the header alone before the first read in ${theme}`, async ({
       page,
-      runsInit({
-        state: 'untrusted',
-        rows: [],
-        counts: { all: 0, active: 0, failed: 0 },
-      }),
+    }) => {
+      await showList(page, FIRST_PAINT, theme, { width: 300 });
+
+      const runs = page.locator('.runs');
+      await expect(runs.locator('.runs-head')).toContainText(
+        runsStrings.heading,
+      );
+      await expect(runs.locator(':scope > *')).toHaveCount(1);
+
+      for (const absent of [
+        '.empty-state',
+        '[data-run-workflow]',
+        '[role="tablist"]',
+        '.runs-foot',
+      ]) {
+        await expect(page.locator(absent)).toHaveCount(0);
+      }
+    });
+  }
+
+  /**
+   * A daemon that is installed and not running
+   * lists no containers, which is exactly the
+   * silence of a project nobody has started. So the
+   * panel says which of the two it is, and asking
+   * again is the whole of what to do about it.
+   */
+  test('says Docker is not answering, with Refresh and nothing else', async ({
+    page,
+  }) => {
+    const harness = await showList(page, DAEMON_DOWN, 'light', { width: 300 });
+
+    const card = page.locator('.empty-state');
+    await expect(card).toHaveCount(1);
+    await expect(card).toHaveAttribute('data-kind', 'error');
+    await expect(card.locator('.empty-title')).toHaveText(
+      runsStrings.dockerSilentTitle,
+    );
+    await expect(card.locator('.empty-detail')).toHaveText(
+      runsStrings.dockerSilentDetail,
     );
 
-    await expect(page.locator('.state')).toHaveText(runsStrings.untrusted);
-    await expect(page.locator('li[data-run]')).toHaveCount(0);
-    await expect(page.getByRole('tab')).toHaveCount(0);
+    const again = card.locator('.btn');
+    await expect(again).toHaveCount(1);
+    await expect(again).toHaveText(runsStrings.refresh);
+
+    for (const absent of ['.services', '[data-stack-up]', '.runs-foot']) {
+      await expect(page.locator(absent)).toHaveCount(0);
+    }
+
+    await again.click();
+    expect(await harness.postedOfType('runRefresh')).toEqual([
+      { type: 'runRefresh' },
+    ]);
   });
 
-  test('says a database would not answer, and what it said', async ({
+  /**
+   * A database that would not answer is most often
+   * the project's own, stopped — so the panel names
+   * the database, lists what compose declares and
+   * offers to start the lot.
+   */
+  test('names the refusing database, its services and Start app', async ({
+    page,
+  }) => {
+    const harness = await showList(page, DATABASE_REFUSED, 'light', {
+      width: 300,
+    });
+
+    await expect(page.locator('.services > li[data-service]')).toHaveCount(2);
+
+    const card = page.locator('.empty-state');
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('.empty-title')).toHaveText(
+      runsStrings.databaseRefusedTitle,
+    );
+    await expect(card.locator('.empty-detail')).toContainText('ECONNREFUSED');
+
+    const tops = await topsOf(page, ['.services', '.empty-state']);
+    expect(tops[0]!).toBeLessThan(tops[1]!);
+
+    const start = page.locator('[data-stack-up]');
+    await expect(start).toHaveCount(1);
+    await expect(start).toHaveText(runsStrings.startApp);
+
+    for (const absent of [
+      '[data-run-workflow]',
+      '[data-input]',
+      '[role="tablist"]',
+      '.runs-foot',
+    ]) {
+      await expect(page.locator(absent)).toHaveCount(0);
+    }
+
+    await start.click();
+    expect(await harness.postedOfType('stackUp')).toEqual([
+      { type: 'stackUp' },
+    ]);
+
+    await harness.show({
+      ...DATABASE_REFUSED,
+      stack: { ...DATABASE_REFUSED.stack, busy: 'up' },
+    });
+
+    await expect(start).toHaveAttribute('aria-busy', 'true');
+    await expect(start).toHaveText(runsStrings.starting);
+  });
+
+  /**
+   * Only the container the workflows run in decides
+   * whether the panel is in the app-down state. A
+   * third service somebody stopped is a fact on the
+   * ports line and nothing more.
+   */
+  test('draws a stopped third service in the ports line, not as a state', async ({
+    page,
+  }) => {
+    await showList(page, THIRD_SERVICE, 'light', { width: 300 });
+
+    const worker = page.locator('[data-service="worker"]');
+    await expect(worker).toHaveCount(1);
+    await expect(worker).toHaveAttribute('data-state', 'exited');
+    await expect(worker).toHaveText(
+      filled(
+        runsStrings.servicePorts,
+        'worker',
+        runsStrings.serviceState.exited,
+      ),
+    );
+
+    await expect(page.locator('.empty-state')).toHaveCount(0);
+    await expect(page.locator('.services')).toHaveCount(0);
+  });
+
+  /**
+   * An empty ledger with the app already up: what
+   * is left to do is set a workflow going, and the
+   * panel offers the one that is picked.
+   */
+  test('says nothing has run yet, and offers to run the selected workflow', async ({
+    page,
+  }) => {
+    const harness = await showList(page, NO_RUNS, 'light', { width: 300 });
+
+    const card = page.locator('.empty-state');
+    await expect(card).toHaveCount(1);
+    await expect(card).toHaveAttribute('data-kind', 'empty');
+    await expect(card.locator('.empty-title')).toHaveText(
+      runsStrings.emptyTitle,
+    );
+    await expect(card.locator('.empty-detail')).toHaveText(
+      runsStrings.emptyDetail,
+    );
+    await expect(page.locator('[role="tablist"]')).toHaveCount(0);
+
+    // Neither the button this panel was drawn with
+    // and never built, nor the line under the card
+    // about somewhere else.
+    const said = await page.locator('.runs').innerText();
+    expect(said).not.toContain('Debug run');
+    expect(said).not.toContain('deployment context only');
+
+    const run = card.locator('.btn');
+    await expect(run).toHaveCount(1);
+    await expect(run).toHaveText(filled(runsStrings.runNamed, MANUAL.name));
+    await expect(run).toHaveAttribute('data-variant', 'quiet');
+    await expect(run).toHaveAttribute('data-ink', 'brand');
+
+    await run.click();
+    expect(await harness.postedOfType('runWorkflow')).toEqual([
+      { type: 'runWorkflow', workflow: MANUAL.name },
+    ]);
+
+    // A workflow that runs on its own is not one
+    // anybody starts from here.
+    await harness.show({
+      ...NO_RUNS,
+      testRun: { ...NO_RUNS.testRun, selected: SCHEDULE.name },
+    });
+
+    await expect(page.locator('.empty-state')).toHaveCount(1);
+    await expect(page.locator('.empty-state .btn')).toHaveCount(0);
+  });
+
+  for (const theme of THEMES_ALL) {
+    test(`draws every EmptyState the same way in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await mount(page, 'runs', theme, { width: 300 });
+      let marks = 0;
+
+      for (const [init, kind] of CARDS) {
+        await harness.show(init);
+
+        const card = page.locator('.empty-state');
+        await expect(card).toHaveCount(1);
+        await expect(card).toHaveAttribute('data-kind', kind);
+        expect(await padOf(card)).toBe('28px 16px 28px 16px');
+
+        const detail = card.locator('.empty-detail');
+        await expect(detail).toHaveCount(1);
+        expect(parseFloat(await style(detail, 'font-size'))).toBeCloseTo(
+          11.999,
+          1,
+        );
+        expect(
+          sameColour(
+            await style(detail, 'color'),
+            colourOf(theme, 'ink-faint'),
+          ),
+        ).toBe(true);
+
+        const mark = card.locator('.empty-mark');
+        await expect(mark).toHaveCount(kind === 'error' ? 1 : 0);
+
+        if (kind === 'error') {
+          marks += 1;
+          expect(
+            sameColour(await style(mark, 'color'), stateInk(theme, 'fail')),
+          ).toBe(true);
+        }
+
+        expect(await card.locator('.btn').count()).toBeLessThanOrEqual(1);
+      }
+
+      expect(marks).toBe(CARDS.filter(([, kind]) => kind === 'error').length);
+    });
+  }
+
+  /**
+   * The app being down does not make the runs
+   * already recorded unreadable, so the list stays
+   * under the card that says why nothing new can be
+   * started.
+   */
+  test('keeps Start app as the app-down state’s one way out', async ({
+    page,
+  }) => {
+    await showList(page, APP_DOWN, 'light', { width: 300 });
+
+    const card = page.locator('.empty-state');
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('.empty-title')).toHaveText(
+      runsStrings.appDownTitle,
+    );
+    await expect(card.locator('.empty-detail')).toHaveText(
+      runsStrings.appDownDetail,
+    );
+
+    const ways = card.locator('.btn[data-variant]');
+    await expect(ways).toHaveCount(1);
+    await expect(ways).toHaveAttribute('data-stack-up', '');
+
+    await expect(page.locator('li[data-run]')).toHaveCount(SIX_DONE.length);
+    await expect(page.locator('.runs-foot')).toHaveCount(1);
+
+    // Nothing can be started with the app down, so
+    // nothing offers to.
+    for (const absent of ['[data-run-workflow]', '[data-input]']) {
+      await expect(page.locator(absent)).toHaveCount(0);
+    }
+
+    const order = [
+      '.services',
+      '.empty-state',
+      '[role="tablist"]',
+      'ol.run-list',
+      '.runs-foot',
+    ];
+
+    for (const one of order) {
+      await expect(page.locator(one)).toHaveCount(1);
+    }
+
+    const tops = await topsOf(page, order);
+    expect(tops).toEqual([...tops].sort((a, b) => a - b));
+  });
+
+  /**
+   * And a filter with nothing in it under that card
+   * is a line, not a second card: two cards on one
+   * panel read as two things being wrong.
+   */
+  test('says an empty filter under the app-down state as a hint', async ({
     page,
   }) => {
     await showList(
       page,
-      runsInit({
-        state: 'unreachable',
-        detail: 'That database would not answer: ECONNREFUSED',
-        rows: [],
-      }),
+      { ...APP_DOWN, filter: 'failed', rows: [], selected: undefined },
+      'light',
+      { width: 300 },
     );
 
-    await expect(page.locator('.state')).toContainText('ECONNREFUSED');
-  });
+    const card = page.locator('.empty-state');
+    await expect(card).toHaveCount(1);
+    await expect(card.locator('.empty-title')).toHaveText(
+      runsStrings.appDownTitle,
+    );
 
-  test('says which file holds no database to read', async ({ page }) => {
-    const detail = '/demo/.env is not readable, so there is no database.';
-
-    await showList(page, runsInit({ state: 'no-database', detail, rows: [] }));
-
-    await expect(page.locator('.state')).toHaveText(detail);
+    const hint = page.locator('.tabpanel > .field-hint');
+    await expect(hint).toHaveCount(1);
+    await expect(hint).toHaveText(runsStrings.noFailed);
   });
 
   /**
-   * Nothing has been read yet, and whatever the
-   * view drew below its header now would be
-   * replaced a moment later.
+   * Four states nobody can act on from this panel:
+   * the folder, the project, the file naming a
+   * database and Docker itself are all somewhere
+   * else. Each says what is true and stops there.
    */
-  test('draws its header alone before the first read', async ({ page }) => {
-    await showList(
-      page,
-      runsInit({
-        state: 'loading',
-        rows: [],
-        counts: { all: 0, active: 0, failed: 0 },
-        stack: {
-          available: false,
-          answered: false,
-          services: [],
-          busy: undefined,
-          detail: undefined,
-        },
-      }),
+  test('says why there is nothing to read, with no way out to offer', async ({
+    page,
+  }) => {
+    const harness = await showList(page, NO_PROJECT, 'light', { width: 300 });
+
+    const blocked: [RunsInit, string, 'empty' | 'error'][] = [
+      [NO_PROJECT, runsStrings.noProjectTitle, 'empty'],
+      [NO_DATABASE, runsStrings.noDatabaseTitle, 'error'],
+      [NO_DOCKER, runsStrings.noDockerTitle, 'error'],
+    ];
+
+    for (const [init, title, kind] of blocked) {
+      await harness.show(init);
+
+      const card = page.locator('.empty-state');
+      await expect(card).toHaveCount(1);
+      await expect(card).toHaveAttribute('data-kind', kind);
+      await expect(card.locator('.empty-title')).toHaveText(title);
+      await expect(card.locator('.empty-mark')).toHaveCount(
+        kind === 'error' ? 1 : 0,
+      );
+      await expect(card.locator('.btn')).toHaveCount(0);
+    }
+
+    await harness.show(UNTRUSTED);
+    await expect(page.locator('.empty-title')).toHaveText(
+      runsStrings.untrustedTitle,
+    );
+    await expect(page.locator('.empty-detail')).toHaveText(
+      runsStrings.untrusted,
+    );
+    await expect(page.locator('.empty-state .btn')).toHaveCount(0);
+
+    await harness.show(NO_DATABASE);
+    await expect(page.locator('.empty-detail')).toHaveText(NO_DATABASE.detail!);
+
+    await harness.show(DATABASE_REFUSED);
+    await expect(page.locator('.empty-detail')).toContainText('ECONNREFUSED');
+  });
+
+  /**
+   * What compose says of each declared service, and
+   * nothing anybody can press: Start app runs the
+   * whole stack, so a control per row would be four
+   * ways to do one thing.
+   */
+  test('draws each service as a dot, its name and what it is doing', async ({
+    page,
+  }) => {
+    const harness = await showList(page, APP_DOWN, 'light', { width: 300 });
+
+    const rows = page.locator('.services > li[data-service]');
+    await expect(rows).toHaveCount(APP_DOWN.stack.services.length);
+    expect(await padOf(page.locator('.services'))).toBe('10px 14px 10px 14px');
+
+    for (const service of APP_DOWN.stack.services) {
+      const row = page.locator(`li[data-service="${service.service}"]`);
+
+      await expect(row).toHaveAttribute('data-state', service.state);
+      expect(await padOf(row)).toBe('5px 0px 5px 0px');
+      await expect(row.locator('.service-name')).toHaveText(service.service);
+      await expect(row.locator('.service-detail')).toHaveText(service.detail);
+      await expect(row.locator('.btn')).toHaveCount(0);
+
+      const dot = row.locator('.status-glyph[data-glyph="dot"]');
+      await expect(dot).toHaveCount(1);
+      await expect(dot).toHaveAttribute(
+        'aria-label',
+        filled(
+          runsStrings.serviceLabel,
+          service.service,
+          runsStrings.serviceState[service.state],
+        ),
+      );
+      expect(
+        await dot.evaluate((node) => {
+          const box = node.getBoundingClientRect();
+
+          return [box.width, box.height];
+        }),
+      ).toEqual([8, 8]);
+    }
+
+    const up = page.locator('li[data-service="postgres"] .status-glyph');
+    expect(await style(up, 'animation-name')).toBe('sig-breathe');
+    expect(sameColour(await style(up, 'color'), stateInk('light', 'ok'))).toBe(
+      true,
     );
 
-    const runs = page.locator('.runs');
+    const down = page.locator('li[data-service="app"] .status-glyph');
+    await expect(down).toHaveAttribute('data-state', 'idle');
+    await expect(down).toHaveAttribute('data-hollow', '');
+    expect(await style(down, 'animation-name')).toBe('none');
 
-    await expect(runs.locator('.runs-head')).toContainText(runsStrings.heading);
-    await expect(runs.locator(':scope > *')).toHaveCount(1);
+    // A service the file declares that no container
+    // was ever made for says so in the slot the
+    // others put a detail in.
+    await harness.show({
+      ...APP_DOWN,
+      stack: {
+        ...APP_DOWN.stack,
+        services: [...APP_DOWN.stack.services, WORKER_ABSENT],
+      },
+    });
+
+    await expect(
+      page.locator('li[data-service="worker"] .service-detail'),
+    ).toHaveText(runsStrings.serviceState.absent);
+  });
+
+  /**
+   * In a pane too short for the whole state, the
+   * one way out is still the first thing on it.
+   */
+  test('keeps Start app in view in a short pane, and scrolls the rest', async ({
+    page,
+  }) => {
+    await showList(page, APP_DOWN, 'light', { width: 300 });
+    await page.setViewportSize({ width: 300, height: 320 });
+
+    const start = page.locator('[data-stack-up]');
+    const box = (await start.boundingBox())!;
+
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(320);
+
+    await expect(page.locator('.runs-body .services')).toHaveCount(1);
+    await expect(page.locator('.runs-body [role="tablist"]')).toHaveCount(1);
+
+    const body = page.locator('.runs-body');
+    expect(
+      await body.evaluate((node) => node.scrollHeight > node.clientHeight),
+    ).toBe(true);
+
+    const before = await topsOf(page, ['.runs-head']);
+
+    await body.evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+    });
+
+    expect(await topsOf(page, ['.runs-head'])).toEqual(before);
+
+    const foot = await page.evaluate(() => {
+      const port = document.querySelector('.runs-body')!;
+      const line = document.querySelector('.runs-foot')!;
+
+      return {
+        below:
+          line.getBoundingClientRect().top - port.getBoundingClientRect().top,
+        past:
+          line.getBoundingClientRect().bottom -
+          port.getBoundingClientRect().bottom,
+      };
+    });
+
+    expect(foot.below).toBeGreaterThan(0);
+    expect(foot.past).toBeLessThan(1);
+  });
+});
+
+/** Every state that says something where the list
+ *  would be, and whose doing each of them is. */
+const CARDS: [RunsInit, 'empty' | 'error'][] = [
+  [UNTRUSTED, 'empty'],
+  [NO_PROJECT, 'empty'],
+  [NO_DATABASE, 'error'],
+  [NO_DOCKER, 'error'],
+  [DAEMON_DOWN, 'error'],
+  [DATABASE_REFUSED, 'error'],
+  [APP_DOWN, 'error'],
+  [NO_RUNS, 'empty'],
+];
+
+/**
+ * Where the runs that are not these live.
+ *
+ * Named once, in the one state with nothing local
+ * to look at instead, and stated rather than sold:
+ * what Conductor is for, and that nothing here
+ * depends on it.
+ */
+test.describe('production', () => {
+  test('tells a window with no runs and no Conductor what Conductor is for', async ({
+    page,
+  }) => {
+    const harness = await showList(page, NO_RUNS, 'light', { width: 300 });
+
+    const section = page.locator('[data-production="unconfigured"]');
+    await expect(section).toHaveCount(1);
+    expect(await padOf(section)).toBe('14px 14px 14px 14px');
+    expect(await style(section, 'row-gap')).toBe('8px');
+
+    await expect(section.locator('.section-label')).toHaveText(
+      runsStrings.production,
+    );
+
+    const heading = section.locator('.production-title');
+    await expect(heading).toHaveText(runsStrings.conductorUnconfigured);
+    await expect(heading).toHaveAttribute(
+      'title',
+      runsStrings.conductorSetting,
+    );
+    expect(runsStrings.conductorSetting).toContain(
+      'mboss.conductor.consoleUrl',
+    );
+
+    await expect(section.locator('.production-detail')).toHaveText(
+      runsStrings.conductorDetail,
+    );
+
+    const learn = section.locator('.btn');
+    await expect(learn).toHaveCount(1);
+    await expect(learn).toHaveText(runsStrings.learnConductor);
+
+    const tops = await topsOf(page, ['.runs-foot', '[data-production]']);
+    expect(tops[0]!).toBeLessThan(tops[1]!);
+
+    await learn.click();
+    expect(await harness.postedOfType('learnConductor')).toEqual([
+      { type: 'learnConductor' },
+    ]);
+
+    // Every other state has something local to look
+    // at or to fix first.
+    for (const [init] of CARDS.filter(([init]) => init !== NO_RUNS)) {
+      await harness.show(init);
+      await expect(page.locator('[data-production]')).toHaveCount(0);
+    }
+
+    await harness.show(THIRD_SERVICE);
+    await expect(page.locator('[data-production]')).toHaveCount(0);
+  });
+
+  test('offers the console where one is configured', async ({ page }) => {
+    const harness = await showList(page, NO_RUNS_CONFIGURED, 'light', {
+      width: 300,
+    });
+
+    const section = page.locator('[data-production="configured"]');
+    await expect(section).toHaveCount(1);
+    await expect(section.locator('.section-label')).toHaveText(
+      runsStrings.production,
+    );
+    await expect(section.locator('.production-title')).toHaveText(
+      runsStrings.conductorConfigured,
+    );
+    await expect(section).not.toContainText(runsStrings.learnConductor);
+
+    const open = section.locator('.btn[data-variant="secondary"]');
+    await expect(open).toHaveCount(1);
+    await expect(open).toHaveText(runsStrings.openProduction);
+
+    await open.click();
+    expect(await harness.postedOfType('openProduction')).toEqual([
+      { type: 'openProduction' },
+    ]);
   });
 });
 
