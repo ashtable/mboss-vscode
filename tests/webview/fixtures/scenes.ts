@@ -151,7 +151,9 @@ async function openBodies(page: Page): Promise<void> {
   await page.mouse.move(0, 0);
 }
 
-const FIELDS = '[data-property] :is(input, select, textarea)';
+/** Every field a form offers, by the row it sits
+ *  in. */
+export const FIELDS = '[data-property] :is(input, select, textarea)';
 
 export const SCENES: readonly Scene[] = [
   {
@@ -241,6 +243,10 @@ export const SCENES: readonly Scene[] = [
       '.diff-line[data-kind="add"]',
       '.btn[data-variant="stop"]',
       '.state-word[data-tone="ok"]',
+      '[data-agent-head]',
+      '.agent-foot',
+      '.composer',
+      '.btn[data-variant="quiet"]',
     ],
   },
   {
@@ -258,14 +264,29 @@ export const SCENES: readonly Scene[] = [
           problem: undefined,
         },
       }),
-    draws: ['[data-short-run]', 'li[data-run]'],
+    draws: [
+      '[data-short-run]',
+      'li[data-run]',
+      '.runs-head',
+      '[data-zone="stack"]',
+      '.runs-foot',
+      'li[data-run]:has(> [aria-current="true"])',
+      'li[data-run]:not(:has(> [aria-current="true"]))',
+      '.field-input',
+      FIELDS,
+    ],
   },
   {
     name: 'the runs panel with the app down',
     view: 'runs',
     width: 300,
     init: () => APP_DOWN,
-    draws: ['[data-service]'],
+    draws: [
+      '[data-service]',
+      '.runs-head',
+      '.runs-foot',
+      'li[data-run]:has(> [aria-current="true"])',
+    ],
   },
   {
     name: "a run's trace",
@@ -324,7 +345,7 @@ export const SCENES: readonly Scene[] = [
     view: 'inspector',
     width: 300,
     init: () => blockInit(queueSubject(PARTITIONED, [NO_PARTITION_KEY])),
-    draws: [FIELDS],
+    draws: [FIELDS, '.field-input'],
   },
   {
     name: 'a manual trigger with an input waiting',
@@ -332,7 +353,7 @@ export const SCENES: readonly Scene[] = [
     width: 300,
     init: () =>
       blockInit(triggerSubject({ mode: 'manual' }, { text: '{ "n": 1 }' })),
-    draws: [FIELDS, '[data-recorded]'],
+    draws: [FIELDS, '[data-recorded]', '.field-input'],
   },
   {
     name: 'what a failed step recorded',

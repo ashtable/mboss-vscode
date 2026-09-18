@@ -17,7 +17,7 @@ import { LIBRARY_COLOURS } from './fixtures/library.js';
 import { APP_DOWN, listRow, runsInit } from './fixtures/list.js';
 import { painted } from './fixtures/paint.js';
 import { GRAPH, graphAtRest, seeInit, seeRun, TRACE } from './fixtures/runs.js';
-import { SCENES, type Scene } from './fixtures/scenes.js';
+import { FIELDS, SCENES, type Scene } from './fixtures/scenes.js';
 import { fileEntry, sidebarInit } from './fixtures/sidebar.js';
 import {
   mount,
@@ -1458,17 +1458,20 @@ test.describe('every view, in every theme', () => {
         });
 
         await test.step('names every field it offers', async () => {
-          const fields = page.locator(
-            '[data-property] :is(input, select, textarea)',
-          );
+          let named = 0;
 
           // A folded group's fields are out of the
           // accessibility tree until it is opened, so
           // they have no name to be read yet.
-          for (const field of await fields.all()) {
+          for (const field of await page.locator(FIELDS).all()) {
             if (!(await field.isVisible())) continue;
 
             await expect.soft(field).toHaveAccessibleName(/\S/);
+            named += 1;
+          }
+
+          if (scene.draws.includes(FIELDS)) {
+            expect.soft(named, 'fields named').toBeGreaterThan(0);
           }
         });
 
