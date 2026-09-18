@@ -322,7 +322,8 @@ export function pressablesOn(page: Page): Promise<Reading> {
  * one, and translucent text over that. Anything
  * moving is stopped first, so no reading lands
  * part-way through a fade. A control that refuses a
- * press is drawn faded on purpose and is skipped.
+ * press is drawn faded on purpose, so its ratio is
+ * not held, but its colour still is.
  */
 export async function contrastOn(
   page: Page,
@@ -401,14 +402,23 @@ export async function contrastOn(
       (element) =>
         own(element) !== '' &&
         element.getClientRects().length > 0 &&
-        getComputedStyle(element).visibility !== 'hidden' &&
-        element.closest(':disabled, [aria-disabled="true"]') === null,
+        getComputedStyle(element).visibility !== 'hidden',
     );
     const inks = new Set<string>();
     const found: string[] = [];
+    let measured = 0;
 
     for (const element of text) {
       const colour = getComputedStyle(element).color;
+
+      inks.add(colour);
+
+      if (element.closest(':disabled, [aria-disabled="true"]') !== null) {
+        continue;
+      }
+
+      measured += 1;
+
       const ground = groundOf(element);
       const ink = over(channels(colour), ground);
       const [lighter = 0, darker = 0] = [
@@ -416,8 +426,6 @@ export async function contrastOn(
         luminance(ground),
       ].sort((one, other) => other - one);
       const ratio = (lighter + 0.05) / (darker + 0.05);
-
-      inks.add(colour);
 
       if (ratio < 4.5) {
         found.push(
@@ -428,7 +436,7 @@ export async function contrastOn(
       }
     }
 
-    return { measured: text.length, found, inks: [...inks] };
+    return { measured, found, inks: [...inks] };
   });
 }
 
