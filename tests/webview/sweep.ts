@@ -55,23 +55,35 @@ export type Written = {
 };
 
 /**
- * Two frames: as long as anything on the page takes
- * to finish changing once somebody has asked for
- * less movement.
+ * Until whatever the last change set moving has
+ * finished moving.
  *
- * Asking for that puts every property of every
- * element on a transition of a hundredth of a
+ * Asking for less movement puts every property of
+ * every element on a transition of a hundredth of a
  * millisecond, so a read in the frame that changed
  * something — a theme, a hover, a focus — sees where
  * the change began rather than where it ends.
+ *
+ * A theme switch restyles the whole page, and its
+ * transitions start a frame after the change, so
+ * this waits for them to end rather than counting
+ * frames. A pulse never ends, so only transitions
+ * are waited on.
  */
 export function settled(page: Page): Promise<void> {
-  return page.evaluate(
-    () =>
-      new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      ),
-  );
+  return page.evaluate(async () => {
+    const frame = () =>
+      new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
+    await frame();
+    await Promise.all(
+      document
+        .getAnimations()
+        .filter((one) => one instanceof CSSTransition)
+        .map((one) => one.finished.catch(() => null)),
+    );
+    await frame();
+  });
 }
 
 /** Every element on the page with text of its own. */
