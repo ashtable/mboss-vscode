@@ -304,9 +304,17 @@ body {
 
 /* A replay, one line each, in the machine face. The
    id in it is a Button, so the line is as tall as
-   the Button is. */
+   the Button is.
+
+   One that runs out of room hangs under its own
+   branch mark: a continuation starting at the left
+   edge reads as the next entry rather than as the
+   rest of this one. Two characters is the mark and
+   the space after it. */
 .run-lineage {
   margin: 0;
+  padding-inline-start: 2ch;
+  text-indent: -2ch;
   font-size: var(--text-sm);
   color: var(--ink-muted);
   overflow-wrap: anywhere;

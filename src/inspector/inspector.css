@@ -129,9 +129,18 @@ body {
 
 /* A fork, one line each, in the machine face. The
    id in it is a Button, so the line is as tall as
-   the Button is. */
+   the Button is.
+
+   One that runs out of room hangs under its own
+   branch mark, as it does in the list: both views
+   compose these lines from the same sentences, and
+   one phrase reading two ways is worse than either
+   way. Two characters is the mark and the space
+   after it. */
 .lineage-line {
   margin: 0;
+  padding-inline-start: 2ch;
+  text-indent: -2ch;
   font-size: var(--text-sm);
   color: var(--ink-muted);
   overflow-wrap: anywhere;

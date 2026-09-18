@@ -1625,6 +1625,69 @@ test.describe('the selected run', () => {
     await expect(headOf(page, parent)).toBeFocused();
   });
 
+  /**
+   * A fork line is one line per entry. In the
+   * docked panel a long one runs out of room, and a
+   * continuation starting at the left edge reads as
+   * another entry rather than as the rest of this
+   * one — so it hangs under the branch mark.
+   */
+  test('hangs a replay line that is too long for the pane', async ({
+    page,
+  }) => {
+    const parent = listRow({
+      status: 'ERROR',
+      state: 'failed',
+      line: 'failed · load_records · 16:51 · 1.9 s',
+      lineage: [
+        {
+          direction: 'to',
+          workflowId: '4b56e4f6-4254-4423-bc97-b7a2d7838de9',
+          short: shortRunId('4b56e4f6-4254-4423-bc97-b7a2d7838de9'),
+          startStep: 1274,
+          word: 'recovering',
+        },
+      ],
+    });
+
+    await showList(
+      page,
+      runsInit({ rows: [parent], selected: parent.workflowId }),
+      'light',
+      { width: 300 },
+    );
+
+    const fork = item(page, parent).locator('[data-run-fork]');
+
+    await expect(fork).toHaveCount(1);
+
+    // Where each line of the wrapped entry starts.
+    // Deliberately brittle: it is a real measurement
+    // of a real wrap, so a font metric that changes
+    // what fits can leave the entry on one line and
+    // turn the count red. Lengthen the entry until
+    // it wraps again rather than dropping the read.
+    const starts = await fork.evaluate((node) => {
+      const contents = document.createRange();
+      contents.selectNodeContents(node);
+
+      const left = new Map<number, number>();
+
+      for (const box of contents.getClientRects()) {
+        const line = Math.round(box.top);
+
+        left.set(line, Math.min(left.get(line) ?? box.left, box.left));
+      }
+
+      return [...left.entries()]
+        .sort(([above], [below]) => above - below)
+        .map(([, edge]) => Math.round(edge));
+    });
+
+    expect(starts).toHaveLength(2);
+    expect(starts[1]!).toBeGreaterThan(starts[0]!);
+  });
+
   test('says what a failed run threw, and how often it was picked back up', async ({
     page,
   }) => {
