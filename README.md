@@ -19,10 +19,12 @@ run to see what each block did.
 Every `.mboss/workflows/*.workflow.json` opens in the **mBoss Canvas**.
 
 - Drag blocks from the palette: **Trigger**, **Step**, **Transaction**,
-  **API call**, **Code step**, **Queue**, **Branch**, **Loop**, **Wait**,
-  **Approval** and **Email**.
+  **API call**, **Code step**, **Queue**, **Branch**, **Loop**,
+  **Durable wait**, **Approval** and **Email send**.
 - Wire blocks together, or drop a block onto a wire to splice it in.
-- Set what a block does in the inspector.
+- Set what a block does in the **Inspector** view, beside **Agent** and
+  **Runs** in the mBoss sidebar. It follows whichever canvas or run tab was
+  last in front.
 - **Arrange** lays the whole drawing out again.
 - Edits go through VS Code's own undo, dirty state and save, and a JSON tab
   shows the document itself.
@@ -68,14 +70,18 @@ The **Runs** view lists the project's DBOS runs, read straight from its local
 Postgres. Filter by active or failed runs, and start or stop the local stack
 from the view's title bar.
 
-- **Run Workflow…** starts a workflow with the input you give it. The request
-  goes to the app on `localhost:3000`; nothing leaves your machine.
-- Open a run to see its timeline and every step it recorded. The canvas shows
-  where a run has got to, and the inspector shows what each block recorded.
-- **Cancel** a run, **resume** one, or **rerun** it with the same input.
-- **Replay from here** forks a run from a recorded step. Earlier steps are
-  reused, later ones execute again.
-- **Ask agent why** hands the run's recorded evidence to your coding agent.
+- **Run Workflow…** starts a workflow with the input in the Runs view's input
+  box. The request goes to the app on `localhost:3000`; nothing leaves your
+  machine.
+- Open a run in its own tab to see its graph and a trace of every step it
+  recorded. The canvas shows where a run has got to, and the **Inspector**
+  shows what the selected step recorded.
+- **Cancel** a run or **resume** one. **Run** starts the workflow again with
+  the input still in the box.
+- **Replay from here** forks a run from a recorded step: earlier steps are
+  reused, later ones execute again. **Replay from start** forks it from its
+  first step.
+- **Ask agent** hands the run's recorded evidence to your coding agent.
 
 If the app is deployed with DBOS Conductor, set `mboss.conductor.consoleUrl` to
 open its console from the Runs view.
@@ -99,7 +105,9 @@ open its console from the Runs view.
    `.mboss/workflows/`.
 4. Start the stack with **mBoss: Start Local Stack**, or the play button in the
    Runs view.
-5. Run **mBoss: Run Workflow…**, then open the run from the Runs view.
+5. Type the workflow's input in the Runs view, then run
+   **mBoss: Run Workflow…** (or press **Run** there). Select the run's row,
+   then **Open on canvas**.
 
 To bring in an agent, open the mBoss sidebar and use **Choose** in the Agent
 view.
@@ -108,18 +116,18 @@ Each project's own `README.md` explains its layout and how to deploy it.
 
 ## Commands
 
-| Command                     | What it does                                       |
-| --------------------------- | -------------------------------------------------- |
-| mBoss: New Project          | Create an mBoss project and open it.               |
-| mBoss: New Workflow…        | Start a workflow from the pattern gallery.         |
-| mBoss: Generate Code        | Regenerate the project's code now, without a save. |
-| mBoss: Arrange Workflow     | Lay out the open workflow again.                   |
-| mBoss: Open Agent Sidebar   | Show the Agent view.                               |
-| mBoss: Choose Coding Agent… | Pick which agent the sidebar starts.               |
-| mBoss: Start Local Stack    | Build and start Postgres and the app with Docker.  |
-| mBoss: Stop Local Stack     | Stop them.                                         |
-| mBoss: Run Workflow…        | Start a workflow run with an input.                |
-| mBoss: Open Runs            | Show the Runs view.                                |
+| Command                     | What it does                                          |
+| --------------------------- | ----------------------------------------------------- |
+| mBoss: New Project          | Create an mBoss project and open it.                  |
+| mBoss: New Workflow…        | Start a workflow from the pattern gallery.            |
+| mBoss: Generate Code        | Regenerate the project's code now, without a save.    |
+| mBoss: Arrange Workflow     | Lay out the open workflow again.                      |
+| mBoss: Open Agent Sidebar   | Show the Agent view.                                  |
+| mBoss: Choose Coding Agent… | Pick which agent the sidebar starts.                  |
+| mBoss: Start Local Stack    | Build and start Postgres and the app with Docker.     |
+| mBoss: Stop Local Stack     | Stop them.                                            |
+| mBoss: Run Workflow…        | Start a workflow run with the input in the Runs view. |
+| mBoss: Open Runs            | Show the Runs view.                                   |
 
 ## Settings
 
