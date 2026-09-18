@@ -167,8 +167,16 @@ describe('the tab strip every panel is switched with', () => {
       VIEWS[1] as TabItem,
     ];
 
+    expect(renderToStaticMarkup(strip({ items }))).toMatch(
+      /<span class="tab-count"[^>]*>7<\/span>/,
+    );
+  });
+
+  it('counts in the machine face by its hook', () => {
+    const items: TabItem[] = [{ id: 'ab', label: 'Ab', count: 3 }];
+
     expect(renderToStaticMarkup(strip({ items }))).toContain(
-      '<span class="tab-count">7</span>',
+      '<span class="tab-count" data-mono="">3</span>',
     );
   });
 

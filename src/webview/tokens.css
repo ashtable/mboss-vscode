@@ -843,11 +843,11 @@ body.vscode-high-contrast-light {
   cursor: default;
 }
 
-/* How many things are behind a tab. Set in the mono
-   face because it is counted, not written. */
+/* How many things are behind a tab. Counted, not
+   written, so the span asks for the machine face
+   by its hook. */
 .tab-count {
   margin-inline-start: var(--space-1-5);
-  font-family: var(--font-mono);
   font-weight: var(--w-regular);
   font-size: var(--text-sm);
   color: var(--ink-faint);
@@ -1686,14 +1686,13 @@ button.lib-fn {
 /* The same state with its word and whatever follows
    it. One line and never two: a state word that
    wrapped away from its detail reads as two states.
-   In the machine face, because a state is what a
-   ledger recorded rather than something anybody
-   wrote. */
+   In the machine face, asked for by its hook,
+   because a state is what a ledger recorded rather
+   than something anybody wrote. */
 .status-line {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  font-family: var(--font-mono);
   font-size: var(--text-sm);
   white-space: nowrap;
 }

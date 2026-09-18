@@ -155,6 +155,7 @@ export function StatusLine({
   return (
     <span
       className="status-line"
+      data-mono=""
       data-run-state={state}
       data-provenance={derived === undefined ? undefined : 'derived'}
       title={derived}

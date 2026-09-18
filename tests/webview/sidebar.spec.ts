@@ -214,6 +214,32 @@ test.describe('the transcript', () => {
   });
 
   /**
+   * A name out of the code is machine text, and asks
+   * for its face by the hook every other piece of
+   * machine text uses rather than by a rule of its
+   * own.
+   */
+  test('sets code the agent quotes in the machine face by a hook', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+
+    await showing(harness, [said('Run `npm install` first.')]);
+
+    const code = page.locator('[data-block="prose"] code');
+
+    await expect(code).toHaveCount(1);
+
+    const read = await code.evaluate((element) => ({
+      hooked: element.closest('[data-mono], .mono') !== null,
+      face: getComputedStyle(element).fontFamily,
+    }));
+
+    expect(read.hooked).toBe(true);
+    expect(read.face).toMatch(/^"?Spline Sans Mono/);
+  });
+
+  /**
    * A coding agent fences the code it is talking
    * about. What is inside the fence is characters
    * it is showing, so nothing in it is read: the
@@ -1731,6 +1757,37 @@ test.describe('a file edit, decided or not', () => {
         (element) => element.scrollWidth > element.clientWidth,
       ),
     ).toBe(true);
+  });
+
+  /**
+   * The counts and the lines are machine text, and
+   * the face is asked for by the hook every other
+   * piece of machine text uses. A rule setting the
+   * face on its own is one nobody finds when the
+   * machine face changes.
+   */
+  test('sets its counts and its lines in the machine face by a hook', async ({
+    page,
+  }) => {
+    const harness = await openPanel(page);
+
+    await harness.show(
+      sidebarInit({ transcript: [fileEntry({ lines: replaced })] }),
+    );
+
+    for (const selector of ['.file-counts', '.diff']) {
+      const drawn = page.locator(`.file ${selector}`);
+
+      await expect(drawn).toHaveCount(1);
+
+      const read = await drawn.evaluate((element) => ({
+        hooked: element.closest('[data-mono], .mono') !== null,
+        face: getComputedStyle(element).fontFamily,
+      }));
+
+      expect(read.hooked, selector).toBe(true);
+      expect(read.face, selector).toMatch(/^"?Spline Sans Mono/);
+    }
   });
 
   test('counts both ways on every edit', async ({ page }) => {

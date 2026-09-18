@@ -165,6 +165,20 @@ describe('a state said in full', () => {
   });
 
   /**
+   * A state is what a ledger recorded rather than
+   * something anybody wrote, so the whole line is
+   * machine text and asks for its face by the hook.
+   */
+  it('writes its line in the machine face by its hook', () => {
+    const drawn = line({ state: 'done', word: 'ab', detail: 'cd' });
+
+    const root = drawn.slice(0, drawn.indexOf('>'));
+
+    expect(root).toContain('class="status-line"');
+    expect(root).toContain('data-mono=""');
+  });
+
+  /**
    * A line has no room for a second word beside the
    * detail it is already carrying, so the admission
    * that this state was worked out rides in the

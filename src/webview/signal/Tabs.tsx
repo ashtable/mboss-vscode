@@ -94,7 +94,9 @@ export function Tabs<Id extends string>({
         >
           {item.label}
           {item.count === undefined ? null : (
-            <span className="tab-count">{item.count}</span>
+            <span className="tab-count" data-mono="">
+              {item.count}
+            </span>
           )}
         </button>
       ))}

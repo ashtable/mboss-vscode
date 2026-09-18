@@ -732,7 +732,7 @@ function FileDiff({
               {strings.newFile}
             </StateWord>
           ) : null}
-          <span className="file-counts">
+          <span className="file-counts" data-mono="">
             <span className="added">+{entry.added}</span>
             <span className="removed">−{entry.removed}</span>
           </span>
@@ -746,7 +746,7 @@ function FileDiff({
       </p>
 
       {entry.lines.length === 0 ? null : (
-        <div className="diff">
+        <div className="diff" data-mono="">
           {entry.lines.map((line, index) => (
             <DiffLineRow line={line} key={index} />
           ))}

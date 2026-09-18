@@ -50,7 +50,9 @@ function runs(list: readonly ProseRun[]): ReactNode {
     run.at === 'strong' ? (
       <strong key={index}>{run.text}</strong>
     ) : run.at === 'code' ? (
-      <code key={index}>{run.text}</code>
+      <code key={index} data-mono="">
+        {run.text}
+      </code>
     ) : (
       run.text
     ),

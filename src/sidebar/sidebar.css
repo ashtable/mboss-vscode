@@ -136,11 +136,10 @@ body {
   padding-inline-start: var(--space-5);
 }
 
-/* A name out of the code, in the machine face at
-   the size that face reads level with the words
-   around it. */
+/* A name out of the code, which asks for the
+   machine face by its hook, at the size that face
+   reads level with the words around it. */
 .prose code {
-  font-family: var(--font-mono);
   font-size: 0.92em;
 }
 
@@ -327,13 +326,13 @@ body {
   margin-inline-start: auto;
 }
 
-/* Counted, not written. In the voice's two colours,
-   read as text through the state ink wherever those
-   colours are too light to be text. */
+/* Counted, not written, so in the machine face by
+   its hook. In the voice's two colours, read as
+   text through the state ink wherever those colours
+   are too light to be text. */
 .file-counts {
   display: flex;
   gap: var(--space-1-5);
-  font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: var(--w-semibold);
 }
@@ -355,7 +354,6 @@ body {
 .diff {
   display: grid;
   overflow-x: auto;
-  font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 1.7;
 }
