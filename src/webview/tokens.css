@@ -1265,10 +1265,14 @@ textarea.field-input[data-grow] {
 /* On a row that has a function in it. A slot with
    nothing in it says where one goes in words that
    carry their own mark, and a mark in front of them
-   would be standing in front of nothing. */
+   would be standing in front of nothing.
+
+   The mark wears the row's face. It is a sign, not
+   machine text, and neither face this extension
+   ships has the glyph, so it comes from the
+   platform's fallback whichever stack is asked. */
 .lib-fn[data-state]:not([data-state='empty'])::before {
   content: 'ƒ';
-  font-family: var(--font-mono);
   font-weight: var(--w-semibold);
   font-size: var(--text-control);
   color: var(--ink-faint);
@@ -1411,25 +1415,6 @@ button.lib-fn {
 
 .text-muted {
   color: var(--ink-muted);
-}
-
-/* One measured thing and what it is: a duration, a
-   count, an id. The label goes under the value
-   rather than beside it, so a column of them lines
-   up on the numbers. */
-.value {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: var(--text-md);
-  color: var(--ink);
-}
-
-.value[data-size='large'] {
-  font-size: var(--text-xl);
-  line-height: 1.15;
-}
-.value[data-size='small'] {
-  font-size: var(--text-sm);
 }
 
 /* — one block — */

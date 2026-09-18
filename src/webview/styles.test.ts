@@ -102,6 +102,19 @@ const TRACKING = ['var(--label-tracking)', 'var(--state-tracking)', 'normal'];
 
 const FACES = ['var(--font-body)', 'var(--font-mono)'];
 
+/** The two ways an element asks for the machine
+ *  face: a view's class, a component's attribute. */
+const MONO_HOOK = /\.mono(?![\w-])|\[data-mono(?![\w-])/;
+
+/** A component's props offering the machine face,
+ *  and its markup asking for it because of them. */
+const TAKES_MONO = /\bmono\?:/;
+const WRITES_MONO = /\bdata-mono=\{[^}]*\bmono\b/;
+
+/** Provenance as a class of its own, so not the
+ *  property row's `.property-provenance`. */
+const PROVENANCE = /\.provenance(?![\w-])/;
+
 /** The elements that are only boxes and text: none
  *  of them is announced as something to press, and
  *  none of them takes a key. */
@@ -230,13 +243,41 @@ function selectorsOf(list: string): string[] {
  * the row, not the Button.
  */
 function subjectOf(selector: string): string {
-  let bare = selector.replace(/\[[^\]]*\]/g, '');
+  return compoundOf(selector.replace(/\[[^\]]*\]/g, ''));
+}
+
+/**
+ * The last compound, with what it asks of its own
+ * element kept: `.value[data-mono]` is a value that
+ * asked for something. What a pseudo-class asks
+ * about is still taken out, because it may ask the
+ * opposite — `:not([data-mono])`.
+ */
+function compoundOf(selector: string): string {
+  let bare = selector.trim();
 
   while (/\([^()]*\)/.test(bare)) bare = bare.replace(/\([^()]*\)/g, '');
 
-  const compounds = bare.trim().split(/[\s>+~]+/);
+  // A combinator inside an attribute's brackets is
+  // the attribute's own.
+  let depth = 0;
+  let start = 0;
 
-  return compounds.at(-1) ?? '';
+  for (let at = 0; at < bare.length; at += 1) {
+    const letter = bare[at] ?? '';
+
+    if (letter === '[') depth += 1;
+    else if (letter === ']') depth -= 1;
+    else if (depth === 0 && /[\s>+~]/.test(letter)) start = at + 1;
+  }
+
+  return bare.slice(start).trim();
+}
+
+/** Whether every selector in a list styles only an
+ *  element that asked for the machine face. */
+function isHooked(list: string): boolean {
+  return selectorsOf(list).every((one) => MONO_HOOK.test(compoundOf(one)));
 }
 
 /** Every class one file writes into a `className`,
@@ -566,6 +607,106 @@ describe('the stylesheets this extension ships', () => {
     expect(where(set.filter((rule) => !FACES.includes(rule.value)))).toEqual(
       [],
     );
+  });
+
+  /**
+   * The machine face is what an element asks for,
+   * never what a rule decides on its behalf. A view
+   * marks an id, a signature or a count as machine
+   * text, and a rule that sets the face on anything
+   * else sets a person's words in it the day that
+   * element holds some. The token sheet is the one
+   * place the ask is answered, so the face is
+   * spelled once.
+   */
+  it('set the machine face only where a hook asks for it', () => {
+    // The reader first: an element that asked,
+    // however specific the rule answering it.
+    expect(isHooked('.mono, [data-mono]')).toBe(true);
+    expect(isHooked('.property > .value[data-mono]')).toBe(true);
+    expect(isHooked('.value')).toBe(false);
+    expect(isHooked('.row:not([data-mono])')).toBe(false);
+    expect(isHooked('.monospace')).toBe(false);
+
+    const set = rules.filter((rule) =>
+      declarationsOf(rule.body).some((declaration) =>
+        reads(declaration.value).includes('--font-mono'),
+      ),
+    );
+    const answered = set.filter(
+      (rule) => rule.sheet === TOKENS && isHooked(rule.selector),
+    );
+
+    expect(where(answered)).toContain(`${TOKENS} .mono, [data-mono]`);
+    expect(where(set.filter((rule) => !answered.includes(rule)))).toEqual([]);
+
+    const code = sourceFiles()
+      .filter((path) => !/\.test(?:-d)?\.tsx?$/.test(path))
+      .map((path) => ({ name: named(path), text: readFileSync(path, 'utf8') }));
+
+    expect(code.map((file) => file.name)).toEqual(
+      expect.arrayContaining([
+        `${SIGNAL}Button.tsx`,
+        'src/webview/protocol.ts',
+      ]),
+    );
+    expect(
+      code
+        .filter((file) => withoutNotes(file.text).includes('--font-mono'))
+        .map((file) => file.name),
+    ).toEqual([]);
+  });
+
+  /**
+   * The other half of the same ask. A shared
+   * component that offers the machine face as a
+   * prop turns it into the hook on its own markup,
+   * so the one rule above answers it and a view
+   * never reaches inside a component to say so.
+   */
+  it('write the machine face into every shared component that takes it', () => {
+    const taking = components
+      .filter((file) => file.name.startsWith(SIGNAL))
+      .map((file) => ({ ...file, text: withoutNotes(file.text) }))
+      .filter((file) => TAKES_MONO.test(file.text));
+
+    expect(taking.map((file) => file.name)).toContain(`${SIGNAL}Button.tsx`);
+    expect(
+      taking
+        .filter((file) => !WRITES_MONO.test(file.text))
+        .map((file) => file.name),
+    ).toEqual([]);
+  });
+
+  /**
+   * Where a value came from — derived, configured,
+   * recorded — is a lowercase word after the value
+   * or a title on it, never a chip of its own: a
+   * chip is a second thing to read on a row that
+   * says one. The row's own class and the attribute
+   * naming the word are how it is found and styled.
+   */
+  it('call nothing provenance by a class of its own', () => {
+    expect(PROVENANCE.test('.row > .provenance')).toBe(true);
+    expect(PROVENANCE.test('.property-provenance')).toBe(false);
+    expect(classNamesOf('className="chip provenance"')).toContain('provenance');
+
+    const named = components.map((file) => ({
+      name: file.name,
+      classes: classNamesOf(withoutNotes(file.text)),
+    }));
+
+    expect(named.flatMap((file) => file.classes)).toContain(
+      'property-provenance',
+    );
+    expect(
+      where(rules.filter((rule) => PROVENANCE.test(rule.selector))),
+    ).toEqual([]);
+    expect(
+      named
+        .filter((file) => file.classes.includes('provenance'))
+        .map((file) => file.name),
+    ).toEqual([]);
   });
 
   /**
