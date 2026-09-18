@@ -40,6 +40,7 @@ import {
   unaskedMachineFace,
   underTen,
   writtenOn,
+  type Paints,
   type Reading,
 } from './sweep.js';
 import { canvasWords, inspectorWords } from './words.js';
@@ -1576,12 +1577,12 @@ test.describe('every view, in every theme', () => {
       await showScene(page, scene, 'dark');
 
       const dark = await paintsOn(page);
-      const same = Object.entries(light)
-        .filter(([key, colour]) => dark[key] === colour)
-        .map(([key, colour]) => `${key} ${colour}`);
 
-      expect(Object.keys(light).length).toBeGreaterThan(0);
-      expect(same).toEqual([]);
+      expect(Object.keys(light.painted).length).toBeGreaterThan(0);
+      expect(dark.drawn, 'the same elements in both themes').toEqual(
+        light.drawn,
+      );
+      expect(paintedAlike(light, dark)).toEqual([]);
     });
   }
 
@@ -1618,7 +1619,7 @@ test.describe('every view, in every theme', () => {
         await literalsHold(page, scene, theme);
       }
 
-      expect(Object.keys(first).length).toBeGreaterThan(0);
+      expect(Object.keys(first.painted).length).toBeGreaterThan(0);
       expect(await paintsOn(page)).toEqual(first);
     });
   }
@@ -1936,7 +1937,47 @@ test.describe('every view, in every theme', () => {
     expect(said.status.found).not.toEqual([]);
     expect(said.clock.found).not.toEqual([]);
   });
+
+  /** A colour a theme switch leaves where it was is
+   *  caught whatever the colour, black included. */
+  test('still catches a colour that stays black in both themes', async ({
+    page,
+  }) => {
+    const read = async (theme: ThemeKind) => {
+      await showScene(page, sceneNamed('the agent at work'), theme);
+      await page.addStyleTag({ content: '.diff-line .text { color: black; }' });
+      await settled(page);
+
+      return paintsOn(page);
+    };
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+
+    const light = await read('light');
+    const dark = await read('dark');
+
+    expect(paintedAlike(light, dark)).toContainEqual(
+      expect.stringMatching(/ color rgb\(0, 0, 0\)$/),
+    );
+  });
 });
+
+/**
+ * Every colour painted alike in two readings of one
+ * page. A value painted in one and clear in the
+ * other has changed, so only what both paint is
+ * compared, and as colours: the same one can be
+ * written two ways.
+ */
+function paintedAlike(one: Paints, other: Paints): string[] {
+  return Object.entries(one.painted)
+    .filter(([key, colour]) => {
+      const there = other.painted[key];
+
+      return there !== undefined && sameColour(there, colour);
+    })
+    .map(([key, colour]) => `${key} ${colour}`);
+}
 
 /** A scene by its name, for a case about one of
  *  them. */

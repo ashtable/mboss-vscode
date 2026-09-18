@@ -433,6 +433,25 @@ export async function contrastOn(
 }
 
 /**
+ * What a page paints, read by `paintsOn`.
+ *
+ * The elements come with the colours so two
+ * readings can be compared only where they are of
+ * the same page: every key names an element by its
+ * place on the page, and one element more in one of
+ * them moves every place after it.
+ */
+export type Paints = {
+  /** Every visible element, in page order, whether
+   *  or not it paints anything. */
+  drawn: string[];
+
+  /** What each of them paints, by its place and the
+   *  property. */
+  painted: Record<string, string>;
+};
+
+/**
  * What every visible element paints, keyed by where
  * it is and which property: text colour where it
  * has text of its own, its ground, each edge it
@@ -440,10 +459,11 @@ export async function contrastOn(
  *
  * Only what paints: an SVG group or the svg around
  * it computes a fill it never draws, a paint server
- * is a reference rather than a colour, and nothing
- * clear is a colour at all.
+ * is a reference rather than a colour, and a colour
+ * whose alpha is zero paints nothing. Every other
+ * colour counts, black included.
  */
-export function paintsOn(page: Page): Promise<Record<string, string>> {
+export function paintsOn(page: Page): Promise<Paints> {
   return page.evaluate(() => {
     const SHAPES = [
       'path',
@@ -455,11 +475,15 @@ export function paintsOn(page: Page): Promise<Record<string, string>> {
       'polygon',
       'text',
     ];
+    // Chromium writes a translucent colour only as
+    // rgba() or with a slash before its alpha.
     const clear = (value: string) =>
       value === 'none' ||
       value === 'transparent' ||
       value.startsWith('url(') ||
-      /(,|\/)\s*0\)$/.test(value);
+      /^rgba\(.*,\s*0\)$/.test(value) ||
+      /\/\s*0\)$/.test(value);
+    const drawn: string[] = [];
     const painted: Record<string, string> = {};
 
     [...document.body.querySelectorAll('*')].forEach((element, index) => {
@@ -471,6 +495,9 @@ export function paintsOn(page: Page): Promise<Record<string, string>> {
       const key =
         `${index}:${element.tagName.toLowerCase()}` +
         `${[...element.classList].map((name) => `.${name}`).join('')}`;
+
+      drawn.push(key);
+
       const text = [...element.childNodes].some(
         (node) =>
           node.nodeType === Node.TEXT_NODE &&
@@ -503,7 +530,7 @@ export function paintsOn(page: Page): Promise<Record<string, string>> {
       }
     });
 
-    return painted;
+    return { drawn, painted };
   });
 }
 
