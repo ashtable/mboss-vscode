@@ -1128,7 +1128,10 @@ describe('one run, as the run page draws it', () => {
      * A child start is written with one clock read
      * for both ends, so its length is always nothing;
      * a sleep's end is a deadline, not something that
-     * happened.
+     * happened. Waiting on that child is a real wait,
+     * and carries the child's id just the same, so
+     * the row the SDK wrote for the wait keeps its
+     * length.
      */
     it('times each row it can, and no child start and no sleep', () => {
       const shown = page({
@@ -1137,20 +1140,28 @@ describe('one run, as the run page draws it', () => {
           { ...step(1, 1000, 2000), name: 'find_slot' },
           {
             ...step(2, 2000, 2000),
-            name: 'find_slot',
+            name: 'settle_invoice',
             childWorkflowId: 'wf_child',
           },
           { ...step(3, 2000, 90_000), name: 'DBOS.sleep', output: '90000' },
           { ...step(4, 0, 2100), name: 'find_slot', startedAt: undefined },
+          {
+            ...step(5, 1000, 6000),
+            name: 'DBOS.getResult',
+            childWorkflowId: 'wf_child',
+          },
         ],
       });
 
-      expect([0, 1, 2, 3, 4].map((id) => rowAt(shown, id).duration)).toEqual([
+      const timed = [0, 1, 2, 3, 4, 5].map((id) => rowAt(shown, id).duration);
+
+      expect(timed).toEqual([
         '1.0 s',
         '1.0 s',
         undefined,
         undefined,
         undefined,
+        '5.0 s',
       ]);
     });
 

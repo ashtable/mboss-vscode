@@ -805,7 +805,11 @@ export type TraceRowView = {
   /** `1.2 s`, where DBOS timed both ends and the
    *  two are a length of time. A child start is
    *  written with one clock read for both, and a
-   *  sleep's end is a deadline, so neither has one. */
+   *  sleep's end is a deadline, so neither has one.
+   *  Waiting on that child carries the same id and
+   *  does have one: the reason a row is blanked is
+   *  that its two ends are one moment, not that a
+   *  child is named. */
   duration: string | undefined;
 
   detail: TraceDetail;

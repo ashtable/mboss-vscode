@@ -449,12 +449,20 @@ function traceRowOf(
  * both ends, so its length would always read as
  * none; a sleep's end is the deadline it was given,
  * which may not have come yet.
+ *
+ * Waiting on that child is the SDK's own row and
+ * carries the child's id too, but it is a wait that
+ * really took as long as it says, so it keeps its
+ * length. A start is recorded under the child
+ * workflow's name or the queue block's and so is
+ * never the SDK's.
  */
 function durationOf(operation: Operation): string | undefined {
   const { startedAt, completedAt } = operation;
 
   if (startedAt === undefined || completedAt === undefined) return undefined;
-  if (operation.childWorkflowId !== undefined) return undefined;
+  if (operation.childWorkflowId !== undefined && operation.owner !== 'sdk')
+    return undefined;
   if (operation.name === SLEEP) return undefined;
 
   return lasted(completedAt - startedAt);
