@@ -81,7 +81,13 @@ function Runs(state: RunsInit) {
       {pinned ? (
         <div className="runs-controls">
           <RunRow state={state} />
-          <InputRow testRun={state.testRun} strings={strings} />
+          {/* Read off the table rather than taken
+              from the Run row: a region nothing
+              consults is a fact the table and the
+              view can quietly disagree about. */}
+          {view.regions.includes('input-row') ? (
+            <InputRow testRun={state.testRun} strings={strings} />
+          ) : null}
           {filters}
         </div>
       ) : null}
