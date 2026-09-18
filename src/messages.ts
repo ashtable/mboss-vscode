@@ -536,11 +536,6 @@ export const messages = {
       file,
     ),
 
-  /** The boundary the design draws, drawn where a
-   *  person can see it. */
-  runsScope: () =>
-    l10n.t("Local runs only. Deployed apps are DBOS Conductor's."),
-
   /** The mark leads, because recovery is what
    *  happened to the run and the tick after it read
    *  as a second opinion about the outcome. */

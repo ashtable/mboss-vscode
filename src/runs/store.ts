@@ -328,11 +328,10 @@ export type RunsStore = Disposable & {
   /**
    * Stops a run, and picks a stopped one back up.
    *
-   * By id, because three surfaces reach these and
-   * none of them is necessarily the run page:
-   * Running Now names the run this window is
-   * watching, a session row names one it started,
-   * and the page names the one it has open.
+   * By id, because two surfaces reach these and
+   * neither is necessarily the run page: the list
+   * names the run it has opened out, and the page
+   * names the one it is showing.
    */
   cancel(workflowId: string): Promise<void>;
 
@@ -377,10 +376,6 @@ export type RunsStore = Disposable & {
    * box has nothing to open.
    */
   openRunInput(): Promise<void>;
-
-  /** Starts a run of the same workflow with the
-   *  same input. */
-  rerun(workflowId: string): Promise<void>;
 
   /**
    * Hands a run to the agent, with whatever can be
@@ -947,13 +942,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
     },
 
     /**
-     * And resuming puts the run back on screen under
-     * its own id, with a watch whose first tick
-     * reads `ENQUEUED`.
-     *
-     * A session row that cannot be rerun: the input
-     * it carries on with belongs to the run in the
-     * ledger and never passed through this window.
+     * And resuming puts the run back under its own
+     * id, with a watch whose first tick reads
+     * `ENQUEUED`, so the list marks it as it would
+     * any run this window set going.
      */
     resume: async (workflowId) => {
       const done = await history.resume(workflowId);
@@ -989,7 +981,6 @@ export function runsStore(deps: RunsDeps): RunsStore {
       await deps.host.showText(input, 'json');
     },
 
-    rerun: testRun.rerun,
     askAgent: testRun.askAgent,
     copyRunId: (workflowId) => deps.host.copy(workflowId),
 

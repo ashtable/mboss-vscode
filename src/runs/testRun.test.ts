@@ -21,7 +21,7 @@ import { shortRunId } from '../webview/ids.js';
 
 import { OUTPUT_KEPT } from './rows.js';
 import type { LiveRun } from './watch.js';
-import { sessionLog, type SessionRun } from './sessionLog.js';
+import { sessionLog, type SessionLog, type SessionRun } from './sessionLog.js';
 import { following, type FollowedRun, type Following } from './following.js';
 import { testRunZone, type TestRun, type TestRunDeps } from './testRun.js';
 
@@ -32,26 +32,42 @@ import { testRunZone, type TestRun, type TestRunDeps } from './testRun.js';
  * follow.
  */
 
-function zone(over: Partial<TestRunDeps> = {}): TestRun {
-  return testRunZone({
-    host: host({ projects: () => [project()] }),
-    agent: fakeAgent(),
-    trust: fakeTrust(),
-    runner: async () => ({
-      ok: false,
-      because: 'refused',
-      detail: 'no ingress in this spec',
+/**
+ * The zone, with the log it files starts in.
+ *
+ * What this window set going is the host's own
+ * record rather than something the view is sent, so
+ * a case that wants to see a start filed reads the
+ * log the zone was handed.
+ */
+function zone(
+  over: Partial<TestRunDeps> = {},
+): TestRun & { filed: SessionLog } {
+  const filed = over.sessionLog ?? sessionLog();
+
+  return Object.assign(
+    testRunZone({
+      host: host({ projects: () => [project()] }),
+      agent: fakeAgent(),
+      trust: fakeTrust(),
+      runner: async () => ({
+        ok: false,
+        because: 'refused',
+        detail: 'no ingress in this spec',
+      }),
+      following: follows().held,
+      open: async () => database(),
+      ledger: () => ({ url: LEDGER_URL, from: 'DATABASE_URL' }),
+      // A window that has read neither, which is
+      // what every case says unless it hands one
+      // over.
+      document: () => undefined,
+      manifest: () => undefined,
+      ...over,
+      sessionLog: filed,
     }),
-    sessionLog: sessionLog(),
-    following: follows().held,
-    open: async () => database(),
-    ledger: () => ({ url: LEDGER_URL, from: 'DATABASE_URL' }),
-    // A window that has read neither, which is what
-    // every case says unless it hands one over.
-    document: () => undefined,
-    manifest: () => undefined,
-    ...over,
-  });
+    { filed },
+  );
 }
 
 /**
@@ -238,7 +254,7 @@ describe('starting a run', () => {
       mode: 'event',
       topic: 'expense.filed',
     });
-    expect(shown.render().session[0]?.workflowId).toBe('wf_echo');
+    expect(shown.filed.list()[0]?.workflowId).toBe('wf_echo');
   });
 
   it('refuses input that is not JSON, and sends nothing', async () => {
@@ -254,7 +270,7 @@ describe('starting a run', () => {
     // Nothing was filed, so there is no run for the
     // agent to be asked about.
     expect(shown.render().testRun.problem?.workflowId).toBeUndefined();
-    expect(shown.render().session).toEqual([]);
+    expect(shown.filed.list()).toEqual([]);
   });
 
   it('marks a refused manual start failed, with what the route said', async () => {
@@ -267,7 +283,7 @@ describe('starting a run', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const row = shown.render().session[0];
+    const row = shown.filed.list()[0];
 
     expect(row?.outcome).toBe('failed');
     expect(row?.error).toBe('the app is not up');
@@ -313,7 +329,7 @@ describe('starting a run', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('expense_claim');
-    const row = shown.render().session[0];
+    const row = shown.filed.list()[0];
 
     expect(row?.workflowId.startsWith('refused_')).toBe(true);
     expect(row?.error).toBe('no EVENTS_SECRET');
@@ -328,7 +344,7 @@ describe('starting a run', () => {
     await shown.runWorkflow('nightly_sync');
 
     expect(ingress.requests).toEqual([]);
-    expect(shown.render().session).toEqual([]);
+    expect(shown.filed.list()).toEqual([]);
   });
 
   it('starts nothing in a window nobody has trusted', async () => {
@@ -360,7 +376,7 @@ describe('following a run', () => {
     // The id the row was recorded under before the
     // request went, which is what the route starts
     // the run as.
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
     expect(owner.watch.armed.map((one) => one.workflowId)).toEqual([
       workflowId,
     ]);
@@ -379,8 +395,8 @@ describe('following a run', () => {
     );
 
     expect(shown.live()?.workflowId).toBe(workflowId);
-    expect(shown.render().session[0]?.outcome).toBe('done');
-    expect(shown.render().session[0]?.stepCount).toBe(2);
+    expect(shown.filed.list()[0]?.outcome).toBe('done');
+    expect(shown.filed.list()[0]?.stepCount).toBe(2);
   });
 
   it('names the step that failed, with what the run recorded', async () => {
@@ -389,7 +405,7 @@ describe('following a run', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -404,9 +420,10 @@ describe('following a run', () => {
       }),
     );
 
-    expect(shown.render().session[0]?.error).toBe(
-      'login failed — CDC_PASS rotated',
-    );
+    expect(shown.filed.list()[0]?.failedStep).toEqual({
+      name: 'find_slot',
+      error: 'login failed — CDC_PASS rotated',
+    });
   });
 
   /**
@@ -420,14 +437,16 @@ describe('following a run', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
       liveRun({ workflowId, outcome: 'cancelled', status: 'CANCELLED' }),
     );
 
-    expect(shown.render().session[0]?.when).toContain('·');
+    // A run that is over has a length, which is
+    // what a row of it says after its clock.
+    expect(shown.filed.list()[0]?.durationMs).toBeDefined();
     expect(shown.unsettled()).toEqual([]);
   });
 
@@ -448,7 +467,7 @@ describe('following a run', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
     expect(owner.watch.armed).toHaveLength(1);
 
     owner.watch.say(
@@ -476,7 +495,7 @@ describe('following a run', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const mine = shown.render().session[0]?.workflowId ?? '';
+    const mine = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.held.arm('wf_somebody_elses', 'groom_booking');
     owner.watch.say(
@@ -485,7 +504,7 @@ describe('following a run', () => {
     );
 
     expect(shown.live()?.workflowId).not.toBe('wf_somebody_elses');
-    expect(shown.render().session.map((row) => row.workflowId)).toEqual([mine]);
+    expect(shown.filed.list().map((row) => row.workflowId)).toEqual([mine]);
   });
 });
 
@@ -512,7 +531,7 @@ describe('following a run this window did not start itself', () => {
     shown.follow('wf_fork1', 'groom_booking', { via: 'replay' });
 
     expect(log.find('wf_fork1')?.outcome).toBe('running');
-    expect(shown.render().session[0]?.workflowId).toBe('wf_fork1');
+    expect(shown.filed.list()[0]?.workflowId).toBe('wf_fork1');
     expect(owner.watch.armed.map((one) => one.workflowId)).toEqual([
       'wf_fork1',
     ]);
@@ -553,7 +572,7 @@ describe('following a run this window did not start itself', () => {
     shown.follow('wf_fork1', 'groom_booking', { via: 'replay' });
     shown.refused('wf_fork1', 'the database would not answer');
 
-    const row = shown.render().session[0];
+    const row = shown.filed.list()[0];
     expect(row?.outcome).toBe('failed');
     expect(row?.error).toBe('the database would not answer');
 
@@ -579,7 +598,7 @@ describe('following a run this window did not start itself', () => {
     await shown.rerun('wf_fork1');
 
     expect(ingress.requests).toEqual([]);
-    expect(shown.render().session).toHaveLength(1);
+    expect(shown.filed.list()).toHaveLength(1);
   });
 });
 
@@ -590,7 +609,7 @@ describe('running it again', () => {
 
     shown.setInput('{"bookingId":7}');
     await shown.runWorkflow('groom_booking');
-    const first = shown.render().session[0]?.workflowId ?? '';
+    const first = shown.filed.list()[0]?.workflowId ?? '';
     await shown.rerun(first);
 
     expect(ingress.requests).toHaveLength(2);
@@ -614,8 +633,8 @@ describe('running it again', () => {
     await shown.rerun('wf_echo');
 
     expect(ingress.requests).toHaveLength(2);
-    expect(shown.render().session).toHaveLength(1);
-    expect(shown.render().session[0]?.workflowId).toBe('wf_echo');
+    expect(shown.filed.list()).toHaveLength(1);
+    expect(shown.filed.list()[0]?.workflowId).toBe('wf_echo');
   });
 
   it('does nothing for a run it has never heard of', async () => {
@@ -641,7 +660,7 @@ describe('running it again', () => {
     await shown.rerun('wf_resumed');
 
     expect(ingress.requests).toEqual([]);
-    expect(shown.render().session[0]?.via).toBe('resume');
+    expect(shown.filed.list()[0]?.via).toBe('resume');
   });
 });
 
@@ -717,7 +736,7 @@ describe('asking the agent why', () => {
     await shown.askAgent({ workflowId: RUN_ROW.workflow_uuid });
 
     expect(agent.told.map((one) => one.at)).toEqual(['note', 'send']);
-    expect(shown.render().session).toEqual([]);
+    expect(shown.filed.list()).toEqual([]);
   });
 
   it('answers refused evidence for a run the ingress refused', async () => {
@@ -733,7 +752,7 @@ describe('asking the agent why', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     await shown.askAgent({ workflowId });
 
@@ -766,7 +785,7 @@ describe('asking the agent why', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -817,7 +836,7 @@ describe('asking the agent why', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -938,7 +957,7 @@ describe('asking the agent why', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     await shown.askAgent({ workflowId, nodeId: 'started' });
 
@@ -1003,7 +1022,7 @@ describe('what a followed run was started with', () => {
 
     shown.setInput('{"email":"ada@example.com"}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -1019,7 +1038,7 @@ describe('what a followed run was started with', () => {
 
     shown.setInput('{"email":"ada@example.com"}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(workflowId, liveRun({ workflowId, input: undefined }));
 
@@ -1086,7 +1105,7 @@ describe('the arms a followed run decided', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -1143,7 +1162,7 @@ describe('the value behind a row a followed run wrote', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -1164,7 +1183,7 @@ describe('the value behind a row a followed run wrote', () => {
 
     shown.setInput('{}');
     await shown.runWorkflow('groom_booking');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,

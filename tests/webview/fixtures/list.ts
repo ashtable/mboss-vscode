@@ -1,8 +1,10 @@
 import type { Page } from '@playwright/test';
 
+import type { ServiceHealth } from '../../../src/runs/stack.js';
 import { shortRunId } from '../../../src/webview/ids.js';
 import type {
   RunLineage,
+  RunnableWorkflow,
   RunRow,
   RunsInit,
 } from '../../../src/webview/protocol.js';
@@ -279,11 +281,77 @@ export function runsInit(over: Partial<RunsInit> = {}): RunsInit {
       hint: undefined,
       problem: undefined,
     },
-    live: undefined,
-    session: [],
     production: { configured: false },
     ...over,
   };
+}
+
+/**
+ * What compose says of a project that is up: two
+ * services listening, and one the file declares
+ * that nobody has left running.
+ */
+export const SERVICES: ServiceHealth[] = [
+  {
+    service: 'postgres',
+    state: 'running',
+    health: 'healthy',
+    ports: [5432],
+    detail: 'postgres:17 · :5432',
+  },
+  {
+    service: 'app',
+    state: 'running',
+    health: 'healthy',
+    ports: [3000],
+    detail: 'built 12 s ago · :3000',
+  },
+  {
+    service: 'worker',
+    state: 'exited',
+    health: 'none',
+    ports: [],
+    detail: 'exited (0)',
+  },
+];
+
+/** One workflow somebody can start, and one that
+ *  runs on its own. */
+export const MANUAL: RunnableWorkflow = {
+  name: 'groom_booking',
+  title: 'Groom booking',
+  mode: 'manual',
+};
+
+export const SCHEDULE: RunnableWorkflow = {
+  name: 'nightly_sync',
+  title: 'Nightly sync',
+  mode: 'schedule',
+};
+
+/**
+ * The panel over a project whose stack is up and
+ * whose workflow can be started: the frame with
+ * every part of it drawn.
+ */
+export function frameInit(over: Partial<RunsInit> = {}): RunsInit {
+  return runsInit({
+    stack: {
+      available: true,
+      answered: true,
+      services: SERVICES,
+      busy: undefined,
+      detail: undefined,
+    },
+    testRun: {
+      workflows: [MANUAL],
+      selected: MANUAL.name,
+      input: '',
+      hint: undefined,
+      problem: undefined,
+    },
+    ...over,
+  });
 }
 
 export async function showList(

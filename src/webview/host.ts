@@ -436,15 +436,16 @@ const CopyRunId = z.object({
 });
 
 /**
- * The local stack, being driven.
+ * The local stack, being driven from the page.
  *
- * Three commands rather than one with an argument,
+ * Two commands rather than one with an argument,
  * because each is a different thing to have
- * pressed and a fourth value would have to mean
- * something.
+ * pressed and a third value would have to mean
+ * something. Stopping the stack is not among them:
+ * it is the view's own title action, which calls
+ * the store without going through the page.
  */
 const StackUp = z.object({ type: z.literal('stackUp') });
-const StackDown = z.object({ type: z.literal('stackDown') });
 const StackRebuild = z.object({ type: z.literal('stackRebuild') });
 
 /** Somebody opened the test-run picker on a
@@ -485,12 +486,6 @@ const RunInput = z.object({
 const RunWorkflow = z.object({
   type: z.literal('runWorkflow'),
   workflow: z.string(),
-});
-
-/** Somebody asked for the same thing again. */
-const Rerun = z.object({
-  type: z.literal('rerun'),
-  workflowId: z.string(),
 });
 
 /**
@@ -809,12 +804,10 @@ const SCHEMAS = {
     RunRefresh,
     RunSelect,
     StackUp,
-    StackDown,
     StackRebuild,
     SelectWorkflow,
     RunInput,
     RunWorkflow,
-    Rerun,
     AskAgent,
     OpenRun,
     OpenProduction,

@@ -419,6 +419,32 @@ describe('the stylesheets this extension ships', () => {
     expect(spent).toEqual([]);
   });
 
+  /**
+   * A mix is a colour too. `color-mix()` reads a
+   * role and hands back something no theme block
+   * ever wrote: the token sheet can re-point what
+   * goes in, and not what comes out, so a value
+   * mixed in a view's own sheet is a fifth ink the
+   * four appearances were never checked against.
+   * Where a softer step is wanted, it is a role of
+   * its own, mixed once where the themes are
+   * answered.
+   */
+  it('mix colours only where the themes are answered', () => {
+    const mixed = rules.flatMap((rule) =>
+      declarationsOf(rule.body)
+        .filter((declaration) => declaration.value.includes('color-mix('))
+        .map((declaration) => ({ ...rule, name: declaration.name })),
+    );
+
+    expect(mixed.filter((rule) => rule.sheet === TOKENS)).not.toEqual([]);
+    expect(
+      mixed
+        .filter((rule) => rule.sheet !== TOKENS)
+        .map((rule) => `${rule.sheet} ${rule.selector} ${rule.name}`),
+    ).toEqual([]);
+  });
+
   /** The same rule, where React writes the style. */
   it('spend no colour in a style prop either', () => {
     const props = components.flatMap((file) =>

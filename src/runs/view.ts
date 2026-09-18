@@ -31,7 +31,6 @@ import type {
   SeeGraph,
   SeeInit,
   SeeRun,
-  SessionRow,
   TraceDetail,
   TraceRowView,
 } from '../webview/protocol.js';
@@ -64,14 +63,11 @@ import {
   recordedValue,
   type RecordedValue,
 } from './rows.js';
-import type { SessionRun } from './sessionLog.js';
 import { inspectedRunOf, liveRunOf, type LiveRun } from './watch.js';
-import type { ProjectWorkflow } from './workflows.js';
 
 /**
- * A row of the run history, a row of this session,
- * and one run in detail, in the words the views
- * draw.
+ * A row of the run history, and one run in
+ * detail, in the words the views draw.
  *
  * What a person reads on a row is resolved here,
  * because a webview has no localization bundle;
@@ -159,42 +155,6 @@ export type SeeView = {
    */
   cancelledHere?: boolean;
 };
-
-/**
- * One session run, in the words the panel draws.
- *
- * `keyed` comes from the document rather than from
- * the run: whether sending this input again is the
- * same run is a fact about the workflow's trigger,
- * and it is what decides which of the two actions
- * the row offers.
- */
-export function sessionRowOf(
-  run: SessionRun,
-  workflows: readonly ProjectWorkflow[],
-): SessionRow {
-  const trigger = workflows.find((flow) => flow.name === run.workflow)?.trigger;
-
-  return {
-    workflowId: run.workflowId,
-    workflow: run.workflow,
-    outcome: run.outcome,
-    when: sessionWhen(run),
-    stepCount: run.stepCount,
-    recovered: run.recovered,
-    error: run.failedStep?.error ?? run.error,
-    keyed: trigger?.mode === 'event' && trigger.keyPath !== undefined,
-    via: run.via,
-  };
-}
-
-function sessionWhen(run: SessionRun): string {
-  const at = clock(run.startedAt);
-
-  return run.durationMs === undefined
-    ? at
-    : `${at} · ${lasted(run.durationMs)}`;
-}
 
 /**
  * The editor tab's title for a run: the workflow

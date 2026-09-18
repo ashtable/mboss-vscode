@@ -91,7 +91,7 @@ describe('what the list draws', () => {
     expect(init.type).toBe('init');
     expect(init.view).toBe('runs');
     expect(init.project).toBeUndefined();
-    expect(init.strings.scope).toContain('Conductor');
+    expect(init.strings.projection).toContain('dbos.workflow_status');
   });
 
   /**
@@ -143,7 +143,6 @@ describe('what the list draws', () => {
       { name: 'nightly_sync', title: 'The nightly_sync', mode: 'schedule' },
     ]);
     expect(shown.testRun.selected).toBe('expense_claim');
-    expect(shown.session).toEqual([]);
   });
 });
 
@@ -1030,7 +1029,6 @@ async function exercise(store: RunsStore): Promise<void> {
   await store.runWorkflow('groom_booking');
   await store.runTrigger('groom_booking');
   await store.openRunInput();
-  await store.rerun('wf_c9d2f3');
   await store.copyRunId('wf_c9d2f3');
   await store.askAgent({ workflowId: 'wf_c9d2f3' });
   await store.stackUp();
@@ -1229,13 +1227,14 @@ describe('the doors a replay comes through', () => {
  * The decision and the sentence are the list's, and
  * the zone spec beside it is where those are
  * checked. What is checked here is what the store
- * does afterwards: a resumed run goes onto the
- * screen under its own id and onto the one watch
- * this window owns.
+ * does afterwards: a resumed run is filed as one
+ * this window set going and goes onto the one
+ * watch this window owns.
  */
 describe('a run picked back up', () => {
-  it('puts it on screen as a row that cannot be rerun', async () => {
+  it('files it under its own id as this window own', async () => {
     const db = database();
+    const log = sessionLog();
     db.rows = [
       { ...RUN_ROW, workflow_uuid: 'wf_stopped', status: 'CANCELLED' },
     ];
@@ -1245,28 +1244,30 @@ describe('a run picked back up', () => {
         host: host({ projects: () => [project()] }),
         open: async () => db,
         openManagement: async () => management(),
+        sessionLog: log,
       }),
     );
 
     await store.resume('wf_stopped');
 
-    // The input it carries on with belongs to the
-    // run in the ledger, which never passed through
-    // this window — so the row offers Open run and
-    // nothing else.
-    expect(store.list().session).toEqual([
+    // Under its own id and not the run it carried
+    // on from: what it carries on with belongs to
+    // the run in the ledger, which never passed
+    // through this window.
+    expect(log.list()).toEqual([
       expect.objectContaining({ workflowId: 'wf_stopped', via: 'resume' }),
     ]);
   });
 
-  it('leaves the session alone when the ledger has no such run', async () => {
+  it('files nothing when the ledger has no such run', async () => {
+    const log = sessionLog();
     const store = runsStore(
-      deps({ host: host({ projects: () => [project()] }) }),
+      deps({ host: host({ projects: () => [project()] }), sessionLog: log }),
     );
 
     await store.resume('wf_nothing');
 
-    expect(store.list().session).toEqual([]);
+    expect(log.list()).toEqual([]);
   });
 });
 
@@ -1340,6 +1341,7 @@ describe('the input a run was started with', () => {
 
   it('opens the input of the run a canvas is following', async () => {
     const watch = watcher();
+    const log = sessionLog();
     const shown: { content: string; language: string }[] = [];
     const store = runsStore(
       deps({
@@ -1350,12 +1352,13 @@ describe('the input a run was started with', () => {
         }),
         runner: echoing().start,
         watch: watch.watch,
+        sessionLog: log,
       }),
     );
 
     store.setInput('{}');
     await store.runWorkflow('groom_booking');
-    const workflowId = store.list().session[0]?.workflowId ?? '';
+    const workflowId = log.list()[0]?.workflowId ?? '';
     watch.say(
       workflowId,
       liveRun({

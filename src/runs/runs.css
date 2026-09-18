@@ -1,7 +1,7 @@
 @import '../webview/tokens.css';
 
 /**
- * The run list.
+ * The run list, and the frame round it.
  *
  * A ledger read top to bottom: every run is one
  * line in the same places, so scanning for the one
@@ -10,6 +10,14 @@
  * anything. The run somebody picks opens under its
  * line, and that is the only place anything can be
  * done to a run.
+ *
+ * The panel itself is as tall as the pane and never
+ * scrolls: the header and the controls hold their
+ * place and the history moves under them. Every
+ * section runs the whole width and paints no ground
+ * of its own, so the panel reads as one surface
+ * with rules across it rather than as a stack of
+ * cards.
  *
  * A view docked in the activity bar sits against
  * the side bar's ground rather than the editor's,
@@ -22,419 +30,108 @@ body {
 
 .runs {
   box-sizing: border-box;
-  min-height: 100vh;
-  padding: var(--space-3);
+  height: 100vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
 }
 
 /* — the head — */
 
 .runs-head {
+  flex: none;
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
-  padding-bottom: var(--space-2);
+  padding: var(--space-2-5) var(--space-3-5);
   border-bottom: 1px solid var(--hairline);
 }
 
-.runs-head > .eyebrow {
-  color: var(--brand);
+/* Never wrapped: what the panel is called is two
+   words, and a narrow pane is where the workspace
+   beside it gives way instead. */
+.runs-title {
+  flex: none;
+  margin: 0;
+  white-space: nowrap;
+  font-size: var(--text-md);
+  font-weight: var(--w-semibold);
 }
 
+/* Cut at its end rather than wrapped: the folder's
+   name is what is worth reading, and the words
+   after it are the same on every panel. */
 .runs-project {
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--text-sm);
-  color: color-mix(in srgb, var(--ink) 65%, transparent);
-  overflow-wrap: anywhere;
+  color: var(--ink-faint);
 }
 
-/* — the four zones above the ledger — */
+/* — what stays where it is — */
 
-/* The shape every zone shares: a card, the same
-   one section headers use everywhere else in this
-   extension. */
-.zone {
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-md);
-  background: var(--surface);
-  padding: var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+/* Everything it takes to start a run. Capped at
+   half the pane so a long refusal cannot push the
+   history off the bottom, and scrolls inside that
+   cap rather than growing past it. */
+.runs-controls {
+  flex: none;
+  max-height: 50vh;
+  overflow-y: auto;
 }
 
-.zone-head {
+.runs-run {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-2);
+  padding: var(--space-2-5) var(--space-3-5);
 }
 
-.zone-head > .eyebrow,
-.zone > .eyebrow {
-  color: var(--brand);
-}
-
-.zone-head > button,
-.zone-actions > button {
-  border: 1px solid var(--brand);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-3);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.zone-head > button:hover:not(:disabled),
-.zone-actions > button:hover:not(:disabled) {
-  transform: translateY(var(--lift));
-}
-
-.zone-head > button:disabled,
-.zone-actions > button:disabled {
-  border-color: var(--hairline);
-  color: var(--ink-faint);
-  cursor: default;
-}
-
-/* A command in flight, drawn the same way a
-   pending answer is anywhere else in Signal. */
-@media (prefers-reduced-motion: no-preference) {
-  .zone-head > button[data-busy='true'] {
-    animation: sig-pulse var(--dur-pulse) ease-in-out infinite;
-  }
-}
-
-.zone-note {
+/* Where the project is listening, pushed to the
+   far end of the line and cut there: it is a fact
+   to glance at, and the controls beside it are
+   what the line is for — so it is what gives way
+   first when the pane is too narrow for all three. */
+.runs-ports {
+  flex: 0 100 auto;
   margin: 0;
-  font-size: var(--text-sm);
-  color: var(--ink-muted);
-}
-
-.zone-caption {
-  margin: 0;
+  margin-inline-start: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--text-xs);
   color: var(--ink-faint);
 }
 
-.zone-problem {
-  margin: 0;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-  border-radius: var(--r-sm);
-  background: var(--warn-tint);
-  color: var(--warn);
-  font-size: var(--text-sm);
-  padding: var(--space-2);
-}
-
-.zone-problem > button {
-  flex: none;
-  border: none;
-  background: transparent;
-  color: var(--warn);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: 0;
-  cursor: pointer;
-}
-
-.zone-problem > button:hover {
-  text-decoration: underline;
-}
-
-.field {
+.runs-input {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
+  padding: var(--space-2-5) var(--space-3-5);
+  border-bottom: 1px solid var(--hairline);
 }
 
-.field-label {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--ink-muted);
-}
-
-.field select,
-.field textarea {
-  box-sizing: border-box;
-  width: 100%;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: var(--vscode-input-background, transparent);
-  color: var(--vscode-input-foreground, var(--ink));
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  padding: var(--space-1) var(--space-2);
-}
-
-.field textarea {
-  resize: vertical;
-}
-
-.field select:focus-visible,
-.field textarea:focus-visible {
-  border-color: var(--brand);
-}
-
-/* — the stack's own service rows — */
-
-.services {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.service {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-}
-
-.service-dot {
-  flex: none;
-  align-self: center;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ink-faint);
-}
-
-.service-dot[data-state='running'] {
-  background: var(--ok);
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .service[data-state='running'] .service-dot {
-    animation: sig-pulse var(--dur-breathe) ease-in-out infinite;
-  }
-}
-
-.service-name {
-  flex: none;
-  font-weight: 600;
-}
-
-.service-state {
-  flex: none;
-  color: var(--ink-muted);
-}
-
-.service-detail {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--ink-faint);
-}
-
-.service > [data-rebuild] {
-  flex: none;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-size: var(--text-xs);
-  padding: 2px var(--space-2);
-  cursor: pointer;
-}
-
-.service > [data-rebuild]:hover:not(:disabled) {
-  border-color: var(--brand);
-  color: var(--brand);
-}
-
-/* — the run being followed — */
-
-.live-steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.live-step {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-}
-
-.live-step .step-mark {
-  flex: none;
-  width: 1em;
-  text-align: center;
-  color: var(--ok);
-}
-
-.live-step[data-state='waiting'] .step-mark {
-  color: var(--warn);
-}
-
-.live-step[data-state='failed'] .step-mark {
-  color: var(--fail);
-}
-
-[data-zone='running-now'] .run-line[data-outcome='running'] .run-id {
-  color: var(--ok);
-}
-
-[data-zone='running-now'] .run-line[data-outcome='recovering'] .run-id,
-[data-zone='running-now'] .run-line[data-outcome='waiting'] .run-id {
-  color: var(--warn);
-}
-
-[data-zone='running-now'] .run-line[data-outcome='failed'] .run-id,
-[data-zone='running-now'] .run-line[data-outcome='gaveUp'] .run-id {
-  color: var(--fail);
-}
-
-/* Its lines are this zone's own, and the list's
-   line is drawn another way. */
-[data-zone='running-now'] .run-line {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-  min-width: 0;
-}
-
-[data-zone='running-now'] .run-id {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-[data-zone='running-now'] .run-name {
-  font-size: var(--text-sm);
-  color: color-mix(in srgb, var(--ink) 65%, transparent);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The failure says what it was, because the reason
-   somebody opened this panel is to find that out. */
-[data-zone='running-now'] .run-error {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--fail);
-  overflow-wrap: anywhere;
-}
-
-/* — this session's own runs — */
-
-.session-rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.session-row {
+/* What stopped the last start, and the one or two
+   ways out of it. */
+.runs-problem {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: var(--space-2);
-  border-left: var(--rail-w) solid var(--ink-faint);
-  padding-left: var(--space-2);
-  font-size: var(--text-sm);
+  column-gap: var(--space-2);
+  row-gap: var(--space-1);
 }
 
-.session-row[data-outcome='done'] {
-  border-left-color: var(--ok);
-}
+/* — what scrolls — */
 
-.session-row[data-outcome='running'],
-.session-row[data-outcome='recovering'],
-.session-row[data-outcome='waiting'] {
-  border-left-color: var(--warn);
-}
-
-.session-row[data-outcome='failed'],
-.session-row[data-outcome='gaveUp'] {
-  border-left-color: var(--fail);
-}
-
-/* The mark repeats the rail's own colour, so the
-   outcome reads even where the rail itself is easy
-   to miss. */
-.session-mark {
-  flex: none;
-  color: var(--ink-faint);
-}
-
-.session-row[data-outcome='done'] .session-mark {
-  color: var(--ok);
-}
-
-.session-row[data-outcome='running'] .session-mark,
-.session-row[data-outcome='recovering'] .session-mark,
-.session-row[data-outcome='waiting'] .session-mark {
-  color: var(--warn);
-}
-
-.session-row[data-outcome='failed'] .session-mark,
-.session-row[data-outcome='gaveUp'] .session-mark {
-  color: var(--fail);
-}
-
-.session-name {
-  font-weight: 600;
-}
-
-.session-when {
-  color: var(--ink-muted);
-}
-
-.session-error {
-  flex-basis: 100%;
-  color: var(--fail);
-  font-size: var(--text-xs);
-  overflow-wrap: anywhere;
-}
-
-.session-actions {
-  flex: none;
-  margin-left: auto;
-  display: flex;
-  gap: var(--space-2);
-}
-
-.session-actions > button {
-  border: none;
-  background: transparent;
-  color: var(--brand);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: 0;
-  cursor: pointer;
-}
-
-.session-actions > button:hover {
-  text-decoration: underline;
+.runs-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 /* — the run list — */
@@ -632,49 +329,25 @@ body {
 
 .state {
   margin: 0;
+  padding: var(--space-2) var(--space-3-5);
   font-size: var(--text-sm);
-  color: color-mix(in srgb, var(--ink) 70%, transparent);
-  flex: 1;
+  color: var(--ink-muted);
 }
 
+/* Under the end of the list rather than at the
+   bottom of the pane: a short history gives its
+   room to the rows. */
 .runs-foot {
+  padding: var(--space-2) var(--space-3-5);
   border-top: 1px solid var(--hairline);
-  padding-top: var(--space-2);
-}
-
-.runs-foot > p {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: color-mix(in srgb, var(--ink) 50%, transparent);
-  overflow-wrap: anywhere;
 }
 
 /* A fact about somewhere else, and the one link to
    it. It reads as provenance rather than as a
-   control, which is why it sits under the lines
+   control, which is why it sits under the line
    naming where these runs came from and not beside
-   Run or Rebuild. */
-.state-block {
+   Run. */
+.runs-production {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-1) var(--space-2);
-  margin-top: var(--space-2);
-  font-size: var(--text-xs);
-  color: color-mix(in srgb, var(--ink) 50%, transparent);
-}
-
-.state-block > button {
-  border: none;
-  background: transparent;
-  color: var(--brand);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: 0;
-  cursor: pointer;
-}
-
-.state-block > button:hover {
-  text-decoration: underline;
+  padding: 0 var(--space-3-5) var(--space-2);
 }

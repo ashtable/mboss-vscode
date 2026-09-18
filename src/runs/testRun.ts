@@ -29,12 +29,7 @@ import {
   type SessionLog,
   type SessionRun,
 } from './sessionLog.js';
-import {
-  evidenceEcho,
-  evidenceLines,
-  evidenceSentence,
-  sessionRowOf,
-} from './view.js';
+import { evidenceEcho, evidenceLines, evidenceSentence } from './view.js';
 import type { LedgerRead, LiveRun } from './watch.js';
 import { projectWorkflows, type ProjectWorkflow } from './workflows.js';
 
@@ -105,8 +100,9 @@ export type TestRunDeps = {
   manifest(): LibManifest | undefined;
 };
 
-/** What the list draws of this session. */
-export type TestRunZone = Pick<RunsInit, 'testRun' | 'live' | 'session'>;
+/** What the list draws of starting a run by
+ *  hand. */
+export type TestRunZone = Pick<RunsInit, 'testRun'>;
 
 /**
  * Why a run this window is watching exists, where
@@ -740,10 +736,6 @@ export function testRunZone(deps: TestRunDeps): TestRun {
         hint: hintFor(workflows, workflow),
         problem,
       },
-      live,
-      session: deps.sessionLog
-        .list()
-        .map((run) => sessionRowOf(run, workflows)),
     }),
 
     onChanged: changes.on,

@@ -24,6 +24,7 @@ export function FieldHint({
   children,
   tone,
   id,
+  title,
   hook,
   hookClass,
 }: {
@@ -34,6 +35,14 @@ export function FieldHint({
   /** What a control names to have this read out
    *  with it. */
   id?: string;
+
+  /** Where the hint is a whole line, whatever it
+   *  was read off — a connection string under the
+   *  sentence naming it. On the hint itself rather
+   *  than on a span wrapped round it, which would
+   *  be an element in the markup that draws
+   *  nothing. */
+  title?: string;
 
   hook?: Record<string, string>;
 
@@ -48,6 +57,7 @@ export function FieldHint({
         hookClass === undefined ? 'field-hint' : `field-hint ${hookClass}`
       }
       id={id}
+      title={title}
       data-tone={tone}
       data-mono=""
       {...hooked(hook)}

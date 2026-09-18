@@ -45,6 +45,19 @@ describe('the hint under a control', () => {
     );
   });
 
+  /** Where the hint is the whole of a line, what it
+   *  says the line was read from belongs on it
+   *  rather than on a span wrapped round it. */
+  it('carries a title where one is given', () => {
+    expect(
+      renderToStaticMarkup(FieldHint({ children: 'ab', title: 'cd' })),
+    ).toContain('title="cd"');
+
+    expect(renderToStaticMarkup(FieldHint({ children: 'ab' }))).not.toContain(
+      'title=',
+    );
+  });
+
   it('carries through the class and the hooks a view finds it by', () => {
     const drawn = renderToStaticMarkup(
       FieldHint({

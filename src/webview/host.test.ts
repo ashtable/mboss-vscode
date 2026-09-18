@@ -179,14 +179,12 @@ describe('what each view may say', () => {
     runSelect: ['runs', 'see'],
     copyRunId: ['runs'],
     stackUp: ['runs'],
-    stackDown: ['runs'],
     stackRebuild: ['runs'],
     selectWorkflow: ['runs'],
     // Only the Runs view's input box writes a run's
     // input.
     runInput: ['runs'],
     runWorkflow: ['runs'],
-    rerun: ['runs'],
     askAgent: ['runs', 'inspector'],
     // About a block as it is set, rather than about
     // anything a run recorded, so only the pane that
@@ -289,12 +287,10 @@ describe('what each view may say', () => {
     runSelect: { workflowId: 'wf_c9d2f3' },
     copyRunId: { workflowId: 'wf_c9d2f3' },
     stackUp: {},
-    stackDown: {},
     stackRebuild: {},
     selectWorkflow: { workflow: 'groom_booking' },
     runInput: { workflow: 'groom_booking', text: '{}' },
     runWorkflow: { workflow: 'groom_booking' },
-    rerun: { workflowId: 'wf_c9d2f3' },
     askAgent: { workflowId: 'wf_c9d2f3' },
     askAboutBlock: {
       workflow: 'groom_booking',

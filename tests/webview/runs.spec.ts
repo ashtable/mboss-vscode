@@ -1,23 +1,31 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import type { RunRow } from '../../src/webview/protocol.js';
+import type {
+  RunByHand,
+  RunRow,
+  TestRunProblem,
+} from '../../src/webview/protocol.js';
 
-import { liveStep } from '../../src/test-support/runs.js';
 import { filled } from '../../src/webview/fill.js';
 import { shortRunId } from '../../src/webview/ids.js';
 import { glyphOf, type GlyphState } from '../../src/webview/states.js';
+import { when } from '../../src/webview/time.js';
 
 import {
   BY_STATE,
+  frameInit,
   LINEAGE,
   LIST_ROWS,
   listRow,
+  MANUAL,
   OFF_THE_PAGE,
   runsInit,
+  SCHEDULE,
   showList,
   SIX_DONE,
 } from './fixtures/list.js';
 import { mount, THEMES_ALL, type ThemeKind } from './harness.js';
+import { labelBeforeValue } from './labels.js';
 import { colourOf, sameColour, type Role } from './palette.js';
 import { runsWords as runsStrings } from './words.js';
 
@@ -34,160 +42,443 @@ import { runsWords as runsStrings } from './words.js';
  * right ones is checked where the extension is.
  */
 
-test.describe('the local stack', () => {
-  test('draws a row per service and names the one about to run', async ({
+/**
+ * The frame round the list: who these runs belong
+ * to, what can be started, and where the list came
+ * from.
+ *
+ * The panel is one column that never scrolls: the
+ * header and the controls stay put, and only the
+ * rows under them move. Everything a run needs to
+ * be started is on two lines above the list, and
+ * the one line under it says what the list is a
+ * picture of.
+ */
+test.describe('the panel frame', () => {
+  for (const theme of THEMES_ALL) {
+    test(`says whose runs these are, starts a run and lists the services in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await showList(page, frameInit(), theme, { width: 300 });
+
+      const head = page.locator('.runs-head');
+      const title = head.locator('.runs-title');
+
+      await expect(title).toHaveText(runsStrings.heading);
+      expect(await style(title, 'font-weight')).toBe('600');
+      expect(Number.parseFloat(await style(title, 'font-size'))).toBeCloseTo(
+        13,
+        1,
+      );
+
+      const workspace = head.locator('.runs-project');
+
+      await expect(workspace).toHaveText(
+        filled(runsStrings.workspace, 'groom-shop'),
+      );
+      expect(
+        Number.parseFloat(await style(workspace, 'font-size')),
+      ).toBeCloseTo(11.05, 1);
+      expect(
+        sameColour(
+          await style(workspace, 'color'),
+          colourOf(theme, 'ink-faint'),
+        ),
+      ).toBe(true);
+
+      expect(await padOf(head)).toBe('10px 14px 10px 14px');
+      expect(await style(head, 'border-bottom-width')).toBe('1px');
+      expect(
+        sameColour(
+          await style(head, 'border-bottom-color'),
+          colourOf(theme, 'hairline'),
+        ),
+      ).toBe(true);
+
+      const runRow = page.locator('[data-zone="stack"]');
+
+      expect(await padOf(runRow)).toBe('10px 14px 10px 14px');
+      expect(
+        await style(page.locator('.runs-input'), 'border-bottom-width'),
+      ).toBe('1px');
+
+      const run = page.locator('[data-run-workflow]');
+
+      await expect(run).toHaveClass(/\bbtn\b/);
+      await expect(run).toHaveAttribute('data-variant', 'primary');
+      expect(
+        sameColour(
+          await style(run, 'background-color'),
+          colourOf(theme, 'primary-ground'),
+        ),
+      ).toBe(true);
+
+      await run.click();
+
+      expect(await harness.postedOfType('runWorkflow')).toEqual([
+        { type: 'runWorkflow', workflow: 'groom_booking' },
+      ]);
+
+      await expect(page.getByText('Debug run')).toHaveCount(0);
+
+      const ports = page.locator('.runs-ports [data-service]');
+
+      await expect(ports).toHaveCount(3);
+      expect(await ports.allTextContents()).toEqual([
+        'postgres :5432',
+        'app :3000',
+        `worker ${runsStrings.serviceState.exited}`,
+      ]);
+      expect(
+        await ports.evaluateAll((spans) =>
+          spans.map((span) => span.getAttribute('data-state')),
+        ),
+      ).toEqual(['running', 'running', 'exited']);
+      expect(
+        Number.parseFloat(await style(ports.first(), 'font-size')),
+      ).toBeCloseTo(10.01, 1);
+      expect(
+        sameColour(
+          await style(page.locator('.runs-ports'), 'color'),
+          colourOf(theme, 'ink-faint'),
+        ),
+      ).toBe(true);
+
+      const strip = page.locator('[role="tablist"]');
+
+      expect(await style(strip, 'padding-left')).toBe('14px');
+      expect(await style(strip, 'padding-right')).toBe('14px');
+
+      const foot = page.locator('.runs-foot');
+
+      expect(await padOf(foot)).toBe('8px 14px 8px 14px');
+      expect(await style(foot, 'border-top-width')).toBe('1px');
+      expect(
+        sameColour(
+          await style(foot, 'border-top-color'),
+          colourOf(theme, 'hairline'),
+        ),
+      ).toBe(true);
+
+      await expect(
+        page.getByRole('textbox', { name: runsStrings.input }),
+      ).toHaveAttribute('data-input', '');
+      await labelBeforeValue(page.locator('[data-property][data-field=input]'));
+    });
+  }
+
+  /**
+   * One workflow is no choice, and a menu of one is
+   * a control that says nothing. A schedule workflow
+   * is listed so a person can see it exists, and
+   * offers no way to start it.
+   */
+  test('offers a workflow picker only when there is a choice', async ({
     page,
   }) => {
+    const harness = await showList(page, frameInit(), 'light', { width: 300 });
+
+    await expect(page.locator('[data-workflow-picker]')).toHaveCount(0);
+
+    await harness.show(frameInit({ testRun: byHand(MANUAL.name) }));
+
+    const picker = page.getByRole('combobox', { name: runsStrings.workflow });
+
+    await expect(picker).toHaveAttribute('data-workflow-picker', '');
+    await picker.selectOption(SCHEDULE.name);
+
+    expect(await harness.postedOfType('selectWorkflow')).toEqual([
+      { type: 'selectWorkflow', workflow: 'nightly_sync' },
+    ]);
+
+    await harness.show(frameInit({ testRun: byHand(SCHEDULE.name) }));
+
+    await expect(page.locator('.runs-input')).toContainText(
+      runsStrings.scheduledNotRunnable,
+    );
+    await expect(page.locator('[data-run-workflow]')).toHaveCount(0);
+    await expect(page.locator('[data-input]')).toHaveCount(0);
+
+    await harness.show(frameInit({ testRun: byHand(undefined) }));
+
+    await expect(page.locator('[data-run-workflow]')).toHaveCount(0);
+    await expect(page.locator('.runs-input')).not.toContainText(
+      runsStrings.scheduledNotRunnable,
+    );
+    await expect(page.locator('[data-input]')).toHaveCount(1);
+    await expect(page.locator('.runs-ports [data-service]')).toHaveCount(3);
+  });
+
+  /**
+   * A run this window started is the top row of the
+   * list, marked and opened out, rather than a card
+   * of its own above it.
+   */
+  test('draws no session card and opens with the newest run selected', async ({
+    page,
+  }) => {
+    await showList(page, frameInit(), 'light', { width: 300 });
+
+    for (const zone of ['session', 'running-now', 'test-run']) {
+      await expect(page.locator(`[data-zone="${zone}"]`)).toHaveCount(0);
+    }
+
+    await expect(page.locator('[data-stack-toggle]')).toHaveCount(0);
+    await expect(
+      page.locator(
+        '.run-list > li:first-child >' +
+          ' button[aria-current="true"][aria-expanded="true"]',
+      ),
+    ).toHaveCount(1);
+  });
+
+  /**
+   * A developer reads a ledger against a clock, and
+   * a clock that needs a suffix to be read is one
+   * more thing between them and the run that went
+   * wrong.
+   */
+  test('writes every time in 24 hours', async ({ page }) => {
+    const now = Date.UTC(2026, 8, 11, 20, 0);
+    const today = when(Date.UTC(2026, 8, 11, 18, 24), now, 'en-US');
+    const older = when(Date.UTC(2026, 8, 9, 18, 17), now, 'en-US');
+    const rows = [
+      listRow({ line: `done · ${today} · 1.6 s` }),
+      listRow({
+        workflowId: '4b56e4f6-4254-4423-bc97-b7a2d7838de9',
+        line: `done · ${older} · 1.5 s`,
+      }),
+    ];
+
     await showList(
       page,
-      runsInit({
-        stack: {
-          available: true,
-          answered: true,
-          busy: undefined,
-          detail: undefined,
-          services: [
-            {
-              service: 'postgres',
-              state: 'running',
-              health: 'healthy',
-              ports: [5432],
-              detail: 'postgres:17 · :5432',
-            },
-            {
-              service: 'app',
-              state: 'running',
-              health: 'healthy',
-              ports: [3000],
-              detail: 'built 12 s ago · :3000',
-            },
-          ],
-        },
+      frameInit({
+        rows,
+        counts: { all: 2, active: 0, failed: 0 },
+        selected: rows[0]?.workflowId,
+      }),
+      'light',
+      { width: 300 },
+    );
+
+    await expect(page.locator('li[data-run]')).toHaveCount(2);
+
+    const drawn = await page.locator('.runs-body').innerText();
+
+    expect(drawn).toContain(today);
+    expect(drawn).toContain(older);
+    expect(drawn).not.toMatch(/\b(?:AM|PM)\b/);
+  });
+
+  /**
+   * One line, and the address it was read from in
+   * its title rather than on a line of its own.
+   * Conductor is a licence this product does not
+   * need, so a window that has none is never told
+   * about one.
+   */
+  test('says in one line where the list comes from', async ({ page }) => {
+    const harness = await showList(page, frameInit(), 'light', { width: 300 });
+
+    const foot = page.locator('.runs-foot');
+    const hint = foot.locator('.field-hint');
+
+    await expect(foot.locator(':scope > *')).toHaveCount(1);
+    await expect(hint).toHaveText(runsStrings.projection);
+    await expect(hint).toHaveAttribute(
+      'title',
+      'dbos.workflow_status · localhost:5432/app',
+    );
+    await expect(foot).not.toContainText('Conductor');
+    await expect(page.locator('[data-production]')).toHaveCount(0);
+
+    await harness.show(frameInit({ production: { configured: true } }));
+
+    const open = page.locator('[data-production="configured"]');
+
+    await expect(open).toHaveCount(1);
+    await expect(open).toHaveClass(/\bbtn\b/);
+    await expect(open).toHaveText(runsStrings.openProduction);
+    await open.click();
+
+    expect(await harness.postedOfType('openProduction')).toEqual([
+      { type: 'openProduction' },
+    ]);
+  });
+
+  /**
+   * The page itself never scrolls: the rows do. So
+   * the way to start a run is still there after
+   * somebody has read to the end of the history.
+   */
+  test('keeps the header, Run and the tabs in view while the list scrolls', async ({
+    page,
+  }) => {
+    const rows = Array.from({ length: 50 }, (_, at) =>
+      listRow({
+        workflowId: `b6e3d1a0-19dd-4d4a-a03a-09e77cff${String(at).padStart(4, '0')}`,
+        line: 'done · 18:24 · 1.6 s · 3 steps',
       }),
     );
 
-    const app = page.locator('[data-service="app"]');
-    await expect(app).toContainText('built 12 s ago · :3000');
-    await expect(app).toContainText('running');
-    await expect(
-      page.locator('[data-service="postgres"] [data-rebuild]'),
-    ).toHaveCount(0);
+    await showList(
+      page,
+      frameInit({
+        rows,
+        counts: { all: 50, active: 0, failed: 0 },
+        selected: rows[0]?.workflowId,
+      }),
+      'light',
+      { width: 400 },
+    );
+    await page.setViewportSize({ width: 400, height: 320 });
+
+    await expect(page.locator('li[data-run]')).toHaveCount(50);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollHeight === window.innerHeight,
+      ),
+    ).toBe(true);
+
+    const body = page.locator('.runs-body');
+
+    expect(
+      await body.evaluate((node) => node.scrollHeight > node.clientHeight),
+    ).toBe(true);
+
+    const pinned = ['.runs-head', '[data-zone="stack"]', '[role="tablist"]'];
+    const before = await topsOf(page, pinned);
+
+    await body.evaluate((node) => {
+      node.scrollTop = node.scrollHeight;
+    });
+
+    expect(await topsOf(page, pinned)).toEqual(before);
+
+    const foot = await page.evaluate(() => {
+      const port = document.querySelector('.runs-body')!;
+      const line = document.querySelector('.runs-foot')!;
+
+      return {
+        below:
+          line.getBoundingClientRect().top - port.getBoundingClientRect().top,
+        past:
+          line.getBoundingClientRect().bottom -
+          port.getBoundingClientRect().bottom,
+      };
+    });
+
+    // A pixel of slack under the second: the
+    // browser counts a scroll port's height in whole
+    // pixels, so scrolling to the end lands within
+    // one of it.
+    expect(foot.below).toBeGreaterThan(0);
+    expect(foot.past).toBeLessThan(1);
   });
 
-  test('offers Start when nothing is running, and Stop once it is', async ({
+  /**
+   * A start that was refused is filed under an id
+   * like any other, so the agent can be handed the
+   * whole of it. A refusal checked before anything
+   * was filed has no run to ask about.
+   */
+  test('offers Ask agent beside a refused start filed under an id', async ({
     page,
   }) => {
     const harness = await showList(
       page,
-      runsInit({
-        stack: {
-          available: true,
-          answered: true,
-          busy: undefined,
-          detail: undefined,
-          services: [
-            {
-              service: 'app',
-              state: 'exited',
-              health: 'none',
-              ports: [],
-              detail: '',
-            },
-          ],
-        },
+      frameInit({
+        testRun: byHand(MANUAL.name, {
+          detail: 'The app refused that start.',
+          rebuildToRun: false,
+          workflowId: 'wf_refused',
+        }),
       }),
+      'light',
+      { width: 300 },
     );
 
-    await expect(page.locator('[data-stack-toggle]')).toHaveText('Start');
-    await page.locator('[data-stack-toggle]').click();
-    expect(await harness.postedOfType('stackUp')).toEqual([
-      { type: 'stackUp' },
+    const problem = page.locator('[data-problem]');
+
+    await expect(problem).toContainText('refused that start');
+    await expect(problem.locator('.btn[data-ask-agent]')).toHaveAttribute(
+      'data-variant',
+      'quiet',
+    );
+    await problem.locator('[data-ask-agent]').click();
+
+    expect(await harness.postedOfType('askAgent')).toEqual([
+      { type: 'askAgent', workflowId: 'wf_refused' },
     ]);
 
     await harness.show(
-      runsInit({
-        stack: {
-          available: true,
-          answered: true,
-          busy: undefined,
-          detail: undefined,
-          services: [
-            {
-              service: 'app',
-              state: 'running',
-              health: 'healthy',
-              ports: [3000],
-              detail: '',
-            },
-          ],
-        },
+      frameInit({
+        testRun: byHand(MANUAL.name, {
+          detail: 'That input is not JSON, so nothing was sent.',
+          rebuildToRun: false,
+          workflowId: undefined,
+        }),
       }),
     );
 
-    await expect(page.locator('[data-stack-toggle]')).toHaveText('Stop');
-    await page.locator('[data-stack-toggle]').click();
-    expect(await harness.postedOfType('stackDown')).toEqual([
-      { type: 'stackDown' },
-    ]);
+    await expect(page.locator('[data-problem]')).toContainText('not JSON');
+    await expect(page.locator('[data-problem] [data-ask-agent]')).toHaveCount(
+      0,
+    );
   });
 
-  test('rebuilds the app alone', async ({ page }) => {
+  test('says the app is stale and offers the same Rebuild', async ({
+    page,
+  }) => {
     const harness = await showList(
       page,
-      runsInit({
-        stack: {
-          available: true,
-          answered: true,
-          busy: undefined,
-          detail: undefined,
-          services: [
-            {
-              service: 'app',
-              state: 'running',
-              health: 'healthy',
-              ports: [3000],
-              detail: 'built 1 h ago',
-            },
-          ],
-        },
+      frameInit({
+        testRun: byHand(MANUAL.name, {
+          detail: 'The running app was built before this workflow.',
+          rebuildToRun: true,
+          workflowId: 'wf_refused',
+        }),
       }),
+      'light',
+      { width: 300 },
     );
 
-    await page.locator('[data-service="app"] [data-rebuild]').click();
+    const problem = page.locator('[data-problem]');
+    const rebuild = problem.locator('[data-rebuild]');
+
+    await expect(problem).toContainText('built before this workflow');
+    await expect(rebuild).toHaveClass(/\bbtn\b/);
+    await expect(rebuild).toHaveAttribute('data-variant', 'quiet');
+    expect(
+      sameColour(await style(rebuild, 'color'), stateInk('light', 'brand')),
+    ).toBe(true);
+
+    await rebuild.click();
 
     expect(await harness.postedOfType('stackRebuild')).toEqual([
       { type: 'stackRebuild' },
     ]);
   });
 
-  test('says why there is nothing to start, when there is nothing', async ({
+  test('offers no Rebuild for a problem Rebuild does not fix', async ({
     page,
   }) => {
     await showList(
       page,
-      runsInit({
-        stack: {
-          available: false,
-          answered: false,
-          busy: undefined,
-          detail: 'Docker is not on the PATH.',
-          services: [],
-        },
+      frameInit({
+        testRun: byHand(MANUAL.name, {
+          detail: 'That input is not JSON, so nothing was sent.',
+          rebuildToRun: false,
+          workflowId: undefined,
+        }),
       }),
+      'light',
+      { width: 300 },
     );
 
-    await expect(page.locator('[data-zone="stack"]')).toContainText(
-      'Docker is not on the PATH.',
-    );
-    await expect(page.locator('[data-stack-toggle]')).toHaveCount(0);
+    await expect(page.locator('[data-problem]')).toContainText('not JSON');
+    await expect(page.locator('[data-problem] [data-rebuild]')).toHaveCount(0);
   });
-});
-
-test.describe('a test run', () => {
-  const WORKFLOWS = [
-    { name: 'groom_booking', title: 'Groom booking', mode: 'manual' as const },
-    { name: 'nightly_sync', title: 'Nightly sync', mode: 'schedule' as const },
-  ];
 
   /**
    * The extension holds the input, so every change
@@ -198,22 +489,8 @@ test.describe('a test run', () => {
   test('says each change to the input, and starts without it', async ({
     page,
   }) => {
-    const harness = await showList(
-      page,
-      runsInit({
-        testRun: {
-          workflows: WORKFLOWS,
-          selected: 'groom_booking',
-          input: '',
-          hint: undefined,
-          problem: undefined,
-        },
-      }),
-    );
+    const harness = await showList(page, frameInit(), 'light', { width: 300 });
 
-    await expect(page.locator('[data-workflow-picker]')).toHaveValue(
-      'groom_booking',
-    );
     await page.locator('[data-input]').fill('{"bookingId":');
     await page.locator('[data-input]').fill('{"bookingId":7}');
     await page.locator('[data-run-workflow]').click();
@@ -238,15 +515,9 @@ test.describe('a test run', () => {
   }) => {
     await showList(
       page,
-      runsInit({
-        testRun: {
-          workflows: WORKFLOWS,
-          selected: 'groom_booking',
-          input: '{"n":1}',
-          hint: undefined,
-          problem: undefined,
-        },
-      }),
+      frameInit({ testRun: { ...byHand(MANUAL.name), input: '{"n":1}' } }),
+      'light',
+      { width: 300 },
     );
 
     await expect(page.locator('[data-input]')).toHaveCount(1);
@@ -256,8 +527,9 @@ test.describe('a test run', () => {
   /** No workflow is set while none can be run, and
    *  what is typed is still the extension's. */
   test('says a change to the input with no workflow set', async ({ page }) => {
-    const harness = await showList(page, runsInit());
+    const harness = await showList(page, frameInit(), 'light', { width: 300 });
 
+    await harness.show(frameInit({ testRun: byHand(undefined) }));
     await page.locator('[data-input]').fill('{}');
 
     expect(await harness.postedOfType('runInput')).toEqual([
@@ -265,537 +537,24 @@ test.describe('a test run', () => {
     ]);
   });
 
-  test('tells the extension a different workflow was picked', async ({
-    page,
-  }) => {
-    const harness = await showList(
-      page,
-      runsInit({
-        testRun: {
-          workflows: WORKFLOWS,
-          selected: 'groom_booking',
-          input: '',
-          hint: undefined,
-          problem: undefined,
-        },
-      }),
-    );
-
-    await page.locator('[data-workflow-picker]').selectOption('nightly_sync');
-
-    expect(await harness.postedOfType('selectWorkflow')).toEqual([
-      { type: 'selectWorkflow', workflow: 'nightly_sync' },
-    ]);
-  });
-
-  /** A scheduled workflow is listed so a person can
-   *  see it exists, and offers no way to run it by
-   *  hand. */
-  test('says a scheduled workflow runs on its own', async ({ page }) => {
-    await showList(
-      page,
-      runsInit({
-        testRun: {
-          workflows: WORKFLOWS,
-          selected: 'nightly_sync',
-          input: '',
-          hint: undefined,
-          problem: undefined,
-        },
-      }),
-    );
-
-    await expect(page.locator('[data-zone="test-run"]')).toContainText(
-      'runs on its schedule',
-    );
-    await expect(page.locator('[data-run-workflow]')).toHaveCount(0);
-  });
-
   test('shows the idempotency hint for the workflow now picked', async ({
     page,
   }) => {
     await showList(
       page,
-      runsInit({
+      frameInit({
         testRun: {
-          workflows: WORKFLOWS,
-          selected: 'groom_booking',
-          input: '',
+          ...byHand(MANUAL.name),
           hint: 'claimId is the idempotency key · a new value is a new run',
-          problem: undefined,
         },
       }),
+      'light',
+      { width: 300 },
     );
 
-    await expect(page.locator('[data-zone="test-run"]')).toContainText(
+    await expect(page.locator('.runs-input')).toContainText(
       'claimId is the idempotency key',
     );
-  });
-
-  test('says the app is stale and offers the same Rebuild', async ({
-    page,
-  }) => {
-    const harness = await showList(
-      page,
-      runsInit({
-        testRun: {
-          workflows: WORKFLOWS,
-          selected: 'groom_booking',
-          input: '',
-          hint: undefined,
-          problem: {
-            detail: 'The running app was built before this workflow.',
-            rebuildToRun: true,
-            workflowId: 'wf_refused',
-          },
-        },
-      }),
-    );
-
-    const problem = page.locator('[data-problem]');
-    await expect(problem).toContainText('built before this workflow');
-    await problem.locator('[data-rebuild]').click();
-
-    expect(await harness.postedOfType('stackRebuild')).toEqual([
-      { type: 'stackRebuild' },
-    ]);
-  });
-
-  test('offers no Rebuild for a problem Rebuild does not fix', async ({
-    page,
-  }) => {
-    await showList(
-      page,
-      runsInit({
-        testRun: {
-          workflows: WORKFLOWS,
-          selected: 'groom_booking',
-          input: '',
-          hint: undefined,
-          problem: {
-            detail: 'That input is not JSON, so nothing was sent.',
-            rebuildToRun: false,
-            workflowId: undefined,
-          },
-        },
-      }),
-    );
-
-    await expect(page.locator('[data-problem]')).toContainText('not JSON');
-    await expect(page.locator('[data-problem] [data-rebuild]')).toHaveCount(0);
-  });
-});
-
-test.describe('the run being followed', () => {
-  const LIVE = {
-    workflowId: 'run_1_a1b2',
-    workflow: 'groom_booking',
-    status: 'PENDING',
-    executorId: 'local-dev',
-    steps: [
-      liveStep({ name: 'find_slot', nodeId: 'find_slot' }),
-      liveStep({
-        name: 'book',
-        nodeId: 'book',
-        state: 'waiting',
-        functionId: 1,
-      }),
-    ],
-    recovered: false,
-    recoveryAttempts: 1,
-    outcome: 'running' as const,
-    error: undefined,
-    applicationVersion: 'v0.1.0',
-    createdAt: 1000,
-    startedAt: 1000,
-    completedAt: undefined,
-    input: undefined,
-    recordedInput: undefined,
-    forkedFrom: undefined,
-  };
-
-  test('marks each step with what the ledger says about it', async ({
-    page,
-  }) => {
-    await showList(page, runsInit({ live: LIVE }));
-
-    await expect(
-      page.locator('[data-zone="running-now"] [data-state="done"]'),
-    ).toContainText('find_slot');
-    await expect(
-      page.locator('[data-zone="running-now"] [data-state="waiting"]'),
-    ).toContainText('book');
-  });
-
-  /**
-   * The two ways a watch stops itself, kept apart:
-   * a parked run is waiting on a person, a quiet one
-   * is waiting on nobody.
-   */
-  test('tells a parked run apart from one that went quiet', async ({
-    page,
-  }) => {
-    await showList(page, runsInit({ live: { ...LIVE, outcome: 'waiting' } }));
-    await expect(page.locator('[data-zone="running-now"]')).toContainText(
-      'waiting · refresh to check',
-    );
-
-    await showList(page, runsInit({ live: { ...LIVE, outcome: 'quiet' } }));
-    await expect(page.locator('[data-zone="running-now"]')).toContainText(
-      'quiet · refresh to check',
-    );
-  });
-
-  test('draws nothing when no run is being followed', async ({ page }) => {
-    await showList(page, runsInit({ live: undefined }));
-
-    await expect(page.locator('[data-zone="running-now"]')).toHaveCount(0);
-  });
-
-  /**
-   * A quiet run is one the watch let go of, not one
-   * that ended: DBOS still has it `PENDING` and it
-   * can still be stopped. So all three of the
-   * stopped-and-not-stopped states offer it.
-   */
-  test('offers Cancel while a run is running, waiting or quiet', async ({
-    page,
-  }) => {
-    for (const outcome of ['running', 'waiting', 'quiet'] as const) {
-      const harness = await showList(
-        page,
-        runsInit({ live: { ...LIVE, outcome } }),
-      );
-
-      const zone = page.locator('[data-zone="running-now"]');
-      await expect(zone.locator('[data-resume-run]')).toHaveCount(0);
-      await zone.locator('[data-cancel-run]').click();
-
-      expect(await harness.postedOfType('cancelRun')).toEqual([
-        { type: 'cancelRun', workflowId: 'run_1_a1b2' },
-      ]);
-    }
-  });
-
-  test('offers Resume once it is cancelled', async ({ page }) => {
-    const harness = await showList(
-      page,
-      runsInit({
-        live: { ...LIVE, outcome: 'cancelled', status: 'CANCELLED' },
-      }),
-    );
-
-    const zone = page.locator('[data-zone="running-now"]');
-    await expect(zone.locator('[data-cancel-run]')).toHaveCount(0);
-    await zone.locator('[data-resume-run]').click();
-
-    expect(await harness.postedOfType('resumeRun')).toEqual([
-      { type: 'resumeRun', workflowId: 'run_1_a1b2' },
-    ]);
-  });
-});
-
-test.describe('this session', () => {
-  test('offers a rerun for a manual workflow', async ({ page }) => {
-    const harness = await showList(
-      page,
-      runsInit({
-        session: [
-          {
-            workflowId: 'run_1',
-            workflow: 'groom_booking',
-            outcome: 'done',
-            when: '14:02 · 8.2 s',
-            stepCount: 3,
-            recovered: false,
-            error: undefined,
-            keyed: false,
-            via: 'start',
-          },
-        ],
-      }),
-    );
-
-    const row = page.locator('[data-session-row="run_1"]');
-    await expect(row).toHaveAttribute('data-outcome', 'done');
-    await expect(row.locator('[data-rerun]')).toHaveText(
-      'Rerun with same input',
-    );
-
-    await row.locator('[data-rerun]').click();
-    expect(await harness.postedOfType('rerun')).toEqual([
-      { type: 'rerun', workflowId: 'run_1' },
-    ]);
-
-    await row.locator('[data-open-run]').click();
-    expect(await harness.postedOfType('openRun')).toEqual([
-      { type: 'openRun', workflowId: 'run_1' },
-    ]);
-  });
-
-  /** The route mints the id from the event's own key,
-   *  so sending it again is the same run — the row
-   *  says that rather than offering a rerun. */
-  test('offers to send the event again for a keyed workflow', async ({
-    page,
-  }) => {
-    await showList(
-      page,
-      runsInit({
-        session: [
-          {
-            workflowId: 'run_2',
-            workflow: 'expense_claim',
-            outcome: 'done',
-            when: '14:05',
-            stepCount: 1,
-            recovered: false,
-            error: undefined,
-            keyed: true,
-            via: 'start',
-          },
-        ],
-      }),
-    );
-
-    await expect(
-      page.locator('[data-session-row="run_2"] [data-rerun]'),
-    ).toHaveText('Send the event again');
-  });
-
-  /**
-   * A fork was never handed an input in this
-   * window: it carries the input of the run it came
-   * from, and that lives in the ledger. There is
-   * nothing here to send again, so the row does not
-   * offer to — not even for a workflow whose events
-   * are keyed, where the label would otherwise read
-   * as sending the same one twice.
-   */
-  test('offers no Rerun on a replayed row', async ({ page }) => {
-    await showList(
-      page,
-      runsInit({
-        session: [
-          {
-            workflowId: 'run_9',
-            workflow: 'expense_claim',
-            outcome: 'running',
-            when: '14:11',
-            stepCount: 1,
-            recovered: false,
-            error: undefined,
-            keyed: true,
-            via: 'replay',
-          },
-        ],
-      }),
-    );
-
-    const row = page.locator('[data-session-row="run_9"]');
-    await expect(row.locator('[data-open-run]')).toHaveCount(1);
-    await expect(row.locator('[data-rerun]')).toHaveCount(0);
-  });
-
-  test('asks the agent why, only where there is a failure to ask about', async ({
-    page,
-  }) => {
-    const harness = await showList(
-      page,
-      runsInit({
-        session: [
-          {
-            workflowId: 'run_3',
-            workflow: 'groom_booking',
-            outcome: 'failed',
-            when: '14:09',
-            stepCount: 2,
-            recovered: false,
-            error: 'CDC_PASS rotated',
-            keyed: false,
-            via: 'start',
-          },
-        ],
-      }),
-    );
-
-    const row = page.locator('[data-session-row="run_3"]');
-    await expect(row).toContainText('CDC_PASS rotated');
-    await row.locator('[data-ask-agent]').click();
-
-    expect(await harness.postedOfType('askAgent')).toEqual([
-      { type: 'askAgent', workflowId: 'run_3' },
-    ]);
-  });
-
-  test('has no Ask agent why on a run that has not failed', async ({
-    page,
-  }) => {
-    await showList(
-      page,
-      runsInit({
-        session: [
-          {
-            workflowId: 'run_4',
-            workflow: 'groom_booking',
-            outcome: 'done',
-            when: '14:11',
-            stepCount: 2,
-            recovered: false,
-            error: undefined,
-            keyed: false,
-            via: 'start',
-          },
-        ],
-      }),
-    );
-
-    await expect(
-      page.locator('[data-session-row="run_4"] [data-ask-agent]'),
-    ).toHaveCount(0);
-  });
-
-  /**
-   * A run this window started is a row here once it
-   * is written to the database, not two — one here
-   * and a second one in the plain ledger below.
-   */
-  test('draws a run only once it also has a row in the ledger', async ({
-    page,
-  }) => {
-    await showList(
-      page,
-      runsInit({
-        rows: [listRow({ workflowId: 'wf_c9d2f3' })],
-        session: [
-          {
-            workflowId: 'wf_c9d2f3',
-            workflow: 'groom_booking',
-            outcome: 'done',
-            when: '14:02 · 8.2 s',
-            stepCount: 3,
-            recovered: false,
-            error: undefined,
-            keyed: false,
-            via: 'start',
-          },
-        ],
-      }),
-    );
-
-    await expect(page.locator('[data-session-row="wf_c9d2f3"]')).toHaveCount(1);
-    await expect(page.locator('.run-list [data-run="wf_c9d2f3"]')).toHaveCount(
-      0,
-    );
-  });
-
-  /**
-   * The one row where sending the run again is not
-   * what somebody means. A cancelled run has its
-   * whole recorded history sitting in the ledger,
-   * and picking it back up carries on from there —
-   * so the row offers that instead of a second run
-   * from the top.
-   */
-  test('offers Resume in place of Rerun on a cancelled row', async ({
-    page,
-  }) => {
-    const harness = await showList(
-      page,
-      runsInit({
-        session: [
-          {
-            workflowId: 'run_5',
-            workflow: 'groom_booking',
-            outcome: 'cancelled',
-            when: '14:14 · 3.1 s',
-            stepCount: 2,
-            recovered: false,
-            error: undefined,
-            keyed: false,
-            via: 'start',
-          },
-        ],
-      }),
-    );
-
-    const row = page.locator('[data-session-row="run_5"]');
-    await expect(row).toHaveAttribute('data-outcome', 'cancelled');
-    await expect(row.locator('[data-rerun]')).toHaveCount(0);
-
-    await row.locator('[data-resume-run]').click();
-    expect(await harness.postedOfType('resumeRun')).toEqual([
-      { type: 'resumeRun', workflowId: 'run_5' },
-    ]);
-  });
-
-  /** Nobody has to look into a run somebody stopped
-   *  on purpose: there is no error, and no question
-   *  to hand over. */
-  test('offers no Ask agent on a cancelled row', async ({ page }) => {
-    await showList(
-      page,
-      runsInit({
-        session: [
-          {
-            workflowId: 'run_6',
-            workflow: 'groom_booking',
-            outcome: 'cancelled',
-            when: '14:14 · 3.1 s',
-            stepCount: 2,
-            recovered: false,
-            error: 'cancelled at find_slot',
-            keyed: false,
-            via: 'start',
-          },
-        ],
-      }),
-    );
-
-    await expect(
-      page.locator('[data-session-row="run_6"] [data-ask-agent]'),
-    ).toHaveCount(0);
-  });
-});
-
-test.describe('the footer', () => {
-  test('says where this session lives, beside the durable truth', async ({
-    page,
-  }) => {
-    await showList(page, runsInit());
-
-    await expect(page.locator('.runs-foot')).toContainText(
-      'held in the extension host for this session',
-    );
-    await expect(page.locator('.runs-foot')).toContainText(
-      'dbos.workflow_status',
-    );
-  });
-
-  /**
-   * Conductor is a licence this product does not
-   * need, so a window that has none is never told
-   * about one. The line is provenance — where runs
-   * other than these live — and belongs beside the
-   * ledger it names rather than beside Run or
-   * Rebuild.
-   */
-  test('offers Conductor only when it is configured', async ({ page }) => {
-    const harness = await showList(page, runsInit());
-
-    await expect(page.locator('[data-production="configured"]')).toHaveCount(0);
-    await expect(page.locator('[data-open-production]')).toHaveCount(0);
-
-    await harness.show(runsInit({ production: { configured: true } }));
-
-    await expect(page.locator('[data-production="configured"]')).toContainText(
-      'DBOS Conductor · configured',
-    );
-    await page.locator('[data-open-production]').click();
-
-    expect(await harness.postedOfType('openProduction')).toEqual([
-      { type: 'openProduction' },
-    ]);
   });
 });
 
@@ -829,6 +588,48 @@ function style(target: Locator, name: string): Promise<string> {
 
 function heightOf(target: Locator): Promise<number> {
   return target.evaluate((node) => node.getBoundingClientRect().height);
+}
+
+/** The four sides of a box's padding, in the order
+ *  a stylesheet writes them. */
+function padOf(target: Locator): Promise<string> {
+  return target.evaluate((node) => {
+    const css = getComputedStyle(node);
+
+    return [
+      css.paddingTop,
+      css.paddingRight,
+      css.paddingBottom,
+      css.paddingLeft,
+    ].join(' ');
+  });
+}
+
+/** Where each part of the frame starts, so a scroll
+ *  can be shown to have moved none of them. */
+function topsOf(page: Page, selectors: string[]): Promise<number[]> {
+  return page.evaluate(
+    (all) =>
+      all.map(
+        (one) => document.querySelector(one)!.getBoundingClientRect().top,
+      ),
+    selectors,
+  );
+}
+
+/** Both saved workflows, one of them picked, and
+ *  whatever was wrong with the last start. */
+function byHand(
+  selected: string | undefined,
+  problem?: TestRunProblem,
+): RunByHand {
+  return {
+    workflows: [MANUAL, SCHEDULE],
+    selected,
+    input: '',
+    hint: undefined,
+    problem,
+  };
 }
 
 /** Which action each Button in a row's action row
@@ -1758,28 +1559,6 @@ test.describe('six runs on one screen', () => {
 });
 
 test.describe('the run list', () => {
-  test('says the list is a projection of the local ledger', async ({
-    page,
-  }) => {
-    await showList(page, runsInit());
-
-    await expect(page.locator('.runs-foot')).toContainText(
-      'local only · projected from the local DBOS ledger: ' +
-        'dbos.workflow_status + dbos.operation_outputs',
-    );
-  });
-
-  /** The boundary the design draws, drawn where a
-   *  person can see it. */
-  test('says what it is reading and what it is not', async ({ page }) => {
-    await showList(page, runsInit());
-
-    await expect(page.locator('.runs-foot')).toContainText(
-      'dbos.workflow_status · localhost:5432/app',
-    );
-    await expect(page.locator('.runs-foot')).toContainText('DBOS Conductor');
-  });
-
   test('says why there is no list, when there is none', async ({ page }) => {
     await showList(
       page,
@@ -1855,18 +1634,27 @@ test.describe('the run list', () => {
  */
 test.describe('in every theme', () => {
   for (const theme of THEMES_ALL) {
-    test(`draws the list on the editor own ground in ${theme}`, async ({
+    test(`draws the list on the side bar own ground in ${theme}`, async ({
       page,
     }) => {
       const harness = await mount(page, 'runs', theme);
-      await harness.show(runsInit());
+      await harness.show(frameInit());
+
+      await expect(item(page, BY_STATE.done)).toBeVisible();
 
       const ground = await page.evaluate(
         () => getComputedStyle(document.body).backgroundColor,
       );
 
-      await expect(item(page, BY_STATE.done)).toBeVisible();
-      expect(ground).not.toBe('rgba(0, 0, 0, 0)');
+      expect(sameColour(ground, colourOf(theme, 'side-bar'))).toBe(true);
+
+      // The frame paints none of its own: the
+      // sections are full-bleed on the one ground.
+      for (const part of ['.runs-head', '[data-zone="stack"]', '.runs-foot']) {
+        expect(await style(page.locator(part), 'background-color')).toBe(
+          'rgba(0, 0, 0, 0)',
+        );
+      }
     });
   }
 });

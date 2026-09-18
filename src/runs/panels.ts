@@ -89,16 +89,14 @@ export class RunsListView implements WebviewViewProvider {
           this.store.selectRow(message.workflowId);
         }
 
-        // Open on canvas, from the list or from a row
-        // of what this session started: the run in
-        // its tab, on its graph whichever view the
-        // tab was last on.
+        // Open on canvas, from the run the list has
+        // opened out: the run in its tab, on its
+        // graph whichever view the tab was last on.
         if (message.type === 'openRun') {
           void this.see.open(message.workflowId, 'graph');
         }
 
         if (message.type === 'stackUp') void this.store.stackUp();
-        if (message.type === 'stackDown') void this.store.stackDown();
         if (message.type === 'stackRebuild') void this.store.stackRebuild();
 
         if (message.type === 'selectWorkflow') {
@@ -112,8 +110,6 @@ export class RunsListView implements WebviewViewProvider {
         if (message.type === 'runWorkflow') {
           void this.store.runWorkflow(message.workflow);
         }
-
-        if (message.type === 'rerun') void this.store.rerun(message.workflowId);
 
         // The list draws no blocks and no rows, so
         // the message names neither and the question

@@ -15,7 +15,6 @@ import { fine, when } from '../webview/time.js';
 
 import type { RecordedRunEvidence } from './evidence.js';
 import type { Run, Step } from './rows.js';
-import type { SessionRun } from './sessionLog.js';
 import {
   evidenceEcho,
   evidenceLines,
@@ -25,11 +24,9 @@ import {
   runLine,
   seeInit,
   seeTitle,
-  sessionRowOf,
   type SeeView,
 } from './view.js';
 import { runWords } from './words.js';
-import type { ProjectWorkflow } from './workflows.js';
 
 /**
  * The two init messages, as words.
@@ -68,49 +65,6 @@ function step(functionId: number, from: number, to: number): Step {
 }
 
 const STEPS = [step(0, 0, 1000), step(1, 1000, 2000), step(2, 8000, 9000)];
-
-const WORKFLOWS: ProjectWorkflow[] = [
-  {
-    name: 'groom_booking',
-    title: 'Groom booking',
-    trigger: { mode: 'manual' },
-    path: `/tmp/.mboss/workflows/groom_booking.workflow.json`,
-  },
-  {
-    name: 'expense_claim',
-    title: 'Expense claim',
-    trigger: { mode: 'event', topic: 'expense.filed', keyPath: 'claimId' },
-    path: `/tmp/.mboss/workflows/expense_claim.workflow.json`,
-  },
-  // An event workflow that names no key: every
-  // send of it is a run of its own.
-  {
-    name: 'door_opened',
-    title: 'Door opened',
-    trigger: { mode: 'event', topic: 'door.opened' },
-    path: `/tmp/.mboss/workflows/door_opened.workflow.json`,
-  },
-  // Listed so a person can see it exists; not
-  // started by hand.
-  {
-    name: 'nightly_sweep',
-    title: 'Nightly sweep',
-    trigger: { mode: 'schedule' },
-    path: `/tmp/.mboss/workflows/nightly_sweep.workflow.json`,
-  },
-];
-
-const SESSION: SessionRun = {
-  workflowId: 'run_1_a1b2',
-  workflow: 'groom_booking',
-  input: { bookingId: 7 },
-  startedAt: 0,
-  outcome: 'done',
-  durationMs: 8200,
-  stepCount: 3,
-  recovered: false,
-  via: 'start',
-};
 
 /**
  * The moment every list row below is read at.
@@ -336,93 +290,6 @@ describe('a row of the run history', () => {
         resume: card.resume,
       });
     }
-  });
-});
-
-describe('a row of what this window set going', () => {
-  it('says how long a finished run took, and nothing for one going', () => {
-    expect(sessionRowOf(SESSION, WORKFLOWS).when).toContain('8.2 s');
-    expect(
-      sessionRowOf({ ...SESSION, durationMs: undefined }, WORKFLOWS).when,
-    ).not.toContain('·');
-  });
-
-  /**
-   * Which of the two actions a row offers is a
-   * fact about the workflow's trigger rather than
-   * about the run: sending the same input again is
-   * the same run only where the route mints the id
-   * from it.
-   */
-  it('marks the rows whose input decides the run', () => {
-    expect(sessionRowOf(SESSION, WORKFLOWS).keyed).toBe(false);
-    expect(
-      sessionRowOf({ ...SESSION, workflow: 'expense_claim' }, WORKFLOWS).keyed,
-    ).toBe(true);
-
-    // An event is not enough on its own: without a
-    // key path the route mints a fresh id, so
-    // sending it again is another run.
-    expect(
-      sessionRowOf({ ...SESSION, workflow: 'door_opened' }, WORKFLOWS).keyed,
-    ).toBe(false);
-  });
-
-  /**
-   * Both actions on a session row send the input
-   * the row was started with, and a row this window
-   * did not start has none — a fork carries the
-   * input of the run it came from, which lives in
-   * the ledger. So how the run got here is what the
-   * panel draws the actions from, and the only one
-   * left on such a row is the one that opens it.
-   */
-  it('offers only Open run on a replayed session row', () => {
-    const row = sessionRowOf(
-      {
-        ...SESSION,
-        workflow: 'expense_claim',
-        input: undefined,
-        via: 'replay',
-      },
-      WORKFLOWS,
-    );
-
-    // `keyed` is a fact about the workflow's trigger
-    // and stays true for a fork of one, so `via` is
-    // the only thing that can keep Send the event
-    // again off this row.
-    expect(row.keyed).toBe(true);
-    expect(row.via).toBe('replay');
-  });
-
-  it('offers only Open run on a resumed session row', () => {
-    expect(
-      sessionRowOf({ ...SESSION, input: undefined, via: 'resume' }, WORKFLOWS)
-        .via,
-    ).toBe('resume');
-    expect(sessionRowOf(SESSION, WORKFLOWS).via).toBe('start');
-  });
-
-  /** One field, whether a step threw or the
-   *  ingress refused to start it at all. */
-  it('carries whichever failure the row has', () => {
-    expect(
-      sessionRowOf(
-        {
-          ...SESSION,
-          outcome: 'failed',
-          failedStep: { name: 'find_slot', error: 'CDC_PASS rotated' },
-        },
-        WORKFLOWS,
-      ).error,
-    ).toBe('CDC_PASS rotated');
-    expect(
-      sessionRowOf(
-        { ...SESSION, outcome: 'failed', error: 'the app is not up' },
-        WORKFLOWS,
-      ).error,
-    ).toBe('the app is not up');
   });
 });
 

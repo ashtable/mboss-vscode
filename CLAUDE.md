@@ -355,7 +355,15 @@ none of that.
   same run is read again, which of the two views is on screen, and the
   replay), `stackZone.ts` (what compose says and the three commands) and
   `testRun.ts` (the saved workflows, the chosen one and its input, starting a
-  run, the live watches, the session rows, ask-the-agent). The run input has
+  run, the live watches, ask-the-agent). What this window set going is
+  `sessionLog.ts`, host-side only: nothing of it reaches the wire, and a start
+  reads it to know which run a refusal was filed under. The Runs view is a
+  frame round one list — a header, a pinned Run row with its input and the
+  tabs, and a scrolling body — with no card of its own for the stack, a test
+  run, the run being followed or this session; a run this window started is
+  the top row of the ledger, marked and opened out. Stopping the stack is the
+  view's title action (`mboss.stopStack` → `RunsStore.stackDown`) and no
+  webview message. The run input has
   one writer: the Runs view's box posts every change (`runInput` →
   `setInput`, on its own `onInputChanged` signal so the list is not drawn
   again per keystroke), and every start — Run, a trigger's card

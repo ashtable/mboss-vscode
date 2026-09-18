@@ -66,7 +66,12 @@ export const runWords = once(
 );
 
 export const runsWords = once(() => ({
-  heading: l10n.t('Runs'),
+  heading: l10n.t('Local runs'),
+
+  /** Beside the title: whose runs these are, and
+   *  that they are this folder's rather than a
+   *  deployment's. */
+  workspace: l10n.t('{0} · this workspace'),
 
   // Whole words rather than abbreviations. The
   // panel is narrow, but an abbreviation is a
@@ -125,16 +130,12 @@ export const runsWords = once(() => ({
   untrusted: messages.runsNeedTrust(),
   noProject: messages.runsNoProject(),
   empty: messages.runsEmpty(),
-  scope: messages.runsScope(),
 
   /** What the list is: a projection over two tables
    *  in the project's own database, named so nobody
    *  reads it as a service somewhere. */
   projection: l10n.t(
-    'local only · projected from the local DBOS ledger: dbos.workflow_status + dbos.operation_outputs',
-  ),
-  sessionScope: l10n.t(
-    'held in the extension host for this session · durable truth stays in postgres: dbos.workflow_status',
+    'local only · projected from dbos.workflow_status + dbos.operation_outputs',
   ),
 
   /** Where the runs that are not these live. Drawn
@@ -143,26 +144,22 @@ export const runsWords = once(() => ({
   conductorConfigured: l10n.t('DBOS Conductor · configured'),
   openProduction: l10n.t('Open production in Conductor ↗'),
 
-  localStack: l10n.t('Local Stack'),
-  stackUp: l10n.t('Start'),
-  stackDown: l10n.t('Stop'),
-  rebuildApp: l10n.t('Rebuild'),
+  rebuildApp: l10n.t('Rebuild app'),
   serviceState: {
     running: l10n.t('running'),
     exited: l10n.t('stopped'),
     absent: l10n.t('not started'),
   } satisfies Record<ServiceHealth['state'], string>,
 
-  testRun: l10n.t('Test Run'),
-  workflow: l10n.t('Workflow'),
-  input: l10n.t('Input'),
-  runWorkflow: l10n.t('Run Workflow'),
-  runCaption: l10n.t('POST :3000 → dbos start · nothing leaves this machine'),
-  scheduledNotRunnable: l10n.t('runs on its schedule'),
+  /** One service on the line beside Run: its name,
+   *  then where it listens — or, where nothing is
+   *  listening, the word for the state it is in. */
+  servicePorts: l10n.t('{0} {1}'),
 
-  runningNow: l10n.t('Running Now'),
-  waitingRefresh: l10n.t('waiting · refresh to check'),
-  quietRefresh: l10n.t('quiet · refresh to check'),
+  workflow: l10n.t('workflow'),
+  input: l10n.t('input'),
+  run: l10n.t('Run'),
+  scheduledNotRunnable: l10n.t('runs on its schedule'),
 
   /**
    * The two controls over a run, and never both.
@@ -175,12 +172,6 @@ export const runsWords = once(() => ({
    */
   cancelRun: l10n.t('Cancel run'),
   resumeRun: l10n.t('Resume'),
-
-  thisSession: l10n.t('This Session'),
-  rerunSameInput: l10n.t('Rerun with same input'),
-  resendEvent: l10n.t('Send the event again'),
-  openRun: l10n.t('Open run'),
-  askAgentWhy: l10n.t('Ask agent why'),
 }));
 
 export const seeWords = once(() => ({

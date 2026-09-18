@@ -24,8 +24,7 @@ import type { StepState } from '../runs/reading.js';
 import type { RecordedValue, RunCounts, StepError } from '../runs/rows.js';
 import type { ServiceHealth, StackAction } from '../runs/stack.js';
 import type { QueueEvidence, QueueItem } from '../runs/queueEvidence.js';
-import type { SessionVia } from '../runs/sessionLog.js';
-import type { LiveOutcome, LiveRun } from '../runs/watch.js';
+import type { LiveRun } from '../runs/watch.js';
 import type { runsWords, seeWords } from '../runs/words.js';
 import type { WorkflowTrigger } from '../runs/workflows.js';
 import type { sidebarWords } from '../sidebar/words.js';
@@ -361,12 +360,19 @@ export type SidebarPreview =
 export type SidebarStrings = ReturnType<typeof sidebarWords>;
 
 /**
- * The run list, in the mBoss container.
+ * The run list, in the mBoss container: a frame
+ * round one list, and nothing else.
  *
  * A picture of somebody else's Postgres, which is
  * a thing that can be absent, unreachable or
  * empty — so the state comes first and the rows
  * are only meaningful under `ok`.
+ *
+ * What this window has set going is not on the
+ * wire. A run it started is a row of the ledger
+ * like any other, marked and opened out; the log
+ * of them stays on the host, where a start reads
+ * it to know whose refusal it was.
  */
 export type RunsInit = {
   type: 'init';
@@ -405,13 +411,6 @@ export type RunsInit = {
 
   /** Starting one run of a saved workflow. */
   testRun: RunByHand;
-
-  /** The run being followed, if one is. */
-  live: LiveRun | undefined;
-
-  /** What this window has set going, newest
-   *  first. */
-  session: SessionRow[];
 
   /**
    * Whether a DBOS Conductor console is configured
@@ -502,44 +501,6 @@ export type RunnableWorkflow = {
   /** The event an event workflow starts on, for a
    *  picker to say beside its name. */
   topic?: string;
-};
-
-/** One run this window started, in the words the
- *  panel draws. */
-export type SessionRow = {
-  workflowId: string;
-
-  workflow: string;
-
-  outcome: LiveOutcome;
-
-  /** `14:02 · 8.2 s`, already formatted. */
-  when: string;
-
-  stepCount: number;
-
-  recovered: boolean;
-
-  /** What it failed with — a step's error, or the
-   *  ingress refusing to start it. */
-  error: string | undefined;
-
-  /** Whether sending the same input again is the
-   *  same run, by the route's own idempotency. */
-  keyed: boolean;
-
-  /**
-   * How the run got here.
-   *
-   * Both of the row's send-it-again actions use the
-   * input the row was started with, and only a run
-   * somebody typed an input for has one — a fork or
-   * a resume carries the input of the run it came
-   * from, which lives in the ledger and never
-   * passed through this window. So anything but
-   * `start` draws the row with Open run alone.
-   */
-  via: SessionVia;
 };
 
 /**
