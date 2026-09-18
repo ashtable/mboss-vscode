@@ -1649,6 +1649,53 @@ test.describe('the run tab’s trace', () => {
   });
 
   /**
+   * One line about a row, whatever the run wrote
+   * there. A step that returned a document turned its
+   * row into a paragraph and pushed every row after
+   * it off the pane; the line is cut at its end
+   * instead, and the whole value is in the
+   * Inspector's evidence once the row is picked.
+   */
+  test('keeps a long recorded value to one line under its row', async ({
+    page,
+  }) => {
+    const value = 'x'.repeat(2000);
+
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          trace: TRACE.slice(0, 2).map((row) => ({
+            ...row,
+            detail: { ...row.detail, verbatim: value },
+          })),
+        }),
+      ),
+    );
+
+    const lines = page.locator('[data-trace-op] .trace-detail');
+    await expect(lines).toHaveCount(2);
+
+    const drawn = await lines.evaluateAll((details) =>
+      details.map((line) => ({
+        height: line.getBoundingClientRect().height,
+        leading: parseFloat(getComputedStyle(line).lineHeight),
+        cut: line.scrollWidth > line.clientWidth,
+        kept: line.querySelector('[data-verbatim]')?.textContent?.length ?? 0,
+      })),
+    );
+
+    for (const [at, line] of drawn.entries()) {
+      expect(
+        line.height,
+        `row ${at}: ${line.height}px against a ${line.leading}px line`,
+      ).toBeLessThanOrEqual(line.leading + 1);
+      expect(line.cut, `row ${at} runs past its box`).toBe(true);
+      expect(line.kept, `row ${at} keeps the whole value`).toBe(value.length);
+    }
+  });
+
+  /**
    * The row is already a button that picks the
    * operation, so the way to the run a start began
    * and the way to the SDK's rows sit beside it: a
