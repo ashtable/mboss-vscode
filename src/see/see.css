@@ -32,7 +32,18 @@
    below their words, so the row adds only a
    little of its own. The line takes whatever the
    strip and the Button leave, so the strip sits at
-   the right whatever the run is called. */
+   the right whatever the run is called.
+
+   The two ends are inset differently, and neither is
+   the step the rest of the page would reach for. The
+   start is the inset the trace below it already
+   uses, so the dot on this row and the spine under
+   it begin from one edge. The end is the gap this
+   row puts between the strip and the Button, so the
+   Button has the same air on both sides of it. A
+   single step across the row would cost one of
+   those, and neither is worth losing to make the two
+   numbers match. */
 .run-header {
   box-sizing: border-box;
   display: flex;
