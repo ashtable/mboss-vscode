@@ -68,10 +68,19 @@
 
 /* — the two views of one run — */
 
+/* Whichever view is being read, in the row the tab
+   leaves under the header. A grid of one, so the
+   height reaches the panel inside it. */
+.run-body {
+  display: grid;
+  min-height: 0;
+  min-width: 0;
+}
+
 /* The one view being read, as tall as the tab
    leaves it. A grid of one is what hands that
    height to what is inside. */
-.see > .tabpanel {
+.run-body > .tabpanel {
   display: grid;
   min-height: 0;
   min-width: 0;

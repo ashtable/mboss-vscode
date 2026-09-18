@@ -697,6 +697,41 @@ test.describe('the run tab’s panes', () => {
     expect(pane).toBeGreaterThan(0);
     expect(Math.abs(pane - tab)).toBeLessThanOrEqual(1);
   });
+
+  /**
+   * Somebody moving by landmark lands on the view
+   * itself rather than on the row of furniture above
+   * it, and each list of rows says which rows it is
+   * a list of. The trace beside the graph is a second
+   * reading of the one run rather than an aside
+   * about it, so it is no landmark of its own.
+   */
+  for (const width of [NARROW, WIDE]) {
+    for (const showing of ['graph', 'trace'] as const) {
+      test(`names the view and its lists, ${showing} at ${width}px`, async ({
+        page,
+      }) => {
+        await showRun(page, seeInit(MINTED, showing), 'light', { width });
+
+        await expect(page.locator('[data-pane]')).toHaveCount(1);
+
+        const main = page.getByRole('main');
+        await expect(main).toHaveCount(1);
+        await expect(main.locator('[role="tabpanel"]')).toHaveCount(1);
+        await expect(page.getByRole('complementary')).toHaveCount(0);
+
+        const traced = await page.locator('[data-trace]').count();
+        const apart = await page.locator('[data-unattributed]').count();
+
+        await expect(
+          page.getByRole('list', { name: seeStrings.trace }),
+        ).toHaveCount(traced);
+        await expect(
+          page.getByRole('list', { name: seeStrings.unattributed }),
+        ).toHaveCount(apart);
+      });
+    }
+  }
 });
 
 /**

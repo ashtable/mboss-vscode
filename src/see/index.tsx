@@ -134,30 +134,42 @@ function Run({
     <div className="see" data-run={run.workflowId}>
       <RunHeader run={run} strings={strings} showing={showing} />
 
-      <TabPanel
-        panel={SEE_PANE}
-        active={showing}
-        hook={{ pane: showing, showing: 'true' }}
-      >
-        {showing === 'graph' ? (
-          // The graph first and the trace to its
-          // right, so the keyboard reaches the way
-          // back to the document before the rows.
-          // The column comes and goes as the tab is
-          // resized; the graph beside it stays drawn.
-          <div className="graph-pane">
-            <RunGraph
-              graph={run.graph}
-              run={run}
-              strings={strings}
-              left={left}
-            />
-            {wide ? <aside className="trace-column">{trace}</aside> : null}
-          </div>
-        ) : (
-          <div className="trace-pane">{trace}</div>
-        )}
-      </TabPanel>
+      {/* The run itself, which is what the tab is
+          for: somebody moving by landmark skips the
+          row of furniture above it and lands here.
+          The header stays outside, because a strip
+          that switches the view is not part of it. */}
+      <main className="run-body">
+        <TabPanel
+          panel={SEE_PANE}
+          active={showing}
+          hook={{ pane: showing, showing: 'true' }}
+        >
+          {showing === 'graph' ? (
+            // The graph first and the trace to its
+            // right, so the keyboard reaches the way
+            // back to the document before the rows.
+            // The column comes and goes as the tab is
+            // resized; the graph beside it stays
+            // drawn. A column rather than an aside:
+            // the trace is the second reading of the
+            // same run, not an aside about it, and a
+            // landmark round it would announce the
+            // run twice.
+            <div className="graph-pane">
+              <RunGraph
+                graph={run.graph}
+                run={run}
+                strings={strings}
+                left={left}
+              />
+              {wide ? <div className="trace-column">{trace}</div> : null}
+            </div>
+          ) : (
+            <div className="trace-pane">{trace}</div>
+          )}
+        </TabPanel>
+      </main>
     </div>
   );
 }

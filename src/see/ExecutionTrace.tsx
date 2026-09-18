@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 
 import { postToHost } from '../webview/client.js';
 import { shortRunId } from '../webview/ids.js';
@@ -66,6 +66,12 @@ export function ExecutionTrace({
 }) {
   const { trace, unattributed, selected } = run;
 
+  // Each list is named by the label over it, so a
+  // reader meeting a list of rows out of its place
+  // is told which rows they are.
+  const named = useId();
+  const namedApart = useId();
+
   if (trace.length === 0 && unattributed.length === 0) {
     return (
       <div className="execution-trace">
@@ -83,10 +89,10 @@ export function ExecutionTrace({
 
   return (
     <div className="execution-trace">
-      <SectionLabel>{strings.trace}</SectionLabel>
+      <SectionLabel id={named}>{strings.trace}</SectionLabel>
 
       {trace.length === 0 ? null : (
-        <ol className="trace" data-trace>
+        <ol className="trace" data-trace aria-labelledby={named}>
           {trace.map((row, at) => (
             <li
               key={row.functionId}
@@ -116,9 +122,9 @@ export function ExecutionTrace({
 
       {unattributed.length === 0 ? null : (
         <section className="trace-apart" data-unattributed>
-          <SectionLabel>{strings.unattributed}</SectionLabel>
+          <SectionLabel id={namedApart}>{strings.unattributed}</SectionLabel>
 
-          <ol className="trace">
+          <ol className="trace" aria-labelledby={namedApart}>
             {unattributed.map((row) => (
               <li
                 key={row.functionId}
