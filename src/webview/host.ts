@@ -695,10 +695,9 @@ const OpenRunInput = z.object({
  * Which of the two views of one run is on screen.
  *
  * Held by the extension rather than by the frame,
- * because a view docked in the side bar is disposed
- * the moment it is hidden — a tab a person chose
- * has to survive that, and nothing a webview holds
- * does.
+ * because a hidden tab's page is thrown away —
+ * which of the two a person chose has to survive
+ * that, and nothing a webview holds does.
  */
 const SeeShow = z.object({
   type: z.literal('seeShow'),
@@ -933,7 +932,7 @@ export type Mounted<Name extends WebviewName> = {
   /**
    * Called for every `ready`, not once.
    *
-   * A view that is hidden is disposed and
+   * A view that is hidden loses its page and is
    * re-resolved when it is shown again, so a view
    * can mount many times over one session. State
    * therefore lives in the host and is pushed in

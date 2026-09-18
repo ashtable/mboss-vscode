@@ -61,8 +61,9 @@ export function activate(context: ExtensionContext): void {
   const vendor = shippedVendor(context.extensionUri.fsPath);
 
   // The agent, held here rather than by the view
-  // that draws it. A view in the activity bar is
-  // disposed the moment it is hidden, so a session
+  // that draws it. A view in the activity bar
+  // loses its page whenever it is hidden, and a
+  // person can close it altogether, so a session
   // held by the view would be a new agent process
   // every time somebody collapsed the panel.
   const panel = agentPanel(panelHost(context.workspaceState), trust);

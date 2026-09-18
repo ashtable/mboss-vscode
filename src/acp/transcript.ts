@@ -26,10 +26,10 @@ import type { PromptAbout } from './prompt.js';
  *
  * That location is the load-bearing part. The
  * panel is a view in the activity bar, and a view
- * VS Code hides is disposed and rebuilt when it is
- * shown again. A transcript held in the frame
- * would be lost the first time somebody selected a
- * node. So the extension holds it, the view is
+ * VS Code hides loses its page, rebuilt when it is
+ * shown again. A transcript held in the page would
+ * be lost the first time somebody collapsed the
+ * panel. So the extension holds it, the view is
  * handed the answer, and the view holds nothing it
  * could not be handed a second time.
  */

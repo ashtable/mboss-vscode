@@ -259,11 +259,11 @@ export type Callout = { title: string; body: string };
  * Sent again in full whenever anything moves — a
  * chunk arrives, a tool finishes, an agent is
  * chosen. The panel is a view in the activity bar,
- * which VS Code disposes the moment it is hidden,
- * so a panel that held its own transcript would
- * lose the conversation the first time somebody
- * collapsed it. Everything below is held by the
- * extension.
+ * whose page VS Code throws away whenever it is
+ * hidden, so a panel that held its own transcript
+ * would lose the conversation the first time
+ * somebody collapsed it. Everything below is held
+ * by the extension.
  */
 export type SidebarInit = {
   type: 'init';
@@ -625,8 +625,8 @@ export type SeeInit = {
   run: SeeRun | undefined;
 
   /** Which of the two views of the run is on
-   *  screen. Held by the extension, because a view
-   *  is disposed the moment it is hidden. */
+   *  screen. Held by the extension, because a
+   *  hidden tab's page is thrown away. */
   showing: 'graph' | 'trace';
 };
 

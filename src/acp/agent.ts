@@ -51,12 +51,12 @@ import type {
  *
  * One of these lives for as long as the window
  * does, outside every view. That is the point: the
- * panel is a view in the activity bar, and VS Code
- * disposes a hidden view and builds it again when
- * it is shown. A session held by the view would be
+ * panel is a view in the activity bar, which loses
+ * its page whenever it is hidden and can be closed
+ * altogether. A session held by the view would be
  * a second agent process every time somebody
- * selected a node, and a transcript held by the
- * view would be gone with it.
+ * collapsed the panel, and a transcript held by
+ * the view would be gone with it.
  *
  * So the agent starts on the first thing somebody
  * types, never on a view being resolved, and
@@ -193,13 +193,10 @@ export type AgentPanel = Agent & {
    * Called whenever anything above moves. Returns
    * the way to stop being called.
    *
-   * The view that listens is disposed and rebuilt
-   * every time it is hidden, which in this
-   * extension is every time somebody selects a
-   * block — so a listener with no way off this
-   * list would leave one dead view being repainted
-   * per selection, for as long as the window is
-   * open.
+   * The view that listens can be closed, and is
+   * disposed then, so a listener with no way off
+   * this list would leave a dead view being
+   * repainted for as long as the window is open.
    */
   onChanged(listener: () => void): Disposable;
 

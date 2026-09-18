@@ -396,12 +396,11 @@ async function waitUntil(done: () => boolean): Promise<void> {
 
 describe('the view that watches', () => {
   /**
-   * The panel outlives the view that draws it, and
-   * a hidden view is disposed and rebuilt when it
-   * is shown again — which, in this extension, is
-   * every time somebody selects a block. A
-   * listener with no way off the list would leave
-   * one dead view being repainted per selection.
+   * The panel outlives the view that draws it. The
+   * view that listens can be closed, and is
+   * disposed then, so a listener with no way off
+   * the list would leave a dead view being
+   * repainted for as long as the window is open.
    */
   it('can stop watching', () => {
     const driven = drive();

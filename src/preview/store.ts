@@ -26,9 +26,10 @@ import { canUndo, undoLast } from './undo.js';
  * Held by the extension rather than by either view,
  * for the same reason the agent's transcript is: a
  * proposal is drawn by the canvas and answered in
- * the panel, and the panel is disposed and rebuilt
- * every time somebody selects a block. Both of them
- * read from here and hold nothing.
+ * the panel, and the panel's page is thrown away
+ * whenever it is hidden. Both of them read from
+ * here and hold nothing they cannot afford to
+ * lose.
  *
  * It is a picture of the files, refreshed when they
  * change, and it never writes one except through an
