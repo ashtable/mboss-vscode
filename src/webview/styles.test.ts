@@ -617,7 +617,10 @@ describe('the stylesheets this extension ships', () => {
    * else sets a person's words in it the day that
    * element holds some. The token sheet is the one
    * place the ask is answered, so the face is
-   * spelled once.
+   * spelled once. It is defined once as well, on
+   * the root: a rule that points the token at
+   * another face reads nothing, and still moves
+   * every element that asked.
    */
   it('set the machine face only where a hook asks for it', () => {
     // The reader first: an element that asked,
@@ -639,6 +642,7 @@ describe('the stylesheets this extension ships', () => {
 
     expect(where(answered)).toContain(`${TOKENS} .mono, [data-mono]`);
     expect(where(set.filter((rule) => !answered.includes(rule)))).toEqual([]);
+    expect(where(declaredAs('--font-mono'))).toEqual([`${TOKENS} :root`]);
 
     const code = sourceFiles()
       .filter((path) => !/\.test(?:-d)?\.tsx?$/.test(path))
