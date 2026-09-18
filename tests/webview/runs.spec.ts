@@ -223,6 +223,44 @@ test.describe('the panel frame', () => {
   });
 
   /**
+   * What is listening is the first thing to check
+   * when a start goes nowhere, so the line gives way
+   * to the controls beside it but never disappears
+   * behind a long workflow title.
+   */
+  test('keeps the ports line readable beside a long workflow title', async ({
+    page,
+  }) => {
+    await showList(
+      page,
+      frameInit({
+        testRun: {
+          workflows: [
+            { ...MANUAL, title: 'Reconcile the ledgers every evening' },
+            SCHEDULE,
+          ],
+          selected: MANUAL.name,
+          input: '',
+          hint: undefined,
+          problem: undefined,
+        },
+      }),
+      'light',
+      { width: 300 },
+    );
+
+    await expect(page.locator('[data-workflow-picker]')).toHaveCount(1);
+
+    const ports = page.locator('.runs-ports');
+
+    await expect(ports.locator('[data-service]')).toHaveCount(3);
+    await expect(ports).toBeVisible();
+    expect(
+      await ports.evaluate((node) => node.getBoundingClientRect().width),
+    ).toBeGreaterThan(40);
+  });
+
+  /**
    * A project whose every saved workflow runs on a
    * schedule is the shape that sentence exists for.
    * The host picks nothing in it, so the panel has

@@ -95,17 +95,27 @@ body {
    far end of the line and cut there: it is a fact
    to glance at, and the controls beside it are
    what the line is for — so it is what gives way
-   first when the pane is too narrow for all three. */
+   first when the pane is too narrow for all three.
+   It gives way to a floor rather than to nothing:
+   nine characters is "postgres" and the ellipsis
+   after it, which still says the line is there and
+   what it starts with. */
 .runs-ports {
   flex: 0 100 auto;
   margin: 0;
   margin-inline-start: auto;
-  min-width: 0;
+  min-width: 9ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--text-xs);
   color: var(--ink-faint);
+}
+
+/* So a long workflow title is what gets cut, not
+   the line beside it. */
+.runs-run > .field-select {
+  min-width: 0;
 }
 
 .runs-input {
