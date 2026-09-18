@@ -843,6 +843,9 @@ test.describe('the tab strip every panel is switched with', () => {
     );
     const picked = edges.find((edge) => edge.picked);
     const other = edges.find((edge) => !edge.picked);
+    const ground = await page.evaluate(
+      () => getComputedStyle(document.body).backgroundColor,
+    );
 
     expect(picked).toBeDefined();
     expect(other).toBeDefined();
@@ -851,6 +854,15 @@ test.describe('the tab strip every panel is switched with', () => {
         picked!.width !== other!.width ||
         !sameColour(picked!.colour, other!.colour),
       `picked ${JSON.stringify(picked)}, other ${JSON.stringify(other)}`,
+    ).toBe(true);
+
+    // Told apart is not enough: the other edge may
+    // draw nothing at all, however it manages it.
+    expect(
+      other!.width === '0px' ||
+        ['none', 'hidden'].includes(other!.style) ||
+        sameColour(other!.colour, ground),
+      `${other!.colour} ${other!.style} ${other!.width} on ${ground}`,
     ).toBe(true);
   });
 });
