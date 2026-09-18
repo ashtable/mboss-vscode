@@ -834,6 +834,22 @@ body.vscode-high-contrast-light {
   color: var(--ink);
 }
 
+/* A theme that forces its own colours draws every
+   edge in its text colour, the clear one under a
+   tab nobody picked included, and then every tab
+   reads as picked. The system's own colours say
+   which one is: the page's ground under the rest,
+   the selection colour under the pick. */
+@media (forced-colors: active) {
+  .tab {
+    border-bottom-color: Canvas;
+  }
+
+  .tab[aria-selected='true'] {
+    border-bottom-color: Highlight;
+  }
+}
+
 /* Refused rather than removed. It keeps its place in
    the strip and in the arrow order, because a view
    taken off the page is one nobody can find out
@@ -1674,6 +1690,19 @@ button.lib-fn {
   align-self: stretch;
   width: var(--rail-w);
   background: currentColor;
+}
+
+/* A theme that forces its own colours paints every
+   ground in its one background colour, and a dot or
+   a rail is nothing but a ground: filled with the
+   page it sits on, it is gone. A system colour is
+   the one fill such a theme keeps, so a filled
+   glyph takes its text colour there. */
+@media (forced-colors: active) {
+  .status-glyph[data-glyph='dot']:not([data-hollow]),
+  .status-glyph[data-glyph='rail'] {
+    background: CanvasText;
+  }
 }
 
 .status-glyph[data-pulse] {

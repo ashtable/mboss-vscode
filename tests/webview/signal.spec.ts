@@ -12,7 +12,9 @@ import {
   openCanvas,
   openInspector,
 } from './fixtures/canvas.js';
+import { APP_DOWN, runsInit } from './fixtures/list.js';
 import { painted } from './fixtures/paint.js';
+import { GRAPH, seeInit, seeRun, TRACE } from './fixtures/runs.js';
 import { fileEntry, sidebarInit } from './fixtures/sidebar.js';
 import { mount, THEMES_ALL } from './harness.js';
 import { colourOf, ROLES, sameColour, type Role } from './palette.js';
@@ -373,7 +375,89 @@ test.describe('the glyph every state is drawn as', () => {
       }
     });
   }
+
+  /**
+   * A theme that forces its own colours paints every
+   * ground in its one background colour, and a dot
+   * or a rail is nothing but a ground: filled in the
+   * text colour it would be invisible. So a filled
+   * glyph keeps a system colour of its own there,
+   * wherever a view draws one.
+   */
+  test('keeps a filled mark visible when the system forces its colours', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+
+    const scenes = [
+      { view: 'runs', width: 300, init: runsInit() },
+      { view: 'runs', width: 300, init: APP_DOWN },
+      {
+        view: 'see',
+        width: 1280,
+        init: seeInit(seeRun({ graph: GRAPH, trace: TRACE })),
+      },
+    ] as const;
+    const read: Filled[] = [];
+
+    for (const scene of scenes) {
+      const harness = await mount(page, scene.view, 'high-contrast', {
+        width: scene.width,
+      });
+
+      await harness.show(scene.init);
+      read.push(...(await filledGlyphs(page)));
+    }
+
+    expect(new Set(read.map((glyph) => glyph.where))).toEqual(
+      new Set(['list', 'service', 'header', 'trace']),
+    );
+
+    for (const glyph of read) {
+      expect(
+        opaque(glyph.fill) && !sameColour(glyph.fill, glyph.ground),
+        `${glyph.where}: ${glyph.fill} on ${glyph.ground}`,
+      ).toBe(true);
+    }
+  });
 });
+
+/** A filled glyph, by where it is drawn, with the
+ *  colour it is filled with and the ground of the
+ *  page it sits on. */
+type Filled = { where: string; fill: string; ground: string };
+
+/** Every filled glyph on the page: the dots that are
+ *  not hollow, and the rails. */
+function filledGlyphs(page: Page): Promise<Filled[]> {
+  return page.evaluate(() => {
+    const ground = getComputedStyle(document.body).backgroundColor;
+    const shapes = document.querySelectorAll(
+      ".status-glyph[data-glyph='dot']:not([data-hollow])," +
+        " .status-glyph[data-glyph='rail']",
+    );
+
+    return [...shapes].map((glyph) => ({
+      where: glyph.closest('[data-service]')
+        ? 'service'
+        : glyph.closest('li[data-run]')
+          ? 'list'
+          : glyph.closest('.run-header')
+            ? 'header'
+            : glyph.closest('[data-trace]')
+              ? 'trace'
+              : 'elsewhere',
+      fill: getComputedStyle(glyph).backgroundColor,
+      ground,
+    }));
+  });
+}
+
+/** A computed colour with no alpha written in it,
+ *  which is how Chromium spells an opaque one. */
+function opaque(colour: string): boolean {
+  return colour.startsWith('rgb(') && !colour.includes('/');
+}
 
 /**
  * One Button that answers and one that refuses,
@@ -699,6 +783,52 @@ test.describe('the tab strip every panel is switched with', () => {
       }
     });
   }
+
+  /**
+   * The picked tab is told apart by the line under
+   * it, and a theme that forces its own colours
+   * draws every edge a tab has, the clear ones
+   * included, in its one text colour. The line under
+   * the tab nobody picked has to go on saying
+   * nothing there.
+   */
+  test('marks the picked tab apart when the system forces its colours', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+
+    const harness = await mount(page, 'see', 'high-contrast', { width: 1280 });
+
+    await harness.show(seeInit(seeRun({ graph: GRAPH, trace: TRACE })));
+
+    const tabs = page.getByRole('tab');
+
+    await expect(tabs).toHaveCount(2);
+
+    const edges = await tabs.evaluateAll((all) =>
+      all.map((tab) => {
+        const style = getComputedStyle(tab);
+
+        return {
+          picked: tab.getAttribute('aria-selected') === 'true',
+          style: style.borderBottomStyle,
+          width: style.borderBottomWidth,
+          colour: style.borderBottomColor,
+        };
+      }),
+    );
+    const picked = edges.find((edge) => edge.picked);
+    const other = edges.find((edge) => !edge.picked);
+
+    expect(picked).toBeDefined();
+    expect(other).toBeDefined();
+    expect(
+      picked!.style !== other!.style ||
+        picked!.width !== other!.width ||
+        !sameColour(picked!.colour, other!.colour),
+      `picked ${JSON.stringify(picked)}, other ${JSON.stringify(other)}`,
+    ).toBe(true);
+  });
 });
 
 /**
