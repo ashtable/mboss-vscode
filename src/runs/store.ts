@@ -16,15 +16,15 @@ import type {
 } from '../webview/protocol.js';
 
 import type { OpenDatabase, OpenManagement } from './db.js';
-import { systemDatabaseUrl } from './env.js';
 import type { AskAgent } from './evidence.js';
 import { following } from './following.js';
 import { changedFiles } from './freshness.js';
 import type { ProjectSdk } from './sdk.js';
 import { runHistory } from './history.js';
+import { projectLedger } from './ledger.js';
 import { openRunZone } from './openRun.js';
 import { queueEvidenceOf, type QueueEvidence } from './queueEvidence.js';
-import { runQuery, stepsQuery, type RunFilter } from './queries.js';
+import type { RunFilter } from './queries.js';
 import {
   offerReplay,
   replayStartRefusal,
@@ -33,15 +33,7 @@ import {
   type ReplayPick,
   type ReplayQuestion,
 } from './replayZone.js';
-import {
-  toRun,
-  toStep,
-  type OperationOutputRow,
-  type Run,
-  type RunInput,
-  type Step,
-  type WorkflowStatusRow,
-} from './rows.js';
+import type { RunInput } from './rows.js';
 import type { RunStarter } from './runner.js';
 import type { SessionLog } from './sessionLog.js';
 import type { StackController } from './stack.js';
@@ -78,13 +70,15 @@ export const CONDUCTOR_DOCS_URL = 'https://docs.dbos.dev/production/conductor';
  * so does the canvas, which draws the run it is
  * about.
  *
- * Three things are held, and they share almost
- * nothing: the run history read out of the
- * project's Postgres, the local stack as compose
- * reports it, and what this window set going. Each
- * is a module of its own with its own slots and its
- * own change signal — `history.ts`, `stackZone.ts`,
- * `testRun.ts` — and this is where the three are
+ * Five things are held, and they share almost
+ * nothing: the project's ledger as this window
+ * reads it, the page of run history read out of it,
+ * the run somebody has open, the local stack as
+ * compose reports it, and what this window set
+ * going. Each is a module of its own with its own
+ * slots and its own change signal — `ledger.ts`,
+ * `history.ts`, `openRun.ts`, `stackZone.ts`,
+ * `testRun.ts` — and this is where they are
  * introduced to each other and composed into the
  * one picture the panel draws. The verbs here are
  * the panels', the commands' and the canvas', which
@@ -451,6 +445,24 @@ export type RunsStore = Disposable & {
 
 export function runsStore(deps: RunsDeps): RunsStore {
   /**
+   * The project's database, as every zone that
+   * reads one reads it.
+   *
+   * Built first because it depends on nothing and
+   * everything that reads a run depends on it: the
+   * list reads its page through this, the run page
+   * reads the run it is showing, the replay and the
+   * two controls write to the address it gives out,
+   * and a watch takes that address to open one of
+   * its own.
+   */
+  const ledger = projectLedger({
+    host: deps.host,
+    trust: deps.trust,
+    open: deps.open,
+  });
+
+  /**
    * The one owner of every watch this window arms,
    * built before the zones that use it.
    *
@@ -464,7 +476,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
   const follow = following({
     open: deps.open,
     watch: deps.watch,
-    ledger: () => history.ledger(),
+    // Quietly: a project with no connection string
+    // is a reason not to arm a watch, and no reason
+    // for the list to change what it says.
+    ledger: () => ledger.quietly()?.url,
     document: (name) => {
       const dir = project();
 
@@ -487,20 +502,21 @@ export function runsStore(deps: RunsDeps): RunsStore {
   const history = runHistory({
     host: deps.host,
     trust: deps.trust,
-    open: deps.open,
+    ledger,
     openManagement: deps.openManagement,
     projectSdk: deps.projectSdk,
   });
 
-  // The run page reads the same ledger, and borrows
-  // the connection rather than opening one of its
-  // own — what a read learns about somebody's
-  // database is the list's to say.
+  // The run page reads the same ledger as the list,
+  // loudly: what a read learns about somebody's
+  // database is a fact about the project rather than
+  // about the run being read, and it lands under the
+  // list whoever asked for it.
   const openRun = openRunZone({
     projectSdk: deps.projectSdk,
     following: follow,
     project: () => deps.host.projects()[0],
-    ledger: history,
+    ledger,
     // Asked as the page is drawn rather than as the
     // run is read, so a run cancelled from here
     // while it is open says so without a re-read.
@@ -519,19 +535,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
     sessionLog: deps.sessionLog,
     following: follow,
     open: deps.open,
-    // Read here rather than borrowed from the list:
-    // the list's own connection verb records what it
-    // learned in what the panel draws, and asking
+    // Quietly, and a connection of its own: asking
     // the agent about a run is no reason for the
     // list to change what it says.
-    ledger: () => {
-      const dir = project();
-      if (dir === undefined || !deps.trust.isTrusted()) return undefined;
-
-      const found = systemDatabaseUrl(dir);
-
-      return found.ok ? { url: found.url, from: found.from } : undefined;
-    },
+    ledger: ledger.quietly,
     document: (name) => {
       const dir = project();
 
@@ -549,10 +556,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
     },
   });
 
-  // One signal for the three, since every reader
+  // One signal for the five, since every reader
   // draws all of them at once.
   const changes = emitter();
-  const followed = [history, openRun, stack, testRun].map((zone) =>
+  const followed = [ledger, history, openRun, stack, testRun].map((zone) =>
     zone.onChanged(changes.fire),
   );
 
@@ -656,10 +663,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
    * Until then the view draws its header alone,
    * because every other state is a claim about
    * something read and would be replaced a moment
-   * later. Held here rather than by the history,
-   * because the run page borrows the history's
-   * read, and a run opened before the list was
-   * shown is no answer about the stack.
+   * later. Held here rather than by the ledger,
+   * because the run page reads the same ledger, and
+   * a run opened before the list was shown is no
+   * answer about the stack.
    */
   let loaded = false;
 
@@ -711,38 +718,6 @@ export function runsStore(deps: RunsDeps): RunsStore {
   };
 
   /**
-   * The same run with every row it wrote, which is
-   * what deciding a replay is asked of.
-   *
-   * Read again rather than taken from whatever the
-   * page is showing: a replay is offered from the
-   * list and from a canvas as well, and neither of
-   * those has read a run's rows at all.
-   */
-  const ledgerFor = async (
-    workflowId: string,
-  ): Promise<{ run: Run; steps: Step[] } | undefined> => {
-    const url = history.connection();
-    if (url === undefined) return undefined;
-
-    return await history.read(url, async (db) => {
-      const one = runQuery(workflowId);
-      const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
-      const row = rows[0];
-      if (row === undefined) return undefined;
-
-      const steps = stepsQuery(workflowId);
-
-      return {
-        run: toRun(row),
-        steps: (
-          await db.query<OperationOutputRow>(steps.text, steps.values)
-        ).map(toStep),
-      };
-    });
-  };
-
-  /**
    * Everything deciding a replay reads and does,
    * assembled once.
    *
@@ -755,7 +730,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
    */
   const replayDeps: ReplayDeps = {
     project,
-    connection: () => history.connection(),
+    // The address, quietly: a fork writes through it
+    // rather than reading from it, and the list says
+    // why there is none the next time it is drawn.
+    connection: () => ledger.quietly()?.url,
     openManagement: deps.openManagement,
     document: async (name) => {
       const dir = project();
@@ -789,7 +767,11 @@ export function runsStore(deps: RunsDeps): RunsStore {
     // workspace trust exists to make.
     if (!deps.trust.isTrusted()) return;
 
-    const found = await ledgerFor(workflowId);
+    // Read again rather than taken from whatever the
+    // page is showing: a replay is offered from the
+    // list and from a canvas as well, and neither of
+    // those has read a run's rows at all.
+    const found = await ledger.rowsOf(workflowId);
     if (found === undefined) return;
 
     const outcome = await offerReplay(
@@ -818,15 +800,16 @@ export function runsStore(deps: RunsDeps): RunsStore {
   return {
     list: () => {
       const dir = project();
-      const read = history.render();
+      const said = ledger.render();
 
       return {
         type: 'init',
         view: 'runs',
         strings: runsWords(),
         project: dir === undefined ? undefined : basename(dir),
-        ...read,
-        state: loaded ? read.state : 'loading',
+        ...said,
+        ...history.render(),
+        state: loaded ? said.state : 'loading',
         stack: stack.render(),
         ...testRun.render(),
         // Whether, not where: the address stays on
@@ -895,7 +878,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
      * would be an answer nobody could check.
      */
     inspectQueue: async (workflowId, nodeId) => {
-      const url = history.ledger();
+      const url = ledger.quietly()?.url;
       const run = runNamed(workflowId);
       const dir = project();
       if (url === undefined || run === undefined || dir === undefined) return;
@@ -1002,7 +985,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
       const dir = project();
       if (dir === undefined) return;
 
-      const found = await history.runOf(workflowId);
+      const found = await ledger.runOf(workflowId);
       if (found === undefined) return;
 
       const saved = projectWorkflows(dir).find(
@@ -1059,6 +1042,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
       // told about a run while it is being taken
       // apart.
       follow.dispose();
+      ledger.dispose();
       history.dispose();
       openRun.dispose();
       stack.dispose();

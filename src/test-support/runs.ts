@@ -30,14 +30,21 @@ import type {
  * The runs panel's collaborators, faked one at a
  * time.
  *
- * The store is three zones behind one façade, and
+ * The store is five zones behind one façade, and
  * each zone's spec builds only the collaborators
- * that zone reaches: the history a database and a
- * fork client, the stack zone a compose controller,
- * the test run an ingress, a watch and a session
- * log. These are those, shared so that a project
- * with a `.env` and three saved workflows reads the
- * same in every spec.
+ * that zone reaches: the ledger a database, the
+ * history that ledger and a fork client, the stack
+ * zone a compose controller, the test run an
+ * ingress, a watch and a session log. These are
+ * those, shared so that a project with a `.env` and
+ * three saved workflows reads the same in every
+ * spec.
+ *
+ * Playwright specs import this file, so nothing
+ * here may value-import a module whose graph
+ * reaches `vscode` — which is why a builder for a
+ * zone that says sentences lives in that zone's own
+ * spec rather than here.
  */
 
 export const RUN_ROW = {

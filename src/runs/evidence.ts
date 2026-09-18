@@ -10,19 +10,15 @@ import {
 
 import type { Database, OpenDatabase } from './db.js';
 import { describeDatabase, type EnvName } from './env.js';
-import { runQuery, stepsQuery } from './queries.js';
+import { runRowsById, type LedgerAddress } from './ledger.js';
 import { readRun, type Operation } from './reading.js';
 import {
   hasRecovered,
   stepError,
-  toRun,
-  toStep,
-  type OperationOutputRow,
-  type Run,
   type RunInput,
+  type Run,
   type Step,
   type StepError,
-  type WorkflowStatusRow,
 } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
 
@@ -306,7 +302,7 @@ export type EvidenceDeps = {
  */
 export async function assembleRunEvidence(
   deps: EvidenceDeps,
-  ledger: { url: string; from: EnvName },
+  ledger: LedgerAddress,
   ask: AskAgent,
 ): Promise<RunEvidenceRead> {
   const found = await ledgerRead(deps.open, ledger.url, ask.workflowId);
@@ -429,20 +425,9 @@ async function ledgerRead(
   try {
     db = await open(url);
 
-    const one = runQuery(workflowId);
-    const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
-    const row = rows[0];
-    if (row === undefined) return { at: 'absent' };
+    const found = await runRowsById(db, workflowId);
 
-    const recorded = stepsQuery(workflowId);
-
-    return {
-      at: 'read',
-      run: toRun(row),
-      steps: (
-        await db.query<OperationOutputRow>(recorded.text, recorded.values)
-      ).map(toStep),
-    };
+    return found === undefined ? { at: 'absent' } : { at: 'read', ...found };
   } catch {
     return { at: 'unreachable' };
   } finally {

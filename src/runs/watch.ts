@@ -2,7 +2,8 @@ import type { WorkflowIR } from '../core/rules.js';
 import { inFlight, type RunWord } from '../webview/states.js';
 
 import type { Database, OpenDatabase } from './db.js';
-import { queueCountsQuery, runQuery, stepsQuery } from './queries.js';
+import { runRowsById, type RunRows } from './ledger.js';
+import { queueCountsQuery } from './queries.js';
 import {
   drawnUnder,
   readRun,
@@ -11,14 +12,9 @@ import {
 } from './reading.js';
 import {
   hasRecovered,
-  toRun,
-  toStep,
   type BigIntColumn,
-  type OperationOutputRow,
   type Run,
   type RunInput,
-  type Step,
-  type WorkflowStatusRow,
 } from './rows.js';
 
 export type { SourceFrame, StepError } from './rows.js';
@@ -169,7 +165,7 @@ export type LiveRun = {
  *  run made of them so nothing has to ask the
  *  database again for what is already in hand, nor
  *  read the rows a second time at a second clock. */
-export type LedgerRead = { run: Run; steps: Step[]; operations: Operation[] };
+export type LedgerRead = RunRows & { operations: Operation[] };
 
 export type RunWatcher = { stop(): void };
 
@@ -322,24 +318,14 @@ export function watchRun(
     if (database === undefined) return undefined;
 
     try {
-      const one = runQuery(workflowId);
-      const rows = await database.query<WorkflowStatusRow>(
-        one.text,
-        one.values,
-      );
-      const row = rows[0];
+      const found = await runRowsById(database, workflowId);
 
       // Not written yet. A manual run is recorded
       // under an id this side minted, so the panel
       // knows about it before the app does.
-      if (row === undefined) return undefined;
+      if (found === undefined) return undefined;
 
-      const steps = stepsQuery(workflowId);
-      const recorded = (
-        await database.query<OperationOutputRow>(steps.text, steps.values)
-      ).map(toStep);
-
-      const run = toRun(row);
+      const { run, steps: recorded } = found;
       recovered = recovered || hasRecovered(run);
 
       const queues = await queueCountsOn(database);

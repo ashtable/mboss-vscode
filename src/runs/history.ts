@@ -5,9 +5,9 @@ import type { Trust } from '../trust.js';
 import { messages } from '../messages.js';
 import type { RunsInit } from '../webview/protocol.js';
 
-import type { Database, OpenDatabase, OpenManagement } from './db.js';
-import { describeDatabase, systemDatabaseUrl } from './env.js';
+import type { OpenManagement } from './db.js';
 import { detailOf } from './failure.js';
+import type { Ledger } from './ledger.js';
 import {
   FINISHED,
   cancelRun,
@@ -16,13 +16,7 @@ import {
   type ManagementClient,
   type Resume,
 } from './manage.js';
-import {
-  MAX_RUNS,
-  countsQuery,
-  runQuery,
-  runsQuery,
-  type RunFilter,
-} from './queries.js';
+import { MAX_RUNS, countsQuery, runsQuery, type RunFilter } from './queries.js';
 import {
   toCounts,
   toRun,
@@ -37,36 +31,30 @@ import { rowOf } from './view.js';
 /**
  * A project's run history, as the window holds it.
  *
- * What the ledger says about the project: the rows
- * the list draws and the three counts above them.
- * The run somebody has open is a second question,
- * asked of the same ledger by `openRun.ts`, which
- * borrows the connection from here. Nothing is read
- * on a schedule. A
- * database is somebody else's, and an editor
- * polling one all afternoon to notice a run that
- * finished is a cost the person did not ask for —
- * so the list is read when it is shown, when the
- * filter changes, and when somebody asks for it
- * again.
+ * One page of the ledger: the rows the list draws
+ * and the three counts above them. Whether that
+ * ledger can be read at all is `ledger.ts`'s to say
+ * and `ledger.ts`'s to draw — this used to own the
+ * connection and lend it out, which made "the
+ * database refused" a member of the zone that draws
+ * a page of rows and left the run page borrowing
+ * one.
  *
- * Whether the ledger can be read at all — no
- * project, no trust, no `.env`, no `DATABASE_URL`,
- * a database that will not answer — is this
- * module's state and this module's sentence. The
- * connection string is also offered quietly, to
- * whoever arms a watch on a run: a project with no
- * connection string is a reason not to arm one,
- * never a reason to replace the list somebody is
- * looking at with a sentence about it.
+ * Nothing is read on a schedule. A database is
+ * somebody else's, and an editor polling one all
+ * afternoon to notice a run that finished is a cost
+ * the person did not ask for — so the list is read
+ * when it is shown, when the filter changes, and
+ * when somebody asks for it again.
  *
- * The two controls a person has over a run live here
- * too, and by id. Running Now names the run this
- * window is watching and a session row names one it
- * started, and neither of those is necessarily the
- * run the run page has open — so the zone that owns
- * the list, and the by-id read every caller already
- * goes through, is where they belong.
+ * The two controls a person has over a run live
+ * here too, and by id. Running Now names the run
+ * this window is watching and a session row names
+ * one it started, and neither of those is
+ * necessarily the run the run page has open — so
+ * the zone that owns the list, which every one of
+ * those surfaces is drawn beside, is where they
+ * belong.
  *
  * So does the row the list has marked. It is the
  * list's own and not the run somebody has open in
@@ -86,10 +74,23 @@ export type HistoryHost = {
   locale(): string;
 };
 
+/**
+ * The ledger, as the list reads it.
+ *
+ * Four of its verbs and not its own zone: what the
+ * database last said is drawn beside this page
+ * rather than by it, and the signal that says so is
+ * the ledger's to fire.
+ */
+export type ListLedger = Pick<
+  Ledger,
+  'quietly' | 'read' | 'runOf' | 'answered'
+>;
+
 export type HistoryDeps = {
   host: HistoryHost;
   trust: Trust;
-  open: OpenDatabase;
+  ledger: ListLedger;
 
   /** The one door the two controls write through.
    *  Opened per control and closed by the adapter
@@ -120,39 +121,10 @@ export type Controlled = { at: 'asked'; run: Run } | { at: 'nothing' };
 /** What the list draws of the history. */
 export type HistoryZone = Pick<
   RunsInit,
-  'state' | 'detail' | 'source' | 'filter' | 'counts' | 'rows' | 'selected'
+  'filter' | 'counts' | 'rows' | 'selected'
 >;
 
 export type History = Disposable & {
-  /** The connection string, quietly: nothing said
-   *  and nothing changed when there is none. This is
-   *  what whoever arms a watch takes. */
-  ledger(): string | undefined;
-
-  /**
-   * The connection string, and this zone told what
-   * it learned about the database while answering.
-   *
-   * Lent to the run page, which reads the same
-   * ledger: whether somebody's database can be
-   * reached is a fact about the project rather than
-   * about the run being read, and this is the zone
-   * that says it.
-   */
-  connection(): string | undefined;
-
-  /** Opens, reads, and closes again — noting whether
-   *  the database answered. Lent for the same
-   *  reason. */
-  read<Value>(
-    url: string,
-    take: (db: Database) => Promise<Value>,
-  ): Promise<Value | undefined>;
-
-  /** One run of this project's ledger, by the id on
-   *  its row. */
-  runOf(workflowId: string): Promise<Run | undefined>;
-
   /** Stops a run, and says what the row said
    *  afterwards. */
   cancel(workflowId: string): Promise<Controlled>;
@@ -203,13 +175,14 @@ export type History = Disposable & {
 
 const EMPTY: RunCounts = { all: 0, active: 0, failed: 0 };
 
+/** One page of the ledger: the rows and the three
+ *  counts above them, read together. */
+type Page = { runs: Run[]; counts: RunCounts };
+
 export function runHistory(deps: HistoryDeps): History {
   const changes = emitter();
 
   let filter: RunFilter = 'all';
-  let state: RunsInit['state'] = 'no-project';
-  let detail: string | undefined;
-  let database: string | undefined;
   let runs: Run[] = [];
   let counts: RunCounts = EMPTY;
   let selected: string | undefined;
@@ -223,87 +196,21 @@ export function runHistory(deps: HistoryDeps): History {
 
   const project = (): string | undefined => deps.host.projects()[0];
 
-  /**
-   * The connection string, or the reason there is
-   * none — which is what the panel shows in place
-   * of a list.
-   */
-  const connection = (): string | undefined => {
-    const dir = project();
-
-    if (dir === undefined) {
-      state = 'no-project';
-
-      return undefined;
-    }
-
-    if (!deps.trust.isTrusted()) {
-      state = 'untrusted';
-
-      return undefined;
-    }
-
-    const found = systemDatabaseUrl(dir);
-
-    // A file to fix. Starting the stack would not
-    // write it, which is what sets this apart from
-    // a database that would not answer.
-    if (!found.ok) {
-      state = 'no-database';
-      detail =
-        found.because === 'no-env-file'
-          ? messages.runsNoEnvFile(found.path)
-          : messages.runsNoDatabaseUrl(found.path);
-
-      return undefined;
-    }
-
-    database = describeDatabase(found.url);
-
-    return found.url;
-  };
-
-  const ledger = (): string | undefined => {
-    const dir = project();
-    if (dir === undefined || !deps.trust.isTrusted()) return undefined;
-
-    const found = systemDatabaseUrl(dir);
-
-    return found.ok ? found.url : undefined;
-  };
-
-  /** Opens, reads, and closes again — whatever the
-   *  read did. */
-  const read = async <Value>(
-    url: string,
-    take: (db: Database) => Promise<Value>,
-  ): Promise<Value | undefined> => {
-    let db: Database | undefined;
-
-    try {
-      db = await deps.open(url);
-      const value = await take(db);
-
-      state = 'ok';
-      detail = undefined;
-
-      return value;
-    } catch (cause) {
-      state = 'unreachable';
-      detail = messages.runsUnreachable(detailOf(cause));
-
-      return undefined;
-    } finally {
-      await db?.close().catch(() => undefined);
-    }
-  };
-
   /** The marked run where the page still holds it,
    *  else the newest, else none. */
   const settleSelection = (): void => {
     if (runs.some((run) => run.workflowId === selected)) return;
 
     selected = runs[0]?.workflowId;
+  };
+
+  /** A page, drawn from here on — or nothing, which
+   *  is the empty page a read that did not happen
+   *  leaves behind. */
+  const land = (page: Page | undefined): void => {
+    runs = page?.runs ?? [];
+    counts = page?.counts ?? EMPTY;
+    settleSelection();
   };
 
   /** Which list read is the newest. A read takes
@@ -331,55 +238,55 @@ export function runHistory(deps: HistoryDeps): History {
    * from, and settle the mark against that page.
    *
    * What the read learned about the database itself
-   * lands whenever it lands. `read` writes that
-   * sentence, and the run page borrows `read`, so
-   * the list is not the only asker: a refusal is a
-   * fact about somebody's database rather than about
-   * the page that happened to ask for it, and
-   * ordering the list's alone would leave the two
-   * askers contradicting each other.
+   * lands whenever it lands. The ledger writes that
+   * sentence, and the run page reads the same
+   * ledger, so the list is not the only asker: a
+   * refusal is a fact about somebody's database
+   * rather than about the page that happened to ask
+   * for it, and ordering the list's alone would
+   * leave the two askers contradicting each other.
+   *
+   * Which is why a page that was read lands inside
+   * the read rather than after it. The ledger says
+   * the database answered as the read returns, and
+   * whoever that wakes draws both zones at once: a
+   * page landed afterwards would be drawn as an
+   * answering database with the rows from before it
+   * answered — none, for a database that had been
+   * refusing, which is the card saying the project
+   * has never run anything.
    */
   const readRuns = async (): Promise<void> => {
     latestRead += 1;
     const mine = latestRead;
-    const url = connection();
 
-    const page =
-      url === undefined
-        ? undefined
-        : await read(url, async (db) => {
-            const list = runsQuery(filter, MAX_RUNS);
-            const totals = countsQuery();
+    const page = await deps.ledger.read(async (db) => {
+      const list = runsQuery(filter, MAX_RUNS);
+      const totals = countsQuery();
 
-            return {
-              runs: (
-                await db.query<WorkflowStatusRow>(list.text, list.values)
-              ).map(toRun),
-              counts: toCounts(
-                (await db.query<CountsRow>(totals.text, totals.values))[0],
-              ),
-            };
-          });
+      const read: Page = {
+        runs: (await db.query<WorkflowStatusRow>(list.text, list.values)).map(
+          toRun,
+        ),
+        counts: toCounts(
+          (await db.query<CountsRow>(totals.text, totals.values))[0],
+        ),
+      };
+
+      if (mine === latestRead) land(read);
+
+      return read;
+    });
 
     if (mine !== latestRead) return;
 
-    runs = page?.runs ?? [];
-    counts = page?.counts ?? EMPTY;
-    settleSelection();
+    // The two ways a read does not answer, both of
+    // which empty the page. Neither of them draws a
+    // row, so landing these after the ledger has
+    // spoken costs nothing.
+    if (page === undefined) land(undefined);
 
     changed();
-  };
-
-  const runOf = async (workflowId: string): Promise<Run | undefined> => {
-    const url = connection();
-    if (url === undefined) return undefined;
-
-    return await read(url, async (db) => {
-      const one = runQuery(workflowId);
-      const row = (await db.query<WorkflowStatusRow>(one.text, one.values))[0];
-
-      return row === undefined ? undefined : toRun(row);
-    });
   };
 
   /**
@@ -420,25 +327,30 @@ export function runHistory(deps: HistoryDeps): History {
       }
     }
 
-    const url = connection();
+    // Quietly, because a control writes through this
+    // address rather than reading from it, and the
+    // list says why there is none the next time it
+    // is drawn.
+    const url = deps.ledger.quietly()?.url;
 
-    // The list says why there is no connection the
-    // next time it is drawn; a control has nothing
-    // to add to that.
+    // A control has nothing to add to that sentence,
+    // but the row it was clicked on is drawn again.
     if (url === undefined) {
       changed();
 
       return undefined;
     }
 
-    const run = await runOf(workflowId);
+    const run = await deps.ledger.runOf(workflowId);
 
     if (run === undefined) {
       // A read that did not happen has already put
       // its own sentence under the list. This one is
       // about a run the ledger answered about and
       // does not have.
-      if (state === 'ok') deps.host.say(messages.runNotFound(workflowId));
+      if (deps.ledger.answered()) {
+        deps.host.say(messages.runNotFound(workflowId));
+      }
 
       changed();
 
@@ -495,7 +407,7 @@ export function runHistory(deps: HistoryDeps): History {
     // The statement reports nothing about itself and
     // cancelling is not an interrupt, so the row is
     // the only witness to what actually happened.
-    const after = await runOf(workflowId);
+    const after = await deps.ledger.runOf(workflowId);
 
     if (after?.status === 'CANCELLED') {
       cancelledHere.add(workflowId);
@@ -536,7 +448,7 @@ export function runHistory(deps: HistoryDeps): History {
       return { at: 'nothing' };
     }
 
-    const after = await runOf(workflowId);
+    const after = await deps.ledger.runOf(workflowId);
     const run = after ?? ready.run;
 
     // Resume leaves the run's own version exactly
@@ -560,10 +472,6 @@ export function runHistory(deps: HistoryDeps): History {
   };
 
   return {
-    ledger,
-    connection,
-    read,
-    runOf,
     cancel,
     resume,
     cancelledHere: () => cancelledHere,
@@ -596,10 +504,6 @@ export function runHistory(deps: HistoryDeps): History {
       const locale = deps.host.locale();
 
       return {
-        state,
-        detail,
-        source:
-          database === undefined ? undefined : messages.runsSource(database),
         filter,
         counts,
         rows: runs.map((run) => rowOf(run, runs, now, locale)),

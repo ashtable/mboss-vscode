@@ -14,30 +14,29 @@ import {
   host,
   liveRun,
   liveStep,
-  management,
   project,
   watcher,
 } from '../test-support/runs.js';
 import type { Trust } from '../trust.js';
 
 import { following, type Following } from './following.js';
-import { runHistory } from './history.js';
+import { projectLedger, type Ledger } from './ledger.js';
 import { openRunZone, type OpenRun, type OpenRunDeps } from './openRun.js';
 import type { RunsHost } from './store.js';
 
 /**
  * The run somebody has open.
  *
- * Driven against a database double and a real
- * history beside it, because the two are genuinely
- * coupled: the page reads the same ledger the list
- * does, and what a read learns about somebody's
- * database is the list's to say. Asked through
- * `see()` rather than through the record behind it,
- * so what is checked is what the panel would draw —
- * the assembly and the projection together, which is
- * where the one bug this page has had actually
- * lived.
+ * Driven against a database double and the real
+ * ledger over it, because the page reads the
+ * project's ledger loudly: what a read learns about
+ * somebody's database is a fact about the project,
+ * and lands under the list as well as on this page.
+ * Asked through `see()` rather than through the
+ * record behind it, so what is checked is what the
+ * panel would draw — the assembly and the projection
+ * together, which is where the one bug this page has
+ * had actually lived.
  */
 
 /** The database double, with the rows and steps a
@@ -62,35 +61,33 @@ function follows(watch = watcher()): {
   };
 }
 
-/** A page over one project, reading that database,
- *  with the list it borrows its connection from. */
+/** A page over one project, reading that database
+ *  through the ledger it shares with the list. */
 function page(
   db: Fake,
   over: Partial<OpenRunDeps> & { host?: RunsHost; trust?: Trust } = {},
-): { open: OpenRun; list: ReturnType<typeof runHistory> } {
+): { open: OpenRun; ledger: Ledger } {
   const editor = over.host ?? host({ projects: () => [project()] });
   const trust = over.trust ?? fakeTrust();
 
-  const list = runHistory({
+  const ledger = projectLedger({
     host: editor,
     trust,
     open: async () => db,
-    openManagement: async () => management(),
-    projectSdk: () => ({ ok: true, version: '4.27.6' }),
   });
 
   const open = openRunZone({
     projectSdk: () => ({ ok: true, version: '4.27.6' }),
     following: follows().held,
     project: () => editor.projects()[0],
-    ledger: list,
+    ledger,
     // Nothing in this window has cancelled anything
     // unless a case says otherwise.
     cancelledHere: () => false,
     ...over,
   });
 
-  return { open, list };
+  return { open, ledger };
 }
 
 /** A project with one saved document written whole
@@ -191,21 +188,21 @@ describe('reading a run', () => {
 
   /**
    * The other absence: the page keeps what it had
-   * rather than blanking on a hiccup — and the list
-   * beside it says the database stopped answering,
+   * rather than blanking on a hiccup — and the
+   * ledger says the database stopped answering,
    * because that is a fact about the project rather
-   * than about this run.
+   * than about this run, and the list draws it.
    */
-  it('keeps the page when the database stops answering, and the list says so', async () => {
+  it('keeps the page when the database stops answering, and the ledger says so', async () => {
     const db = database();
-    const { open, list } = page(db);
+    const { open, ledger } = page(db);
 
     await open.open('wf_c9d2f3');
     db.fail = 'ECONNREFUSED';
     await open.open('wf_c9d2f3');
 
     expect(open.see().run?.workflowId).toBe('wf_c9d2f3');
-    expect(list.render().state).toBe('unreachable');
+    expect(ledger.render().state).toBe('unreachable');
   });
 
   it('carries the saved workflow when it reads, and nothing when it does not', async () => {

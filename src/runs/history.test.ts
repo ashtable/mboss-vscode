@@ -1,11 +1,9 @@
-import { rmSync } from 'node:fs';
-import { join } from 'node:path';
-
 import { describe, expect, it, vi } from 'vitest';
 
 import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { messages } from '../messages.js';
+import type { Trust } from '../trust.js';
 import { when } from '../webview/time.js';
 import {
   RUN_ROW,
@@ -19,9 +17,10 @@ import {
 
 import type { Database, OpenDatabase, OpenManagement } from './db.js';
 import { runHistory, type History, type HistoryDeps } from './history.js';
+import { projectLedger } from './ledger.js';
 import type { ManagementClient } from './manage.js';
 import { sessionLog } from './sessionLog.js';
-import { runsStore } from './store.js';
+import { runsStore, type RunsHost } from './store.js';
 
 /**
  * A project's run history, read out of its own
@@ -29,110 +28,48 @@ import { runsStore } from './store.js';
  *
  * Driven against a database double that answers the
  * two queries the list makes, so what is checked is
- * what the list asks, what it keeps, and what it
- * says when it cannot ask at all. The run somebody
- * has open is a second question asked of the same
- * ledger, and has its own spec beside this one.
+ * what the list asks and what it keeps. Whether that
+ * database can be read at all is the ledger's
+ * question and the ledger's sentence, and has its
+ * own spec; so does the run somebody has open.
  */
 
-function history(over: Partial<HistoryDeps> = {}): History {
+/** What a case says about the window this list is
+ *  read in. */
+type Over = {
+  host?: RunsHost;
+  trust?: Trust;
+  open?: OpenDatabase;
+  openManagement?: OpenManagement;
+  projectSdk?: HistoryDeps['projectSdk'];
+};
+
+/** A history and the ledger it reads its page from,
+ *  over one window: one project, one database and
+ *  one trust between them. */
+function history(over: Over = {}): History {
+  const editor = over.host ?? host();
+  const trust = over.trust ?? fakeTrust();
+  const open = over.open ?? (async () => database());
+
   return runHistory({
-    host: host(),
-    trust: fakeTrust(),
-    open: async () => database(),
-    openManagement: async () => management(),
-    projectSdk: () => ({ ok: true, version: '4.27.6' }),
-    ...over,
+    host: editor,
+    trust,
+    ledger: projectLedger({ host: editor, trust, open }),
+    openManagement: over.openManagement ?? (async () => management()),
+    projectSdk: over.projectSdk ?? (() => ({ ok: true, version: '4.27.6' })),
   });
 }
 
 /** A history over a project, reading that
  *  database. */
-function reading(db: Database, over: Partial<HistoryDeps> = {}): History {
+function reading(db: Database, over: Over = {}): History {
   return history({
     host: host({ projects: () => [project()] }),
     open: async () => db,
     ...over,
   });
 }
-
-describe('before there is anything to read', () => {
-  it('opens nothing in a window with no project', async () => {
-    const open = vi.fn();
-    const read = history({
-      host: host(),
-      open: open as unknown as OpenDatabase,
-    });
-
-    await read.refresh();
-
-    expect(read.render().state).toBe('no-project');
-    expect(open).not.toHaveBeenCalled();
-  });
-
-  /**
-   * The connection string comes out of a file in
-   * the workspace and the connection runs against
-   * whatever it names, which is the decision
-   * workspace trust exists to make. So the gate is
-   * before the read, not around part of it.
-   */
-  it('opens nothing in a window nobody has trusted', async () => {
-    const open = vi.fn();
-    const read = history({
-      host: host({ projects: () => [project()] }),
-      trust: fakeTrust(false),
-      open: open as unknown as OpenDatabase,
-    });
-
-    await read.refresh();
-
-    expect(read.render().state).toBe('untrusted');
-    expect(open).not.toHaveBeenCalled();
-  });
-
-  /**
-   * A file to fix rather than a database to start:
-   * starting the stack would not write the missing
-   * line.
-   */
-  it('says which variable is missing rather than failing quietly', async () => {
-    const read = history({
-      host: host({ projects: () => [project({ env: '# nothing\n' })] }),
-    });
-
-    await read.refresh();
-
-    expect(read.render().state).toBe('no-database');
-    expect(read.render().detail).toContain('DATABASE_URL');
-  });
-
-  it('says there is no .env to read a database from', async () => {
-    const dir = project();
-    rmSync(join(dir, '.env'));
-    const read = history({ host: host({ projects: () => [dir] }) });
-
-    await read.refresh();
-
-    expect(read.render().state).toBe('no-database');
-    expect(read.render().detail).toBe(
-      messages.runsNoEnvFile(join(dir, '.env')),
-    );
-  });
-
-  it('offers no ledger to watch, quietly', () => {
-    expect(history().ledger()).toBeUndefined();
-    expect(
-      history({
-        host: host({ projects: () => [project()] }),
-        trust: fakeTrust(false),
-      }).ledger(),
-    ).toBeUndefined();
-    expect(
-      history({ host: host({ projects: () => [project()] }) }).ledger(),
-    ).toBe('postgres://app@localhost:5432/app');
-  });
-});
 
 describe('reading a project run history', () => {
   it('reads the rows and the three counts together', async () => {
@@ -141,7 +78,6 @@ describe('reading a project run history', () => {
     await read.refresh();
     const shown = read.render();
 
-    expect(shown.state).toBe('ok');
     expect(shown.rows.map((row) => row.workflowId)).toEqual(['wf_c9d2f3']);
     expect(shown.counts).toEqual({ all: 6, active: 1, failed: 1 });
   });
@@ -177,16 +113,6 @@ describe('reading a project run history', () => {
     expect(rows[0]?.line).toContain(when(created, now, 'fi-FI'));
     expect(rows[1]?.line).toContain(when(created + 1000, now, 'fi-FI'));
     expect(locale).toHaveBeenCalled();
-  });
-
-  it('names the database without naming the credentials', async () => {
-    const read = reading(database());
-
-    await read.refresh();
-
-    expect(read.render().source).toBe(
-      'dbos.workflow_status · localhost:5432/app',
-    );
   });
 
   /**
@@ -695,23 +621,24 @@ describe('the two controls over a run', () => {
 
 describe('a database that will not answer', () => {
   /**
-   * An editor pointed at somebody development
+   * An editor pointed at somebody's development
    * machine is pointed at a database that is down
-   * about as often as it is up. The panel says so;
-   * the window does not log a rejection nobody
-   * sees.
+   * about as often as it is up. What that is called
+   * is the ledger's sentence; what the list does
+   * with it is that the page goes, because there is
+   * nothing behind it any more.
    */
-  it('becomes a sentence, not an unhandled rejection', async () => {
-    const read = history({
-      host: host({ projects: () => [project()] }),
-      open: async () => {
-        throw new Error('ECONNREFUSED 127.0.0.1:5432');
-      },
-    });
+  it('empties the page rather than keeping rows nobody can check', async () => {
+    const db = database();
+    const read = reading(db);
 
     await read.refresh();
+    expect(read.render().rows).toHaveLength(1);
 
-    expect(read.render().state).toBe('unreachable');
-    expect(read.render().detail).toContain('ECONNREFUSED');
+    db.fail = 'ECONNREFUSED 127.0.0.1:5432';
+    await read.refresh();
+
+    expect(read.render().rows).toEqual([]);
+    expect(read.render().selected).toBeUndefined();
   });
 });

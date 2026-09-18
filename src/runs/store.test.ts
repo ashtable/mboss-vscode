@@ -41,15 +41,14 @@ import {
  * The one door the panels, the commands and the
  * canvas come through.
  *
- * The three zones behind it are each tested against
+ * The zones behind it are each tested against
  * their own collaborators, in their own specs. What
- * is checked here is the composition: that the
- * three are drawn as one picture, that a change in
- * any of them reaches whoever is drawing, that a
- * refresh asks all three, that the zones are
- * introduced to each other where they must be, and
- * that letting go of the door lets go of everything
- * behind it.
+ * is checked here is the composition: that they are
+ * drawn as one picture, that a change in any of
+ * them reaches whoever is drawing, that a refresh
+ * asks them all, that they are introduced to each
+ * other where they must be, and that letting go of
+ * the door lets go of everything behind it.
  */
 
 /** How many times the list itself was read, apart
@@ -98,9 +97,9 @@ describe('what the list draws', () => {
    * Every state below the header is a claim about
    * something read, and the first read has not
    * finished: a card drawn now would be replaced a
-   * moment later. The run page borrowing the ledger
-   * is no read of the stack, so it is not the list's
-   * first read either.
+   * moment later. The run page reading the same
+   * ledger is no read of the stack, so it is not the
+   * list's first read either.
    */
   it('draws nothing below the header until its first read', async () => {
     const store = runsStore(deps());
@@ -138,16 +137,22 @@ describe('what the list draws', () => {
     expect(painted.length).toBeGreaterThan(0);
     expect(painted.at(-1)).toBe('ok');
 
-    // And the extra repaint is the first read's
-    // alone: every later refresh costs what it
-    // always did.
+    // And the extra repaints are the first read's
+    // alone — the ledger saying what the database
+    // answered, and the read saying so again once
+    // the list counted as read. From the second
+    // read on it is steady.
     const first = painted.length;
     await store.refresh();
+    const later = painted.length - first;
 
-    expect(painted.length - first).toBe(first - 1);
+    await store.refresh();
+
+    expect(painted.length - first).toBe(later * 2);
+    expect(first).toBe(later + 2);
   });
 
-  it('draws the three zones as one picture', async () => {
+  it('draws every zone as one picture', async () => {
     const dir = project();
     const store = runsStore(deps({ host: host({ projects: () => [dir] }) }));
 
@@ -175,7 +180,7 @@ describe('what the list draws', () => {
   });
 });
 
-describe('one door for three zones', () => {
+describe('one door for every zone', () => {
   it('tells whoever is drawing when any of them moves', async () => {
     const store = runsStore(deps({ runner: echoing().start }));
     const changed = vi.fn();
@@ -331,6 +336,37 @@ describe('one door for three zones', () => {
       'running',
       'running',
     ]);
+  });
+
+  /**
+   * And nothing on the way there says the project
+   * has never run anything.
+   *
+   * The ledger and the list are two signals into one
+   * repaint, and the ledger's is deliberately the
+   * later of the two: a follower woken the moment
+   * the database answered, holding the page read
+   * before it did, would draw the card for a project
+   * with no runs over a ledger full of them.
+   */
+  it('never says a project has no runs on its way to reading some', async () => {
+    const db = database();
+    db.fail = 'ECONNREFUSED 127.0.0.1:5432';
+    const store = runsStore(deps({ open: async () => db }));
+
+    await store.refresh();
+    expect(runsState(store.list()).row).toBe('database-refused');
+
+    const drawn: string[] = [];
+    store.onChanged(() => drawn.push(runsState(store.list()).row));
+
+    db.fail = undefined;
+    await store.refresh();
+
+    expect(drawn).not.toContain('no-runs');
+    expect(drawn.at(-1)).toBe('populated');
+
+    store.dispose();
   });
 
   /** A watch reads the run from the ledger the

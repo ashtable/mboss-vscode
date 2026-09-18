@@ -8,15 +8,9 @@ import { inFlight } from '../webview/states.js';
 
 import type { Database } from './db.js';
 import type { FollowedRun, Following } from './following.js';
-import { forksQuery, runQuery, stepsQuery } from './queries.js';
-import {
-  toRun,
-  toStep,
-  type OperationOutputRow,
-  type Run,
-  type Step,
-  type WorkflowStatusRow,
-} from './rows.js';
+import { runById, runRowsById, type Ledger } from './ledger.js';
+import { forksQuery } from './queries.js';
+import { toRun, type Run, type Step, type WorkflowStatusRow } from './rows.js';
 import { drawnUnder, finished, reusedRow } from './reading.js';
 import type { ProjectSdk } from './sdk.js';
 import { readView, seeInit, type SeeView } from './view.js';
@@ -44,30 +38,24 @@ import { savedDocument } from './workflows.js';
  * wrong branch of same-run-versus-different, which
  * nothing that tested the projection could see.
  *
- * The ledger stays the list's. This borrows a
- * connection from it rather than opening one of its
- * own, because what a read learned about somebody's
- * database — that it answered, that it did not — is
- * a fact about the project rather than about the run
- * being read, and the list is what says it.
+ * The read is the project's ledger loudly: what it
+ * learned about somebody's database — that it
+ * answered, that it did not — is a fact about the
+ * project rather than about the run being read, so
+ * it lands under the list as well. The page used to
+ * borrow that connection from the list, which is how
+ * one zone came to own both.
  */
 
 /**
- * The ledger, as the run page borrows it.
+ * The ledger, as the run page reads it.
  *
- * Both of these belong to the list and are handed
- * over: asking for a connection is how the list
- * learns whether the database is reachable, and a
- * read that fails is how it learns it stopped being.
+ * One verb: the page asks two questions of one open
+ * connection — the run, and the runs either side of
+ * it — and the lineage is worth a round trip only
+ * where the run's own columns say there is any.
  */
-export type LedgerAccess = {
-  connection(): string | undefined;
-
-  read<Value>(
-    url: string,
-    take: (db: Database) => Promise<Value>,
-  ): Promise<Value | undefined>;
-};
+export type PageLedger = Pick<Ledger, 'read'>;
 
 /**
  * Where the run came from and what came out of it.
@@ -120,7 +108,7 @@ export type OpenRunDeps = {
 
   project(): string | undefined;
 
-  ledger: LedgerAccess;
+  ledger: PageLedger;
 
   /**
    * Whether this window is what cancelled a run.
@@ -310,30 +298,22 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
   };
 
   const open = async (workflowId: string): Promise<void> => {
-    const url = deps.ledger.connection();
-    if (url === undefined) return void changed();
-
     // `null` for a run that is not there, against
     // `undefined` for a read that did not happen:
     // a row somebody deleted has to clear what the
     // page is showing, where a database that went
     // away must not, or the page would go blank on
     // a hiccup.
-    const found = await deps.ledger.read(url, async (db) => {
-      const run = await oneRun(db, workflowId);
-      if (run === undefined) return null;
-
-      const steps = stepsQuery(workflowId);
+    const found = await deps.ledger.read(async (db) => {
+      const rows = await runRowsById(db, workflowId);
+      if (rows === undefined) return null;
 
       return {
-        run,
-        steps: (
-          await db.query<OperationOutputRow>(steps.text, steps.values)
-        ).map(toStep),
+        ...rows,
         // Read on the connection that is already
         // open: both questions are asked of the very
         // table the run itself just came out of.
-        ...(await relatedTo(db, run)),
+        ...(await relatedTo(db, rows.run)),
       };
     });
 
@@ -468,16 +448,6 @@ type Found = {
   forks: Run[];
 };
 
-async function oneRun(
-  db: Database,
-  workflowId: string,
-): Promise<Run | undefined> {
-  const one = runQuery(workflowId);
-  const row = (await db.query<WorkflowStatusRow>(one.text, one.values))[0];
-
-  return row === undefined ? undefined : toRun(row);
-}
-
 /**
  * The runs either side of this one, where its own
  * columns say there are any.
@@ -491,7 +461,9 @@ async function relatedTo(
   run: Run,
 ): Promise<{ parent: Run | undefined; forks: Run[] }> {
   const parent =
-    run.forkedFrom === undefined ? undefined : await oneRun(db, run.forkedFrom);
+    run.forkedFrom === undefined
+      ? undefined
+      : await runById(db, run.forkedFrom);
 
   if (!run.wasForkedFrom) return { parent, forks: [] };
 

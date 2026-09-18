@@ -12,7 +12,6 @@ import type { RunsInit, TestRunProblem } from '../webview/protocol.js';
 import { settled } from '../webview/states.js';
 
 import type { OpenDatabase } from './db.js';
-import type { EnvName } from './env.js';
 import {
   assembleRunEvidence,
   refusedRunEvidence,
@@ -21,6 +20,7 @@ import {
   type RunEvidence,
 } from './evidence.js';
 import type { FollowedRun, Following } from './following.js';
+import type { LedgerAddress } from './ledger.js';
 import { decidedArms } from './operations.js';
 import { payloadIn } from './rows.js';
 import { newRunId, type RunStart, type RunStarter } from './runner.js';
@@ -83,17 +83,19 @@ export type TestRunDeps = {
    * connection to open, the workflow as it is saved
    * now, and the last scan of the code behind it.
    *
-   * The connection is a fresh one rather than the
-   * list's, because this read is open, read, close
-   * — nothing here holds a slot on somebody's
-   * development database while their editor is
-   * open. Where there is none, there is nothing to
-   * read and the question is answered from what
-   * this window remembers instead.
+   * The connection is opened here rather than made
+   * through the ledger, because this read is open,
+   * read, close and quiet — nothing here holds a
+   * slot on somebody's development database while
+   * their editor is open, and asking the agent
+   * about a run is no reason for the list to change
+   * what it says. Where there is no address, there
+   * is nothing to read and the question is answered
+   * from what this window remembers instead.
    */
   open: OpenDatabase;
 
-  ledger(): { url: string; from: EnvName } | undefined;
+  ledger(): LedgerAddress | undefined;
 
   document(name: string): WorkflowIR | undefined;
 
