@@ -72,7 +72,9 @@ export type Scene = {
 };
 
 /** A run's whole id, and one that refused, as the
- *  ids mBoss quotes to the agent. */
+ *  ids mBoss quotes to the agent. The first is also
+ *  the run the run tab and the canvas follow, so a
+ *  view printing it whole is caught there too. */
 const RUN = '7089cd29-5b5e-4a4c-9c3e-6c8d1b2f4a10';
 const REFUSED = '5d1e2f3a-9c3e-4a4c-8b5e-6c8d1b2f4a10';
 
@@ -162,16 +164,19 @@ export const SCENES: readonly Scene[] = [
     width: 1280,
     init: () =>
       canvasInit({
-        run: runOf(
-          [
-            ['parse_request', 'done'],
-            ['find_slot', 'failed'],
-          ],
-          'failed',
-        ),
+        run: {
+          ...runOf(
+            [
+              ['parse_request', 'done'],
+              ['find_slot', 'failed'],
+            ],
+            'failed',
+          ),
+          workflowId: RUN,
+        },
         selected: 'find_slot',
       }),
-    draws: ['[data-run="done"]', '[data-run="failed"]'],
+    draws: ['[data-run="done"]', '[data-run="failed"]', '[data-short-run]'],
   },
   {
     name: 'the canvas offering blocks for a held wire',
@@ -295,6 +300,8 @@ export const SCENES: readonly Scene[] = [
     init: () =>
       seeInit(
         seeRun({
+          workflowId: RUN,
+          short: shortRunId(RUN),
           graph: GRAPH,
           trace: [
             ...TRACE,
@@ -332,6 +339,8 @@ export const SCENES: readonly Scene[] = [
     init: () =>
       seeInit(
         seeRun({
+          workflowId: RUN,
+          short: shortRunId(RUN),
           graph: GRAPH,
           trace: TRACE,
           selected: { nodeId: 'find_slot', functionId: 1 },
