@@ -1285,6 +1285,36 @@ describe('one run, as the run page draws it', () => {
     });
 
     /**
+     * A wait inside a loop registers once per round,
+     * and the block stays parked from the first
+     * round to the last — so whether a round is
+     * still open is the round's own question, and
+     * only the open one says since when.
+     */
+    it('says since when only of the round still parked', () => {
+      const shown = running(
+        FORM_INTAKE,
+        named(
+          'await_details.r1.register',
+          'DBOS.recv',
+          'DBOS.sleep',
+          'await_details.r1.clear',
+          'await_details.r2.register',
+        ),
+        { timing: true },
+      );
+
+      expect([0, 4].map((id) => rowAt(shown, id).state)).toEqual([
+        'waiting',
+        'waiting',
+      ]);
+      expect(rowAt(shown, 4).detail.derived).toBe(
+        `waiting since ${fine(1450)} · timeout 3 d`,
+      );
+      expect(rowAt(shown, 0).detail.derived).toBeUndefined();
+    });
+
+    /**
      * The deadline is the one the SDK wrote, and it
      * is said as a moment: the number itself is the
      * ledger's, never the page's.

@@ -296,7 +296,12 @@ function seeRun(view: SeeView): SeeRun {
   // whose workflow is gone offers nothing rather
   // than everything.
   const points = boundariesOf(view);
-  const page: TracePage = { view, points, now };
+  const page: TracePage = {
+    view,
+    points,
+    open: openRegistrations(reading.steps),
+    now,
+  };
   const trace = traceOf(reading.steps, reading.owners);
 
   return {
@@ -357,13 +362,44 @@ function markedRow(view: SeeView, reading: Reading): number | undefined {
 }
 
 /** What every row of the trace is worded against:
- *  the page, the rows a replay may start from, and
- *  the page's one clock. */
+ *  the page, the rows a replay may start from, the
+ *  waits nobody has answered, and the page's one
+ *  clock. */
 type TracePage = {
   view: SeeView;
   points: ReplayPoints;
+  open: ReadonlySet<number>;
   now: number;
 };
+
+/**
+ * The registration row of every wait still open,
+ * by the handle DBOS gave that row.
+ *
+ * Keyed on the block and one round —
+ * `await_details.r0` — because a wait inside a loop
+ * registers again on every round, and the rounds
+ * before the last one have been answered even
+ * though the block is parked all the way through.
+ * The key is read off the recorded name rather than
+ * the drawing, so a run whose document the project
+ * lost still says which round it is sitting on.
+ */
+function openRegistrations(steps: readonly Operation[]): ReadonlySet<number> {
+  const open = new Map<string, number>();
+
+  for (const step of steps) {
+    const last = step.segments.at(-1)?.kind;
+    if (last !== 'register' && last !== 'clear') continue;
+
+    const round = step.name.slice(0, step.name.lastIndexOf('.'));
+
+    if (last === 'register') open.set(round, step.functionId);
+    else open.delete(round);
+  }
+
+  return new Set(open.values());
+}
 
 /** The name the SDK records a sleep under. */
 const SLEEP = 'DBOS.sleep';
@@ -455,10 +491,7 @@ function detailOf(
     };
   }
 
-  if (
-    operation.state === 'waiting' &&
-    operation.segments.at(-1)?.kind === 'register'
-  ) {
+  if (operation.state === 'waiting' && page.open.has(operation.functionId)) {
     return {
       derived: parkedLine(operation, node),
       plain: undefined,
