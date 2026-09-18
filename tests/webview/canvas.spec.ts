@@ -42,7 +42,7 @@ import {
 } from './fixtures/canvas.js';
 import { LIBRARY_COLOURS } from './fixtures/library.js';
 import { graphAtRest } from './fixtures/runs.js';
-import { mount, THEMES_ALL } from './harness.js';
+import { mount, THEMES_ALL, type ThemeKind } from './harness.js';
 import { colourOf, sameColour } from './palette.js';
 import { canvasWords as canvasStrings } from './words.js';
 
@@ -75,10 +75,14 @@ import { canvasWords as canvasStrings } from './words.js';
  * movement is shown the value the sheet settles
  * on, and that is the value worth holding.
  */
-async function openAtRest(page: Page, over: Partial<CanvasInit> = {}) {
+async function openAtRest(
+  page: Page,
+  over: Partial<CanvasInit> = {},
+  theme: ThemeKind = 'light',
+) {
   await page.emulateMedia({ reducedMotion: 'reduce' });
 
-  const harness = await mount(page, 'canvas');
+  const harness = await mount(page, 'canvas', theme);
   await harness.show(canvasInit(over));
 
   return harness;
@@ -1141,6 +1145,50 @@ test.describe('the mark a run leaves on a block', () => {
     await expect(mark).toHaveText('✕');
     await expect(mark).toHaveCSS('color', 'rgb(238, 93, 104)');
   });
+
+  /**
+   * The tick and the cross are text, so they are
+   * drawn in the ink wherever a theme spends no
+   * colour on state, as every other toned word is:
+   * a voice colour chosen to sit under a word is too
+   * light to be one there.
+   */
+  for (const theme of THEMES_ALL) {
+    const toned = (role: 'ok' | 'fail') =>
+      colourOf(theme, 'state-ink') || colourOf(theme, role);
+
+    test(`ticks a block in the colour it says it finished in (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, { run: runOf(IN_FLIGHT) }, theme);
+
+      const mark = runMark(page, 'find_slot');
+
+      await expect(mark).toHaveText('✓');
+
+      const colour = await mark.evaluate(
+        (element) => getComputedStyle(element).color,
+      );
+
+      expect(sameColour(colour, toned('ok')), colour).toBe(true);
+    });
+
+    test(`crosses a block in the colour it says it failed in (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, { run: runOf(BROKEN, 'failed') }, theme);
+
+      const mark = runMark(page, 'find_slot');
+
+      await expect(mark).toHaveText('✕');
+
+      const colour = await mark.evaluate(
+        (element) => getComputedStyle(element).color,
+      );
+
+      expect(sameColour(colour, toned('fail')), colour).toBe(true);
+    });
+  }
 
   test('leaves a hollow dot where a run is parked', async ({ page }) => {
     await openAtRest(page, { run: runOf(PARKED, 'waiting') });

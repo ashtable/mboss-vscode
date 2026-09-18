@@ -1593,7 +1593,9 @@ button.lib-fn {
 /* What the run did here, at the end of the row
    because it is the last thing to become true about
    a block. A block no run has reached carries none,
-   so there is nothing to leave room for. */
+   so there is nothing to leave room for. The tick
+   and the cross are text, so a theme that carries
+   state in the ink draws them in it. */
 .node-run {
   flex: none;
   margin-left: auto;
@@ -1601,10 +1603,10 @@ button.lib-fn {
   line-height: 1;
 }
 .node-run[data-run='done'] {
-  color: var(--ok);
+  color: var(--state-ink, var(--ok));
 }
 .node-run[data-run='failed'] {
-  color: var(--fail);
+  color: var(--state-ink, var(--fail));
 }
 /* Hollow, and still. Nothing is running here — the
    block is parked on something that has not
