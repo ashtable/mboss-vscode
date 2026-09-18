@@ -1,3 +1,5 @@
+import { fakeWebview, type FakeWebview } from './webview.js';
+
 /**
  * A stand-in for the `vscode` module.
  *
@@ -13,7 +15,10 @@
  * tested against a fake the compiler checks. What
  * is here is what module *loading* needs, plus
  * `l10n`, which behaves as the real one does so
- * that a test reading a message reads the message.
+ * that a test reading a message reads the message,
+ * plus the one member whose behaviour belongs to
+ * the extension rather than to the editor: a
+ * webview panel's title.
  *
  * Anything else answers by failing. A double that
  * quietly returns `undefined` turns a test into a
@@ -148,10 +153,59 @@ const workspaceApi = {
   },
 };
 
-export const window = new Proxy(
-  {},
-  { get: (_, name) => notImplemented(`window.${String(name)}`) },
-);
+/**
+ * A tab this window was asked to open, and the
+ * frame behind it.
+ *
+ * The title is here because it is the one thing
+ * about a webview panel an extension owns, so a
+ * test asking what a tab is called has to be able
+ * to read it back off something.
+ */
+export type OpenedPanel = {
+  viewType: string;
+  frame: FakeWebview;
+  tab: { title: string; reveal(): void };
+};
+
+/**
+ * Every tab opened through this window, in order.
+ *
+ * `createWebviewPanel` is the one `window` member
+ * on the double: everything else still fails
+ * loudly, and this list staying empty is how a
+ * spec says no tab was opened at all.
+ */
+export const windowPanels = {
+  opened: [] as OpenedPanel[],
+
+  reset(): void {
+    windowPanels.opened.length = 0;
+  },
+};
+
+const windowApi = {
+  createWebviewPanel(viewType: string, title: string): unknown {
+    const frame = fakeWebview({ active: true });
+    const tab = frame.panel as unknown as OpenedPanel['tab'];
+
+    tab.title = title;
+    // Nothing to bring forward: a tab opened here
+    // is the only one in the window.
+    tab.reveal = () => undefined;
+
+    windowPanels.opened.push({ viewType, frame, tab });
+
+    return tab;
+  },
+};
+
+export const window = new Proxy(windowApi, {
+  get: (target, name) =>
+    name in target
+      ? target[name as keyof typeof windowApi]
+      : notImplemented(`window.${String(name)}`),
+});
 
 export const commands = new Proxy(
   {},

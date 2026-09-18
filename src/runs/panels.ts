@@ -215,6 +215,14 @@ export class SeePanel {
     );
     this.panel = panel;
 
+    // The name above is all a tab with no run read
+    // yet can say. One that has a run names itself
+    // for it now rather than on the next store
+    // change, which on a first open never comes:
+    // the change that read the run happened before
+    // there was a tab to hear it.
+    this.retitle();
+
     // Followed from the moment it exists: a tab this
     // creates is born in front, and no event says so.
     const focused = this.focus.follow({ at: 'run' }, panel);

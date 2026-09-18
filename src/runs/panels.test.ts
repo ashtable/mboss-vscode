@@ -1,7 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
+import { windowPanels } from '../../test/doubles/vscode.js';
 import { fakeWebview } from '../../test/doubles/webview.js';
 import type { InspectorFocus } from '../inspector/focus.js';
+import type { SeeInit } from '../webview/protocol.js';
 
 import { RunsListView, SeePanel } from './panels.js';
 import type { RunsStore } from './store.js';
@@ -168,5 +170,78 @@ describe('opening a run in its tab', () => {
     await panel.open('wf_d');
 
     expect(calls).toEqual(['select wf_d', 'show']);
+  });
+});
+
+/**
+ * What the run tab is called.
+ *
+ * The whole id is read off the title and nowhere
+ * else — the page's header names the run by its
+ * short one — so a tab that opens still called
+ * "Run" leaves the whole id off the screen.
+ */
+describe('the run tab', () => {
+  beforeEach(() => {
+    windowPanels.reset();
+  });
+
+  function opening(): { panel: SeePanel; title: () => string | undefined } {
+    const listeners: (() => void)[] = [];
+    let shown: string | undefined;
+
+    const runs = {
+      // The store moves while the read is in
+      // flight, and on a first open that is the
+      // only change there is: by the time the tab
+      // exists it has been and gone.
+      select: async (workflowId: string) => {
+        shown = workflowId;
+        for (const listener of listeners) listener();
+        await Promise.resolve();
+      },
+      // Only the run is read to name a tab.
+      see: () =>
+        ({
+          run:
+            shown === undefined
+              ? undefined
+              : { name: 'groom_booking', workflowId: shown },
+        }) as unknown as SeeInit,
+      onChanged: (listener: () => void) => {
+        listeners.push(listener);
+
+        return { dispose: () => undefined };
+      },
+    } as unknown as RunsStore;
+
+    const focus = {
+      follow: () => ({ dispose: () => undefined }),
+    } as unknown as InspectorFocus;
+
+    return {
+      panel: new SeePanel(extensionUri, runs, focus),
+      title: () => windowPanels.opened.at(0)?.tab.title,
+    };
+  }
+
+  it('names the tab after its run on the first open', async () => {
+    const { panel, title } = opening();
+
+    expect(windowPanels.opened).toEqual([]);
+
+    await panel.open('wf_c9d2f3');
+
+    expect(title()).toBe('groom_booking · wf_c9d2f3');
+  });
+
+  it('turns the one tab to the next run asked for', async () => {
+    const { panel, title } = opening();
+
+    await panel.open('wf_c9d2f3');
+    await panel.open('wf_0f41aa');
+
+    expect(windowPanels.opened).toHaveLength(1);
+    expect(title()).toBe('groom_booking · wf_0f41aa');
   });
 });
