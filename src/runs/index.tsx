@@ -3,19 +3,22 @@ import { useState } from 'react';
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
 import { mountView } from '../webview/mount.js';
-import { glyphOf, settled } from '../webview/states.js';
+import { settled } from '../webview/states.js';
 import type {
-  RunLineage,
-  RunRow,
   RunsInit,
   RunsStrings,
   SessionRow,
   StackZone,
   RunByHand,
 } from '../webview/protocol.js';
+import { EmptyState } from '../webview/signal/EmptyState.js';
+import { FieldHint } from '../webview/signal/FieldHint.js';
+import { TabPanel, Tabs } from '../webview/signal/Tabs.js';
+
 import { RUN_FILTERS, type RunFilter } from './queries.js';
 import type { StepState } from './reading.js';
-import { APP_SERVICE } from './state.js';
+import { RunHistoryItem } from './RunHistoryItem.js';
+import { APP_SERVICE, runsState, type StateRow } from './state.js';
 import type { LiveRun } from './watch.js';
 
 import './runs.css';
@@ -101,13 +104,7 @@ function Runs(state: RunsInit) {
         </>
       ) : null}
 
-      <Filters state={state} />
-
-      {state.state === 'ok' ? (
-        <List state={state} />
-      ) : (
-        <p className="state">{blockedBy(state, strings)}</p>
-      )}
+      <RunList state={state} />
 
       <footer className="runs-foot">
         <p>{strings.projection}</p>
@@ -496,188 +493,135 @@ function Session({
   );
 }
 
-/**
- * The three filters, with what each one would show
- * beside it. Active and failed share no status, so
- * the two never add up to more than the first.
- */
-function Filters({ state }: { state: RunsInit }) {
-  return (
-    <div className="filters" role="group">
-      {RUN_FILTERS.map((filter: RunFilter) => (
-        <button
-          type="button"
-          key={filter}
-          data-filter={filter}
-          aria-pressed={state.filter === filter}
-          onClick={() => postToHost({ type: 'runFilter', filter })}
-        >
-          <span>{state.strings.filters[filter]}</span>
-          <span className="count">{state.counts[filter]}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
+/** The id the tabs and the list they filter name
+ *  each other by. */
+const LIST = 'runs-list';
 
 /**
- * The ledger, minus whatever the session section
- * already drew: a run started this window and
- * already written to the database is a session row
- * and nothing else, or it would be on screen twice.
+ * The list, and the tabs that filter it: drawn
+ * where the state table gives the view a list, and
+ * a sentence where it does not.
+ *
+ * Active and Failed share no status, so the two
+ * never add up to more than All. Every tab drives
+ * the one list, which is always there under them
+ * whichever is picked.
+ *
+ * Under the panel's own card — the app is down and
+ * the card says so — an empty filter is a line
+ * rather than a second card.
  */
-function List({ state }: { state: RunsInit }) {
-  const inSession = new Set(state.session.map((row) => row.workflowId));
-  const rows = state.rows.filter((row) => !inSession.has(row.workflowId));
+function RunList({ state }: { state: RunsInit }) {
+  const { strings, filter } = state;
+  const view = runsState(state);
 
-  if (rows.length === 0) {
-    return <p className="state">{state.strings.empty}</p>;
+  if (!view.regions.includes('tabs')) {
+    const said = blockedBy(state, view.row);
+
+    return said === undefined ? null : <p className="state">{said}</p>;
   }
 
+  const empty = filter === 'active' ? strings.noActive : strings.noFailed;
+
   return (
-    <ol className="run-rows">
-      {rows.map((row) => (
-        <li key={row.workflowId} className="run-item">
-          <Row
+    <>
+      <Tabs
+        items={RUN_FILTERS.map((one: RunFilter) => ({
+          id: one,
+          label: strings.filters[one],
+          count: state.counts[one],
+          hook: { filter: one },
+        }))}
+        active={filter}
+        onPick={(picked) => postToHost({ type: 'runFilter', filter: picked })}
+        label={strings.heading}
+        panel={LIST}
+        controlsAll
+      />
+
+      <TabPanel panel={LIST} active={filter}>
+        {view.regions.includes('rows') ? (
+          <Rows state={state} />
+        ) : view.regions.includes('filter-hint') ? (
+          <FieldHint>{empty}</FieldHint>
+        ) : (
+          <EmptyState kind="empty" title={empty} />
+        )}
+      </TabPanel>
+    </>
+  );
+}
+
+/**
+ * The page of the ledger, minus whatever the
+ * session section already drew: a run started this
+ * window and already written to the database is a
+ * session row and nothing else, or it would be on
+ * screen twice.
+ *
+ * The read stops at a page and the count behind a
+ * tab does not, so a page shorter than its tab says
+ * how much of it is drawn.
+ */
+function Rows({ state }: { state: RunsInit }) {
+  const { strings } = state;
+  const inSession = new Set(state.session.map((row) => row.workflowId));
+  const rows = state.rows.filter((row) => !inSession.has(row.workflowId));
+  const onPage = new Set(rows.map((row) => row.workflowId));
+  const behind = state.counts[state.filter];
+
+  return (
+    <>
+      <ol className="run-list">
+        {rows.map((row) => (
+          <RunHistoryItem
+            key={row.workflowId}
             row={row}
-            strings={state.strings}
+            strings={strings}
             selected={row.workflowId === state.selected}
+            onPage={onPage}
           />
+        ))}
+      </ol>
 
-          {/* Beside the row rather than inside it:
-              the row is itself a button, and a
-              button inside a button is neither
-              valid nor clickable. */}
-          <button
-            type="button"
-            className="run-copy"
-            data-copy-run-id={row.workflowId}
-            title={state.strings.copyRunId}
-            aria-label={state.strings.copyRunId}
-            onClick={() =>
-              postToHost({ type: 'copyRunId', workflowId: row.workflowId })
-            }
-          >
-            ⧉
-          </button>
-
-          {/* No row and no block travels: the list
-              draws neither, so where the replay
-              starts is the run's own default and the
-              extension is what works it out. */}
-          <button
-            type="button"
-            className="run-copy run-replay"
-            data-replay-run={row.workflowId}
-            title={state.strings.replayRun}
-            aria-label={state.strings.replayRun}
-            onClick={() =>
-              postToHost({ type: 'replayRun', workflowId: row.workflowId })
-            }
-          >
-            ↺
-          </button>
-        </li>
-      ))}
-    </ol>
+      {state.rows.length < behind ? (
+        <FieldHint>
+          {filled(strings.capped, String(state.rows.length), String(behind))}
+        </FieldHint>
+      ) : null}
+    </>
   );
 }
 
-function Row({
-  row,
-  strings,
-  selected,
-}: {
-  row: RunRow;
-  strings: RunsStrings;
-  selected: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      className="run-row"
-      data-run={row.workflowId}
-      // The glyph state the mark is drawn in, which is
-      // not the session rows' outcome of the same
-      // name: that one is a watch's word.
-      data-outcome={row.state}
-      data-recovered={String(row.recovered)}
-      aria-current={selected}
-      onClick={() =>
-        postToHost({ type: 'runSelect', workflowId: row.workflowId })
-      }
-    >
-      <span className="run-line">
-        <span className="mono run-id">{row.workflowId}</span>
-        <span className="run-mark" aria-hidden="true">
-          {glyphOf(row.state).mark}
-        </span>
-      </span>
+/**
+ * Why there is no list, where the state table gives
+ * the view none. A missing database and one that
+ * would not answer each say which in the detail, and
+ * a missing Docker in the stack's. A daemon that did
+ * not answer has nothing true to add to the stack
+ * above it.
+ */
+function blockedBy(state: RunsInit, row: StateRow): string | undefined {
+  const { strings } = state;
 
-      <span className="run-line">
-        <span className="mono run-name">{row.name}</span>
-        {row.recovered ? (
-          <span className="run-tag">{strings.recoveredTag}</span>
-        ) : null}
-      </span>
-
-      {/* The block in it is worked out from the last
-          operation the run recorded, never read off
-          a column — so it says so, and carries the
-          moment that operation landed. */}
-      <span
-        className="run-summary"
-        data-derived
-        data-stopped-at={row.stoppedAt}
-        title={strings.derivedTitle}
-      >
-        {row.line}
-      </span>
-
-      {row.error === undefined ? null : (
-        <span className="run-error">{row.error}</span>
-      )}
-
-      {row.recoveredNote === undefined ? null : (
-        <span className="run-note">{row.recoveredNote}</span>
-      )}
-
-      {/* Where the run came from and what came out
-          of it that is on this page. Both are read
-          off a column every row already selects, so
-          neither costs a read. */}
-      {row.lineage.map((line) => (
-        <span
-          className="mono run-lineage"
-          key={`${line.direction}-${line.workflowId}`}
-          data-replay-of={line.direction === 'of' ? true : undefined}
-          data-run-fork={line.direction === 'to' ? true : undefined}
-        >
-          {lineageText(line, strings)}
-        </span>
-      ))}
-    </button>
-  );
-}
-
-/** One lineage line, in the Inspector's words for
- *  it, with the short id where the id goes. */
-function lineageText(line: RunLineage, strings: RunsStrings): string {
-  const step = filled(strings.fromStep, String(line.startStep));
-
-  return line.direction === 'of'
-    ? filled(strings.replayOf, line.short, step)
-    : filled(strings.replayTo, step, line.short, line.word);
-}
-
-/** Why the list is empty, when it is not a list at
- *  all. A missing database and one that would not
- *  answer each say which in the detail. */
-function blockedBy(state: RunsInit, strings: RunsStrings): string {
-  if (state.state === 'untrusted') return strings.untrusted;
-  if (state.state === 'no-project') return strings.noProject;
-
-  return state.detail ?? strings.empty;
+  switch (row) {
+    case 'untrusted':
+      return strings.untrusted;
+    case 'no-project':
+      return strings.noProject;
+    case 'no-docker':
+      return state.stack.detail;
+    case 'docker-silent':
+    case 'loading':
+      return undefined;
+    case 'no-database':
+    case 'database-refused':
+    case 'app-down':
+    case 'no-runs':
+    case 'empty-filter':
+    case 'populated':
+      return state.detail ?? strings.empty;
+  }
 }
 
 mountView('runs', Runs);

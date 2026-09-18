@@ -21,6 +21,7 @@ import {
   evidenceLines,
   evidenceSentence,
   rowOf,
+  runControlsOf,
   runLine,
   seeInit,
   seeTitle,
@@ -164,7 +165,7 @@ describe('a row of the run history', () => {
   });
 
   /**
-   * The tag says a run recovered; the number is
+   * The line says a run recovered; the number is
    * worth its space only past the first crash. It
    * also keeps the sentence grammatical, which one
    * without plural forms otherwise would not be
@@ -306,6 +307,35 @@ describe('a row of the run history', () => {
    *  draw. */
   it('draws no lineage for a run read without its start step', () => {
     expect(listed({ ...RUN, forkedFrom: PARENT }).lineage).toEqual([]);
+  });
+
+  /**
+   * A run DBOS gave up on and a run that threw both
+   * wear the failed glyph, and a cancelled one the
+   * idle glyph, so the glyph cannot say whether
+   * Resume or Cancel run is on offer. The host says,
+   * by the rule the Inspector's card reads.
+   */
+  it('offers a listed run the controls its status allows', () => {
+    const offered = {
+      PENDING: { cancel: true, resume: false },
+      ENQUEUED: { cancel: true, resume: false },
+      CANCELLED: { cancel: false, resume: true },
+      MAX_RECOVERY_ATTEMPTS_EXCEEDED: { cancel: false, resume: true },
+      SUCCESS: { cancel: false, resume: false },
+      ERROR: { cancel: false, resume: false },
+    };
+
+    for (const [status, controls] of Object.entries(offered)) {
+      const run = { ...RUN, status };
+      const card = runControlsOf(run, false);
+
+      expect(listed(run).controls).toEqual(controls);
+      expect(listed(run).controls).toEqual({
+        cancel: card.cancel,
+        resume: card.resume,
+      });
+    }
   });
 });
 

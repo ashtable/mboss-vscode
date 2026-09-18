@@ -78,13 +78,38 @@ export const runsWords = once(() => ({
     failed: l10n.t('Failed'),
   } satisfies Record<RunFilter, string>,
 
-  recoveredTag: messages.runsRecoveredTag(),
+  /** Under a list the read cut short: the rows it
+   *  draws, then the runs the tab counts. The count
+   *  is the whole ledger's and the page is not. */
+  capped: l10n.t('showing {0} of {1}'),
+
+  /** Where a filter a person picked holds nothing. */
+  noFailed: l10n.t('No failed runs'),
+  noActive: l10n.t('No active runs'),
 
   /** Said on every line the panel worked out rather
    *  than read, so nobody mistakes one for a column. */
   derivedTitle: l10n.t('derived from the last recorded operation'),
 
-  copyRunId: l10n.t('Copy run id'),
+  /** On the step a replay began at, which is worked
+   *  out from the rows it copied. */
+  derived: l10n.t('derived'),
+
+  /**
+   * What the selected run offers, in the words the
+   * Inspector's card says them in.
+   *
+   * Replay says where it starts: from the first row
+   * that threw where the run has one, else from the
+   * top. "Copy id" is a glyph's name and its hover
+   * text, so it is as short as it can be and still
+   * say which thing is copied.
+   */
+  openOnCanvas: l10n.t('Open on canvas'),
+  replayFromHere: l10n.t('Replay from here'),
+  replayFromStart: l10n.t('Replay from start'),
+  askAgent: l10n.t('Ask agent'),
+  copyRunId: l10n.t('Copy id'),
 
   /**
    * The lineage lines under a row, in the words the
@@ -156,11 +181,6 @@ export const runsWords = once(() => ({
   resendEvent: l10n.t('Send the event again'),
   openRun: l10n.t('Open run'),
   askAgentWhy: l10n.t('Ask agent why'),
-
-  /** The list draws no rows and no blocks of a run,
-   *  so the point a replay starts from is the run's
-   *  own default. */
-  replayRun: l10n.t('Replay this run'),
 }));
 
 export const seeWords = once(() => ({

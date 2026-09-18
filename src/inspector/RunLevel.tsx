@@ -1,10 +1,4 @@
-import {
-  Fragment,
-  useEffect,
-  useRef,
-  type ReactNode,
-  type RefObject,
-} from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
@@ -15,6 +9,7 @@ import type {
 } from '../webview/protocol.js';
 import { Button } from '../webview/signal/Button.js';
 import { FieldHint } from '../webview/signal/FieldHint.js';
+import { placed } from '../webview/signal/placed.js';
 import { PropertyRow } from '../webview/signal/PropertyRow.js';
 import { SectionLabel } from '../webview/signal/SectionLabel.js';
 import { StatusLine } from '../webview/signal/StatusGlyph.js';
@@ -318,21 +313,4 @@ function ShortRun({ id, short }: { id: string; short: string }) {
       {short}
     </span>
   );
-}
-
-/**
- * A template's `{n}` placeholders, filled with
- * things to draw rather than text, so a Button or a
- * marked phrase sits wherever the language puts it.
- */
-function placed(template: string, ...parts: ReactNode[]): ReactNode[] {
-  return template.split(/(\{\d+\})/).map((piece, at) => {
-    const slot = /^\{(\d+)\}$/.exec(piece);
-
-    return slot === null ? (
-      piece
-    ) : (
-      <Fragment key={at}>{parts[Number(slot[1])]}</Fragment>
-    );
-  });
 }

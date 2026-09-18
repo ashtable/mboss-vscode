@@ -3,14 +3,13 @@
 /**
  * The run list.
  *
- * A ledger read top to bottom: every row is the
- * same three lines in the same places, so scanning
- * for the one that went wrong is a matter of
- * finding the mark that is a different colour
- * rather than reading anything. The only ornament
- * is a 2px rule down the left edge of a row that
- * recovered — the design's own mark for "something
- * happened here that is worth knowing about".
+ * A ledger read top to bottom: every run is one
+ * line in the same places, so scanning for the one
+ * that went wrong is a matter of finding the rail
+ * that is a different colour rather than reading
+ * anything. The run somebody picks opens under its
+ * line, and that is the only place anything can be
+ * done to a run.
  *
  * A view docked in the activity bar sits against
  * the side bar's ground rather than the editor's,
@@ -307,6 +306,41 @@ body {
   color: var(--fail);
 }
 
+/* Its lines are this zone's own, and the list's
+   line is drawn another way. */
+[data-zone='running-now'] .run-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+[data-zone='running-now'] .run-id {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+[data-zone='running-now'] .run-name {
+  font-size: var(--text-sm);
+  color: color-mix(in srgb, var(--ink) 65%, transparent);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The failure says what it was, because the reason
+   somebody opened this panel is to find that out. */
+[data-zone='running-now'] .run-error {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--fail);
+  overflow-wrap: anywhere;
+}
+
 /* — this session's own runs — */
 
 .session-rows {
@@ -403,234 +437,195 @@ body {
   text-decoration: underline;
 }
 
-/* — the segmented filter — */
+/* — the run list — */
 
-/* One control rather than three buttons: the
-   hairlines between the segments are what says
-   they are three answers to one question. */
-.filters {
-  display: flex;
-  border: 1px solid var(--hairline);
+/* The strip sits a step further in than the list
+   under it, so its rule reads as the list's top
+   edge rather than as a line across the panel. */
+.runs .tabs {
+  padding-inline: var(--space-3-5);
 }
 
-.filters > button {
-  flex: 1;
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: var(--space-1);
-  border: none;
-  border-left: 1px solid var(--hairline);
-  border-radius: 0;
-  background: transparent;
-  color: var(--ink);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-}
-
-.filters > button:first-child {
-  border-left: none;
-}
-
-.filters > button[aria-pressed='true'] {
-  background: var(--brand-tint);
-  color: var(--brand);
-}
-
-.filters .count {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
-
-/* — the rows — */
-
-.run-rows {
+.run-list {
   list-style: none;
   margin: 0;
-  padding: 0;
-  flex: 1;
-}
-
-/* The row and the one control beside it. The row
-   is a button, so the copy control cannot be inside
-   it — a button inside a button is neither valid
-   nor clickable. */
-.run-item {
-  position: relative;
-}
-
-.run-copy {
-  position: absolute;
-  top: var(--space-2);
-  right: calc(var(--space-2) + 20px);
-  border: none;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink-faint);
-  font: inherit;
-  line-height: 1;
-  padding: 2px 4px;
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.run-item:hover .run-copy,
-.run-copy:focus-visible {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-/* Under the copy button rather than beside it: the
-   row is narrow and two glyphs in a line across the
-   top of it would sit over the id. */
-.run-replay {
-  top: calc(var(--space-2) + 18px);
-}
-
-.run-copy:hover {
-  color: var(--ink);
-  background: var(--surface-2);
-}
-
-/* Derived, and drawn as derived: the dashes say
-   nobody wrote this down. */
-.run-summary {
-  align-self: flex-start;
-  border-bottom: 1px dashed var(--hairline-strong);
-  font-size: var(--text-sm);
-  color: var(--ink-muted);
-}
-
-.run-row {
+  padding: var(--space-2) var(--space-2-5);
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  width: 100%;
-  text-align: left;
-  border: none;
-  border-top: 1px solid var(--hairline);
-  /* Left edge kept clear on every row so that the
-     accent rule on a recovered one does not shift
-     the text of the rows around it. */
-  border-left: 2px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  padding: var(--space-2);
-  cursor: pointer;
+  gap: var(--space-0-5);
 }
 
-.run-row:hover {
-  background: var(--surface-2);
+/* The line a list that was cut short ends on, and
+   the one a filter with nothing in it is said in
+   where a card already says why. */
+.runs .tabpanel > .field-hint {
+  margin: 0 var(--space-2-5) var(--space-2);
 }
 
-.run-row[aria-current='true'] {
+.runs .tabpanel > .field-hint:only-child {
+  margin-top: var(--space-2);
+}
+
+/* One run. Clipped to its own corners, so the rail
+   down its side is rounded off with them and the
+   ground under the pointer stops at them. */
+.run-item {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-sm);
+}
+
+/* The run somebody picked, ringed the way anything
+   picked is ringed — round what it opened as well
+   as its line, since those actions are its own. The
+   pixel the ring takes is given back outside it, so
+   nothing in the row moves. No edge is kept at
+   rest: a theme that forces its own colours would
+   draw one round every row. */
+.run-item:has(> .run-head[aria-current='true']) {
+  margin: -1px;
+  border: 1px solid var(--selection-ring);
   background: var(--brand-tint);
 }
 
-/* Recovery is a thing that happened to the run,
-   not something a person or the product did, so it
-   is drawn in the warn colour and never in the
-   brand one. */
-.run-row[data-recovered='true'] {
-  border-left-color: var(--warn);
+/* Down the whole run, the part it opened included.
+   Out of the line's flow, so the line keeps its
+   height whatever is under it. */
+.run-head > .status-glyph[data-glyph='rail'] {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
 }
 
-.run-line {
+/* The line. The 32px has no step of its own: it is
+   what fits twenty runs in a side bar and still
+   gives a pointer a whole line to land on.
+
+   A grid rather than a row, because the room is
+   handed out in an order. The id and the mark take
+   what they need; the summary takes what it needs
+   next, since how the run went is the thing to
+   read; the workflow gets what is left, and never
+   less than six characters, since fewer tell
+   nobody anything. A row shares a shortfall out
+   between the two instead, and the summary loses a
+   sliver and an ellipsis with it. The mark and the
+   summary end at the row's edge.
+
+   Written out declaration by declaration rather
+   than opened with `all: unset`, for the reason the
+   shared Button gives: that takes the focus ring
+   with it. */
+.run-head {
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto 1fr auto minmax(0, max-content);
+  align-items: center;
+  column-gap: var(--space-2);
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  border: 0;
+  padding: 0 var(--space-2-5) 0 calc(var(--rail-w) + var(--space-2-5));
+  appearance: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: var(--text-control);
+  line-height: 1.4;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* Inside the run's own corners, which clip
+   anything drawn outside them. */
+.run-head:focus-visible {
+  outline-offset: -2px;
+}
+
+/* The ground arrives under the pointer, and the
+   dashed outline is what a theme drawing structure
+   in lines has instead of it. Neither is a border,
+   so neither moves the row. The picked run is left
+   out: it already has a ground and an edge. */
+.run-head:not([aria-current='true']):hover:not(:focus-visible) {
+  background: var(--surface-2);
+  outline: 1px dashed var(--hover-outline);
+  outline-offset: -1px;
+}
+
+.run-head > .run-id {
+  font-weight: var(--w-medium);
+  font-size: var(--text-control);
+}
+
+/* Its six characters are its column's, and are
+   measured in its own face. */
+.run-head > .run-name {
+  min-width: 6ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-control);
+  color: var(--ink-muted);
+}
+
+/* One line, cut at its end: the word it starts
+   with is the part that has to be read. */
+.run-head > .run-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.run-head > .run-summary[data-tone='fail'] {
+  color: var(--state-ink, var(--fail));
+}
+
+/* What the picked run opened, under its line and
+   clear of its rail. */
+.run-body {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-  min-width: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: 0 var(--space-2-5) var(--space-1-5)
+    calc(var(--rail-w) + var(--space-2-5));
 }
 
-.run-id {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.run-name {
-  font-size: var(--text-sm);
-  color: color-mix(in srgb, var(--ink) 65%, transparent);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.run-mark {
-  font-size: var(--text-lg);
-  line-height: 1;
-  color: var(--brand);
-}
-
-.run-row[data-outcome='failed'] .run-mark {
-  color: var(--fail);
-}
-
-.run-row[data-outcome='running'] .run-mark,
-.run-row[data-outcome='recovering'] .run-mark,
-.run-row[data-outcome='waiting'] .run-mark {
-  color: var(--warn);
-}
-.run-row[data-outcome='done'] .run-mark {
-  color: var(--ok);
-}
-
-/* Filed and not claimed yet: nothing has happened,
-   and the mark is as quiet as that. */
-.run-row[data-outcome='queued'] .run-mark {
-  color: var(--ink-faint);
-}
-
-/* Cancelled: somebody asked for this one, so it is
-   neither the failure colour nor the one that says
-   a run is fine. */
-.run-row[data-outcome='idle'] .run-mark {
-  color: var(--ink-muted);
-}
-
-.run-tag {
-  font-weight: 600;
-  font-size: var(--text-xs);
-  color: var(--warn);
-  white-space: nowrap;
-}
-
-/* How many times DBOS picked the run back up, when
-   it was more than once. */
-.run-note {
-  font-size: var(--text-sm);
-  color: var(--ink-muted);
-}
-
-/* Where the run came from and what came out of it.
-   Set quieter than the row's own lines and in the
-   mono face the ids are written in, because they
-   name a run other than the one the row is about. */
+/* A replay, one line each, in the machine face. The
+   id in it is a Button, so the line is as tall as
+   the Button is. */
 .run-lineage {
+  margin: 0;
   font-size: var(--text-sm);
   color: var(--ink-muted);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
-/* The failure says what it was on the row, because
-   the reason somebody opened this panel is to find
-   that out. */
-.run-error {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  color: var(--fail);
-  overflow-wrap: anywhere;
+/* Worked out rather than read, and saying so in its
+   title: underlined in dots, the way the
+   Inspector's lineage lines mark the same phrase. */
+.run-lineage [data-provenance='derived'] {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+/* One row of Buttons, wrapping where the panel is
+   too narrow for it rather than scrolling. */
+.run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-2);
+  row-gap: var(--space-1-5);
+}
+
+.run-body > .run-actions:not(:first-child) {
+  margin-top: var(--space-1);
 }
 
 /* — what is shown instead of a list — */

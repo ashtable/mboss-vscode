@@ -704,6 +704,7 @@ export function rowOf(
   locale: string,
 ): RunRow {
   const word = listedWord(run, now);
+  const { cancel, resume } = runControlsOf(run, false);
 
   return {
     workflowId: run.workflowId,
@@ -712,11 +713,11 @@ export function rowOf(
     state: glyphStateOf(word),
     line: lineOf(run, word, now, locale),
     recovered: hasRecovered(run),
-    // Only past the first: the tag beside it
-    // already says the run recovered, so the
-    // number is worth its space only when it is
-    // more than one. Worked out from a column that
-    // counts dispatches, and marked so.
+    // Only past the first: the line already says
+    // the run recovered, so the number is worth
+    // its space only when it is more than one.
+    // Worked out from a column that counts
+    // dispatches, and marked so.
     recoveredNote:
       recoveriesOf(run) > 1
         ? messages.runLevelDerived(
@@ -734,6 +735,7 @@ export function rowOf(
     // a run that is not a replay began at the top.
     startStep: run.forkedFrom === undefined ? undefined : run.startStep,
     failedStep: run.failedStep,
+    controls: { cancel, resume },
   };
 }
 

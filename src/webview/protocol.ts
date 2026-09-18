@@ -632,6 +632,16 @@ export type RunRow = {
   /** The first row of its own that threw, which is
    *  where a replay of it starts. */
   failedStep: number | undefined;
+
+  /**
+   * The two controls its status allows, by the rule
+   * the Inspector's card reads. Sent rather than
+   * worked out by the view, because the glyph says
+   * neither: a run that threw and one DBOS gave up on
+   * are both failed, and only the second can be
+   * resumed.
+   */
+  controls: { cancel: boolean; resume: boolean };
 };
 
 export type RunsStrings = ReturnType<typeof runsWords>;

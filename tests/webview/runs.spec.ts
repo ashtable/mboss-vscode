@@ -1,13 +1,24 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import type { RunRow, RunsInit } from '../../src/webview/protocol.js';
+import type { RunRow } from '../../src/webview/protocol.js';
 
 import { liveStep } from '../../src/test-support/runs.js';
 import { filled } from '../../src/webview/fill.js';
-import { glyphOf } from '../../src/webview/states.js';
+import { shortRunId } from '../../src/webview/ids.js';
+import { glyphOf, type GlyphState } from '../../src/webview/states.js';
 
-import { WARN } from './fixtures/runs.js';
-import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
+import {
+  BY_STATE,
+  LINEAGE,
+  LIST_ROWS,
+  listRow,
+  OFF_THE_PAGE,
+  runsInit,
+  showList,
+  SIX_DONE,
+} from './fixtures/list.js';
+import { mount, THEMES_ALL, type ThemeKind } from './harness.js';
+import { colourOf, sameColour, type Role } from './palette.js';
 import { runsWords as runsStrings } from './words.js';
 
 /**
@@ -22,140 +33,6 @@ import { runsWords as runsStrings } from './words.js';
  * these specs; that the extension resolves the
  * right ones is checked where the extension is.
  */
-
-const ROWS: RunRow[] = [
-  {
-    workflowId: 'wf_c9d2f3',
-    name: 'groom_booking',
-    status: 'SUCCESS',
-    state: 'done',
-    line: 'done · 14:02 · 8.2 s · ↻ recovered',
-    recovered: true,
-    recoveredNote: undefined,
-    error: undefined,
-    stoppedAt: undefined,
-    operations: undefined,
-    lineage: [],
-    startStep: undefined,
-    failedStep: undefined,
-  },
-  {
-    workflowId: 'wf_a1b4e7',
-    name: 'groom_booking',
-    status: 'SUCCESS',
-    state: 'done',
-    line: 'done · 13:57 · 4.8 s',
-    recovered: false,
-    recoveredNote: undefined,
-    error: undefined,
-    stoppedAt: undefined,
-    operations: undefined,
-    lineage: [],
-    startStep: undefined,
-    failedStep: undefined,
-  },
-  {
-    workflowId: 'wf_77c101',
-    name: 'nightly_sync',
-    status: 'ERROR',
-    state: 'failed',
-    line: 'failed · sync_rows · 13:41 · 1.2 s',
-    recovered: false,
-    recoveredNote: undefined,
-    error: 'login failed — CDC_PASS rotated',
-    stoppedAt: '13:41',
-    operations: 3,
-    lineage: [],
-    startStep: undefined,
-    failedStep: 2,
-  },
-  {
-    workflowId: 'wf_ff0912',
-    name: 'nightly_sync',
-    status: 'MAX_RECOVERY_ATTEMPTS_EXCEEDED',
-    state: 'failed',
-    line: 'gave up · after sync_rows · 13:20',
-    recovered: true,
-    recoveredNote: 'recovered from 3 crashes · derived',
-    error: 'gave up after 3 attempts',
-    stoppedAt: '13:19',
-    operations: 2,
-    lineage: [],
-    startStep: undefined,
-    failedStep: undefined,
-  },
-];
-
-/** One row, as a case changes it. */
-function listRow(over: Partial<RunRow>): RunRow {
-  return {
-    workflowId: 'wf_c9d2f3',
-    name: 'groom_booking',
-    status: 'SUCCESS',
-    state: 'done',
-    line: 'done · 14:02 · 8.2 s',
-    recovered: false,
-    recoveredNote: undefined,
-    error: undefined,
-    stoppedAt: undefined,
-    operations: undefined,
-    lineage: [],
-    startStep: undefined,
-    failedStep: undefined,
-    ...over,
-  };
-}
-
-function runsInit(over: Partial<RunsInit> = {}): RunsInit {
-  return {
-    type: 'init',
-    view: 'runs',
-    strings: runsStrings,
-    project: 'groom-shop',
-    source: 'dbos.workflow_status · localhost:5432/app',
-    state: 'ok',
-    detail: undefined,
-    filter: 'all',
-    counts: { all: 6, active: 1, failed: 1 },
-    rows: ROWS,
-    selected: undefined,
-    stack: {
-      available: true,
-      answered: true,
-      services: [],
-      busy: undefined,
-      detail: undefined,
-    },
-    testRun: {
-      workflows: [],
-      selected: undefined,
-      input: '',
-      hint: undefined,
-      problem: undefined,
-    },
-    live: undefined,
-    session: [],
-    production: { configured: false },
-    ...over,
-  };
-}
-
-async function showList(
-  page: Page,
-  init: RunsInit,
-  theme: ThemeKind = 'light',
-): Promise<Harness> {
-  const harness = await mount(page, 'runs', theme);
-  await harness.show(init);
-
-  return harness;
-}
-
-function tagColour(page: Page, runId: string): Promise<string> {
-  return page
-    .locator(`[data-run="${runId}"] .run-tag`)
-    .evaluate((node) => getComputedStyle(node).color);
-}
 
 test.describe('the local stack', () => {
   test('draws a row per service and names the one about to run', async ({
@@ -789,7 +666,7 @@ test.describe('this session', () => {
     await showList(
       page,
       runsInit({
-        rows: [listRow({})],
+        rows: [listRow({ workflowId: 'wf_c9d2f3' })],
         session: [
           {
             workflowId: 'wf_c9d2f3',
@@ -807,7 +684,7 @@ test.describe('this session', () => {
     );
 
     await expect(page.locator('[data-session-row="wf_c9d2f3"]')).toHaveCount(1);
-    await expect(page.locator('.run-rows [data-run="wf_c9d2f3"]')).toHaveCount(
+    await expect(page.locator('.run-list [data-run="wf_c9d2f3"]')).toHaveCount(
       0,
     );
   });
@@ -922,200 +799,965 @@ test.describe('the footer', () => {
   });
 });
 
-test.describe('the run list', () => {
-  test('offers the three filters with what each would show', async ({
-    page,
-  }) => {
-    await showList(
-      page,
-      runsInit({ counts: { all: 6, active: 2, failed: 1 } }),
+/** The voice a state is drawn in, as the palette
+ *  names it. */
+function toneOf(state: GlyphState): Role {
+  return glyphOf(state).tone.slice(2) as Role;
+}
+
+/** What a theme paints text that says a state in:
+ *  the state ink where the theme has one, else the
+ *  tone. */
+function stateInk(theme: ThemeKind, role: Role): string {
+  return colourOf(theme, 'state-ink') || colourOf(theme, role);
+}
+
+function item(page: Page, row: RunRow): Locator {
+  return page.locator(`li[data-run="${row.workflowId}"]`);
+}
+
+function headOf(page: Page, row: RunRow): Locator {
+  return item(page, row).locator(':scope > button.run-head');
+}
+
+function style(target: Locator, name: string): Promise<string> {
+  return target.evaluate(
+    (node, property) => getComputedStyle(node).getPropertyValue(property),
+    name,
+  );
+}
+
+function heightOf(target: Locator): Promise<number> {
+  return target.evaluate((node) => node.getBoundingClientRect().height);
+}
+
+/** Which action each Button in a row's action row
+ *  is, by the hook a journey finds it by. */
+function actionsOf(page: Page, row: RunRow): Promise<string[]> {
+  return item(page, row)
+    .locator('.run-actions > .btn')
+    .evaluateAll((buttons) =>
+      buttons.map(
+        (button) =>
+          [
+            'open-run',
+            'cancel-run',
+            'resume-run',
+            'replay-run',
+            'ask-agent',
+            'copy-run-id',
+          ].find((hook) => button.hasAttribute(`data-${hook}`)) ?? '',
+      ),
     );
+}
 
-    await expect(page.locator('[data-filter="all"]')).toHaveCount(1);
-    await expect(page.locator('[data-filter="all"]')).toContainText('6');
-    await expect(page.locator('[data-filter="active"]')).toContainText('2');
-    await expect(page.locator('[data-filter="failed"]')).toContainText('1');
-    await expect(page.locator('[data-filter="recovered"]')).toHaveCount(0);
+/**
+ * The distinct lines a row's actions sit on, by
+ * where each Button's middle is: the glyph Button is
+ * a half pixel taller than the worded ones, and the
+ * row centres them on one line.
+ */
+function linesOf(page: Page, row: RunRow): Promise<number[]> {
+  return item(page, row)
+    .locator('.run-actions > .btn')
+    .evaluateAll((buttons) => [
+      ...new Set(
+        buttons.map((button) => {
+          const box = button.getBoundingClientRect();
 
-    await expect(page.locator('[data-filter="all"]')).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-  });
-
-  test('asks the extension for a different filter', async ({ page }) => {
-    const harness = await showList(page, runsInit());
-
-    await page.locator('[data-filter="failed"]').click();
-    await page.locator('[data-filter="active"]').click();
-
-    expect(await harness.postedOfType('runFilter')).toEqual([
-      { type: 'runFilter', filter: 'failed' },
-      { type: 'runFilter', filter: 'active' },
+          return Math.round(box.top + box.height / 2);
+        }),
+      ),
     ]);
-  });
+}
+
+test.describe('the filters', () => {
+  for (const theme of THEMES_ALL) {
+    test(`counts All, Active and Failed on tabs over one list in ${theme}`, async ({
+      page,
+    }) => {
+      const harness = await showList(
+        page,
+        runsInit({ counts: { all: 9, active: 2, failed: 4 } }),
+        theme,
+        { width: 300 },
+      );
+
+      const tabs = page.getByRole('tab');
+      await expect(page.getByRole('tablist')).toHaveCount(1);
+      await expect(tabs).toHaveCount(3);
+      await expect(page.locator('[data-filter="recovered"]')).toHaveCount(0);
+
+      await expect(page.locator('[role="tab"][data-filter]')).toHaveCount(3);
+      await expect(tabs.locator('.tab-count')).toHaveText(['9', '2', '4']);
+      for (const [at, filter] of (
+        ['all', 'active', 'failed'] as const
+      ).entries()) {
+        await expect(tabs.nth(at)).toHaveAttribute('data-filter', filter);
+        await expect(tabs.nth(at)).toContainText(runsStrings.filters[filter]);
+      }
+
+      // Every tab drives the one list, whichever of
+      // them is picked.
+      const panel = page.getByRole('tabpanel');
+      await expect(panel).toHaveCount(1);
+      const listId = await panel.getAttribute('id');
+      expect(listId).toBeTruthy();
+      for (const at of [0, 1, 2]) {
+        await expect(tabs.nth(at)).toHaveAttribute(
+          'aria-controls',
+          listId ?? '',
+        );
+      }
+      await expect(panel.locator('ol.run-list')).toHaveCount(1);
+
+      const all = page.locator('[data-filter="all"]');
+      await expect(all).toHaveAttribute('aria-selected', 'true');
+      expect(
+        sameColour(
+          await style(all.locator('.tab-count'), 'color'),
+          stateInk(theme, 'brand'),
+        ),
+      ).toBe(true);
+
+      await page.locator('[data-filter="failed"]').click();
+      await page.locator('[data-filter="active"]').click();
+
+      expect(await harness.postedOfType('runFilter')).toEqual([
+        { type: 'runFilter', filter: 'failed' },
+        { type: 'runFilter', filter: 'active' },
+      ]);
+    });
+
+    /** Failed is DBOS's own set, which holds the runs
+     *  somebody stopped; they keep their own tone. */
+    test(`keeps a cancelled run idle under Failed in ${theme}`, async ({
+      page,
+    }) => {
+      const cancelled = BY_STATE.cancelled;
+
+      await showList(
+        page,
+        runsInit({
+          filter: 'failed',
+          rows: [cancelled],
+          counts: { all: 9, active: 0, failed: 1 },
+        }),
+        theme,
+        { width: 300 },
+      );
+
+      await expect(page.locator('li[data-outcome="idle"]')).toHaveCount(1);
+
+      const rail = headOf(page, cancelled).locator(
+        '.status-glyph[data-glyph="rail"]',
+      );
+      await expect(rail).toHaveCount(1);
+      expect(
+        sameColour(
+          await style(rail, 'background-color'),
+          stateInk(theme, 'ink-faint'),
+        ),
+      ).toBe(true);
+    });
+  }
 
   /**
-   * Three states told apart without reading
-   * anything: a mark, an accent rule down the edge
-   * of a run that recovered, and the failure in the
-   * failure colour.
+   * The read stops at a page; the count behind the
+   * tab does not. So a list that is shorter than
+   * its tab says so, and compares with the tab it is
+   * under rather than with every run there is.
    */
-  test('draws a plain success, a recovered one and a failure apart', async ({
+  test('says how many of how many it shows once the list is capped', async ({
     page,
   }) => {
+    const fifty = Array.from({ length: 50 }, (_, at) =>
+      listRow({
+        workflowId: `${String(at).padStart(8, '0')}-0000-4000-8000-${'0'.repeat(12)}`,
+      }),
+    );
+
+    const harness = await showList(
+      page,
+      runsInit({ rows: fifty, counts: { all: 51, active: 0, failed: 0 } }),
+    );
+
+    const panel = page.getByRole('tabpanel');
+    await expect(panel.locator('li[data-run]')).toHaveCount(50);
+    const last = panel.locator(':scope > :last-child');
+    await expect(last).toHaveClass(/field-hint/);
+    await expect(last).toHaveText(filled(runsStrings.capped, '50', '51'));
+
+    await harness.show(
+      runsInit({ rows: SIX_DONE, counts: { all: 6, active: 0, failed: 0 } }),
+    );
+    await expect(panel.locator('li[data-run]')).toHaveCount(6);
+    await expect(panel.locator(':scope > .field-hint')).toHaveCount(0);
+
+    await harness.show(
+      runsInit({
+        filter: 'failed',
+        rows: [BY_STATE.failed],
+        counts: { all: 60, active: 0, failed: 1 },
+      }),
+    );
+    await expect(panel.locator('li[data-run]')).toHaveCount(1);
+    await expect(panel.locator(':scope > .field-hint')).toHaveCount(0);
+  });
+
+  test('says an empty filter is empty', async ({ page }) => {
+    const harness = await showList(
+      page,
+      runsInit({
+        filter: 'failed',
+        rows: [],
+        counts: { all: 6, active: 0, failed: 0 },
+      }),
+    );
+
+    const panel = page.getByRole('tabpanel');
+    await expect(page.getByRole('tab')).toHaveCount(3);
+    await expect(page.locator('.empty-state')).toHaveCount(1);
+    await expect(panel.locator('.empty-title')).toHaveText(
+      runsStrings.noFailed,
+    );
+
+    await harness.show(
+      runsInit({
+        filter: 'active',
+        rows: [],
+        counts: { all: 6, active: 0, failed: 0 },
+      }),
+    );
+    await expect(page.locator('.empty-state')).toHaveCount(1);
+    await expect(panel.locator('.empty-title')).toHaveText(
+      runsStrings.noActive,
+    );
+
+    // With the app down the panel already says why
+    // in a card of its own, so an empty filter is a
+    // line under the tabs rather than a second card.
+    await harness.show(
+      runsInit({
+        filter: 'failed',
+        rows: [],
+        counts: { all: 6, active: 0, failed: 0 },
+        stack: {
+          available: true,
+          answered: true,
+          services: [
+            {
+              service: 'app',
+              state: 'exited',
+              health: 'none',
+              ports: [],
+              detail: '',
+            },
+          ],
+          busy: undefined,
+          detail: undefined,
+        },
+      }),
+    );
+    await expect(page.getByRole('tab')).toHaveCount(3);
+    await expect(panel.locator('.empty-state')).toHaveCount(0);
+    await expect(panel.locator(':scope > .field-hint')).toHaveText(
+      runsStrings.noFailed,
+    );
+  });
+});
+
+test.describe('a run, collapsed', () => {
+  for (const theme of THEMES_ALL) {
+    test(`draws a run as one line of rail, id, name, mark and word in ${theme}`, async ({
+      page,
+    }) => {
+      await showList(page, runsInit(), theme, { width: 300 });
+
+      await expect(page.locator('li[data-run]')).toHaveCount(LIST_ROWS.length);
+
+      for (const row of LIST_ROWS) {
+        const head = headOf(page, row);
+        await expect(head).toHaveCount(1);
+        await expect(item(page, row)).toHaveAttribute(
+          'data-outcome',
+          row.state,
+        );
+
+        const height = await heightOf(head);
+        expect(height).toBeGreaterThanOrEqual(31.5);
+        expect(height).toBeLessThanOrEqual(32.5);
+
+        // A run DBOS picked back up keeps its own
+        // tone: the line says it recovered, and a
+        // failure is still a failure.
+        const tone = stateInk(theme, toneOf(row.state));
+        const rail = head.locator('.status-glyph[data-glyph="rail"]');
+        await expect(rail).toHaveCount(1);
+        expect(
+          await rail.evaluate((node) => node.getBoundingClientRect().width),
+        ).toBe(3);
+        expect(sameColour(await style(rail, 'background-color'), tone)).toBe(
+          true,
+        );
+
+        const id = head.locator('.run-id');
+        expect(await style(id, 'font-weight')).toBe('500');
+        expect(parseFloat(await style(id, 'font-size'))).toBeCloseTo(11.999, 1);
+        expect(
+          parseFloat(await style(head.locator('.run-name'), 'font-size')),
+        ).toBeCloseTo(11.999, 1);
+
+        const summary = head.locator('.run-summary');
+        await expect(summary).toHaveText(row.line);
+        await expect(summary).toHaveAttribute('data-provenance', 'derived');
+        await expect(summary).toHaveAttribute(
+          'title',
+          runsStrings.derivedTitle,
+        );
+        expect(parseFloat(await style(summary, 'font-size'))).toBeCloseTo(
+          11.05,
+          1,
+        );
+        expect(
+          sameColour(
+            await style(summary, 'color'),
+            row.state === 'failed'
+              ? stateInk(theme, 'fail')
+              : colourOf(theme, 'ink-muted'),
+          ),
+        ).toBe(true);
+
+        const mark = head.locator('.status-glyph[data-glyph="mark"]');
+        await expect(mark).toHaveCount(1);
+        await expect(mark).toHaveAttribute('aria-hidden', 'true');
+        await expect(mark).toHaveText(glyphOf(row.state).mark);
+        expect(sameColour(await style(mark, 'color'), tone)).toBe(true);
+        expect(parseFloat(await style(mark, 'font-size'))).toBeLessThanOrEqual(
+          13,
+        );
+        expect(
+          await mark.evaluate(
+            (node, after) =>
+              node.compareDocumentPosition(after as Node) &
+              Node.DOCUMENT_POSITION_FOLLOWING,
+            await summary.elementHandle(),
+          ),
+        ).toBeTruthy();
+
+        // No rule between runs: the picked one's only
+        // edge is its ring, which goes all the way
+        // round.
+        expect(await style(item(page, row), 'border-bottom-style')).toBe(
+          row === BY_STATE.done ? 'solid' : 'none',
+        );
+        expect(await style(head, 'border-bottom-style')).toBe('none');
+      }
+
+      // The three the eye goes to, named.
+      expect(toneOf(BY_STATE.done.state)).toBe('ok');
+      expect(toneOf(BY_STATE.gaveUp.state)).toBe('fail');
+      expect(toneOf(BY_STATE.recoveredFailed.state)).toBe('fail');
+      expect(toneOf(BY_STATE.waiting.state)).toBe('warn');
+    });
+  }
+
+  test('keeps the id, the mark and the state word on screen at 300px', async ({
+    page,
+  }) => {
+    const long = listRow({
+      name: 'reconcile_every_ledger_entry_for_the_quarter',
+      line: 'done · Sep 11 18:24 · 1 m 12 s · 27 steps · ↻ recovered',
+    });
+
+    const harness = await showList(
+      page,
+      runsInit({ rows: [long], selected: undefined }),
+      'light',
+      { width: 300 },
+    );
+
+    const head = headOf(page, long);
+    await expect(head).toHaveCount(1);
+
+    const read = await head.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const inside = (element: Element | null): boolean => {
+        const rect = element?.getBoundingClientRect();
+
+        return (
+          rect !== undefined &&
+          rect.width > 0 &&
+          rect.left >= box.left &&
+          rect.right <= box.right
+        );
+      };
+
+      const name = node.querySelector('.run-name') as HTMLElement;
+      const summary = node.querySelector('.run-summary') as HTMLElement;
+
+      // How wide six characters of the name's own
+      // face are.
+      const probe = document.createElement('span');
+      probe.textContent = '000000';
+      probe.style.font = getComputedStyle(name).font;
+      document.body.append(probe);
+      const sixCh = probe.getBoundingClientRect().width;
+      probe.remove();
+
+      const text = summary.firstChild as Text;
+      const word = document.createRange();
+      word.setStart(text, 0);
+      word.setEnd(text, text.data.indexOf(' '));
+      const wordBox = word.getBoundingClientRect();
+
+      const css = getComputedStyle(summary);
+
+      return {
+        id: inside(node.querySelector('.run-id')),
+        mark: inside(node.querySelector('[data-glyph="mark"]')),
+        word:
+          wordBox.width > 0 &&
+          wordBox.left >= box.left &&
+          wordBox.right <= box.right,
+        sixCh,
+        nameMin: parseFloat(getComputedStyle(name).minWidth),
+        nameWidth: name.getBoundingClientRect().width,
+        nameCut: name.scrollWidth > name.clientWidth,
+        summary: {
+          overflow: css.overflow,
+          textOverflow: css.textOverflow,
+          whiteSpace: css.whiteSpace,
+          cut: summary.scrollWidth > summary.clientWidth,
+        },
+      };
+    });
+
+    expect(read.id).toBe(true);
+    expect(read.mark).toBe(true);
+    expect(read.word).toBe(true);
+    expect(read.nameMin).toBeGreaterThanOrEqual(read.sixCh - 0.5);
+    expect(read.nameWidth).toBeGreaterThanOrEqual(read.sixCh - 0.5);
+    expect(read.nameCut).toBe(true);
+    expect(read.summary).toEqual({
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+      cut: true,
+    });
+
+    // The workflow gives its room up first: a line
+    // that fits only once the name has given all it
+    // can is drawn whole.
+    const short = { ...long, line: 'cancelled · 18:10' };
+    await harness.show(runsInit({ rows: [short], selected: undefined }));
+    await expect(head.locator('.run-summary')).toHaveText(short.line);
+
+    const cut = await head.evaluate((node) => {
+      const clipped = (selector: string): boolean => {
+        const element = node.querySelector(selector) as HTMLElement;
+
+        return element.scrollWidth > element.clientWidth;
+      };
+
+      return { name: clipped('.run-name'), line: clipped('.run-summary') };
+    });
+
+    expect(cut).toEqual({ name: true, line: false });
+  });
+
+  /** Four characters collide about once in fifty
+   *  runs, so the short id always carries the whole
+   *  one — and the whole one is written nowhere
+   *  else on the row. */
+  test('shows a run’s full id only in its short id’s title', async ({
+    page,
+  }) => {
+    const row = BY_STATE.done;
+
     await showList(page, runsInit());
 
-    const recovered = page.locator('[data-run="wf_c9d2f3"]');
-    await expect(recovered).toHaveAttribute('data-recovered', 'true');
-    await expect(recovered).toContainText('↻ recovered');
-    await expect(recovered.locator('.run-summary')).toHaveText(
-      'done · 14:02 · 8.2 s · ↻ recovered',
-    );
+    const short = headOf(page, row).locator('[data-short-run]');
+    await expect(short).toHaveText('#7089');
+    await expect(short).toHaveText(shortRunId(row.workflowId));
+    await expect(short).toHaveAttribute('title', row.workflowId);
+    await expect(short).toHaveAttribute('data-short-run', row.workflowId);
 
-    const plain = page.locator('[data-run="wf_a1b4e7"]');
-    await expect(plain).toHaveAttribute('data-recovered', 'false');
-    await expect(plain).not.toContainText('↻ recovered');
+    const written = await item(page, row).evaluate((node, id) => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      const found: string[] = [];
 
-    const failed = page.locator('[data-run="wf_77c101"]');
-    await expect(failed).toHaveAttribute('data-outcome', 'failed');
-    await expect(failed).toContainText('login failed — CDC_PASS rotated');
+      for (
+        let text = walker.nextNode();
+        text !== null;
+        text = walker.nextNode()
+      ) {
+        if ((text.textContent ?? '').includes(id))
+          found.push(text.textContent ?? '');
+      }
+
+      return found;
+    }, row.workflowId);
+
+    expect(written).toEqual([]);
   });
 
-  /**
-   * A run parked on somebody is `PENDING` in the
-   * status column, exactly like one that is
-   * executing a step. What tells them apart is the
-   * shape of the last operation, and the row says
-   * which block and since when.
-   */
-  test('marks a run waiting on a person, and says since when', async ({
-    page,
-  }) => {
-    await showList(
+  for (const theme of THEMES_ALL) {
+    test(`answers the pointer, and rings the selected run in ${theme}`, async ({
       page,
-      runsInit({
-        rows: [
-          listRow({
-            workflowId: 'wf_parked',
-            name: 'expense_claim',
-            status: 'PENDING',
-            state: 'waiting',
-            line: 'waiting · manager_ok · since 10:31',
-            stoppedAt: '10:31',
-            operations: 1,
-          }),
-        ],
-      }),
+    }) => {
+      await showList(page, runsInit(), theme, { width: 300 });
+
+      const other = headOf(page, BY_STATE.failed);
+      await other.hover();
+      expect(
+        sameColour(
+          await style(other, 'background-color'),
+          colourOf(theme, 'surface-2'),
+        ),
+      ).toBe(true);
+      expect(await style(other, 'outline-style')).toBe('dashed');
+
+      // The picked run already has a ground and an
+      // edge, and the pointer adds neither.
+      const picked = headOf(page, BY_STATE.done);
+      await picked.hover();
+      expect(await style(picked, 'background-color')).toBe('rgba(0, 0, 0, 0)');
+      expect(await style(picked, 'outline-style')).toBe('none');
+
+      // The ring goes round the whole run it marks,
+      // the actions it opened included, and takes its
+      // pixel out of the run's own room so nothing
+      // under it moves.
+      const selected = item(page, BY_STATE.done);
+      expect(
+        sameColour(
+          await style(selected, 'background-color'),
+          colourOf(theme, 'brand-tint'),
+        ),
+      ).toBe(true);
+      expect(await style(selected, 'border-top-style')).toBe('solid');
+      expect(await style(selected, 'border-top-width')).toBe('1px');
+      expect(
+        sameColour(
+          await style(selected, 'border-top-color'),
+          colourOf(theme, 'selection-ring'),
+        ),
+      ).toBe(true);
+
+      const height = await heightOf(headOf(page, BY_STATE.done));
+      expect(height).toBeGreaterThanOrEqual(31.5);
+      expect(height).toBeLessThanOrEqual(32.5);
+
+      const left = (row: RunRow): Promise<number> =>
+        headOf(page, row)
+          .locator('.run-id')
+          .evaluate((node) => node.getBoundingClientRect().left);
+      expect(await left(BY_STATE.done)).toBeCloseTo(
+        await left(BY_STATE.failed),
+        1,
+      );
+
+      // A run nobody picked keeps no edge at rest.
+      expect(await style(item(page, BY_STATE.failed), 'border-top-style')).toBe(
+        'none',
+      );
+
+      // The rail runs down everything the picked run
+      // opened, not only its line.
+      const inner = await selected.evaluate((node) => node.clientHeight);
+      const rail = headOf(page, BY_STATE.done).locator(
+        '.status-glyph[data-glyph="rail"]',
+      );
+      expect(inner).toBeGreaterThan(height + 20);
+      expect(await heightOf(rail)).toBeCloseTo(inner, 0);
+    });
+  }
+
+  /** A theme that forces its own colours drops
+   *  every ground and keeps every line, so the ring
+   *  and the outline are what say which run is
+   *  which. */
+  test('keeps the ring and the outline in forced colours', async ({ page }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+    await showList(page, runsInit(), 'high-contrast', { width: 300 });
+
+    expect(await style(item(page, BY_STATE.done), 'border-top-style')).toBe(
+      'solid',
     );
 
-    const row = page.locator('[data-run="wf_parked"]');
-
-    await expect(row).toHaveAttribute('data-outcome', 'waiting');
-    await expect(row.locator('.run-mark')).toHaveText(glyphOf('waiting').mark);
-
-    const summary = row.locator('.run-summary');
-    await expect(summary).toHaveText('waiting · manager_ok · since 10:31');
-    await expect(summary).toHaveAttribute('data-stopped-at', '10:31');
-    await expect(summary).toHaveAttribute('data-derived', 'true');
-    await expect(summary).toHaveAttribute('title', runsStrings.derivedTitle);
+    const other = headOf(page, BY_STATE.failed);
+    await other.hover();
+    expect(await style(other, 'outline-style')).toBe('dashed');
   });
 
-  test('hands the id of a row to the window', async ({ page }) => {
+  test('selects a run from its head, and from its mark', async ({ page }) => {
     const harness = await showList(page, runsInit());
+    const failed = BY_STATE.failed;
 
-    await page.locator('[data-run="wf_c9d2f3"]').hover();
-    await page.locator('[data-copy-run-id="wf_c9d2f3"]').click();
-
-    expect(await harness.postedOfType('copyRunId')).toEqual([
-      { type: 'copyRunId', workflowId: 'wf_c9d2f3' },
+    await headOf(page, failed).click();
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: failed.workflowId },
     ]);
+
+    await headOf(page, failed)
+      .locator('.status-glyph[data-glyph="mark"]')
+      .click();
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: failed.workflowId },
+      { type: 'runSelect', workflowId: failed.workflowId },
+    ]);
+    expect(await harness.postedOfType('copyRunId')).toEqual([]);
+    expect(await harness.postedOfType('openRun')).toEqual([]);
+  });
+});
+
+test.describe('the selected run', () => {
+  test('expands the selected run alone, and says so', async ({ page }) => {
+    await showList(page, runsInit());
+
+    await expect(
+      page.locator(
+        'li:first-child > button.run-head[aria-current="true"][aria-expanded="true"]',
+      ),
+    ).toHaveCount(1);
+
+    const heads = page.locator('button.run-head');
+    await expect(heads).toHaveCount(LIST_ROWS.length);
+    await expect(
+      page.locator('button.run-head[aria-expanded="false"]'),
+    ).toHaveCount(LIST_ROWS.length - 1);
+    await expect(page.locator('[aria-current="true"]')).toHaveCount(1);
+    await expect(page.locator('[aria-expanded="true"]')).toHaveCount(1);
+    await expect(page.locator('.run-body')).toHaveCount(1);
+    await expect(page.locator('li:first-child > .run-body')).toHaveCount(1);
+
+    // Nothing a person presses sits inside another
+    // thing they press.
+    await expect(page.locator('button button')).toHaveCount(0);
   });
 
-  test('keeps the hidden copy control keyboard accessible', async ({
-    page,
-  }) => {
-    const harness = await showList(page, runsInit());
-    const copy = page.locator('[data-copy-run-id="wf_c9d2f3"]');
+  test('offers the actions its state allows, in order', async ({ page }) => {
+    const settled = ['open-run', 'replay-run', 'ask-agent', 'copy-run-id'];
+    const stopped = [
+      'open-run',
+      'resume-run',
+      'replay-run',
+      'ask-agent',
+      'copy-run-id',
+    ];
+    const going = ['open-run', 'cancel-run', 'copy-run-id'];
 
+    const offered: [RunRow, string[]][] = [
+      [BY_STATE.done, settled],
+      [BY_STATE.failed, settled],
+      [BY_STATE.recoveredFailed, settled],
+      [BY_STATE.gaveUp, stopped],
+      [BY_STATE.cancelled, stopped],
+      [BY_STATE.running, going],
+      [BY_STATE.recovering, going],
+      [BY_STATE.waiting, going],
+      [BY_STATE.queued, going],
+    ];
+
+    expect(offered).toHaveLength(Object.keys(BY_STATE).length);
+
+    const harness = await showList(page, runsInit());
+
+    for (const [row, hooks] of offered) {
+      await harness.show(runsInit({ selected: row.workflowId }));
+      await expect(item(page, row).locator('.run-actions > .btn')).toHaveCount(
+        hooks.length,
+      );
+      expect(await actionsOf(page, row)).toEqual(hooks);
+
+      const actions = item(page, row).locator('.run-actions');
+      const look = (hook: string, variant: string, ink?: string) =>
+        Promise.all([
+          expect(actions.locator(`[data-${hook}]`)).toHaveAttribute(
+            'data-variant',
+            variant,
+          ),
+          ink === undefined
+            ? expect(actions.locator(`[data-${hook}]`)).not.toHaveAttribute(
+                'data-ink',
+              )
+            : expect(actions.locator(`[data-${hook}]`)).toHaveAttribute(
+                'data-ink',
+                ink,
+              ),
+        ]);
+
+      await look('open-run', 'secondary', 'brand');
+      if (hooks.includes('replay-run')) {
+        await look('replay-run', 'secondary', 'brand');
+      }
+      if (hooks.includes('resume-run')) await look('resume-run', 'primary');
+      if (hooks.includes('cancel-run')) await look('cancel-run', 'stop');
+      if (hooks.includes('ask-agent')) await look('ask-agent', 'quiet');
+
+      const copy = actions.locator('[data-copy-run-id]');
+      await look('copy-run-id', 'quiet');
+      await expect(copy).toHaveAttribute('data-copy-run-id', row.workflowId);
+      await expect(copy).toHaveAttribute('data-icon', 'copy');
+      await expect(copy).toHaveAttribute('title', runsStrings.copyRunId);
+      await expect(copy).toHaveAccessibleName(runsStrings.copyRunId);
+      expect(runsStrings.copyRunId).toBe('Copy id');
+    }
+  });
+
+  test('asks for what each action says', async ({ page }) => {
+    const done = BY_STATE.done;
+    const failed = BY_STATE.failed;
+    const harness = await showList(page, runsInit());
+
+    const actions = (row: RunRow): Locator =>
+      item(page, row).locator('.run-actions');
+
+    await actions(done).locator('[data-open-run]').click();
+    expect(await harness.postedOfType('openRun')).toEqual([
+      { type: 'openRun', workflowId: done.workflowId },
+    ]);
+
+    // No row that threw: the whole run again.
+    const fromStart = actions(done).locator('[data-replay-run]');
+    await expect(fromStart).toHaveText(runsStrings.replayFromStart);
+    await fromStart.click();
+
+    await actions(done).locator('[data-ask-agent]').click();
+    expect(await harness.postedOfType('askAgent')).toEqual([
+      { type: 'askAgent', workflowId: done.workflowId },
+    ]);
+
+    // From the keyboard, as a glyph with no words on
+    // it has to be reachable.
+    const copy = actions(done).locator('[data-copy-run-id]');
     await copy.focus();
-    await expect(copy).toHaveCSS('opacity', '1');
     await copy.press('Enter');
-
     expect(await harness.postedOfType('copyRunId')).toEqual([
-      { type: 'copyRunId', workflowId: 'wf_c9d2f3' },
+      { type: 'copyRunId', workflowId: done.workflowId },
+    ]);
+
+    // A row that threw: from the first one that did.
+    await harness.show(runsInit({ selected: failed.workflowId }));
+    const fromHere = actions(failed).locator('[data-replay-run]');
+    await expect(fromHere).toHaveText(runsStrings.replayFromHere);
+    await fromHere.click();
+
+    expect(await harness.postedOfType('replayRun')).toEqual([
+      { type: 'replayRun', workflowId: done.workflowId, from: 'start' },
+      { type: 'replayRun', workflowId: failed.workflowId, functionId: 1 },
+    ]);
+
+    await harness.show(runsInit({ selected: BY_STATE.running.workflowId }));
+    await actions(BY_STATE.running).locator('[data-cancel-run]').click();
+    expect(await harness.postedOfType('cancelRun')).toEqual([
+      { type: 'cancelRun', workflowId: BY_STATE.running.workflowId },
+    ]);
+
+    await harness.show(runsInit({ selected: BY_STATE.gaveUp.workflowId }));
+    await actions(BY_STATE.gaveUp).locator('[data-resume-run]').click();
+    expect(await harness.postedOfType('resumeRun')).toEqual([
+      { type: 'resumeRun', workflowId: BY_STATE.gaveUp.workflowId },
     ]);
   });
 
   /**
-   * Nothing on this panel is a service somewhere.
-   * The footer names the two tables the list is
-   * projected from, in the project's own database.
+   * The ids are read off the ledger and the step a
+   * replay began at is worked out, so the step is the
+   * part marked as derived. An id on this page is a
+   * way to that row; one that is not stays a name,
+   * because picking a run the list does not hold
+   * would mark a different one.
    */
+  test('says where a replay came from and what came out of it', async ({
+    page,
+  }) => {
+    const { parent, firstFork, secondFork, orphan } = LINEAGE;
+    const rows = [parent, firstFork, secondFork, orphan];
+    const harness = await showList(page, runsInit({ rows }));
+
+    const forks = item(page, parent).locator('[data-run-fork]');
+    await expect(forks).toHaveCount(2);
+    await expect(forks.first()).toHaveText(
+      '└ replay from step 2 → #4b56 · done',
+    );
+    await expect(forks.first()).toHaveText(
+      filled(
+        runsStrings.replayTo,
+        filled(runsStrings.fromStep, '2'),
+        '#4b56',
+        'done',
+      ),
+    );
+    await expect(item(page, parent).locator('[data-replay-of]')).toHaveCount(0);
+
+    const way = forks
+      .first()
+      .locator(`[data-lineage-run="${firstFork.workflowId}"]`);
+    await expect(way).toHaveCount(1);
+    await expect(way).toHaveClass(/\bbtn\b/);
+    await expect(way).toHaveAttribute('data-variant', 'quiet');
+    await expect(
+      way.locator(`[data-short-run="${firstFork.workflowId}"]`),
+    ).toHaveText('#4b56');
+
+    const steps = item(page, parent).locator(
+      '[data-provenance="derived"]:not(.run-summary)',
+    );
+    await expect(steps).toHaveCount(2);
+    await expect(steps).toHaveText([
+      filled(runsStrings.fromStep, '2'),
+      filled(runsStrings.fromStep, '3'),
+    ]);
+    for (const at of [0, 1]) {
+      await expect(steps.nth(at)).toHaveAttribute('title', runsStrings.derived);
+    }
+
+    await way.click();
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: firstFork.workflowId },
+    ]);
+    expect(await harness.postedOfType('openRun')).toEqual([]);
+
+    await harness.show(runsInit({ rows, selected: secondFork.workflowId }));
+    const replayOf = item(page, secondFork).locator('[data-replay-of]');
+    await expect(replayOf).toHaveText('replay of #4126 from step 3');
+    await expect(
+      replayOf.locator(`[data-lineage-run="${parent.workflowId}"]`),
+    ).toHaveCount(1);
+
+    await harness.show(runsInit({ rows, selected: orphan.workflowId }));
+    const offPage = item(page, orphan).locator('[data-replay-of]');
+    await expect(offPage).toHaveText(
+      `replay of ${shortRunId(OFF_THE_PAGE)} from step 1`,
+    );
+    await expect(
+      offPage.locator(`[data-short-run="${OFF_THE_PAGE}"]`),
+    ).toHaveAttribute('title', OFF_THE_PAGE);
+    await expect(offPage.locator('[data-lineage-run]')).toHaveCount(0);
+    await expect(offPage.locator('button')).toHaveCount(0);
+
+    // A run nothing was replayed from on this page
+    // says nothing about replays.
+    await harness.show(
+      runsInit({
+        rows: [BY_STATE.failed, ...rows],
+        selected: BY_STATE.failed.workflowId,
+      }),
+    );
+    await expect(item(page, BY_STATE.failed).locator('.run-body')).toHaveCount(
+      1,
+    );
+    await expect(page.locator('[data-run-fork]')).toHaveCount(0);
+    await expect(page.locator('[data-replay-of]')).toHaveCount(0);
+  });
+
+  test('says what a failed run threw, and how often it was picked back up', async ({
+    page,
+  }) => {
+    const harness = await showList(
+      page,
+      runsInit({ selected: BY_STATE.failed.workflowId }),
+    );
+
+    await expect(
+      item(page, BY_STATE.failed).locator(
+        '.run-body .field-hint[data-tone="fail"] [data-verbatim]',
+      ),
+    ).toHaveText(BY_STATE.failed.error ?? '');
+
+    await harness.show(runsInit({ selected: BY_STATE.gaveUp.workflowId }));
+    const note = item(page, BY_STATE.gaveUp).locator(
+      '.run-body .field-hint[data-recovered-note]',
+    );
+    await expect(note).toHaveText(BY_STATE.gaveUp.recoveredNote ?? '');
+    await expect(note).toHaveText(/ · derived$/);
+    await expect(
+      item(page, BY_STATE.gaveUp).locator('.run-body [data-verbatim]'),
+    ).toHaveCount(0);
+  });
+});
+
+test.describe('six runs on one screen', () => {
   /**
-   * Both lines come off `forked_from`, which every
-   * row already selects — so the replay is drawn
-   * only because it happens to be on this page, and
-   * no row costs a query of its own. The words are
-   * the Inspector's lineage lines, with the short id
-   * where the id goes.
+   * What is measured is the list, whatever frame the
+   * panel draws round it: the panel is as wide as
+   * the list once the frame gives the list the whole
+   * width, and until then the frame's own side
+   * padding is taken off before the list gets any.
    */
-  test('says which run a row is a replay of, and from which step', async ({
+  test('fits six runs and the selected one’s actions in a 400px list', async ({
     page,
   }) => {
     await showList(
       page,
-      runsInit({
-        rows: [
-          listRow({
-            workflowId: 'wf_c9d2f3',
-            status: 'ERROR',
-            state: 'failed',
-            line: 'failed · 14:02 · 8.2 s',
-            failedStep: 2,
-            lineage: [
-              {
-                direction: 'to',
-                workflowId: 'wf_fork1',
-                short: '#f0rk',
-                startStep: 2,
-                word: 'done',
-              },
-            ],
-          }),
-          listRow({
-            workflowId: 'wf_fork1',
-            line: 'done · replay of #c9d2 · 14:09 · 3.1 s',
-            startStep: 2,
-            lineage: [
-              {
-                direction: 'of',
-                workflowId: 'wf_c9d2f3',
-                short: '#c9d2',
-                startStep: 2,
-              },
-            ],
-          }),
-        ],
-      }),
+      runsInit({ rows: SIX_DONE, counts: { all: 6, active: 0, failed: 0 } }),
+      'light',
+      { width: 400 },
     );
 
-    const fromStep = filled(runsStrings.fromStep, '2');
+    const frame = await page.locator('.runs').evaluate((node) => {
+      const css = getComputedStyle(node);
 
-    await expect(
-      page.locator('[data-run="wf_c9d2f3"] [data-run-fork]'),
-    ).toHaveText(filled(runsStrings.replayTo, fromStep, '#f0rk', 'done'));
-    await expect(
-      page.locator('[data-run="wf_fork1"] [data-replay-of]'),
-    ).toHaveText(filled(runsStrings.replayOf, '#c9d2', fromStep));
-    await expect(
-      page.locator('[data-run="wf_c9d2f3"] [data-replay-of]'),
-    ).toHaveCount(0);
-    await expect(page.locator('[data-run="wf_fork1"] .run-summary')).toHaveText(
-      'done · replay of #c9d2 · 14:09 · 3.1 s',
+      return parseFloat(css.paddingLeft) + parseFloat(css.paddingRight);
+    });
+    await page.setViewportSize({ width: 400 + frame, height: 1800 });
+
+    const list = page.locator('ol.run-list');
+    expect(
+      await list.evaluate((node) => node.getBoundingClientRect().width),
+    ).toBe(400);
+
+    const first = SIX_DONE[0] as RunRow;
+    await expect(item(page, first).locator('.run-actions > .btn')).toHaveCount(
+      4,
     );
+    expect(await linesOf(page, first)).toHaveLength(1);
+    await expect(
+      page.getByRole('button', { name: runsStrings.copyRunId }),
+    ).toHaveCount(1);
+
+    for (const row of SIX_DONE) {
+      const height = await heightOf(headOf(page, row));
+      expect(height).toBeGreaterThanOrEqual(31.5);
+      expect(height).toBeLessThanOrEqual(32.5);
+    }
+
+    expect(await heightOf(list)).toBeLessThanOrEqual(260);
   });
 
+  test('wraps the actions at 300px without scrolling sideways', async ({
+    page,
+  }) => {
+    await showList(
+      page,
+      runsInit({ rows: SIX_DONE, counts: { all: 6, active: 0, failed: 0 } }),
+      'light',
+      { width: 300 },
+    );
+
+    const first = SIX_DONE[0] as RunRow;
+    await expect(item(page, first).locator('.run-actions > .btn')).toHaveCount(
+      4,
+    );
+    expect(await linesOf(page, first)).toHaveLength(2);
+
+    const actions = item(page, first).locator('.run-actions');
+    expect(
+      await actions.evaluate((node) => node.scrollWidth <= node.clientWidth),
+    ).toBe(true);
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <=
+          document.documentElement.clientWidth,
+      ),
+    ).toBe(true);
+  });
+});
+
+test.describe('the run list', () => {
   test('says the list is a projection of the local ledger', async ({
     page,
   }) => {
@@ -1126,106 +1768,6 @@ test.describe('the run list', () => {
         'dbos.workflow_status + dbos.operation_outputs',
     );
   });
-
-  /**
-   * The accent rule is the one ornament on a row, so
-   * it has to be a rule a person can see and not
-   * just an attribute a test can read.
-   *
-   * Recovery is drawn in the warn colour and not in
-   * the brand one, everywhere it is drawn: a run
-   * DBOS picked back up is a thing that happened to
-   * the run, and the brand colour means a person or
-   * the product did this. The literal is the light
-   * theme's, which is what the harness mounts.
-   */
-  test('rules the edge of a recovered row in the accent', async ({ page }) => {
-    await showList(page, runsInit());
-
-    const edge = await page
-      .locator('[data-run="wf_c9d2f3"]')
-      .evaluate((node) => getComputedStyle(node).borderLeftColor);
-    const plain = await page
-      .locator('[data-run="wf_a1b4e7"]')
-      .evaluate((node) => getComputedStyle(node).borderLeftColor);
-
-    expect(edge).not.toBe(plain);
-    expect(edge).toBe(WARN);
-    expect(await tagColour(page, 'wf_c9d2f3')).toBe(WARN);
-  });
-
-  /**
-   * A run DBOS gave up recovering is a failure, so
-   * it wears the failed mark; its line is what says
-   * it was not one that threw.
-   */
-  test('draws a run DBOS gave up on as a failure that says it gave up', async ({
-    page,
-  }) => {
-    await showList(page, runsInit());
-
-    const exhausted = page.locator('[data-run="wf_ff0912"]');
-    await expect(exhausted).toHaveAttribute('data-outcome', 'failed');
-    await expect(exhausted.locator('.run-summary')).toContainText('gave up');
-    await expect(exhausted).toContainText('gave up after 3 attempts');
-    await expect(exhausted.locator('.run-note')).toHaveText(
-      'recovered from 3 crashes · derived',
-    );
-
-    const mark = (run: string): Promise<string | null> =>
-      page.locator(`[data-run="${run}"] .run-mark`).textContent();
-
-    expect(await mark('wf_77c101')).toBe(glyphOf('failed').mark);
-    expect(await mark('wf_ff0912')).toBe(await mark('wf_77c101'));
-  });
-
-  test('selects a run when its row is clicked', async ({ page }) => {
-    const harness = await showList(page, runsInit());
-
-    await page.locator('[data-run="wf_77c101"]').click();
-
-    expect(await harness.postedOfType('runSelect')).toEqual([
-      { type: 'runSelect', workflowId: 'wf_77c101' },
-    ]);
-  });
-
-  test('selects a run when its outcome mark is clicked', async ({ page }) => {
-    const harness = await showList(page, runsInit());
-
-    await page.locator('[data-run="wf_77c101"] .run-mark').click();
-
-    expect(await harness.postedOfType('runSelect')).toEqual([
-      { type: 'runSelect', workflowId: 'wf_77c101' },
-    ]);
-    expect(await harness.postedOfType('copyRunId')).toEqual([]);
-  });
-
-  for (const theme of THEMES_ALL) {
-    test(`ellipsizes a long run id in a narrow ${theme} panel`, async ({
-      page,
-    }) => {
-      await page.setViewportSize({ width: 300, height: 800 });
-      await showList(page, runsInit(), theme);
-
-      const id = page.locator('[data-run="wf_c9d2f3"] .run-id');
-      const style = await id.evaluate((node) => {
-        const css = getComputedStyle(node);
-        return {
-          overflow: css.overflow,
-          textOverflow: css.textOverflow,
-          whiteSpace: css.whiteSpace,
-          width: node.getBoundingClientRect().width,
-        };
-      });
-
-      expect(style).toMatchObject({
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-      });
-      expect(style.width).toBeGreaterThan(60);
-    });
-  }
 
   /** The boundary the design draws, drawn where a
    *  person can see it. */
@@ -1249,7 +1791,8 @@ test.describe('the run list', () => {
     );
 
     await expect(page.locator('.state')).toHaveText(runsStrings.untrusted);
-    await expect(page.locator('.run-row')).toHaveCount(0);
+    await expect(page.locator('li[data-run]')).toHaveCount(0);
+    await expect(page.getByRole('tab')).toHaveCount(0);
   });
 
   test('says a database would not answer, and what it said', async ({
@@ -1304,19 +1847,6 @@ test.describe('the run list', () => {
   });
 });
 
-test.describe('one run in detail', () => {
-  test('replays a whole run from the list', async ({ page }) => {
-    const harness = await showList(page, runsInit());
-
-    await page.locator('[data-run="wf_c9d2f3"]').hover();
-    await page.locator('[data-replay-run="wf_c9d2f3"]').click();
-
-    expect(await harness.postedOfType('replayRun')).toEqual([
-      { type: 'replayRun', workflowId: 'wf_c9d2f3' },
-    ]);
-  });
-});
-
 /**
  * Every panel in this extension sits inside
  * whichever theme the user chose, and a panel that
@@ -1335,7 +1865,7 @@ test.describe('in every theme', () => {
         () => getComputedStyle(document.body).backgroundColor,
       );
 
-      await expect(page.locator('[data-run="wf_c9d2f3"]')).toBeVisible();
+      await expect(item(page, BY_STATE.done)).toBeVisible();
       expect(ground).not.toBe('rgba(0, 0, 0, 0)');
     });
   }
