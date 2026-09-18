@@ -1959,6 +1959,31 @@ test.describe('a wire being drawn', () => {
     await page.mouse.up();
   });
 
+  for (const theme of THEMES_ALL) {
+    test(`says which shape meets which in the colour a theme gives a gesture’s words (${theme})`, async ({
+      page,
+    }) => {
+      await openCanvas(page, theme);
+      await holdWire(page, 'find_slot');
+      await targetHandle(page, 'book_appointment').hover();
+
+      const note = page.locator('[data-shape-note]');
+
+      await expect(note).toHaveText(
+        'SlotGrid → SlotGrid ✓ · release to connect',
+      );
+
+      const colour = await inkOf(note);
+      const expected = gestureInk(theme);
+
+      expect(sameColour(colour, expected), `${colour} ≠ ${expected}`).toBe(
+        true,
+      );
+
+      await page.mouse.up();
+    });
+  }
+
   test('says nothing where either end names no shape', async ({ page }) => {
     await openEveryKind(page);
     await holdWire(page, 'step');
@@ -2602,6 +2627,35 @@ test.describe('dragging a block onto the canvas', () => {
     await page.mouse.up();
   });
 
+  for (const theme of THEMES_ALL) {
+    test(`offers the splice in the colour a theme gives a gesture’s words (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, {}, theme);
+      await dragBlockOverPane(page, 'step');
+      await overGap(page, 'e2');
+
+      const under = page.locator('[data-splice-gap][data-under]');
+      const title = under.locator('.splice-title');
+      const note = under.locator('.splice-note');
+
+      await expect(title).toHaveText('splice here');
+      await expect(note).toHaveText('edge splits on drop');
+
+      const expected = gestureInk(theme);
+
+      for (const words of [title, note]) {
+        const colour = await inkOf(words);
+
+        expect(sameColour(colour, expected), `${colour} ≠ ${expected}`).toBe(
+          true,
+        );
+      }
+
+      await page.mouse.up();
+    });
+  }
+
   test('puts the block into the wire it was let go of on', async ({ page }) => {
     const harness = await openCanvas(page);
 
@@ -2840,6 +2894,29 @@ test.describe('moving a block by hand', () => {
     await page.mouse.up();
     await expect(readout).toHaveCount(0);
   });
+
+  for (const theme of THEMES_ALL) {
+    test(`says where the block is in the colour a theme gives a gesture’s words (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, {}, theme);
+      await holdNode(page, 'find_slot', { x: 70, y: 50 });
+
+      const readout = page.locator('[data-readout]');
+      const at = await flowPosition(page, 'find_slot');
+
+      await expect(readout).toContainText(`x ${at.x} · y ${at.y}`);
+
+      const colour = await inkOf(readout);
+      const expected = gestureInk(theme);
+
+      expect(sameColour(colour, expected), `${colour} ≠ ${expected}`).toBe(
+        true,
+      );
+
+      await page.mouse.up();
+    });
+  }
 
   /**
    * A block off a freshly-arranged graph is moved by
@@ -3772,6 +3849,24 @@ async function holdNode(
  *  rather than as the sheet spells it. */
 async function strokeOf(wire: Locator): Promise<string> {
   return await wire.evaluate((path) => getComputedStyle(path).stroke);
+}
+
+/** And what colour a word is drawn in, the same
+ *  way. */
+async function inkOf(words: Locator): Promise<string> {
+  return await words.evaluate((element) => getComputedStyle(element).color);
+}
+
+/**
+ * What a theme draws a gesture's words in.
+ *
+ * Brand blue, because somebody is doing it — but
+ * where a theme carries state in the ink the brand
+ * is too light to be read as text, and every word
+ * it would colour is drawn in the ink instead.
+ */
+function gestureInk(theme: ThemeKind): string {
+  return colourOf(theme, 'state-ink') || colourOf(theme, 'brand');
 }
 
 /** The same, carried well past the threshold and out

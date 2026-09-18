@@ -257,14 +257,14 @@
   margin: 0;
   font-size: 12px;
   font-weight: 500;
-  color: var(--brand);
+  color: var(--state-ink, var(--brand));
 }
 
 .splice-note {
   margin: 0;
   font-size: 10px;
   font-weight: 400;
-  color: var(--brand);
+  color: var(--state-ink, var(--brand));
 }
 
 /* — moving a block that is already on the graph — */
@@ -317,7 +317,7 @@
   top: -22px;
   left: 0;
   font-size: 10px;
-  color: var(--brand);
+  color: var(--state-ink, var(--brand));
   white-space: nowrap;
   pointer-events: none;
 }
@@ -458,7 +458,7 @@
   top: 0;
   left: 0;
   font-size: 10px;
-  color: var(--brand);
+  color: var(--state-ink, var(--brand));
   white-space: nowrap;
   pointer-events: none;
 }
