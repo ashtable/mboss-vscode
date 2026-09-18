@@ -154,6 +154,14 @@ test.describe('the run tab’s header', () => {
       const header = page.locator('.run-header');
       await expect(header).toHaveCount(1);
 
+      // The whole id is on the page's root, which is
+      // how a journey outside this tab finds the tab
+      // it asked for.
+      await expect(page.locator('.see')).toHaveAttribute('data-run', RUN_ID);
+      await expect(header.getByRole('tablist')).toHaveAccessibleName(
+        seeStrings.heading,
+      );
+
       const parts = [
         header.locator('.status-glyph[data-glyph="dot"]'),
         header.locator('.run-line'),
@@ -390,6 +398,101 @@ test.describe('the run tab’s header', () => {
       expect(await onTheGraph()).toBe(false);
     }
   });
+
+  /**
+   * A tab docked beside another is a narrow one, and
+   * a run of a workflow with a long name still has to
+   * be one row: a line that wrapped would be the
+   * second row this header exists not to have. It is
+   * cut at its end instead, and the tab is what
+   * carries the whole name.
+   */
+  test('keeps a long run line to one row on a narrow tab', async ({ page }) => {
+    const named = 'refund_approval_with_manager_escalation';
+
+    await showRun(
+      page,
+      seeInit(
+        seeRun({
+          workflowId: RUN_ID,
+          short: shortRunId(RUN_ID),
+          name: named,
+          line: `${named} · done · 8.2 s`,
+        }),
+      ),
+      'light',
+      { width: 420 },
+    );
+
+    const header = page.locator('.run-header');
+    await expect(header).toHaveCount(1);
+
+    const box = await header.boundingBox();
+    if (box === null) throw new Error('the header drew nothing');
+    expect(box.height, `header ${box.height}px`).toBeLessThanOrEqual(44);
+
+    const drawn = await page.evaluate(() => {
+      const line = document.querySelector('.run-line');
+      const root = document.documentElement;
+
+      return {
+        cut: line === null ? false : line.scrollWidth > line.clientWidth,
+        sideways: root.scrollWidth - root.clientWidth,
+      };
+    });
+
+    expect(drawn.cut, 'the line stops short of its own width').toBe(true);
+    expect(drawn.sideways, 'the tab scrolls sideways').toBe(0);
+  });
+
+  /**
+   * A long run scrolls where its rows are and nowhere
+   * else. A tab that scrolled as a whole would take
+   * the header — which is how somebody switches view
+   * and looks again — off the top of the page.
+   */
+  test('scrolls the trace, not the tab, when it is long', async ({ page }) => {
+    const forty = TRACE.slice(0, 1).flatMap((row) =>
+      Array.from({ length: 40 }, (_unused, at) => ({
+        ...row,
+        functionId: at,
+        name: `step_${at}`,
+      })),
+    );
+
+    await page.setViewportSize({ width: WIDE, height: 700 });
+
+    for (const [showing, pane] of [
+      ['graph', '.trace-column'],
+      ['trace', '.trace-pane'],
+    ] as const) {
+      await showRun(
+        page,
+        seeInit(seeRun({ graph: GRAPH, trace: forty }), showing),
+        'light',
+        { width: WIDE },
+      );
+      if (showing === 'graph') await graphAtRest(page);
+
+      await expect(page.locator(pane)).toHaveCount(1);
+      await expect(page.locator('[data-trace] > li')).toHaveCount(40);
+
+      const read = await page.evaluate((one) => {
+        const box = document.querySelector(one);
+
+        return {
+          scrolls: box === null ? false : box.scrollHeight > box.clientHeight,
+          tab: document.scrollingElement?.scrollHeight ?? 0,
+          window: window.innerHeight,
+        };
+      }, pane);
+
+      expect(read.scrolls, `${pane} does not scroll`).toBe(true);
+      expect(read.tab, `the ${showing} tab is ${read.tab}px tall`).toBe(
+        read.window,
+      );
+    }
+  });
 });
 
 /**
@@ -429,6 +532,19 @@ test.describe('the run tab’s panes', () => {
 
     await expect(page.locator('[data-node]')).toHaveCount(3);
     await expect(page.locator('[data-trace]')).toHaveCount(0);
+
+    // Read either side of the width the split is
+    // decided at, because a boundary anywhere in
+    // between would look the same from 800 and 1400.
+    for (const [width, columns] of [
+      [899, 0],
+      [900, 1],
+    ] as const) {
+      await showRun(page, seeInit(MINTED, 'graph'), 'light', { width });
+      await graphAtRest(page);
+
+      await expect(column, `${width}px`).toHaveCount(columns);
+    }
   });
 
   test('keeps the trace to a readable width on its own tab', async ({
