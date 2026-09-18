@@ -306,6 +306,11 @@ export function runHistory(deps: HistoryDeps): History {
     selected = runs[0]?.workflowId;
   };
 
+  /** Which list read is the newest. A read takes
+   *  this number as it starts and lands only while
+   *  it still holds it. */
+  let latestRead = 0;
+
   /**
    * The page, read again.
    *
@@ -316,8 +321,27 @@ export function runHistory(deps: HistoryDeps): History {
    * length of every read would blink, and a row
    * picked meanwhile would be checked against
    * nothing.
+   *
+   * Two of these can be in flight at once — a tab
+   * changed while the first is still reading, or a
+   * run this window started reading the list again
+   * — so a read that is no longer the newest is
+   * dropped where it lands. Left to land, it would
+   * put back the page somebody has already moved on
+   * from, and settle the mark against that page.
+   *
+   * What the read learned about the database itself
+   * lands whenever it lands. `read` writes that
+   * sentence, and the run page borrows `read`, so
+   * the list is not the only asker: a refusal is a
+   * fact about somebody's database rather than about
+   * the page that happened to ask for it, and
+   * ordering the list's alone would leave the two
+   * askers contradicting each other.
    */
   const readRuns = async (): Promise<void> => {
+    latestRead += 1;
+    const mine = latestRead;
     const url = connection();
 
     const page =
@@ -336,6 +360,8 @@ export function runHistory(deps: HistoryDeps): History {
               ),
             };
           });
+
+    if (mine !== latestRead) return;
 
     runs = page?.runs ?? [];
     counts = page?.counts ?? EMPTY;

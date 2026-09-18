@@ -373,6 +373,58 @@ describe('the row the list has selected', () => {
 
     expect(read.render().selected).toBe('wf_older');
   });
+
+  /**
+   * Two reads are in flight whenever a tab is
+   * changed while the list is still reading, and a
+   * run this window started reads it again without
+   * anybody clicking. The page asked for last is the
+   * one somebody is looking at, and the mark is a
+   * mark on that page.
+   */
+  it('drops a page the list has already read past', async () => {
+    const { db } = listing();
+    const FAILED = { ...RUN_ROW, workflow_uuid: 'wf_failed', status: 'ERROR' };
+    let waiting = 0;
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const read = reading({
+      ...db,
+      query: async <Row>(text: string, values: unknown[]) => {
+        // Only the All page, and held on its way
+        // back rather than on its way out, so that
+        // releasing it answers with the page it read
+        // rather than with whatever the ledger says
+        // by then.
+        const holding =
+          text.includes('AS last_operation') && !text.includes('status = ANY');
+        const rows = await db.query<Row>(text, values);
+
+        if (holding) {
+          waiting += 1;
+          await gate;
+        }
+
+        return rows;
+      },
+    });
+
+    const all = read.refresh();
+    await vi.waitFor(() => expect(waiting).toBe(1));
+
+    db.rows = [FAILED];
+    await read.setFilter('failed');
+    release();
+    await all;
+
+    const shown = read.render();
+
+    expect(shown.filter).toBe('failed');
+    expect(shown.rows.map((row) => row.workflowId)).toEqual(['wf_failed']);
+    expect(shown.selected).toBe('wf_failed');
+  });
 });
 
 /**
