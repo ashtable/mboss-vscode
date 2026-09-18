@@ -347,10 +347,11 @@ none of that.
   `registry.ts` is the published contract for the `mboss.agent.*` settings.
   `test/fixtures/scripted-peer.mjs` is a hand-written JSON-RPC peer for
   `connection`/`capabilities`/`agent` specs only — do not grow it into an e2e agent.
-- **`runs/`** — `store.ts` is a façade over four zones with their own slots
-  and change signals: `history.ts` (the ledger read, the filter, the rows and
-  counts; it also offers the connection string quietly to whoever arms a
-  watch), **`openRun.ts`** (the run somebody has open — reading it, the
+- **`runs/`** — `store.ts` is a façade over five zones with their own slots
+  and change signals: **`ledger.ts`** (the project's DBOS system database as
+  this window reads it — the address, the one open-read-close, what the
+  database last said and the reads by id), `history.ts` (one page of it: the
+  filter, the rows and counts), **`openRun.ts`** (the run somebody has open — reading it, the
   document laid out beside it, arming its watch, what carries over when the
   same run is read again, which of the two views is on screen, and the
   replay), `stackZone.ts` (what compose says and the three commands) and
@@ -372,13 +373,23 @@ none of that.
   `setInput`, on its own `onInputChanged` signal so the list is not drawn
   again per keystroke), and every start — Run, a trigger's card
   (`runTrigger`), the palette command — names only the workflow and reads
-  it. The run page reads
-  the same ledger as the list and **borrows the connection** rather than
-  opening one: what a read learns about somebody's database is a fact about
-  the project, so `history.connection()`/`read()` are lent and the list is
-  what says it. `list()` composes their renders into `RunsInit`, and says
+  it. Every read of somebody's database goes through `ledger.ts`, **loudly or
+  quietly**: a read a person asked for — the list's page, the run page, the
+  by-id read a control makes before it writes — leaves its sentence in the
+  ledger's own `state`/`detail`/`source`, and one this window made on its own
+  account or on the side of something else — a watch, the object handed to an
+  agent, a queue block's card — takes `quietly()` (the address and the `.env`
+  name it came from) and says nothing. The writers take the quiet address too;
+  `openManagement` stays with whoever writes. A watch holds its own connection
+  across ticks and shares only the pure by-id reads (`runById`,
+  `runRowsById`), which are plain functions over a `Database`. The ledger's
+  `onChanged` fires only when what the database last said actually differs,
+  and fires **after** a read has landed — `history.ts` assigns its page inside
+  the `take`, behind its `latestRead` guard, so a follower woken by the ledger
+  never draws an answering database beside the page from before it answered.
+  `list()` composes every zone's render into `RunsInit`, and says
   `loading` until a refresh or a stack command has read the stack and then the
-  ledger (the run page's borrowed read does not count); the row the
+  ledger (the run page's read does not count); the row the
   list marks is `history.ts`'s own (`selectRow`), never the run `select`
   opens. A stack command is followed by the reads `refresh()` makes, and a
   run this window set going is marked and the list read again when its watch

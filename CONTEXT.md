@@ -15,6 +15,38 @@ edited.
 
 ## Reading a run
 
+### ledger
+
+The project's DBOS system database as this window reads it: where the
+connection string comes from (the project, workspace trust, the `.env`), the
+one open–read–close every question goes through, what the database last said,
+and the reads by id — one run, and one run with every row it wrote.
+
+Reads are **loud** or **quiet**, and the difference is who is waiting. A read
+somebody asked for is loud and says what it learned, because the Runs view
+draws that sentence in place of a list: the list's page, the run page, the
+read a control makes before it writes. A read this window made on its own
+account, or on the side of a question about something else, is quiet and says
+nothing — a watch polling twice a second, the object handed to an agent, the
+card about one queue block. A database that refused is a fact about the
+project either way; only the first kind is a fact anybody is looking at.
+Quiet is asked for by name and answers an address rather than a read, because
+a project with no connection string is a reason not to arm a watch and never
+a reason to replace the page somebody is reading with a sentence about it.
+
+A watch is the one reader that holds a connection, because it lasts as long
+as one run is moving and opening a pool twice a second would cost more than
+the slot it saves. It takes the address and a by-id read, which is why those
+reads are plain functions over a connection rather than verbs on the ledger.
+
+The list used to own all of this and lend it out: the run page borrowed a
+connection and a read, the replay borrowed a connection, a watch borrowed the
+address — so whether a project's database could be read at all was a member
+of the zone that draws a page of rows, and four other modules each spelled
+"one run with every row it wrote" out for themselves.
+
+`src/runs/ledger.ts`
+
 ### reading
 
 One projection of a run's rows, made once and read by everybody who draws
