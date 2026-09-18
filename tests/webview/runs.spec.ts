@@ -1584,6 +1584,47 @@ test.describe('the selected run', () => {
     await expect(page.locator('[data-replay-of]')).toHaveCount(0);
   });
 
+  /**
+   * Following a replay from the keyboard marks a
+   * different row, and the Button that was pressed
+   * goes with the row that was open. So the focus
+   * goes to the head of the run being marked, which
+   * is what the panel is now about — once, and only
+   * for the repaint that answers.
+   */
+  test('puts the focus on the run a replay line points at', async ({
+    page,
+  }) => {
+    const { parent, firstFork, secondFork, orphan } = LINEAGE;
+    const rows = [parent, firstFork, secondFork, orphan];
+    const harness = await showList(
+      page,
+      runsInit({ rows, selected: parent.workflowId }),
+    );
+
+    const way = item(page, parent).locator(
+      `[data-lineage-run="${firstFork.workflowId}"]`,
+    );
+
+    await expect(way).toHaveCount(1);
+    await way.focus();
+    await page.keyboard.press('Enter');
+
+    expect(await harness.postedOfType('runSelect')).toEqual([
+      { type: 'runSelect', workflowId: firstFork.workflowId },
+    ]);
+
+    await harness.show(runsInit({ rows, selected: firstFork.workflowId }));
+    await expect(headOf(page, firstFork)).toBeFocused();
+
+    // Spent on that one repaint: a later one nobody
+    // asked for leaves the focus where the person
+    // has since put it.
+    await headOf(page, parent).focus();
+    await harness.show(runsInit({ rows, selected: secondFork.workflowId }));
+    await expect(headOf(page, parent)).toBeFocused();
+  });
+
   test('says what a failed run threw, and how often it was picked back up', async ({
     page,
   }) => {

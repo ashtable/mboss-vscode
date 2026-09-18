@@ -1,3 +1,5 @@
+import { useEffect, useRef, type RefObject } from 'react';
+
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
 import { shortRunId } from '../webview/ids.js';
@@ -38,6 +40,7 @@ export function RunHistoryItem({
   strings,
   selected,
   onPage,
+  takesFocus,
 }: {
   row: RunRow;
   strings: RunsStrings;
@@ -47,12 +50,29 @@ export function RunHistoryItem({
    *  way to its row only where there is one to go
    *  to. */
   onPage: ReadonlySet<string>;
+
+  /** Whether the run the host has just marked is
+   *  the answer to somebody following a replay,
+   *  whose Button went with the row it was in. */
+  takesFocus: RefObject<boolean>;
 }) {
   const failed = row.state === 'failed';
+  const head = useRef<HTMLButtonElement>(null);
+
+  // On the drawing that marks this run and no
+  // other, so a later repaint nobody asked for
+  // leaves the focus where the person put it.
+  useEffect(() => {
+    if (!selected || !takesFocus.current) return;
+
+    takesFocus.current = false;
+    head.current?.focus();
+  }, [selected]);
 
   return (
     <li className="run-item" data-run={row.workflowId} data-outcome={row.state}>
       <button
+        ref={head}
         type="button"
         className="run-head"
         aria-expanded={selected}
@@ -92,6 +112,7 @@ export function RunHistoryItem({
               line={line}
               strings={strings}
               onPage={onPage}
+              takesFocus={takesFocus}
             />
           ))}
 
@@ -217,10 +238,12 @@ function LineageLine({
   line,
   strings,
   onPage,
+  takesFocus,
 }: {
   line: RunLineage;
   strings: RunsStrings;
   onPage: ReadonlySet<string>;
+  takesFocus: RefObject<boolean>;
 }) {
   const name = <ShortRun id={line.workflowId} short={line.short} />;
 
@@ -229,9 +252,14 @@ function LineageLine({
       variant="quiet"
       mono
       hook={{ 'lineage-run': line.workflowId }}
-      onClick={() =>
-        postToHost({ type: 'runSelect', workflowId: line.workflowId })
-      }
+      onClick={() => {
+        // This line goes with the row it is in, so
+        // whoever pressed it is left with nothing
+        // under the focus unless the run being
+        // marked takes it.
+        takesFocus.current = true;
+        postToHost({ type: 'runSelect', workflowId: line.workflowId });
+      }}
     >
       {name}
     </Button>

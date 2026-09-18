@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useRef, type ReactNode } from 'react';
 
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
@@ -320,6 +320,15 @@ function Rows({ state }: { state: RunsInit }) {
   const onPage = new Set(state.rows.map((row) => row.workflowId));
   const behind = state.counts[state.filter];
 
+  // Whether somebody just followed a replay to
+  // another run. The Button they pressed belongs to
+  // the run that was open and goes with it, so the
+  // run the host marks takes the focus onto its own
+  // line. Held by the list because the row that
+  // sets it and the row that takes it are two
+  // different rows.
+  const takesFocus = useRef(false);
+
   return (
     <>
       <ol className="run-list">
@@ -330,6 +339,7 @@ function Rows({ state }: { state: RunsInit }) {
             strings={strings}
             selected={row.workflowId === state.selected}
             onPage={onPage}
+            takesFocus={takesFocus}
           />
         ))}
       </ol>
