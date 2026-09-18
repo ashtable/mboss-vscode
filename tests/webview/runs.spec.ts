@@ -2040,6 +2040,17 @@ test.describe('what the panel says when there is no list', () => {
     await expect(
       page.locator('li[data-service="worker"] .service-detail'),
     ).toHaveText(runsStrings.serviceState.absent);
+
+    // A compose file that declares nothing has no
+    // facts to list, and a block with no rows in it
+    // is a rule across the panel saying nothing.
+    await harness.show({
+      ...APP_DOWN,
+      stack: { ...APP_DOWN.stack, services: [] },
+    });
+
+    await expect(page.locator('.services')).toHaveCount(0);
+    await expect(page.locator('.empty-state')).toHaveCount(1);
   });
 
   /**

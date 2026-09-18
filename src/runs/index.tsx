@@ -97,7 +97,13 @@ function Runs(state: RunsInit) {
           moment later. */}
       {view.row === 'loading' ? null : (
         <div className="runs-body">
-          {view.regions.includes('services') ? (
+          {/* What compose declares, where it
+              declares anything: the block is a rule
+              across the panel and a list of facts,
+              and with no facts it is the rule
+              alone. */}
+          {view.regions.includes('services') &&
+          state.stack.services.length > 0 ? (
             <ul className="services">
               {state.stack.services.map((service) => (
                 <ServiceHealthItem
