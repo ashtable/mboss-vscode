@@ -1631,21 +1631,25 @@ test.describe('every view, in every theme', () => {
     test(`${scene.name}: holds still for somebody who asked for less movement`, async ({
       page,
     }) => {
-      await page.emulateMedia({ reducedMotion: 'reduce' });
-      await showScene(page, scene, 'light');
+      for (const theme of THEMES_ALL) {
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        await showScene(page, scene, theme);
 
-      const asked = await durationsOf(page);
+        const asked = await durationsOf(page);
 
-      await page.emulateMedia({ reducedMotion: 'no-preference' });
-      await showScene(page, scene, 'light', {
-        bodyClass: 'vscode-reduce-motion',
-      });
+        await page.emulateMedia({ reducedMotion: 'no-preference' });
+        await showScene(page, scene, theme, {
+          bodyClass: 'vscode-reduce-motion',
+        });
 
-      const set = await durationsOf(page);
+        const set = await durationsOf(page);
 
-      expect(asked.length).toBeGreaterThan(0);
-      expect(Math.max(...asked)).toBeLessThanOrEqual(STILL);
-      expect(Math.max(...set)).toBeLessThanOrEqual(STILL);
+        expect(asked.length, theme).toBeGreaterThan(0);
+        expect(Math.max(...asked), `asked in ${theme}`).toBeLessThanOrEqual(
+          STILL,
+        );
+        expect(Math.max(...set), `set in ${theme}`).toBeLessThanOrEqual(STILL);
+      }
     });
   }
 
