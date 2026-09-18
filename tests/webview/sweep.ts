@@ -5,9 +5,11 @@ import { shortRunId } from '../../src/webview/ids.js';
 /**
  * Readers that ask one question of a whole page.
  *
- * More than one spec reads them, and Playwright
- * refuses a spec that imports another, so they live
- * beside the specs rather than in one.
+ * Kept out of the spec that runs them, so that the
+ * spec reads as the rules and this file as how a
+ * page is measured, and so that any other spec can
+ * hold a page to one of them without importing a
+ * spec, which Playwright refuses.
  *
  * Every element rather than the few a spec knows
  * about: a rule every view has to keep is broken

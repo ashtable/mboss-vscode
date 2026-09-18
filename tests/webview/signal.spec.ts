@@ -403,8 +403,8 @@ test.describe('the glyph every state is drawn as', () => {
   /**
    * A theme that forces its own colours paints every
    * ground in its one background colour, and a dot
-   * or a rail is nothing but a ground: filled in the
-   * text colour it would be invisible. So a filled
+   * or a rail is nothing but a ground: filled with
+   * the page it sits on, it is gone. So a filled
    * glyph keeps a system colour of its own there,
    * wherever a view draws one.
    */
@@ -1472,9 +1472,9 @@ test.describe('every view, in every theme', () => {
         await test.step('names every field it offers', async () => {
           let named = 0;
 
-          // A folded group's fields are out of the
-          // accessibility tree until it is opened, so
-          // they have no name to be read yet.
+          // The second box of a pair nobody has filled
+          // in is not drawn until the first has a
+          // value, so it has no name to read yet.
           for (const field of await page.locator(FIELDS).all()) {
             if (!(await field.isVisible())) continue;
 
