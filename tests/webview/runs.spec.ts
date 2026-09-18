@@ -513,15 +513,27 @@ test.describe('the panel frame', () => {
     const harness = await showList(
       page,
       frameInit({
-        testRun: byHand(MANUAL.name, {
-          detail: 'The running app was built before this workflow.',
-          rebuildToRun: true,
-          workflowId: 'wf_refused',
-        }),
+        testRun: {
+          ...byHand(MANUAL.name, {
+            detail: 'The running app was built before this workflow.',
+            rebuildToRun: true,
+            workflowId: 'wf_refused',
+          }),
+          hint: 'claimId is the idempotency key · a new value is a new run',
+        },
       }),
       'light',
       { width: 300 },
     );
+
+    // Both lines are about the box and neither is
+    // in it, so a screen reader meets them with the
+    // box rather than only by reading on past it.
+    const box = page.getByRole('textbox', { name: runsStrings.input });
+
+    await expect(box).toHaveAccessibleDescription(/idempotency/);
+    await expect(box).toHaveAccessibleDescription(/built before this workflow/);
+    await labelBeforeValue(page.locator('[data-property][data-field=input]'));
 
     const problem = page.locator('[data-problem]');
     const rebuild = problem.locator('[data-rebuild]');

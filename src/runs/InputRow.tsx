@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 import { postToHost } from '../webview/client.js';
 import type { RunByHand, RunsStrings } from '../webview/protocol.js';
 import { Button } from '../webview/signal/Button.js';
@@ -37,6 +39,8 @@ export function InputRow({
   testRun: RunByHand;
   strings: RunsStrings;
 }) {
+  const refusal = useId();
+
   const picked = testRun.workflows.find(
     (flow) => flow.name === testRun.selected,
   );
@@ -66,15 +70,24 @@ export function InputRow({
   // where narrowing does not reach.
   const refused = problem?.workflowId;
 
+  // The row reads out whatever it draws under the
+  // box itself; the refusal is drawn outside it, so
+  // the box is what has to name that one.
+  const saidAbout = (own: string | undefined): string | undefined =>
+    [own, problem === undefined ? undefined : refusal]
+      .filter((one) => one !== undefined)
+      .join(' ') || undefined;
+
   return (
     <div className="runs-input">
       <PropertyRow
         label={strings.input}
         field="input"
+        note={hint}
         control={({ id, describedBy }) => (
           <TextArea
             id={id}
-            describedBy={describedBy}
+            describedBy={saidAbout(describedBy)}
             mono
             grow={{ minLines: 1, maxLines: 8 }}
             hook={{ input: '' }}
@@ -90,11 +103,11 @@ export function InputRow({
         )}
       />
 
-      {hint === undefined ? null : <FieldHint>{hint}</FieldHint>}
-
       {problem === undefined ? null : (
         <div className="runs-problem" data-problem>
-          <FieldHint tone="fail">{problem.detail}</FieldHint>
+          <FieldHint id={refusal} tone="fail">
+            {problem.detail}
+          </FieldHint>
 
           {problem.rebuildToRun ? (
             <Button
