@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import type { GalleryCard, GalleryInit } from '../../src/webview/protocol.js';
-
+import { galleryInit } from './fixtures/gallery.js';
 import { painted } from './fixtures/paint.js';
 import { mount, THEMES, THEMES_ALL, type ThemeKind } from './harness.js';
 import { colourOf, ROLES, sameColour, type Role } from './palette.js';
@@ -20,42 +19,6 @@ import { galleryWords as galleryStrings, paletteLabels } from './words.js';
  * The words are the ones sent in, as everywhere in
  * these specs.
  */
-
-const RESEARCH: GalleryCard = {
-  name: 'deep_research',
-  title: 'Deep research',
-  summary: "Search, judge the evidence, loop until it's enough.",
-  tags: ['research', 'agents'],
-  glyphs: ['trigger', 'step', 'branch', 'codeStep'],
-  demo: false,
-};
-
-const INGESTION: GalleryCard = {
-  name: 'document_ingestion_queued',
-  title: 'Document ingestion on a queue',
-  summary: 'Index every page of an upload as its own run, held by a queue.',
-  tags: ['rag', 'queues', 'uploads', 'rate-limits'],
-  glyphs: ['trigger', 'step', 'codeStep', 'queue'],
-  demo: false,
-};
-
-const REFUNDS: GalleryCard = {
-  name: 'refund_approval',
-  title: 'Refund approval',
-  summary: 'Policy auto-approves the safe ones; people decide the rest.',
-  tags: ['refunds', 'approvals'],
-  glyphs: ['trigger', 'step', 'branch', 'approval'],
-  demo: true,
-};
-
-const DEPLOYS: GalleryCard = {
-  name: 'deployment',
-  title: 'Deployment',
-  summary: 'Build, approve, deploy, watch the rollout.',
-  tags: ['releases', 'health'],
-  glyphs: ['trigger', 'step', 'approval', 'durableWait'],
-  demo: false,
-};
 
 /**
  * The ring, and the softer ring around it, as
@@ -79,20 +42,6 @@ function brandInk(theme: ThemeKind): string {
   const ink = colourOf(theme, 'state-ink');
 
   return ink === '' ? colourOf(theme, 'brand') : ink;
-}
-
-function galleryInit(over: Partial<GalleryInit> = {}): GalleryInit {
-  return {
-    type: 'init',
-    view: 'gallery',
-    strings: galleryStrings,
-    groups: [
-      { group: 'ai', cards: [RESEARCH, INGESTION] },
-      { group: 'backend', cards: [REFUNDS] },
-      { group: 'devops', cards: [DEPLOYS] },
-    ],
-    ...over,
-  };
 }
 
 test.describe('the gallery', () => {

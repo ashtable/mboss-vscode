@@ -1,10 +1,14 @@
+import { evidenceRowId } from '../../../src/acp/evidenceRow.js';
 import type {
   FileDecision,
   FileEditEntry,
   FileState,
   NextEntry,
+  ToolEntry,
   TranscriptEntry,
 } from '../../../src/acp/transcript.js';
+import { filled } from '../../../src/webview/fill.js';
+import { shortRunId } from '../../../src/webview/ids.js';
 import type {
   SidebarEntry,
   SidebarInit,
@@ -93,6 +97,25 @@ export function fileEntry(over: Partial<ShownFile> = {}): ShownFile {
     decision: 'pending',
     ...over,
   });
+}
+
+/** The row mBoss writes about a run it read for
+ *  the agent, as the host sends it: the run by its
+ *  short id, and what it read folded under it. */
+export function evidenceOf(run: string, lines: ToolEntry['lines']): ToolEntry {
+  return {
+    at: 'tool',
+    id: evidenceRowId(run),
+    by: 'person',
+    kind: 'read',
+    verb: 'Read',
+    target: filled(sidebarWords.evidenceTarget, shortRunId(run)),
+    status: 'applied',
+    body: [],
+    lines,
+    paths: [],
+    action: { label: 'Open run', posts: 'openRun', workflowId: run },
+  };
 }
 
 const STATE_OF: Record<FileDecision, FileState> = {

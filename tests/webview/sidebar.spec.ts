@@ -12,7 +12,12 @@ import { filled } from '../../src/webview/fill.js';
 import { shortRunId } from '../../src/webview/ids.js';
 import type { SidebarInit } from '../../src/webview/protocol.js';
 
-import { fileEntry, sidebarEntries, sidebarInit } from './fixtures/sidebar.js';
+import {
+  evidenceOf,
+  fileEntry,
+  sidebarEntries,
+  sidebarInit,
+} from './fixtures/sidebar.js';
 import { mount, THEMES_ALL, type Harness, type ThemeKind } from './harness.js';
 import { colourOf, contrast, sameColour, type Role } from './palette.js';
 import { sidebarWords as strings } from './words.js';
@@ -480,25 +485,6 @@ test.describe('the transcript', () => {
  */
 const PERSON = 'rgb(83, 103, 255)';
 const AGENT = 'rgb(149, 103, 255)';
-
-/** The row mBoss writes about a run it read for
- *  the agent, as the host sends it: the run by its
- *  short id, and what it read folded under it. */
-function evidenceOf(run: string, lines: ToolEntry['lines']): ToolEntry {
-  return {
-    at: 'tool',
-    id: evidenceRowId(run),
-    by: 'person',
-    kind: 'read',
-    verb: 'Read',
-    target: filled(strings.evidenceTarget, shortRunId(run)),
-    status: 'applied',
-    body: [],
-    lines,
-    paths: [],
-    action: { label: 'Open run', posts: 'openRun', workflowId: run },
-  };
-}
 
 /** A row mBoss wrote when it applied a proposal. */
 const applyRow: ToolEntry = {

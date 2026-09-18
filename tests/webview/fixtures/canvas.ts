@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 import { snap } from '../../../src/canvas/grid.js';
 import { layoutKeyOf } from '../../../src/canvas/placement.js';
@@ -141,6 +141,44 @@ export async function openCanvas(page: Page, theme: ThemeKind = 'light') {
   await harness.show(canvasInit());
 
   return harness;
+}
+
+export function sourceHandle(page: Page, node: string, port: string): Locator {
+  return page.locator(
+    `.react-flow__node[data-id="${node}"] .react-flow__handle-bottom[data-handleid="${port}"]`,
+  );
+}
+
+/**
+ * Presses on a block's out dot and drags away from
+ * it, leaving the wire in the air.
+ *
+ * The hover first is what the graph library needs:
+ * it fits the graph to its pane a frame or two after
+ * the view opens, and a press aimed at a box read
+ * before that lands on the pane behind the dot.
+ */
+export async function holdWire(page: Page, from: string): Promise<void> {
+  const dot = sourceHandle(page, from, 'out');
+
+  await dot.hover();
+
+  const box = (await dot.boundingBox())!;
+  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x, at.y + 30, { steps: 4 });
+}
+
+/** Drops a wire held off the fixture's `find_slot`
+ *  on empty board, which is what opens the blocks
+ *  that could take it, and waits for them. */
+export async function openQuickAdd(page: Page): Promise<void> {
+  await holdWire(page, 'find_slot');
+  await page.mouse.move(900, 900, { steps: 4 });
+  await page.mouse.up();
+  await page.locator('[data-quick-add-kind]').first().waitFor();
 }
 
 /** The Inspector's whole message about a subject. */

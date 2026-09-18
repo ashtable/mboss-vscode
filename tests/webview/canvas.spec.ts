@@ -28,6 +28,7 @@ import {
   RECORDED_AT,
   boxes,
   canvasInit,
+  holdWire,
   ir,
   manifest,
   openCanvas,
@@ -37,6 +38,7 @@ import {
   runOf,
   showing,
   slugOf,
+  sourceHandle,
 } from './fixtures/canvas.js';
 import { LIBRARY_COLOURS } from './fixtures/library.js';
 import { graphAtRest } from './fixtures/runs.js';
@@ -3531,28 +3533,6 @@ function ringOf(page: Page, node: string): Locator {
   return nodeBody(page, node).locator('[data-ring]');
 }
 
-/**
- * Presses on a block's out dot and drags away from
- * it, leaving the wire in the air.
- *
- * The hover first is what the graph library needs:
- * it fits the graph to its pane a frame or two after
- * the view opens, and a press aimed at a box read
- * before that lands on the pane behind the dot.
- */
-async function holdWire(page: Page, from: string): Promise<void> {
-  const dot = sourceHandle(page, from, 'out');
-
-  await dot.hover();
-
-  const box = (await dot.boundingBox())!;
-  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-
-  await page.mouse.move(at.x, at.y);
-  await page.mouse.down();
-  await page.mouse.move(at.x, at.y + 30, { steps: 4 });
-}
-
 /** The one mono line under a block's title. */
 function nodeLine(page: Page, node: string): Locator {
   return nodeBody(page, node).locator('.node-line');
@@ -3561,12 +3541,6 @@ function nodeLine(page: Page, node: string): Locator {
 /** The tile a block's glyph sits in. */
 function tile(page: Page, node: string): Locator {
   return nodeBody(page, node).locator('.node-icon');
-}
-
-function sourceHandle(page: Page, node: string, port: string): Locator {
-  return page.locator(
-    `.react-flow__node[data-id="${node}"] .react-flow__handle-bottom[data-handleid="${port}"]`,
-  );
 }
 
 function targetHandle(page: Page, node: string): Locator {
