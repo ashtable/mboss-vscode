@@ -311,6 +311,9 @@ test.describe('the panel frame', () => {
 
     await expect(open).toHaveCount(1);
     await expect(open).toHaveClass(/\bbtn\b/);
+    // The same words on the state with no list are
+    // drawn as a second action, so these are too.
+    await expect(open).toHaveAttribute('data-variant', 'secondary');
     await expect(open).toHaveText(runsStrings.openProduction);
     await open.click();
 

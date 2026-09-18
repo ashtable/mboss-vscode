@@ -127,7 +127,7 @@ function Runs(state: RunsInit) {
           {view.regions.includes('production-button') ? (
             <div className="runs-production">
               <Button
-                variant="quiet"
+                variant="secondary"
                 ink="brand"
                 hook={{ production: 'configured' }}
                 onClick={() => postToHost({ type: 'openProduction' })}
