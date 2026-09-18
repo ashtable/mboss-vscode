@@ -224,9 +224,9 @@ describe('one run', () => {
   /**
    * `function_id` is the order DBOS numbered the
    * steps in, which is the order they ran in — and
-   * the only ordering the timeline can be drawn
-   * from, since a restored step's timestamps are
-   * the ones it was first written with.
+   * the only ordering the trace can be read in,
+   * since a restored step's timestamps are the
+   * ones it was first written with.
    */
   it('reads its steps in the order they ran', () => {
     const query = stepsQuery('wf_c9d2f3');

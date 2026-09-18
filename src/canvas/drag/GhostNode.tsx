@@ -14,8 +14,8 @@ import { CursorBadge } from './CursorBadge.js';
  *
  * It wears the state a block wears when it is the
  * one being looked at, which is what the block will
- * be the moment it lands — the column beside the
- * canvas will be asking about it.
+ * be the moment it lands — the Inspector will be
+ * asking about it.
  */
 export function GhostNode({
   kind,

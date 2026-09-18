@@ -1074,10 +1074,10 @@ describe('an edit from the Inspector', () => {
   /**
    * The retry fields are three numbers a person
    * types, and the catalog bounds all three. The
-   * column does not check them — it has no schema
-   * and no way to say so — so a value out of range
-   * is refused here, the same way every other shape
-   * the column cannot complete is.
+   * Inspector does not bound them (the browser
+   * bundle carries no schema), so a value out of
+   * range is refused here, the same way every other
+   * shape the Inspector cannot complete is.
    */
   it('refuses a retry the schema will not take', async () => {
     await canvasOn().edit({

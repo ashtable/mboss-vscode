@@ -296,7 +296,7 @@ function connected(
  * accepts and the kind's own name, because nobody
  * has said what it does yet — that is the
  * Inspector's next question, which is why the new
- * block is what the column then shows.
+ * block is what the Inspector then shows.
  *
  * Let go of over a wire, it goes into the wire
  * rather than beside it. A wire that cannot be
@@ -416,16 +416,16 @@ function removed(
 }
 
 /**
- * An edit from the Inspector column.
+ * An edit from the Inspector.
  *
  * The node is parsed rather than trusted — it
  * arrives from a frame running scripts — and a
  * node the catalog would not accept is refused
  * rather than written and discovered on the next
- * open: the column shows fields for shapes that are
- * not yet complete, an address not typed or a topic
- * not named, and the document keeps what it had
- * until one of them is.
+ * open: the Inspector shows fields for shapes that
+ * are not yet complete, an address not typed or a
+ * topic not named, and the document keeps what it
+ * had until one of them is.
  */
 function edited(
   gesture: Extract<Gesture, { type: 'edit' }>,

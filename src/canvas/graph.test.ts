@@ -719,13 +719,12 @@ describe('the state a run puts a block in', () => {
 
   /**
    * And what the run says about that block is still
-   * asked for, by the column beside the graph: the
-   * halo is drawn instead of the run's colour, so
-   * the answer cannot be read back off the block —
-   * it is asked of the same function that painted
-   * the others.
+   * asked for, by the Inspector: the halo is drawn
+   * instead of the run's colour, so the answer
+   * cannot be read back off the block — it is asked
+   * of the same function that painted the others.
    */
-  describe('as the column beside it asks', () => {
+  describe('as the Inspector asks', () => {
     it('is the state the graph paints the block in', () => {
       const painted = run([
         ['parse_request', 'done'],

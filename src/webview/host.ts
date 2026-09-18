@@ -757,7 +757,7 @@ const StartBlank = z.object({ type: z.literal('startBlank') });
 /**
  * What each view may say, `ready` included.
  *
- * One union per view rather than one for all four,
+ * One union per view rather than one for all six,
  * so that a provider's `heard` is typed to the
  * messages its own frame can send and has no branch
  * for the thirty-odd it cannot. Mostly they are

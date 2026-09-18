@@ -252,7 +252,7 @@ describe('a block dropped on the canvas', () => {
     });
   });
 
-  it('is the block the column shows next', () => {
+  it('is the block the Inspector shows next', () => {
     expect(drop()).toMatchObject({ at: 'next', select: 'step' });
   });
 
@@ -452,7 +452,7 @@ describe('deleting', () => {
   });
 });
 
-describe('an edit from the Inspector column', () => {
+describe('an edit from the Inspector', () => {
   const edit = (node: unknown): EditOutcome =>
     editFor({ type: 'edit', node }, context());
 
@@ -466,9 +466,9 @@ describe('an edit from the Inspector column', () => {
     expect(written.edges).toEqual(ir.edges);
   });
 
-  /** The column shows fields for shapes that are
-   *  not yet complete, and the document keeps what
-   *  it had until one of them is. */
+  /** The Inspector shows fields for shapes that
+   *  are not yet complete, and the document keeps
+   *  what it had until one of them is. */
   it('refuses a node the catalog would not accept', () => {
     expect(
       edit({ id: 'find_slot', kind: 'step', title: 'x', config: null }),

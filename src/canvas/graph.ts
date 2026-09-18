@@ -531,16 +531,15 @@ function parkedAt(run: LiveRun | undefined): ReadonlyMap<string, Parked> {
  * What the run says about one block, as the graph
  * says it.
  *
- * The column beside the graph draws a card about
- * whichever block somebody selected, and the state
- * on that card has to be the state the block is
- * drawn in — a block a run may be at reads
- * `running` on the canvas and must not read
- * "nothing recorded" a hand's width away. Selection
- * is what the graph paints instead of the run's
- * colour, so the answer cannot be read back off the
- * drawn block; it is asked here, of the function
- * that painted every other one.
+ * The Inspector draws a card about whichever block
+ * somebody selected, and the state on that card has
+ * to be the state the block is drawn in — a block a
+ * run may be at reads `running` on the canvas and
+ * must not read "nothing recorded" a hand's width
+ * away. Selection is what the graph paints instead
+ * of the run's colour, so the answer cannot be read
+ * back off the drawn block; it is asked here, of the
+ * function that painted every other one.
  */
 export function runStateOf(
   ir: WorkflowIR,
