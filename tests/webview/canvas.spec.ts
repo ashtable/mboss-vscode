@@ -1138,6 +1138,38 @@ test.describe('the mark a run leaves on a block', () => {
     await expect(nodeBody(page, 'twilio_chat')).not.toContainText('✓');
   });
 
+  /**
+   * A theme that forces its own colours fills the
+   * dot with the page's ground and drops the glow
+   * round the block, so unless the dot keeps a
+   * system colour of its own there, the block a run
+   * is at looks like one it has not reached.
+   */
+  test('keeps the dot where the run is visible when the system forces its colours', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+    await openAtRest(page, { run: runOf(IN_FLIGHT) }, 'high-contrast');
+
+    const mark = runMark(page, 'twilio_chat');
+
+    await expect(mark).toHaveAttribute('data-run', 'running');
+
+    const { fill, ground } = await mark.evaluate((element) => ({
+      fill: getComputedStyle(element).backgroundColor,
+      ground: getComputedStyle(document.body).backgroundColor,
+    }));
+
+    // Against the ground rather than a named colour:
+    // the system picks both. Chromium writes an
+    // opaque colour as rgb() with no alpha in it.
+    const opaque = fill.startsWith('rgb(') && !fill.includes('/');
+
+    expect(opaque && !sameColour(fill, ground), `${fill} on ${ground}`).toBe(
+      true,
+    );
+  });
+
   test('crosses the block a run stopped at', async ({ page }) => {
     await openAtRest(page, { run: runOf(BROKEN, 'failed') });
 

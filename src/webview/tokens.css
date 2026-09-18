@@ -1629,6 +1629,18 @@ button.lib-fn {
   background: var(--ok);
   animation: sig-pulse var(--dur-pulse) ease-in-out infinite;
 }
+/* The same dot under a theme that forces its own
+   colours: it is nothing but a ground, so it would
+   be filled with the page it sits on, and the glow
+   round its block is dropped there too. A system
+   colour is the one fill such a theme keeps, so the
+   dot takes its text colour, and the block a run is
+   at still says so. */
+@media (forced-colors: active) {
+  .node-run[data-run='running'] {
+    background: CanvasText;
+  }
+}
 
 /* — the shared status glyph — */
 
