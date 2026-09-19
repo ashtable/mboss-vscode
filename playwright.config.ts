@@ -28,5 +28,12 @@ export default defineConfig({
     // something near full size, so a handle is a
     // thing a pointer can find.
     viewport: { width: 1280, height: 1800 },
+    // A recorded moment is drawn in the page's own
+    // clock and locale, so both are pinned: a 12-hour
+    // locale is the harder one for a panel that never
+    // writes a meridiem, and a fixed zone is what
+    // makes an epoch the same time on every machine.
+    locale: 'en-US',
+    timezoneId: 'UTC',
   },
 });

@@ -2,6 +2,7 @@ import type { Disposable } from 'vscode';
 
 import { queuedWorkflowName, type WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
+import { inFlight } from '../webview/states.js';
 
 import type { OpenDatabase } from './db.js';
 import {
@@ -66,10 +67,11 @@ export type FollowingDeps = {
    *  quietly: none is a reason not to arm one. */
   ledger(): string | undefined;
 
-  /** One workflow's saved document, for the queue
-   *  blocks a watch has to read counts for.
-   *  Undefined where it will not read, which is a
-   *  watch that knows less rather than no watch. */
+  /** One workflow's saved document: the queue
+   *  blocks a watch reads counts for, and where a
+   *  row the SDK named fell. Undefined where it
+   *  will not read, which is a watch that knows
+   *  less rather than no watch. */
   document(name: string): WorkflowIR | undefined;
 
   /**
@@ -91,11 +93,11 @@ export function following(deps: FollowingDeps): Following {
   const watching = new Map<string, RunWatcher>();
 
   const heard = (run: LiveRun, read: LedgerRead): void => {
-    // A watch stops itself on anything but
-    // `running`, so what is held here goes with it —
-    // otherwise a re-arm would find a watcher that
-    // is no longer watching.
-    if (run.outcome !== 'running') watching.delete(run.workflowId);
+    // A watch stops itself on anything but a run
+    // still in flight, so what is held here goes
+    // with it — otherwise a re-arm would find a
+    // watcher that is no longer watching.
+    if (!inFlight(run.outcome)) watching.delete(run.workflowId);
 
     reports.fire({ run, read });
   };
@@ -106,13 +108,22 @@ export function following(deps: FollowingDeps): Following {
     const url = deps.ledger();
     if (url === undefined) return;
 
+    // Read once and handed over whole. The watch
+    // needs it twice over — the queue blocks it
+    // reads counts for, and the block a row the SDK
+    // named fell inside — and reading it twice is
+    // how one tick comes to answer about two
+    // revisions of the same workflow.
+    const document = deps.document(workflow);
+
     watching.set(
       workflowId,
       deps.watch(
         deps.open,
         url,
         workflowId,
-        queueNodesOf(deps.document(workflow), workflow),
+        queueNodesOf(document, workflow),
+        document,
         heard,
       ),
     );

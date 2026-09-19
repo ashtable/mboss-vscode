@@ -11,6 +11,7 @@ import type {
 } from './connection.js';
 
 import { lineDiff, lineDiffStat, type DiffLine } from './diff.js';
+import type { PromptAbout } from './prompt.js';
 
 /**
  * The conversation, as the panel shows it.
@@ -25,10 +26,10 @@ import { lineDiff, lineDiffStat, type DiffLine } from './diff.js';
  *
  * That location is the load-bearing part. The
  * panel is a view in the activity bar, and a view
- * VS Code hides is disposed and rebuilt when it is
- * shown again. A transcript held in the frame
- * would be lost the first time somebody selected a
- * node. So the extension holds it, the view is
+ * VS Code hides loses its page, rebuilt when it is
+ * shown again. A transcript held in the page would
+ * be lost the first time somebody collapsed the
+ * panel. So the extension holds it, the view is
  * handed the answer, and the view holds nothing it
  * could not be handed a second time.
  */
@@ -37,7 +38,12 @@ export type { SessionUpdate };
 
 /** One thing in the conversation. */
 export type TranscriptEntry =
-  MessageEntry | ToolEntry | FileEditEntry | DiagnosticEntry | PlanEntry;
+  | MessageEntry
+  | ToolEntry
+  | FileEditEntry
+  | DiagnosticEntry
+  | PlanEntry
+  | NextEntry;
 
 /**
  * Who did it.
@@ -64,6 +70,11 @@ export type MessageEntry = {
   from: 'user' | 'agent' | 'thought';
 
   text: string;
+
+  /** What a question mBoss asked for somebody was
+   *  about. Its `text` is what the agent was sent;
+   *  the column shows the copy `about` carries. */
+  about?: PromptAbout;
 };
 
 export type ToolEntry = {
@@ -84,14 +95,37 @@ export type ToolEntry = {
    *  the title named no one thing. */
   target: string;
 
-  detail?: string;
-
   /** `applied` is the extension's own: it did the
    *  thing rather than asked for it. */
   status: ToolCallStatus | 'applied';
 
   /** Anything else the call had to say. */
   body: string[];
+
+  /**
+   * The summary under a row mBoss wrote about a run
+   * it read, one fact per line, in place of `body`.
+   *
+   * Lines rather than strings because some of what
+   * they print is the run's own: an error message
+   * can quote anything, a full run id included, and
+   * the panel sets a recorded value apart from the
+   * words mBoss put around it.
+   */
+  lines?: ToolLine[];
+
+  /**
+   * Every file the call said it touched, absolute,
+   * in the order it named them.
+   *
+   * Read off the update rather than the title: an
+   * agent titles a call however it likes — codex
+   * calls every write "Editing files" — while the
+   * diffs and locations it sends name the files
+   * themselves. Empty for a call that named none,
+   * and for every row the extension writes.
+   */
+  paths: string[];
 
   /**
    * The one place this row leads, where it leads
@@ -107,6 +141,10 @@ export type ToolEntry = {
    */
   action?: { label: string; posts: 'openRun'; workflowId: string };
 };
+
+/** One line of a summary: mBoss's words, then the
+ *  value the run recorded, where the line has one. */
+export type ToolLine = { text: string; recorded?: string };
 
 /**
  * One file, as the agent left it.
@@ -162,6 +200,42 @@ export type FileEditEntry = {
  */
 export type FileDecision = 'pending' | 'kept' | 'undone' | 'changed-since';
 
+/** Where one file's edit stands, in the one word
+ *  the panel says about it. */
+export type FileState =
+  'proposed' | 'applied' | 'failed' | 'undone' | 'changed';
+
+/**
+ * Where one file's edit stands.
+ *
+ * A person's decision, once there is one, is the
+ * answer. Until then it is the call's to say: the
+ * agent wrote the file when its call completed,
+ * and had not yet while the call was still going.
+ * Worked out here, beside the fold that writes
+ * both entries, because the file and its call are
+ * separate entries and only the whole conversation
+ * holds the two together.
+ */
+export function fileStateOf(
+  edit: FileEditEntry,
+  entries: readonly TranscriptEntry[],
+): FileState {
+  if (edit.decision === 'kept') return 'applied';
+  if (edit.decision === 'undone') return 'undone';
+  if (edit.decision === 'changed-since') return 'changed';
+
+  const call = entries.find(
+    (entry) => entry.at === 'tool' && entry.id === edit.toolCallId,
+  );
+  const status = call?.at === 'tool' ? call.status : undefined;
+
+  if (status === 'completed') return 'applied';
+  if (status === 'failed') return 'failed';
+
+  return 'proposed';
+}
+
 /** Something that went wrong, and the one thing to
  *  do about it. */
 export type DiagnosticEntry = {
@@ -184,6 +258,33 @@ export type PlanEntry = {
   id: 'plan';
 
   steps: { text: string; status: PlanEntryStatus }[];
+};
+
+/**
+ * What to do after a turn that answered a question
+ * about one block and changed something.
+ *
+ * The way to know whether an edit fixed a run is to
+ * run it again from the block it failed at, and a
+ * replay reuses what the run already recorded
+ * before that block. So the column offers one — and
+ * the edits, so a change that did not help can be
+ * taken back from the same place.
+ */
+export type NextEntry = {
+  at: 'next';
+
+  id: string;
+
+  about: { workflowId: string; nodeId: string };
+
+  /** The block's title, as it was when the question
+   *  was asked. */
+  block: string;
+
+  /** The file edits the turn wrote that stood when
+   *  it ended. */
+  edits: string[];
 };
 
 /**
@@ -282,6 +383,7 @@ export function personEdit(edit: {
     target: edit.target,
     status: 'applied',
     body: [],
+    paths: [],
   };
 }
 
@@ -296,6 +398,7 @@ export function personEdit(edit: {
 export function said(
   entries: readonly TranscriptEntry[],
   text: string,
+  about?: PromptAbout,
 ): TranscriptEntry[] {
   return [
     ...entries,
@@ -304,8 +407,87 @@ export function said(
       id: `message-${entries.filter((e) => e.at === 'message').length}`,
       from: 'user',
       text,
+      ...(about === undefined ? {} : { about }),
     },
   ];
+}
+
+/**
+ * The file edits an update writes, by the id each
+ * one's entry is filed under.
+ *
+ * Asked of each update while a turn runs, so the
+ * panel knows which edits are that turn's. Where an
+ * entry sits in the column cannot say: a second
+ * diff for an edit already there replaces it where
+ * it stands, turns earlier.
+ */
+export function editsIn(update: SessionUpdate): string[] {
+  if (
+    update.sessionUpdate !== 'tool_call' &&
+    update.sessionUpdate !== 'tool_call_update'
+  ) {
+    return [];
+  }
+
+  return (update.content ?? []).flatMap((item) =>
+    item.type === 'diff' ? [fileEditId(update.toolCallId, item.path)] : [],
+  );
+}
+
+/**
+ * Which of these edits are still applied.
+ *
+ * Asked when a turn ends, and again every time the
+ * column is drawn: an edit can be undone long after
+ * the offer about it was written, and an offer
+ * about edits nobody kept would replay against code
+ * that is no longer there.
+ */
+export function standing(
+  entries: readonly TranscriptEntry[],
+  edits: readonly string[],
+): string[] {
+  return entries.flatMap((entry) =>
+    entry.at === 'file' &&
+    edits.includes(entry.id) &&
+    fileStateOf(entry, entries) === 'applied'
+      ? [entry.id]
+      : [],
+  );
+}
+
+/**
+ * What to offer after a turn, if anything.
+ *
+ * Only after a turn asked about one block, and only
+ * where an edit that turn wrote still stands — a
+ * turn that changed nothing, or whose change was
+ * undone before it ended, has nothing a replay
+ * would test. `written` is every edit the turn
+ * wrote; which of them stand is the column's to
+ * say.
+ */
+export function nextActions(
+  entries: readonly TranscriptEntry[],
+  about: PromptAbout | undefined,
+  written: readonly string[],
+): NextEntry | undefined {
+  if (about?.nodeId === undefined || about.block === undefined) {
+    return undefined;
+  }
+
+  const edits = standing(entries, written);
+
+  if (edits.length === 0) return undefined;
+
+  return {
+    at: 'next',
+    id: `next-${entries.filter((entry) => entry.at === 'next').length}`,
+    about: { workflowId: about.workflowId, nodeId: about.nodeId },
+    block: about.block,
+    edits,
+  };
 }
 
 /**
@@ -381,6 +563,7 @@ function withToolCall(
     ...named,
     status: update.status ?? existing?.status ?? 'pending',
     body: update.content === undefined ? (existing?.body ?? []) : [],
+    paths: pathsOf(existing?.paths ?? [], update),
   };
 
   let conversation: TranscriptEntry[] =
@@ -400,6 +583,31 @@ function withToolCall(
   }
 
   return conversation;
+}
+
+/**
+ * The files a call has named so far.
+ *
+ * Added to rather than replaced: an update that
+ * sends a second file's diff leaves the first
+ * file's edit standing in the column, so the call
+ * still touched both. A diff comes before a
+ * location, because a diff is the call's own
+ * record of writing the file.
+ */
+function pathsOf(
+  named: readonly string[],
+  update: Extract<
+    SessionUpdate,
+    { sessionUpdate: 'tool_call' | 'tool_call_update' }
+  >,
+): string[] {
+  const diffs = (update.content ?? []).flatMap((item) =>
+    item.type === 'diff' ? [item.path] : [],
+  );
+  const located = (update.locations ?? []).map((location) => location.path);
+
+  return [...new Set([...named, ...diffs, ...located])];
 }
 
 /**
@@ -463,7 +671,7 @@ function fileEdit(
 ): FileEditEntry {
   const edit: FileEditEntry = {
     at: 'file',
-    id: `${toolCallId}:${content.path}`,
+    id: fileEditId(toolCallId, content.path),
     toolCallId,
     by: 'agent',
     path: content.path,
@@ -484,6 +692,12 @@ function fileEdit(
   }
 
   return edit;
+}
+
+/** A call and a path: what a second attempt at the
+ *  same edit replaces. */
+function fileEditId(toolCallId: string, path: string): string {
+  return `${toolCallId}:${path}`;
 }
 
 function worthHolding(text: string | null | undefined): boolean {

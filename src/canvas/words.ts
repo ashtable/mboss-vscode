@@ -2,11 +2,13 @@ import { l10n } from 'vscode';
 
 import type { HandlerMisfit, NodeKind } from '../core/rules.js';
 import { once } from '../once.js';
-import type { LiveOutcome } from '../runs/reading.js';
+import type { SizeWords } from '../runs/rows.js';
+import { runWords, runsWords } from '../runs/words.js';
+import type { DurationWords } from '../webview/time.js';
 
 /**
- * Every word the canvas and its Inspector column
- * draw, resolved here and sent whole.
+ * Every word the canvas and the Inspector draw,
+ * resolved here and sent whole.
  *
  * A webview has no `vscode.l10n`, so its words are
  * resolved on the host and travel in the init
@@ -48,9 +50,35 @@ export const paletteLabels = once((): Record<NodeKind, string> => ({
   queue: l10n.t('Queue'),
   branch: l10n.t('Branch'),
   loop: l10n.t('Loop'),
-  durableWait: l10n.t('Wait'),
+  durableWait: l10n.t('Durable wait'),
   approval: l10n.t('Approval'),
-  emailSend: l10n.t('Email'),
+  emailSend: l10n.t('Email send'),
+}));
+
+/**
+ * What a kind is called inside a sentence.
+ *
+ * Its own strings rather than the labels above put
+ * through `toLowerCase`: that call is the locale's
+ * business and not this file's, and in English alone
+ * it would turn "API call" into "api call" — which
+ * is right here and would be wrong on a label. A
+ * test holds the two tables to each other in the
+ * English source, which is the one language this
+ * repository writes.
+ */
+export const kindWords = once((): Record<NodeKind, string> => ({
+  trigger: l10n.t('trigger'),
+  step: l10n.t('step'),
+  transaction: l10n.t('transaction'),
+  apiCall: l10n.t('api call'),
+  codeStep: l10n.t('code step'),
+  queue: l10n.t('queue'),
+  branch: l10n.t('branch'),
+  loop: l10n.t('loop'),
+  durableWait: l10n.t('durable wait'),
+  approval: l10n.t('approval'),
+  emailSend: l10n.t('email send'),
 }));
 
 /**
@@ -86,6 +114,43 @@ export const misfitWords = once((): Record<HandlerMisfit['kind'], string> => ({
   'not-a-decision': l10n.t('returns {0}, decides nothing'),
 }));
 
+/**
+ * The units a length of time is said in.
+ *
+ * Its own bag because every surface that draws one
+ * reads it — the run tab, the Inspector, the list
+ * of runs — and the scale that picks between them
+ * is `webview/time.ts`, which resolves no words of
+ * its own. Two bags would let a step that took a
+ * second read as `1.0 s` on one panel and
+ * `1000 ms` on the one beside it.
+ *
+ * A template each, because where the number goes is
+ * the language's business.
+ */
+export const durationWords = once((): DurationWords => ({
+  milliseconds: l10n.t('{0} ms'),
+  seconds: l10n.t('{0} s'),
+  minutes: l10n.t('{0} m'),
+  hours: l10n.t('{0} h'),
+  days: l10n.t('{0} d'),
+}));
+
+/**
+ * The units a recorded value's size is said in.
+ *
+ * Beside the units of time for the same reason:
+ * the scale that picks between them is shared
+ * (`runs/rows.ts`) and resolves no words of its
+ * own, so every surface that says how big a value
+ * is says it the same way.
+ */
+export const sizeWords = once((): SizeWords => ({
+  bytes: l10n.t('{0} B'),
+  kilobytes: l10n.t('{0} KB'),
+  megabytes: l10n.t('{0} MB'),
+}));
+
 export const canvasWords = once(() => ({
   /**
    * The second half of this used to say the
@@ -106,14 +171,32 @@ export const canvasWords = once(() => ({
     'Workflow IR — source of truth for orchestration · blocks stay where you put them',
   ),
   unreadable: l10n.t('This file is not a workflow document.'),
+
+  // Names the strip the two below sit in, for
+  // somebody who arrives at it without seeing the
+  // toolbar it is on.
+  views: l10n.t('Workflow views'),
   canvas: l10n.t('Canvas'),
   json: l10n.t('JSON'),
   graph: l10n.t('graph'),
-  blocks: l10n.t('Blocks'),
-  lib: l10n.t('/lib · from manifest'),
+  blocks: l10n.t('blocks'),
+  lib: l10n.t('lib · from manifest'),
   noLib: l10n.t('No code-behind has been scanned yet.'),
 
-  // Follows the kind — `Step · unassigned` —
+  kinds: kindWords(),
+
+  // How a trigger starts a run, said under it. Read
+  // off each trigger's own configuration, because a
+  // draft may hold several and they need not agree —
+  // which is why the topic rides in the phrase
+  // rather than being a word of its own.
+  triggerPhrases: {
+    manual: l10n.t('on request'),
+    event: l10n.t('on event · {0}'),
+    schedule: l10n.t('on a schedule'),
+  },
+
+  // Follows the kind — `step · unassigned` —
   // rather than standing alone, which is why it
   // is lowercase and why it is one word.
   unassigned: l10n.t('unassigned'),
@@ -123,7 +206,7 @@ export const canvasWords = once(() => ({
   // is worked out from the rows either side of it
   // rather than read off a row of its own — which
   // is the second half of the sentence.
-  runningDerived: l10n.t('RUNNING · derived'),
+  runningDerived: l10n.t('Running · derived'),
 
   // Under the title of a block the run stopped on,
   // in place of the code behind it. When it parked
@@ -131,7 +214,15 @@ export const canvasWords = once(() => ({
   // absolute moment rather than a count upwards:
   // nothing is happening at that block, and a
   // number climbing beside it would say otherwise.
-  waitingSince: l10n.t('WAITING · since {0}'),
+  waitingSince: l10n.t('Waiting · since {0}'),
+
+  // And the other word for a block waiting on the
+  // clock, whose only row is the sleep the SDK
+  // wrote before the wait: its completion is the
+  // moment the run is due to wake rather than the
+  // moment it stopped, so "since" would name a time
+  // still to come.
+  waitingWakes: l10n.t('waiting · wakes {0}'),
 
   // Under a queue block instead of the code behind
   // it, while its children are moving: how many are
@@ -160,28 +251,18 @@ export const canvasWords = once(() => ({
   // while a chip is on its way to a block.
   libFnDragging: l10n.t('dragging {0}…'),
 
-  // At the far end of the toolbar while this window
-  // is following a run of the workflow on screen:
-  // which workflow, which run, and where it has got
-  // to. The run carries no label of its own because
-  // the ids this window mints already open with the
-  // word, and the whole of one is on the chip
-  // itself for anybody who needs to read it.
-  following: l10n.t('{0} · {1} · {2}'),
+  // Opens the chip at the far end of the toolbar
+  // while this window is following a run of the
+  // workflow on screen, before the run's short id
+  // and the word for where it has got to. The
+  // workflow is not named: the canvas the chip sits
+  // on is that workflow.
+  followingRun: l10n.t('run'),
 
-  // Where that run has got to, in the six answers a
-  // reading gives. `quiet` is not an ending — it is
-  // the watch letting go of a run that may yet move
-  // — and it has to read as something other than
-  // one.
-  runOutcomes: {
-    running: l10n.t('running'),
-    done: l10n.t('done'),
-    failed: l10n.t('failed'),
-    waiting: l10n.t('waiting'),
-    quiet: l10n.t('quiet'),
-    cancelled: l10n.t('cancelled'),
-  } satisfies Record<LiveOutcome, string>,
+  // Where a run or a step has got to: the one set
+  // of words, held with the runs the list draws and
+  // carried here for the chip and the node lines.
+  runOutcomes: runWords(),
 
   // On the rail's own chip, while a block is on
   // its way onto the canvas. The chip is where a
@@ -192,11 +273,14 @@ export const canvasWords = once(() => ({
   spliceHere: l10n.t('splice here'),
   spliceNote: l10n.t('edge splits on drop'),
 
-  // The number is the gesture's own, filled in
-  // where the drag is worked out, so the sentence
-  // cannot say one distance while the pointer is
-  // held to another.
-  dragHint: l10n.t('drag starts after {0} px of movement · esc cancels'),
+  // Where a row goes, and the one thing a drop
+  // does that nobody would guess: let go of a
+  // block over a wire and the wire opens to take
+  // it. How far the pointer has to travel before
+  // the drag begins is not said, because it is a
+  // threshold a hand crosses without reading
+  // anything.
+  dragHint: l10n.t('drag onto the canvas · drop on an edge to splice'),
 
   // Over a block being moved. The coordinates are
   // the graph's own, which is what the document
@@ -223,26 +307,45 @@ export const canvasWords = once(() => ({
   // rather than that some of it is missing.
   quickAdd: l10n.t('Put a block here'),
 
-  groups: {
-    start: l10n.t('Start'),
-    work: l10n.t('Work'),
-    control: l10n.t('Control'),
-    people: l10n.t('People'),
-  } satisfies Record<string, string>,
+  ariaLabels: boardLabels(),
 
   misfits: misfitWords(),
 }));
 
 /**
- * Everything the third column says, kept apart
- * from the canvas' own words even though both
- * ride in the same message.
+ * What a screen reader is told about the board,
+ * where the graph library would otherwise speak for
+ * itself.
  *
- * They are not one group because they are not
- * one thing on the wire: the canvas' words are
- * its chrome and stand whatever is selected,
- * while these travel beside the block the column
- * is showing, so the column arrives whole. One
+ * It says, in English, that enter selects a block
+ * and escape calls a deletion off — neither of which
+ * this board does. Only a screen reader ever reaches
+ * these, which is exactly why they cannot be left in
+ * a language nobody chose saying things that are not
+ * true. The keys are the library's own.
+ *
+ * Both node descriptions are the same sentence: the
+ * library picks between them by whether its own
+ * keyboard handling is on, this board has it on for
+ * the arrow-key nudge, and two different sentences
+ * about one board is what a reader would then be
+ * told depending on a flag they cannot see.
+ */
+function boardLabels(): Record<string, string> {
+  const block = l10n.t('Arrow keys move this block. Delete removes it.');
+
+  return {
+    'node.a11yDescription.default': block,
+    'node.a11yDescription.keyboardDisabled': block,
+    'edge.a11yDescription.default': l10n.t('Delete removes this wire.'),
+    'handle.ariaLabel': l10n.t('Drag to wire this block to another.'),
+  };
+}
+
+/**
+ * Everything the Inspector says, in its own
+ * message: the pane is a view of its own in the
+ * side bar, sent whole whatever it is about. One
  * string is borrowed rather than written twice —
  * the picker and the palette have to say the
  * same sentence about a project whose code has
@@ -250,8 +353,21 @@ export const canvasWords = once(() => ({
  * drift.
  */
 export const inspectorWords = once(() => ({
-  heading: l10n.t('Node inspector'),
-  nothingSelected: l10n.t('Pick a block to set what it does.'),
+  heading: l10n.t('Inspector'),
+
+  // What the block's name is called where the name
+  // is a field of its own, at the top of the pane,
+  // with no label beside it to say so.
+  blockTitle: l10n.t('block title'),
+
+  // A title, so no full stop, and the sentence
+  // under it says where to pick from. Opening a run
+  // is what gives the pane a run to be about: a row
+  // picked in the Runs list only marks that row.
+  nothingSelected: l10n.t('Pick a block to set what it does'),
+  nothingSelectedDetail: l10n.t(
+    'Select a node on the canvas, or open a run to see what it recorded.',
+  ),
 
   // The column's two faces, named for the question
   // each answers rather than for the panel it draws:
@@ -266,47 +382,62 @@ export const inspectorWords = once(() => ({
   // show.
   noRun: l10n.t('start or pick a run to see what it recorded'),
 
+  // Why the first one has nothing to show for a
+  // block a run recorded and the document has since
+  // lost.
+  notInWorkflow: l10n.t('not in the workflow'),
+  notAValue: l10n.t('not a value for this field · nothing was saved'),
+
   kinds: paletteLabels(),
 
   /* — what a run recorded about the block — */
 
-  // Said on anything the column worked out rather
+  // Said on anything the pane worked out rather
   // than read off a row, and on the one thing that
   // is neither: a policy somebody set. A card about
   // a run is worth nothing if a person cannot tell
   // the three apart at a glance. The first is
-  // borrowed rather than written again: both bags
-  // ride in one message, and a canvas that said it
-  // two ways would be saying it twice on one screen.
+  // borrowed rather than written again: the canvas
+  // and the pane sit on one screen, and saying it
+  // two ways would be saying it twice there.
   derived: canvasWords().derived,
   configured: l10n.t('configured'),
 
-  // Where the ledger got to with the block. The
-  // first three are states a row carries; the fourth
-  // is worked out from the rows either side of it,
-  // which is why it is the one that wears a chip.
-  runStates: {
-    done: l10n.t('done'),
-    failed: l10n.t('failed'),
-    waiting: l10n.t('waiting'),
-    running: l10n.t('running'),
-  } satisfies Record<string, string>,
+  // What a state line with no room for a word says
+  // about itself, to a pointer and a screen reader:
+  // a block the run has written nothing for is
+  // placed by the rows around it, and a trigger's
+  // state is read off the run existing at all.
+  runningDerived: l10n.t('derived from the rows either side'),
+  triggerDerived: l10n.t('derived from the run’s workflow_status row'),
 
   started: l10n.t('started'),
   completed: l10n.t('completed'),
   duration: l10n.t('duration'),
   notTimed: l10n.t('not timed'),
 
-  // Seconds with one decimal under a second's
-  // worth, and whole milliseconds over it — the
-  // same two forms the run page draws, because a
-  // duration read in two places should not be
-  // rounded two ways.
-  milliseconds: l10n.t('{0} ms'),
-  seconds: l10n.t('{0} s'),
+  // A wait on the clock records when it will wake
+  // before it sleeps, so its row's completion is a
+  // wake-up time rather than a moment anything
+  // finished — and the row says which of the two
+  // it is, not "completed".
+  wakes: l10n.t('wakes'),
+  woke: l10n.t('woke'),
+
+  durations: durationWords(),
+
+  // What a recorded value's size is said in, where
+  // it is too long to draw whole.
+  sizes: sizeWords(),
+
+  // A configured number of milliseconds, which is a
+  // setting rather than a length of time something
+  // took, so it is said outright and not run
+  // through the scale above.
+  milliseconds: durationWords().milliseconds,
 
   // The numbers the block will actually run under,
-  // which are configuration and are chipped as
+  // which are configuration and are marked as
   // such. A policy of one is spelled out rather
   // than drawn as `max 1`, because "max 1" reads
   // like a limit somebody hit.
@@ -322,27 +453,31 @@ export const inspectorWords = once(() => ({
   ),
 
   outputLabel: l10n.t('output · recorded result'),
-
-  // Said where the reading kept only the front of
-  // what the step returned, so that nobody reads a
-  // value that stops mid-object as the value.
-  outputCut: l10n.t('cut at {0} characters'),
   openOutput: l10n.t('Open'),
 
-  // The one place the wrapper DBOS stores over a
-  // step that ran out of tries is named. The
-  // attempts it carries are not drawn: one entry
-  // per try is exactly the per-step history nothing
-  // here may claim.
+  // Under a failure, what to do about it.
+  wayOut: l10n.t('fix the function, then replay from here'),
+
+  // The same, where the step ran out of tries: how
+  // many DBOS made, counted from the tries it
+  // stored with the error it threw. Never how many
+  // it was allowed, which is configuration, and
+  // never the tries themselves — one entry per try
+  // is per-step history nothing here may claim.
   exhausted: l10n.t(
-    'every configured try failed · DBOS recorded DBOSMaxStepRetriesError',
+    'DBOS tried {0} times · fix the function, then replay from here',
+  ),
+
+  // Under a recorded result, what it is for. "A
+  // later step", because a replay from this one
+  // runs it again: a fork copies only the rows
+  // before the step it starts at.
+  recordedFooter: l10n.t(
+    'recorded result · reused on recovery and by a replay from a later step',
   ),
 
   // The way into the code a block runs, offered on
-  // a card the way it is offered on the other face.
-  // Spelled out rather than borrowing the picker's
-  // `open ƒ`: that one sits at the end of a line of
-  // code and this one stands in a row of buttons.
+  // a card in a row of buttons, so spelled out.
   openHandler: l10n.t('Open function'),
 
   // The second door out of a failure, drawn only
@@ -397,11 +532,59 @@ export const inspectorWords = once(() => ({
   restored: l10n.t('restored'),
 
   // On a row a replay carried over from the run it
-  // came from. The glyph is part of the word: it is
-  // the mark Replay wears, and what it says here is
-  // that the row is the earlier run's rather than
-  // work this one did.
-  recorded: l10n.t('↺ recorded'),
+  // came from: the earlier run's work, not this
+  // one's.
+  reused: l10n.t('reused'),
+
+  // A trigger compiles into how the workflow is
+  // started rather than into a durable operation,
+  // so its face says so and offers the whole run.
+  triggerNoRow: l10n.t(
+    'a Trigger writes no row of its own — it is how this run started',
+  ),
+  showRun: l10n.t('Show the run'),
+
+  /* — how a trigger starts, and the run it starts — */
+
+  // A trigger has no function: it is how DBOS
+  // starts the workflow, so its form is headed by
+  // that and says so under its rows.
+  workflow: l10n.t('workflow'),
+  triggerOwnsNoFunction: l10n.t(
+    'a Trigger owns no ƒ — it names the workflow and its input type · DBOS starts the workflow with that input',
+  ),
+
+  // A scheduled workflow is started by DBOS's
+  // scheduler and never by Run. Said in the Runs
+  // view's own words, which both views then share
+  // one translation of.
+  runsOnSchedule: runsWords().scheduledNotRunnable,
+
+  // The Runs view's input box, reflected on a
+  // trigger's card and never written from it: the
+  // box is the one place a run's input is typed.
+  // Each sentence says what Run does with what the
+  // box holds, which is why every one names Run.
+  sampleInput: l10n.t('input · sample for Run'),
+  noInputRun: l10n.t('no input · Run sends none'),
+  notJsonYet: l10n.t('not JSON yet · Run will refuse it'),
+  localRunsSetTo: l10n.t(
+    'Local runs is set to {0} · Run with this input switches it to {1}',
+  ),
+  usedByRunOnly: l10n.t('used by Run only · not part of the saved workflow'),
+  runWithInput: l10n.t('Run with this input'),
+
+  // Why there is no Run: the app runs the workflow
+  // as saved and built, so a run from a buffer with
+  // changes would start something not on screen.
+  saveToRun: l10n.t('save the workflow to run it'),
+  needsTopic: l10n.t('the trigger needs a topic to run'),
+
+  // A run executes the folder's own code, so a
+  // window nobody has trusted starts none. Said in
+  // the Runs view's own sentence, which both views
+  // then share one translation of.
+  untrusted: runsWords().untrusted,
 
   /* — what a queue block’s children are doing — */
 
@@ -475,44 +658,122 @@ export const inspectorWords = once(() => ({
     'local application only — production queues live in Conductor',
   ),
 
-  /* — the run itself — */
+  // Where each item the block started got to. An
+  // item is a run of its own, so it is said in the
+  // words a run is said in everywhere else, and the
+  // same bag the canvas carries rather than a copy.
+  runOutcomes: runWords(),
 
-  run: l10n.t('run'),
-  span: l10n.t('started {0} · finished {1}'),
-  spanRunning: l10n.t('started {0}'),
+  /* — the run itself — */
 
   // What the run was started with, drawn here and
   // nowhere else: the schema has no per-step input
   // column, and a step card that showed one would
-  // be making it up.
-  workflowInput: l10n.t('workflow input'),
+  // be making it up. "As recorded", because the
+  // Runs panel's input box may hold something else
+  // by now.
+  workflowInput: l10n.t('workflow input · as recorded'),
+
+  // The header of a card about a whole run, where a
+  // block's kind goes. The id is drawn rather than
+  // written in, so the phrase is a template of its
+  // own and a language puts the two in its own
+  // order.
+  runKind: l10n.t('run {0}'),
+
+  noInput: l10n.t('no input recorded'),
+
+  // How a recorded value is drawn: whole, or as
+  // something too long to show that can be opened.
+  inline: l10n.t('inline'),
+  artifact: l10n.t('artifact'),
+  openInput: l10n.t('Open'),
+
+  // The run's own row, under the name of the table
+  // it is a row of, because the column names below
+  // it are that table's.
+  ledgerHeading: l10n.t('dbos.workflow_status'),
+  ledger: l10n.t(
+    'The recovery ledger — your workflow is just rows in Postgres.',
+  ),
+
+  // Where the run came from and what came out of
+  // it, one line each. The id in each is a Button
+  // and the step phrase is worked out rather than
+  // read, so each is a placeholder of its own and
+  // the phrase is a template of its own: the view
+  // draws the pieces apart without knowing where a
+  // language puts them.
+  lineage: l10n.t('lineage'),
+  replayOf: l10n.t('replay of {0} {1}'),
+  replayTo: l10n.t('└ replay {0} → {1} · {2}'),
+  fromStep: l10n.t('from step {0}'),
+
+  // "Cancel run" rather than "Cancel": the card
+  // also carries Replay from start and Ask agent,
+  // and a bare verb among them names nothing.
+  cancel: l10n.t('Cancel run'),
+  resume: l10n.t('Resume'),
+  cancelledAt: l10n.t('cancelled'),
+
+  // What resuming a run does: it reads its recorded
+  // history back rather than running those
+  // operations again. The second is said only over
+  // a run DBOS gave up on, the one run whose
+  // give-up count starts over.
+  resumeHint: l10n.t(
+    'Resume continues from the recorded history · completed durable operations are not re-executed',
+  ),
+  resumeResetsAttempts: l10n.t('recovery_attempts starts again from 0'),
+
+  // A fork at step 0, which copies nothing: the run
+  // again, with what it was started with.
+  replayStart: l10n.t('Replay from start'),
 
   recovery: l10n.t('recovery'),
-  neverRecovered: l10n.t('never recovered'),
-  recoveredTimes: l10n.t('recovered {0}×'),
-  pickedBackUp: l10n.t('picked back up by DBOS'),
-  applicationVersion: l10n.t('application version'),
 
-  // The way out of the column: a card says what one
-  // run recorded about one block, and the whole run
-  // is a page.
-  openRun: l10n.t('Open run'),
   fields: inspectorFields(),
+  fieldsByKind: inspectorFieldsByKind(),
+  units: inspectorUnits(),
+  placeholders: inspectorPlaceholders(),
   options: inspectorOptions(),
   hints: inspectorHints(),
 
-  // The picker's list is the palette's `/lib`
-  // section put through one rule, which is what
-  // its heading says and the palette's does not.
-  lib: l10n.t('/lib · matched by signature'),
+  // Under the function a block runs, while the list
+  // it opens is closed: where the list comes from,
+  // the one rule it is put through, how much of it
+  // that rule put away, and how to get at it. The
+  // palette's `/lib` section is the same list with
+  // no rule on it, which its heading says instead.
+  libAtRest: l10n.t(
+    'lib · matched by signature · {0} incompatible hidden · click to change',
+  ),
+
+  // Where the project's code has not been read,
+  // there is no list and no rule to have run.
+  libNotScanned: l10n.t('lib · not scanned yet'),
+
   hidden: l10n.t('{0} incompatible functions hidden · show'),
   hide: l10n.t('Hide incompatible functions'),
   newFunction: l10n.t('New function…'),
   noLib: canvasWords().noLib,
+
+  // Why a function cannot sit behind a block, the
+  // sentence the palette greys a row with. The same
+  // words rather than a copy, and carried here
+  // because the Inspector is sent no canvas words.
+  misfits: misfitWords(),
   dropHere: l10n.t('drop a ƒ here'),
   end: l10n.t('end'),
+
+  // Which database a transaction's writes commit
+  // to, and through what: read rather than set,
+  // because it is the project's and not the
+  // block's. Its group is already called the
+  // database, so the row says what the block does
+  // with it.
+  commitsTo: l10n.t('commits to'),
   database: l10n.t('app postgres · prisma tx'),
-  openFunction: l10n.t('open ƒ'),
 
   // What a transaction is told instead of the three
   // retry fields every other code-running kind
@@ -520,27 +781,26 @@ export const inspectorWords = once(() => ({
   retryPolicy: l10n.t('retry policy'),
   retry: l10n.t('runs once, inside its own commit'),
 
-  /** The two kinds whose relationship with their
-   *  code needs saying out loud. */
+  // Under a transaction's function. Which record
+  // commits with the writes is the whole point, and
+  // it is not the step's. A step's completion is
+  // recorded in the system database, which is a
+  // different database and so a different
+  // transaction. What rides along with the writes
+  // is the datasource's own completion row, in the
+  // app's Postgres — the one the database group
+  // names.
+  oneCommit: l10n.t(
+    'One commit. The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.',
+  ),
+
+  /** The kind whose relationship with its code
+   *  needs saying out loud. */
   callouts: {
     branch: {
       title: l10n.t('Branches own no code.'),
       body: l10n.t(
-        'The Lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph.',
-      ),
-    },
-    // Which record commits with the writes is the
-    // whole point, and it is not the step's. A
-    // step's completion is recorded in the system
-    // database, which is a different database and
-    // so a different transaction. What rides along
-    // with the writes is the datasource's own
-    // completion row, in the app's Postgres — the
-    // one the row beside this callout names.
-    transaction: {
-      title: l10n.t('One commit.'),
-      body: l10n.t(
-        'The function’s table writes and DBOS’s record that it ran commit together, in the project’s own Postgres rather than in the system database. A crash part-way leaves neither behind, and recovery cannot commit it twice.',
+        'The lib function is the logic. The picker only offers functions whose signature fits the block’s position in the graph.',
       ),
     },
   },
@@ -563,16 +823,29 @@ function inspectorFields(): Record<string, string> {
     handler: l10n.t('function'),
     logic: l10n.t('logic'),
     database: l10n.t('database'),
+    startsOn: l10n.t('starts on'),
     service: l10n.t('service'),
 
-    retryMaxAttempts: l10n.t('attempts'),
-    retryIntervalSeconds: l10n.t('first retry after, in seconds'),
-    retryBackoffRate: l10n.t('backoff, times'),
+    // The groups a block that runs code is read in:
+    // the function behind it, what an API call
+    // calls, and how hard the block tries.
+    function: l10n.t('function'),
+    request: l10n.t('request'),
+    retryPolicy: l10n.t('retry policy'),
 
-    mode: l10n.t('run'),
+    // Short nouns, one line each in the label
+    // column. The unit a number is counted in is
+    // drawn beside the number, never in its label.
+    retryMaxAttempts: l10n.t('max attempts'),
+    retryIntervalSeconds: l10n.t('interval'),
+    retryBackoffRate: l10n.t('backoff'),
+
+    mode: l10n.t('kind'),
     topic: l10n.t('topic'),
-    idempotencyKeyPath: l10n.t('idempotency key path'),
-    requesterEmailPath: l10n.t('requester email path'),
+    // What each path picks out of the payload; that
+    // it is a path is said in its empty box.
+    idempotencyKeyPath: l10n.t('idempotency'),
+    requesterEmailPath: l10n.t('requester'),
     repeat: l10n.t('repeat'),
     on: l10n.t('on'),
     at: l10n.t('at'),
@@ -590,33 +863,43 @@ function inspectorFields(): Record<string, string> {
     maxIterations: l10n.t('max loops'),
     onExhausted: l10n.t('when exhausted'),
 
-    // The three groups a queue block's form is
-    // read in. Two policy models and the knobs
-    // nobody turns often — never one list.
-    queuePolicy: l10n.t('Queue policy · registration'),
-    enqueuePolicy: l10n.t('Enqueue policy · per item'),
-    advanced: l10n.t('Advanced'),
+    // The groups a queue block's form is read in
+    // besides the function and its tries: two policy
+    // models and the knobs nobody turns often — never
+    // one list. Each policy says which of the two
+    // scopes it is.
+    queuePolicy: l10n.t('queue policy · registration'),
+    enqueuePolicy: l10n.t('enqueue policy · per item'),
+    advanced: l10n.t('advanced'),
 
     queueName: l10n.t('queue'),
     // Never a bare "concurrency": three of the four
     // limits below would answer to it.
     globalConcurrency: l10n.t('global concurrency'),
     workerConcurrency: l10n.t('worker concurrency'),
-    rateLimitPer: l10n.t('rate limit'),
-    rateLimitSec: l10n.t('per, in seconds'),
     partitioning: l10n.t('partitioning'),
-    partitionConcurrency: l10n.t('concurrency / partition'),
-    partitionWorkerConcurrency: l10n.t('worker concurrency / partition'),
-    partitionRateLimitPer: l10n.t('rate limit / partition'),
-    partitionRateLimitSec: l10n.t('per, in seconds'),
-    minPollingIntervalMs: l10n.t('min polling interval, in ms'),
+    partitionConcurrency: l10n.t('partition concurrency'),
+    partitionWorkerConcurrency: l10n.t('partition workers'),
+    minPollingIntervalMs: l10n.t('min polling'),
     onConflict: l10n.t('on conflict'),
+
+    // A limit is a count and the period it is
+    // counted over, drawn as one row the first word
+    // names. Each box in it is named for its half,
+    // which is what a screen reader says on reaching
+    // it, since the row's label names both.
+    rateLimit: l10n.t('rate limit'),
+    rateLimitPer: l10n.t('rate limit, count'),
+    rateLimitSec: l10n.t('rate limit, period'),
+    partitionRateLimit: l10n.t('partition rate limit'),
+    partitionRateLimitPer: l10n.t('partition rate limit, count'),
+    partitionRateLimitSec: l10n.t('partition rate limit, period'),
 
     itemsPath: l10n.t('items path'),
     itemType: l10n.t('item type'),
     priority: l10n.t('priority'),
-    delaySeconds: l10n.t('delay, in seconds'),
-    deduplicationPath: l10n.t('deduplication path'),
+    delaySeconds: l10n.t('delay'),
+    deduplicationPath: l10n.t('deduplication'),
     partitionPath: l10n.t('partition path'),
 
     minRounds: l10n.t('min rounds'),
@@ -652,15 +935,88 @@ function inspectorFields(): Record<string, string> {
 }
 
 /**
- * What a group needs saying about it, under its
- * header.
+ * What a field is called on one kind, where that
+ * differs from what it is called on every other.
  *
- * Two of the three groups on a queue block are
- * about scopes a person cannot tell apart from the
- * field names alone — which process a limit holds
- * back, and which two settings the app will refuse
- * together. Neither is a fact about one field, so
- * neither is a label.
+ * Two ids read differently by kind. A trigger
+ * produces nothing a function returns: what it
+ * declares is the type of the input a run starts
+ * with. And the function a queue runs is run once
+ * per item it hands out, which is what a handler
+ * is. Everything else is `inspectorFields()`'s.
+ */
+function inspectorFieldsByKind(): Partial<
+  Record<NodeKind, Record<string, string>>
+> {
+  return {
+    trigger: { out: l10n.t('input type') },
+    queue: { function: l10n.t('handler') },
+  };
+}
+
+/**
+ * What a number is counted in, keyed by the field
+ * it is drawn beside.
+ *
+ * Drawn after the box rather than written in the
+ * label or typed into the value, so the label stays
+ * one short noun and the value stays a number.
+ */
+function inspectorUnits(): Record<string, string> {
+  const seconds = l10n.t('s');
+
+  return {
+    retryIntervalSeconds: seconds,
+    retryBackoffRate: l10n.t('×'),
+    delaySeconds: seconds,
+    // Beside a limit's period, which is the half the
+    // row's unit is read with.
+    rateLimitSec: seconds,
+    partitionRateLimitSec: seconds,
+    minPollingIntervalMs: l10n.t('ms'),
+  };
+}
+
+/**
+ * What an empty box is for, keyed by the field it
+ * is drawn in.
+ *
+ * Said in the box rather than in the label, as a
+ * unit is said beside a number, so the label stays
+ * one short noun; and only while the box is empty,
+ * so it is never read as a value.
+ */
+function inspectorPlaceholders(): Record<string, string> {
+  const payloadPath = l10n.t('payload path');
+  const none = l10n.t('none');
+
+  return {
+    idempotencyKeyPath: payloadPath,
+    requesterEmailPath: payloadPath,
+
+    // What an empty box means, which is not a value
+    // anybody gave: no priority — which DBOS takes
+    // ahead of every item that has one — no delay
+    // before an item may start, and no limit, said in
+    // the box a limit is started from.
+    priority: l10n.t('unset'),
+    delaySeconds: none,
+    rateLimitPer: none,
+    partitionRateLimitPer: none,
+  };
+}
+
+/**
+ * What a group needs saying about it, once its
+ * rows are drawn.
+ *
+ * Two of the groups on a queue block are about
+ * scopes a person cannot tell apart from the field
+ * names alone — which process a limit holds back,
+ * and which two settings DBOS will refuse together.
+ * Neither is a fact about one field, so neither is
+ * a label. The third says what a folded group
+ * holds.
  */
 function inspectorHints(): Record<string, string> {
   return {
@@ -668,12 +1024,14 @@ function inspectorHints(): Record<string, string> {
 
     // Said rather than enforced: core is where the
     // rule lives, and a form that greyed the box
-    // out would put half of the remedy — dropping
+    // out would put half of the remedy — emptying
     // the path — out of reach of the field holding
-    // it.
+    // it. So the sentence names both ways out.
     enqueuePolicy: l10n.t(
-      'partitioned queues cannot deduplicate — a partition limit and a deduplication path together are an error on the block',
+      'partitioned queues cannot deduplicate — with partitioning on, a deduplication path is an error on the block · empty this box or turn partitioning off',
     ),
+
+    advanced: l10n.t('advanced: partition limits, min polling interval'),
   };
 }
 
@@ -687,9 +1045,14 @@ function inspectorHints(): Record<string, string> {
  */
 function inspectorOptions(): Record<string, string> {
   return {
-    'mode.manual': l10n.t('by hand'),
-    'mode.event': l10n.t('an event'),
-    'mode.schedule': l10n.t('a schedule'),
+    // How a trigger starts, said the way the graph
+    // says it under the block. "On event" is a word
+    // of its own: the graph's is a template with the
+    // topic in it, whose translation cannot be cut
+    // back to its head.
+    'mode.manual': l10n.t('on request'),
+    'mode.event': l10n.t('on event'),
+    'mode.schedule': l10n.t('on a schedule'),
 
     'repeat.hourly': l10n.t('hourly'),
     'repeat.daily': l10n.t('daily'),

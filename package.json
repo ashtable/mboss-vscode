@@ -153,6 +153,11 @@
           "type": "webview",
           "id": "mboss.runs",
           "name": "%views.runs.name%"
+        },
+        {
+          "type": "webview",
+          "id": "mboss.inspector",
+          "name": "%views.inspector.name%"
         }
       ]
     },

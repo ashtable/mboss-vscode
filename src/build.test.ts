@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -23,7 +23,7 @@ import {
   copyVendoredAssets,
   hostOptions,
 } from './build.js';
-import { REPO_ROOT, fileExists } from './test-support/repo.js';
+import { REPO_ROOT, fileExists, styleFiles } from './test-support/repo.js';
 // Deliberately the module the *extension* reads its
 // vendored assets through, not the build's own
 // spelling of the same paths. Plain `node` runs the
@@ -64,6 +64,56 @@ function outputs(dir: string): string[] {
     const path = join(dir, name);
     return statSync(path).isDirectory() ? outputs(path) : [path];
   });
+}
+
+const TOKENS = join(REPO_ROOT, 'src', 'webview', 'tokens.css');
+
+/** The two views that put a graph on the page. */
+const GRAPH_VIEWS = ['see', 'canvas'] as const;
+
+/**
+ * The parts of the graph library this extension
+ * draws, as its stylesheet names them.
+ *
+ * The wire in the air is not among them: this
+ * extension hands the library a connection line
+ * component of its own, so the library's own
+ * connection path never reaches a frame.
+ */
+const DRAWN = [
+  'react-flow__edge-path',
+  'react-flow__handle',
+  'react-flow__background-pattern',
+  'react-flow__selection',
+  'react-flow__edge-text',
+];
+
+/** A value that reads a graph variable, falling
+ *  back to the library's own default for it. */
+const READS_DEFAULT =
+  /var\(\s*(--xy-[\w-]+?)\s*,\s*var\(\s*--xy-[\w-]+-default/g;
+
+/** A default name, wherever it is written. */
+const DEFAULT_NAME = /--xy-[\w-]+-default/;
+
+/**
+ * Every `selector { … }` in a built sheet, with
+ * the spacing the bundler chose collapsed first so
+ * one pattern reads whatever shape it emitted. A
+ * rule inside an at-rule is read as the rule it
+ * is; the at-rule's own head falls out.
+ */
+function rulesOf(css: string): { selector: string; body: string }[] {
+  const flat = withoutComments(css).replace(/\s+/g, ' ');
+
+  return [...flat.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((rule) => ({
+    selector: (rule[1] ?? '').trim(),
+    body: (rule[2] ?? '').trim(),
+  }));
+}
+
+function withoutComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, ' ');
 }
 
 describe('the built extension', () => {
@@ -157,6 +207,11 @@ describe('the built extension', () => {
       for (const match of css.matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
         const url = match[1] as string;
 
+        // A fragment names an element on the page,
+        // such as the arrowhead a picked wire ends
+        // in, and asks for no file at all.
+        if (url.startsWith('#')) continue;
+
         // A scheme is somebody else's origin, which
         // the content security policy refuses long
         // before this would.
@@ -169,6 +224,80 @@ describe('the built extension', () => {
 
     expect(asked).toContain('fonts/albert-sans-latin.woff2');
     expect(asked).toContain('fonts/spline-sans-mono-latin.woff2');
+  });
+
+  /**
+   * Every variable the graph library reads for a
+   * part this extension actually draws.
+   *
+   * The library declares each `--xy-X-default` on
+   * the `.react-flow` element itself and reads
+   * `var(--xy-X, var(--xy-X-default))`, so a
+   * default name declared further up is shadowed
+   * there and never reached. Only the un-suffixed
+   * name is free, and a part whose un-suffixed name
+   * nothing declares is drawn in the library's own
+   * light grey — inside whatever theme the person
+   * picked, on a panel that is otherwise theirs.
+   *
+   * Asked of the built sheet rather than of the
+   * source, because which rule reads which variable
+   * is the library's business and arrives in the
+   * bundle rather than in anything written here.
+   */
+  it('declares every graph variable the parts it draws read', () => {
+    const tokens = readFileSync(TOKENS, 'utf8');
+    const undeclared: string[] = [];
+    const undrawn = new Set(DRAWN);
+
+    for (const view of GRAPH_VIEWS) {
+      const css = readFileSync(join(outdir, webviewFile(view, 'css')), 'utf8');
+
+      for (const rule of rulesOf(css)) {
+        const drawn = DRAWN.filter((part) => rule.selector.includes(part));
+
+        if (drawn.length === 0) continue;
+
+        for (const [, name] of rule.body.matchAll(READS_DEFAULT)) {
+          drawn.forEach((part) => undrawn.delete(part));
+
+          if (!tokens.includes(`${name}:`)) undeclared.push(`${name} ${view}`);
+        }
+      }
+    }
+
+    // Every part named above is one the library
+    // still draws under a selector of that name: a
+    // renamed class would otherwise leave this
+    // sweeping a sheet it no longer matches.
+    expect([...undrawn]).toEqual([]);
+    expect(undeclared).toEqual([]);
+  });
+
+  /**
+   * The other half of the same rule, from the
+   * source side: a default name written into a
+   * stylesheet here looks like it re-points the
+   * library and does nothing at all.
+   */
+  it('names no graph default in a stylesheet of its own', () => {
+    const built = readFileSync(
+      join(outdir, webviewFile('canvas', 'css')),
+      'utf8',
+    );
+
+    // The names exist to be found, so a scan that
+    // matched nothing is a scan whose pattern has
+    // gone stale rather than a repository with none.
+    expect(DEFAULT_NAME.test(built)).toBe(true);
+
+    // What a declaration says, not what a comment
+    // beside it explains.
+    const naming = styleFiles().filter((path) =>
+      DEFAULT_NAME.test(withoutComments(readFileSync(path, 'utf8'))),
+    );
+
+    expect(naming.map((path) => relative(REPO_ROOT, path))).toEqual([]);
   });
 
   /**
@@ -456,9 +585,10 @@ describe('building over an older build', () => {
 describe('the entry list', () => {
   /**
    * One entry per surface a frame is pointed at.
-   * The Inspector is not one of them: it is the
-   * canvas' own right-hand column, drawn from the
-   * same message as the graph beside it.
+   * The Inspector is one of them: a frame of its
+   * own in the side bar, drawn from one message the
+   * host builds from whichever canvas or run tab
+   * was last in front.
    */
   it('names the surfaces this extension puts in a frame', () => {
     expect([...WEBVIEW_ENTRIES]).toEqual([
@@ -466,6 +596,7 @@ describe('the entry list', () => {
       'sidebar',
       'runs',
       'see',
+      'inspector',
       'gallery',
     ]);
   });

@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { messages } from '../messages.js';
+import type { Trust } from '../trust.js';
+import { when } from '../webview/time.js';
 import {
   RUN_ROW,
   database,
@@ -15,9 +17,10 @@ import {
 
 import type { Database, OpenDatabase, OpenManagement } from './db.js';
 import { runHistory, type History, type HistoryDeps } from './history.js';
+import { projectLedger } from './ledger.js';
 import type { ManagementClient } from './manage.js';
 import { sessionLog } from './sessionLog.js';
-import { runsStore } from './store.js';
+import { runsStore, type RunsHost } from './store.js';
 
 /**
  * A project's run history, read out of its own
@@ -25,92 +28,48 @@ import { runsStore } from './store.js';
  *
  * Driven against a database double that answers the
  * two queries the list makes, so what is checked is
- * what the list asks, what it keeps, and what it
- * says when it cannot ask at all. The run somebody
- * has open is a second question asked of the same
- * ledger, and has its own spec beside this one.
+ * what the list asks and what it keeps. Whether that
+ * database can be read at all is the ledger's
+ * question and the ledger's sentence, and has its
+ * own spec; so does the run somebody has open.
  */
 
-function history(over: Partial<HistoryDeps> = {}): History {
+/** What a case says about the window this list is
+ *  read in. */
+type Over = {
+  host?: RunsHost;
+  trust?: Trust;
+  open?: OpenDatabase;
+  openManagement?: OpenManagement;
+  projectSdk?: HistoryDeps['projectSdk'];
+};
+
+/** A history and the ledger it reads its page from,
+ *  over one window: one project, one database and
+ *  one trust between them. */
+function history(over: Over = {}): History {
+  const editor = over.host ?? host();
+  const trust = over.trust ?? fakeTrust();
+  const open = over.open ?? (async () => database());
+
   return runHistory({
-    host: host(),
-    trust: fakeTrust(),
-    open: async () => database(),
-    openManagement: async () => management(),
-    projectSdk: () => ({ ok: true, version: '4.27.6' }),
-    ...over,
+    host: editor,
+    trust,
+    ledger: projectLedger({ host: editor, trust, open }),
+    openManagement: over.openManagement ?? (async () => management()),
+    projectSdk: over.projectSdk ?? (() => ({ ok: true, version: '4.27.6' })),
   });
 }
 
 /** A history over a project, reading that
  *  database. */
-function reading(db: Database, over: Partial<HistoryDeps> = {}): History {
+function reading(db: Database, over: Over = {}): History {
   return history({
     host: host({ projects: () => [project()] }),
     open: async () => db,
     ...over,
   });
 }
-
-describe('before there is anything to read', () => {
-  it('opens nothing in a window with no project', async () => {
-    const open = vi.fn();
-    const read = history({
-      host: host(),
-      open: open as unknown as OpenDatabase,
-    });
-
-    await read.refresh();
-
-    expect(read.render().state).toBe('no-project');
-    expect(open).not.toHaveBeenCalled();
-  });
-
-  /**
-   * The connection string comes out of a file in
-   * the workspace and the connection runs against
-   * whatever it names, which is the decision
-   * workspace trust exists to make. So the gate is
-   * before the read, not around part of it.
-   */
-  it('opens nothing in a window nobody has trusted', async () => {
-    const open = vi.fn();
-    const read = history({
-      host: host({ projects: () => [project()] }),
-      trust: fakeTrust(false),
-      open: open as unknown as OpenDatabase,
-    });
-
-    await read.refresh();
-
-    expect(read.render().state).toBe('untrusted');
-    expect(open).not.toHaveBeenCalled();
-  });
-
-  it('says which variable is missing rather than failing quietly', async () => {
-    const read = history({
-      host: host({ projects: () => [project({ env: '# nothing\n' })] }),
-    });
-
-    await read.refresh();
-
-    expect(read.render().state).toBe('unreachable');
-    expect(read.render().detail).toContain('DATABASE_URL');
-  });
-
-  it('offers no ledger to watch, quietly', () => {
-    expect(history().ledger()).toBeUndefined();
-    expect(
-      history({
-        host: host({ projects: () => [project()] }),
-        trust: fakeTrust(false),
-      }).ledger(),
-    ).toBeUndefined();
-    expect(
-      history({ host: host({ projects: () => [project()] }) }).ledger(),
-    ).toBe('postgres://app@localhost:5432/app');
-  });
-});
 
 describe('reading a project run history', () => {
   it('reads the rows and the three counts together', async () => {
@@ -119,19 +78,41 @@ describe('reading a project run history', () => {
     await read.refresh();
     const shown = read.render();
 
-    expect(shown.state).toBe('ok');
     expect(shown.rows.map((row) => row.workflowId)).toEqual(['wf_c9d2f3']);
-    expect(shown.counts).toEqual({ all: 6, failed: 1, recovered: 1 });
+    expect(shown.counts).toEqual({ all: 6, active: 1, failed: 1 });
   });
 
-  it('names the database without naming the credentials', async () => {
-    const read = reading(database());
+  /**
+   * One clock for the whole page, as the run page
+   * reads one, and the month named in the language
+   * the editor is displayed in rather than the
+   * machine's.
+   */
+  it('draws every row at one moment, in the editor language', async () => {
+    const created = Date.now() - 2 * 24 * 60 * 60 * 1000;
+    const db = database();
+    db.rows = [
+      { ...RUN_ROW, created_at: String(created), completed_at: null },
+      {
+        ...RUN_ROW,
+        workflow_uuid: 'wf_second',
+        created_at: String(created + 1000),
+        completed_at: null,
+      },
+    ];
+    const locale = vi.fn(() => 'fi-FI');
+    const read = reading(db, {
+      host: host({ projects: () => [project()], locale }),
+    });
 
     await read.refresh();
+    const rows = read.render().rows;
+    const now = Date.now();
 
-    expect(read.render().source).toBe(
-      'dbos.workflow_status · localhost:5432/app',
-    );
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.line).toContain(when(created, now, 'fi-FI'));
+    expect(rows[1]?.line).toContain(when(created + 1000, now, 'fi-FI'));
+    expect(locale).toHaveBeenCalled();
   });
 
   /**
@@ -166,6 +147,209 @@ describe('reading a project run history', () => {
     await read.refresh();
 
     expect(changed).toHaveBeenCalled();
+  });
+});
+
+/**
+ * The row the list has marked and opened out.
+ *
+ * The list's own mark, and nothing to do with the
+ * run somebody has open in its tab: only the list
+ * moves it, the newest run is marked until
+ * somebody picks another, and a read that no
+ * longer holds the marked run marks the newest
+ * instead.
+ */
+describe('the row the list has selected', () => {
+  const NEWER = { ...RUN_ROW, workflow_uuid: 'wf_newer' };
+  const OLDER = { ...RUN_ROW, workflow_uuid: 'wf_older', created_at: '500' };
+
+  /** A history over a ledger holding both, newest
+   *  first as the list reads them. */
+  function listing(): { db: ReturnType<typeof database>; read: History } {
+    const db = database();
+    db.rows = [NEWER, OLDER];
+
+    return { db, read: reading(db) };
+  }
+
+  /** How many times the list itself was read, apart
+   *  from the counts beside it. */
+  const listReads = (db: ReturnType<typeof database>): number =>
+    db.asked.filter((text) => text.includes('AS last_operation')).length;
+
+  it('selects the newest run once the list is read', async () => {
+    const { read } = listing();
+
+    expect(read.render().selected).toBeUndefined();
+
+    await read.refresh();
+
+    expect(read.render().selected).toBe('wf_newer');
+  });
+
+  it('keeps the selected run across a read that still has it', async () => {
+    const { read } = listing();
+    const changed = vi.fn();
+
+    await read.refresh();
+    read.onChanged(changed);
+    read.selectRow('wf_older');
+
+    expect(read.render().selected).toBe('wf_older');
+    expect(changed).toHaveBeenCalledTimes(1);
+
+    await read.refresh();
+
+    expect(read.render().selected).toBe('wf_older');
+  });
+
+  it('falls back to the newest run when a read drops the selected one', async () => {
+    const { db, read } = listing();
+
+    await read.refresh();
+    read.selectRow('wf_older');
+    db.rows = [NEWER];
+    await read.setFilter('failed');
+
+    expect(read.render().selected).toBe('wf_newer');
+  });
+
+  it('selects nothing on an empty page', async () => {
+    const { db, read } = listing();
+
+    await read.refresh();
+    expect(read.render().selected).toBe('wf_newer');
+
+    db.rows = [];
+    await read.refresh();
+
+    expect(read.render().selected).toBeUndefined();
+  });
+
+  it('selects the newest run for an id the page does not hold', async () => {
+    const { read } = listing();
+
+    await read.refresh();
+    read.selectRow('wf_older');
+    read.selectRow('wf_nowhere');
+
+    expect(read.render().selected).toBe('wf_newer');
+  });
+
+  /**
+   * A run started under Failed is not on a page of
+   * failed runs yet, and the person who started it
+   * is looking for it.
+   */
+  it('reads a run this window started under All, and selects it', async () => {
+    const { db, read } = listing();
+
+    await read.setFilter('failed');
+    db.rows = [{ ...RUN_ROW, workflow_uuid: 'wf_started' }, NEWER];
+    const before = listReads(db);
+
+    await read.started('wf_started');
+
+    expect(read.render().filter).toBe('all');
+    expect(read.render().selected).toBe('wf_started');
+    expect(listReads(db)).toBe(before + 1);
+  });
+
+  /**
+   * The list is read again whenever a run this
+   * window started moves, and whatever else the
+   * window draws in the meantime still draws the
+   * page somebody is looking at — which is also the
+   * page a row picked meanwhile was picked on.
+   */
+  it('keeps the page and a row picked on it while it reads again', async () => {
+    const { db } = listing();
+    let waiting = 0;
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let holding = false;
+    const read = reading({
+      ...db,
+      query: async <Row>(text: string, values: unknown[]) => {
+        if (holding) {
+          waiting += 1;
+          await gate;
+        }
+
+        return await db.query<Row>(text, values);
+      },
+    });
+
+    await read.refresh();
+    holding = true;
+    const again = read.refresh();
+    await vi.waitFor(() => expect(waiting).toBe(1));
+
+    expect(read.render().rows.map((row) => row.workflowId)).toEqual([
+      'wf_newer',
+      'wf_older',
+    ]);
+
+    read.selectRow('wf_older');
+    release();
+    await again;
+
+    expect(read.render().selected).toBe('wf_older');
+  });
+
+  /**
+   * Two reads are in flight whenever a tab is
+   * changed while the list is still reading, and a
+   * run this window started reads it again without
+   * anybody clicking. The page asked for last is the
+   * one somebody is looking at, and the mark is a
+   * mark on that page.
+   */
+  it('drops a page the list has already read past', async () => {
+    const { db } = listing();
+    const FAILED = { ...RUN_ROW, workflow_uuid: 'wf_failed', status: 'ERROR' };
+    let waiting = 0;
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const read = reading({
+      ...db,
+      query: async <Row>(text: string, values: unknown[]) => {
+        // Only the All page, and held on its way
+        // back rather than on its way out, so that
+        // releasing it answers with the page it read
+        // rather than with whatever the ledger says
+        // by then.
+        const holding =
+          text.includes('AS last_operation') && !text.includes('status = ANY');
+        const rows = await db.query<Row>(text, values);
+
+        if (holding) {
+          waiting += 1;
+          await gate;
+        }
+
+        return rows;
+      },
+    });
+
+    const all = read.refresh();
+    await vi.waitFor(() => expect(waiting).toBe(1));
+
+    db.rows = [FAILED];
+    await read.setFilter('failed');
+    release();
+    await all;
+
+    const shown = read.render();
+
+    expect(shown.filter).toBe('failed');
+    expect(shown.rows.map((row) => row.workflowId)).toEqual(['wf_failed']);
+    expect(shown.selected).toBe('wf_failed');
   });
 });
 
@@ -437,23 +621,24 @@ describe('the two controls over a run', () => {
 
 describe('a database that will not answer', () => {
   /**
-   * An editor pointed at somebody development
+   * An editor pointed at somebody's development
    * machine is pointed at a database that is down
-   * about as often as it is up. The panel says so;
-   * the window does not log a rejection nobody
-   * sees.
+   * about as often as it is up. What that is called
+   * is the ledger's sentence; what the list does
+   * with it is that the page goes, because there is
+   * nothing behind it any more.
    */
-  it('becomes a sentence, not an unhandled rejection', async () => {
-    const read = history({
-      host: host({ projects: () => [project()] }),
-      open: async () => {
-        throw new Error('ECONNREFUSED 127.0.0.1:5432');
-      },
-    });
+  it('empties the page rather than keeping rows nobody can check', async () => {
+    const db = database();
+    const read = reading(db);
 
     await read.refresh();
+    expect(read.render().rows).toHaveLength(1);
 
-    expect(read.render().state).toBe('unreachable');
-    expect(read.render().detail).toContain('ECONNREFUSED');
+    db.fail = 'ECONNREFUSED 127.0.0.1:5432';
+    await read.refresh();
+
+    expect(read.render().rows).toEqual([]);
+    expect(read.render().selected).toBeUndefined();
   });
 });

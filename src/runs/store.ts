@@ -7,49 +7,56 @@ import { compileInputs, manifestFor } from '../core/index.js';
 import type { WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
 import { messages } from '../messages.js';
-import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { Trust } from '../trust.js';
-import type { RunsInit, SeeInit, ShownRun } from '../webview/protocol.js';
+import type {
+  InspectorMode,
+  RunsInit,
+  SeeInit,
+  ShownRun,
+} from '../webview/protocol.js';
 
 import type { OpenDatabase, OpenManagement } from './db.js';
-import { systemDatabaseUrl } from './env.js';
 import type { AskAgent } from './evidence.js';
 import { following } from './following.js';
 import { changedFiles } from './freshness.js';
 import type { ProjectSdk } from './sdk.js';
 import { runHistory } from './history.js';
+import { projectLedger } from './ledger.js';
 import { openRunZone } from './openRun.js';
 import { queueEvidenceOf, type QueueEvidence } from './queueEvidence.js';
-import { runQuery, stepsQuery, type RunFilter } from './queries.js';
+import type { RunFilter } from './queries.js';
 import {
   offerReplay,
+  replayStartRefusal,
   type ReplayAnswer,
   type ReplayDeps,
   type ReplayPick,
   type ReplayQuestion,
 } from './replayZone.js';
-import {
-  stepError,
-  toRun,
-  toStep,
-  type OperationOutputRow,
-  type Run,
-  type Step,
-  type WorkflowStatusRow,
-} from './rows.js';
+import type { RunInput } from './rows.js';
 import type { RunStarter } from './runner.js';
 import type { SessionLog } from './sessionLog.js';
 import type { StackController } from './stack.js';
 import { stackZone } from './stackZone.js';
 import { testRunZone } from './testRun.js';
-import type { SeeView } from './view.js';
+import { runTabOf, type RunTab, type SeeView } from './view.js';
 
-import type { LiveRun, RunWatch } from './watch.js';
-import { projectWorkflows, workflowDocument } from './workflows.js';
+import { printedInput, type LiveRun, type RunWatch } from './watch.js';
+import { projectWorkflows, savedDocument } from './workflows.js';
 import { runsWords } from './words.js';
 
 export type { StackAction } from './stack.js';
 export type { ReplayPick } from './replayZone.js';
+
+/**
+ * Where DBOS documents Conductor, for a window with
+ * no console of its own to open.
+ *
+ * A constant rather than a setting: it is the
+ * vendor's page about the product, the same for
+ * every project, and nobody's own address.
+ */
+export const CONDUCTOR_DOCS_URL = 'https://docs.dbos.dev/production/conductor';
 
 /**
  * What the window knows about a project's runs,
@@ -63,13 +70,15 @@ export type { ReplayPick } from './replayZone.js';
  * so does the canvas, which draws the run it is
  * about.
  *
- * Three things are held, and they share almost
- * nothing: the run history read out of the
- * project's Postgres, the local stack as compose
- * reports it, and what this window set going. Each
- * is a module of its own with its own slots and its
- * own change signal — `history.ts`, `stackZone.ts`,
- * `testRun.ts` — and this is where the three are
+ * Five things are held, and they share almost
+ * nothing: the project's ledger as this window
+ * reads it, the page of run history read out of it,
+ * the run somebody has open, the local stack as
+ * compose reports it, and what this window set
+ * going. Each is a module of its own with its own
+ * slots and its own change signal — `ledger.ts`,
+ * `history.ts`, `openRun.ts`, `stackZone.ts`,
+ * `testRun.ts` — and this is where they are
  * introduced to each other and composed into the
  * one picture the panel draws. The verbs here are
  * the panels', the commands' and the canvas', which
@@ -84,6 +93,10 @@ export type RunsHost = {
 
   /** Tells the person something they can act on. */
   say(message: string): void;
+
+  /** The language the editor is displayed in, for
+   *  the dates the list writes. */
+  locale(): string;
 
   /** Publishes a fact `when` clauses can read, so
    *  the view's Start and Stop swap with what is
@@ -185,9 +198,38 @@ export type RunsStore = Disposable & {
    *  drawn. */
   detail(): SeeView | undefined;
 
+  /**
+   * The open run as the Inspector reads it, projected
+   * once at the moment the pane passed, with what
+   * only the store holds put on: the queue reads and
+   * whether this window cancelled it.
+   */
+  tab(now: number): RunTab | undefined;
+
   /** The run a canvas draws itself against, when
    *  one has been followed. */
   live(): ShownRun | undefined;
+
+  /**
+   * Why a run of that workflow could not be
+   * replayed from its start, asked of the document
+   * whoever is drawing holds; nothing where it
+   * could be.
+   *
+   * Only what needs no row — the document, the
+   * project's lockfile and its SDK — so it can be
+   * said before anybody asks. The click still decides
+   * the replay in full.
+   */
+  replayStartRefusal(
+    workflow: string,
+    document: WorkflowIR | undefined,
+  ): string | undefined;
+
+  /** Whether this window is what cancelled that run:
+   *  remembered for as long as the window is open,
+   *  because no column records who cancelled one. */
+  cancelledHere(workflowId: string): boolean;
 
   /**
    * Reads what one queue block of that run is doing
@@ -195,9 +237,9 @@ export type RunsStore = Disposable & {
    *
    * Asked once, when somebody opens the block's
    * card. Held here rather than in either zone
-   * because one read answers both surfaces that
-   * draw that card — the canvas' column and the run
-   * page's rail — and reading it twice would be two
+   * because one read answers the card whichever
+   * surface the block was picked on — a canvas or
+   * the run tab — and reading it twice would be two
    * answers to one question.
    */
   inspectQueue(workflowId: string, nodeId: string): Promise<void>;
@@ -224,6 +266,22 @@ export type RunsStore = Disposable & {
   refresh(): Promise<void>;
 
   setFilter(filter: RunFilter): Promise<void>;
+
+  /**
+   * Marks a row of the list, which the view opens
+   * out to show its actions. Nothing is opened: the
+   * list is the only thing that moves its own mark.
+   */
+  selectRow(workflowId: string): void;
+
+  /**
+   * Opens a run in its tab.
+   *
+   * Asked by every surface that means "show me this
+   * run" — the run tab's own ids, the Inspector, the
+   * transcript, the list's Open on canvas — and none
+   * of them moves the row the list has marked.
+   */
   select(workflowId: string): Promise<void>;
 
   /** Re-reads the project's saved workflows off
@@ -233,8 +291,9 @@ export type RunsStore = Disposable & {
    *  them yet. */
   refreshWorkflows(): void;
 
-  /** Which step the rail describes and a replay
-   *  would fork from. */
+  /** A row picked in the run tab's trace: the one
+   *  it marks, the Inspector draws in full and a
+   *  replay from here would fork from. */
   selectStep(functionId: number): void;
 
   /**
@@ -249,19 +308,25 @@ export type RunsStore = Disposable & {
    */
   replay(workflowId: string, picked: ReplayPick): Promise<void>;
 
-  /** The same, from wherever the run's own default
-   *  boundary is — where it failed, else where it
-   *  began. */
-  replayRun(workflowId: string): Promise<void>;
+  /**
+   * The same, from the list: from the step the list
+   * says the run failed at, or from its start.
+   *
+   * A pick of neither is the run's own default —
+   * where it failed, else where it began. A step
+   * named that is no place to start is answered
+   * with why, and where to go instead, rather than
+   * with a replay from somewhere else.
+   */
+  replayRun(workflowId: string, picked?: ReplayPick): Promise<void>;
 
   /**
    * Stops a run, and picks a stopped one back up.
    *
-   * By id, because three surfaces reach these and
-   * none of them is necessarily the run page:
-   * Running Now names the run this window is
-   * watching, a session row names one it started,
-   * and the page names the one it has open.
+   * By id, because two surfaces reach these and
+   * neither is necessarily the run page: the list
+   * names the run it has opened out, and the page
+   * names the one it is showing.
    */
   cancel(workflowId: string): Promise<void>;
 
@@ -276,13 +341,36 @@ export type RunsStore = Disposable & {
    *  box is about the right one. */
   selectWorkflow(workflow: string): void;
 
-  /** Starts one run of a saved workflow, with
-   *  whatever the input box holds. */
-  runWorkflow(workflow: string, input: string): Promise<void>;
+  /** What the Runs view's input box now says: the
+   *  one input every start reads. */
+  setInput(text: string): void;
 
-  /** Starts a run of the same workflow with the
-   *  same input. */
-  rerun(workflowId: string): Promise<void>;
+  /** Starts one run of a saved workflow, with what
+   *  the input box holds. */
+  runWorkflow(workflow: string): Promise<void>;
+
+  /**
+   * Starts a run of the workflow a trigger's card
+   * is about, with what the input box holds.
+   *
+   * The Runs view is set to that workflow first, so
+   * the run it starts and any refusal are drawn
+   * against the workflow that was asked for, not
+   * whichever the view happened to be set to. A
+   * window nobody has trusted runs nothing, and its
+   * view is left where it was.
+   */
+  runTrigger(workflow: string): Promise<void>;
+
+  /**
+   * Opens what the input box holds in a tab of its
+   * own, where a long input can be read whole.
+   *
+   * Untitled, like every copy opened from here: the
+   * box is still where the input is typed. An empty
+   * box has nothing to open.
+   */
+  openRunInput(): Promise<void>;
 
   /**
    * Hands a run to the agent, with whatever can be
@@ -311,39 +399,16 @@ export type RunsStore = Disposable & {
   openWorkflow(workflowId: string): Promise<void>;
 
   /**
-   * Opens the code the block runs, out of the
-   * document the run was a run of.
+   * Opens the whole of what a run was started with.
    *
-   * By run id and block id, which is what the page
-   * has: a block is a name in a document, and which
-   * document that is comes from what the run
-   * recorded. Nothing is repainted — a file opening
-   * in a tab says everything there is to say.
+   * The run the canvas follows or the one the run
+   * tab has open, whichever that id is: a card draws
+   * only the front of a long input, and the only
+   * place the rest is in hand is the run it was
+   * read from. A run that recorded no input has
+   * nothing to open.
    */
-  openFunction(workflowId: string, nodeId: string): Promise<void>;
-
-  /**
-   * Opens the line the run recorded a failure at.
-   *
-   * By run id and row, because the page draws one
-   * run and a row id addresses one of its rows on
-   * its own — the block the panel names is what
-   * decides which card carries the door, not which
-   * row this reads. Nothing is repainted: a file
-   * opening says everything there is to say.
-   */
-  openErrorLocation(workflowId: string, functionId: number): Promise<void>;
-
-  /**
-   * Opens the whole of what one row recorded.
-   *
-   * Every surface that draws a value cuts it — the
-   * card to what a column can hold, the raw table to
-   * what a cell can — so the only place the bytes
-   * exist whole is the row the page already read,
-   * and this is the way to it.
-   */
-  openOutput(workflowId: string, functionId: number): Promise<void>;
+  openInput(workflowId: string): Promise<void>;
 
   /**
    * Opens the Conductor console for what this
@@ -355,21 +420,49 @@ export type RunsStore = Disposable & {
    */
   openProduction(): Promise<void>;
 
-  /** The run page: which block, which view, whether
-   *  the SDK's own rows are shown, and reading it
-   *  again. */
-  selectNode(nodeId: string): void;
+  /** Opens where DBOS documents Conductor, for
+   *  whoever has no console to open. */
+  learnConductor(): Promise<void>;
+
+  /** The run page: which block, which view, and
+   *  reading it again. */
+  selectNode(nodeId: string | null): void;
+
+  /** Which of the Inspector's faces a person picked
+   *  for the block picked on the run page. */
+  chooseFace(mode: InspectorMode): void;
 
   showTab(tab: 'graph' | 'trace'): void;
-
-  showRaw(raw: boolean): void;
 
   refreshRun(): Promise<void>;
 
   onChanged(listener: () => void): Disposable;
+
+  /** Fires when the input box's text changes, apart
+   *  from `onChanged`, so the list is not drawn
+   *  again for a keystroke. */
+  onInputChanged(listener: () => void): Disposable;
 };
 
 export function runsStore(deps: RunsDeps): RunsStore {
+  /**
+   * The project's database, as every zone that
+   * reads one reads it.
+   *
+   * Built first because it depends on nothing and
+   * everything that reads a run depends on it: the
+   * list reads its page through this, the run page
+   * reads the run it is showing, the replay and the
+   * two controls write to the address it gives out,
+   * and a watch takes that address to open one of
+   * its own.
+   */
+  const ledger = projectLedger({
+    host: deps.host,
+    trust: deps.trust,
+    open: deps.open,
+  });
+
   /**
    * The one owner of every watch this window arms,
    * built before the zones that use it.
@@ -384,11 +477,14 @@ export function runsStore(deps: RunsDeps): RunsStore {
   const follow = following({
     open: deps.open,
     watch: deps.watch,
-    ledger: () => history.ledger(),
+    // Quietly: a project with no connection string
+    // is a reason not to arm a watch, and no reason
+    // for the list to change what it says.
+    ledger: () => ledger.quietly()?.url,
     document: (name) => {
       const dir = project();
 
-      return dir === undefined ? undefined : workflowDocument(dir, name);
+      return dir === undefined ? undefined : savedDocument(dir, name);
     },
     // Kept by id rather than as a set of rows: the
     // same run can be both the one a person has
@@ -407,20 +503,21 @@ export function runsStore(deps: RunsDeps): RunsStore {
   const history = runHistory({
     host: deps.host,
     trust: deps.trust,
-    open: deps.open,
+    ledger,
     openManagement: deps.openManagement,
     projectSdk: deps.projectSdk,
   });
 
-  // The run page reads the same ledger, and borrows
-  // the connection rather than opening one of its
-  // own — what a read learns about somebody's
-  // database is the list's to say.
+  // The run page reads the same ledger as the list,
+  // loudly: what a read learns about somebody's
+  // database is a fact about the project rather than
+  // about the run being read, and it lands under the
+  // list whoever asked for it.
   const openRun = openRunZone({
     projectSdk: deps.projectSdk,
     following: follow,
     project: () => deps.host.projects()[0],
-    ledger: history,
+    ledger,
     // Asked as the page is drawn rather than as the
     // run is read, so a run cancelled from here
     // while it is open says so without a re-read.
@@ -439,23 +536,14 @@ export function runsStore(deps: RunsDeps): RunsStore {
     sessionLog: deps.sessionLog,
     following: follow,
     open: deps.open,
-    // Read here rather than borrowed from the list:
-    // the list's own connection verb records what it
-    // learned in what the panel draws, and asking
+    // Quietly, and a connection of its own: asking
     // the agent about a run is no reason for the
     // list to change what it says.
-    ledger: () => {
-      const dir = project();
-      if (dir === undefined || !deps.trust.isTrusted()) return undefined;
-
-      const found = systemDatabaseUrl(dir);
-
-      return found.ok ? { url: found.url, from: found.from } : undefined;
-    },
+    ledger: ledger.quietly,
     document: (name) => {
       const dir = project();
 
-      return dir === undefined ? undefined : workflowDocument(dir, name);
+      return dir === undefined ? undefined : savedDocument(dir, name);
     },
     // The scan type-checks every file in `lib/` and
     // caches what it found on a source hash, which
@@ -469,12 +557,40 @@ export function runsStore(deps: RunsDeps): RunsStore {
     },
   });
 
-  // One signal for the three, since every reader
+  // One signal for the five, since every reader
   // draws all of them at once.
   const changes = emitter();
-  const followed = [history, openRun, stack, testRun].map((zone) =>
+  const followed = [ledger, history, openRun, stack, testRun].map((zone) =>
     zone.onChanged(changes.fire),
   );
+
+  /**
+   * Where each run this window set going last got
+   * to, as its watch reported it.
+   *
+   * The list is read on request, and a run somebody
+   * has just started, forked or picked back up is
+   * one they are looking for: the first report
+   * about it reads the list under All with that run
+   * marked. Later reports read it again only when
+   * the status or the word moved, because a watch
+   * ticks twice a second whether anything changed
+   * or not — and a resumed run sits enqueued until a
+   * worker claims it, which no other read would
+   * show. A run somebody merely opened is followed
+   * too, and is not this window's to put first.
+   */
+  const lastReported = new Map<string, string>();
+  const reported = follow.onRun((run) => {
+    if (deps.sessionLog.find(run.workflowId) === undefined) return;
+
+    const now = `${run.status} ${run.outcome}`;
+    const before = lastReported.get(run.workflowId);
+    lastReported.set(run.workflowId, now);
+
+    if (before === undefined) void history.started(run.workflowId);
+    else if (before !== now) void history.refresh();
+  });
 
   const project = (): string | undefined => deps.host.projects()[0];
 
@@ -488,15 +604,23 @@ export function runsStore(deps: RunsDeps): RunsStore {
    */
   const queueEvidence = new Map<string, Record<string, QueueEvidence>>();
 
+  /**
+   * How many reads have been asked for about each
+   * block of each run, so a read can tell whether
+   * a later one was asked for while it waited.
+   */
+  const asked = new Map<string, number>();
+
   /** The run a view draws, with whatever was read
    *  about the queue blocks of it. */
-  const shownRun = (run: LiveRun | undefined): ShownRun | undefined => {
-    if (run === undefined) return undefined;
-
+  const withQueues = (run: LiveRun): ShownRun => {
     const found = queueEvidence.get(run.workflowId);
 
     return found === undefined ? run : { ...run, queueEvidence: found };
   };
+
+  const shownRun = (run: LiveRun | undefined): ShownRun | undefined =>
+    run === undefined ? undefined : withQueues(run);
 
   /**
    * The run one of those ids is about, whichever
@@ -525,44 +649,80 @@ export function runsStore(deps: RunsDeps): RunsStore {
       : undefined;
   };
 
-  /** A stack command, with the problem under the
-   *  input box let go of first: Rebuild is what one
-   *  of those problems asks for. */
-  const stacking = async (command: () => Promise<void>): Promise<void> => {
-    testRun.clearProblem();
-    await command();
+  /**
+   * What the run behind one of those ids was started
+   * with, as the ledger recorded it — the same two
+   * zones asked, for the same reason.
+   */
+  const inputOf = (workflowId: string): RunInput | undefined => {
+    const started = testRun.live();
+
+    if (started?.workflowId === workflowId) return started.recordedInput;
+
+    const opened = openRun.reading()?.run;
+
+    return opened?.workflowId === workflowId ? opened.input : undefined;
   };
 
   /**
-   * The same run with every row it wrote, which is
-   * what deciding a replay is asked of.
+   * Whether the list has had its first read: the
+   * stack asked, then the ledger.
    *
-   * Read again rather than taken from whatever the
-   * page is showing: a replay is offered from the
-   * list and from a canvas as well, and neither of
-   * those has read a run's rows at all.
+   * Until then the view draws its header alone,
+   * because every other state is a claim about
+   * something read and would be replaced a moment
+   * later. Held here rather than by the ledger,
+   * because the run page reads the same ledger, and
+   * a run opened before the list was shown is no
+   * answer about the stack.
    */
-  const ledgerFor = async (
-    workflowId: string,
-  ): Promise<{ run: Run; steps: Step[] } | undefined> => {
-    const url = history.connection();
-    if (url === undefined) return undefined;
+  let loaded = false;
 
-    return await history.read(url, async (db) => {
-      const one = runQuery(workflowId);
-      const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
-      const row = rows[0];
-      if (row === undefined) return undefined;
+  /**
+   * Everything read again once the stack has been
+   * asked: the saved workflows, the list, and what
+   * is worth following.
+   *
+   * The watch owner goes last, so that what is worth
+   * following is composed from what the two zones
+   * have just read rather than from what they held
+   * before.
+   *
+   * The first of these reads says so again once it
+   * is over. The read is what fires the change, and
+   * it fired while the list still counted as unread,
+   * so whoever drew on it drew the header and
+   * nothing under it — and nothing would have asked
+   * again. Only the first, because every later
+   * refresh already ends on a page somebody can
+   * draw, and after `rewatch()`, so the one extra
+   * repaint carries the watch too.
+   */
+  const readAfterStack = async (): Promise<void> => {
+    const first = !loaded;
 
-      const steps = stepsQuery(workflowId);
+    testRun.refresh();
+    await history.refresh();
+    loaded = true;
+    follow.rewatch();
 
-      return {
-        run: toRun(row),
-        steps: (
-          await db.query<OperationOutputRow>(steps.text, steps.values)
-        ).map(toStep),
-      };
-    });
+    if (first) changes.fire();
+  };
+
+  /**
+   * A stack command, with the problem under the
+   * input box let go of first — Rebuild is what one
+   * of those problems asks for — and the reads a
+   * refresh makes after it: a database that would
+   * not answer is often the stack's own, and an app
+   * rebuilt runs workflows the last read never saw.
+   * The title bar's Start and Stop call these same
+   * verbs.
+   */
+  const stacking = async (command: () => Promise<void>): Promise<void> => {
+    testRun.clearProblem();
+    await command();
+    await readAfterStack();
   };
 
   /**
@@ -578,12 +738,15 @@ export function runsStore(deps: RunsDeps): RunsStore {
    */
   const replayDeps: ReplayDeps = {
     project,
-    connection: () => history.connection(),
+    // The address, quietly: a fork writes through it
+    // rather than reading from it, and the list says
+    // why there is none the next time it is drawn.
+    connection: () => ledger.quietly()?.url,
     openManagement: deps.openManagement,
     document: async (name) => {
       const dir = project();
 
-      return dir === undefined ? undefined : workflowDocument(dir, name);
+      return dir === undefined ? undefined : savedDocument(dir, name);
     },
     compileInputs,
     projectSdk: deps.projectSdk,
@@ -612,7 +775,11 @@ export function runsStore(deps: RunsDeps): RunsStore {
     // workspace trust exists to make.
     if (!deps.trust.isTrusted()) return;
 
-    const found = await ledgerFor(workflowId);
+    // Read again rather than taken from whatever the
+    // page is showing: a replay is offered from the
+    // list and from a canvas as well, and neither of
+    // those has read a run's rows at all.
+    const found = await ledger.rowsOf(workflowId);
     if (found === undefined) return;
 
     const outcome = await offerReplay(
@@ -641,17 +808,16 @@ export function runsStore(deps: RunsDeps): RunsStore {
   return {
     list: () => {
       const dir = project();
+      const said = ledger.render();
 
       return {
         type: 'init',
         view: 'runs',
         strings: runsWords(),
         project: dir === undefined ? undefined : basename(dir),
+        ...said,
         ...history.render(),
-        // Which row the list marks is the open run's
-        // answer, composed here rather than read by
-        // the zone that draws the rows.
-        selected: openRun.workflowId(),
+        state: loaded ? said.state : 'loading',
         stack: stack.render(),
         ...testRun.render(),
         // Whether, not where: the address stays on
@@ -665,10 +831,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
      * block of the run it is showing put back on
      * the run it draws.
      *
-     * Composed here for the reason the list's
-     * marked row is: the read is the store's and
-     * the projection is the zone's, and the zone
-     * that owns the page never asked the question.
+     * Composed here because the read is the
+     * store's and the projection is the zone's, and
+     * the zone that owns the page never asked the
+     * question.
      */
     see: () => {
       const page = openRun.see();
@@ -680,7 +846,35 @@ export function runsStore(deps: RunsDeps): RunsStore {
     },
 
     detail: openRun.reading,
+
+    // Projected again from the rows the page holds
+    // rather than kept beside them: a tick replaces
+    // those rows, and a copy made at the last click
+    // would be a run from a moment ago. "by you" is
+    // asked here as the page asks it, so a run
+    // cancelled from here says so without a re-read.
+    tab: (now) => {
+      const view = openRun.reading();
+      if (view === undefined) return undefined;
+
+      const tab = runTabOf(
+        {
+          ...view,
+          cancelledHere: history.cancelledHere().has(view.run.workflowId),
+        },
+        now,
+      );
+
+      return { ...tab, inspected: withQueues(tab.inspected) };
+    },
+
     live: () => shownRun(testRun.live()),
+
+    replayStartRefusal: (workflow, document) =>
+      replayStartRefusal(workflow, project(), document, deps.projectSdk)
+        ?.detail,
+
+    cancelledHere: (workflowId) => history.cancelledHere().has(workflowId),
 
     /**
      * One read, kept under the run it was about.
@@ -692,14 +886,22 @@ export function runsStore(deps: RunsDeps): RunsStore {
      * would be an answer nobody could check.
      */
     inspectQueue: async (workflowId, nodeId) => {
-      const url = history.ledger();
+      const url = ledger.quietly()?.url;
       const run = runNamed(workflowId);
       const dir = project();
       if (url === undefined || run === undefined || dir === undefined) return;
 
-      const ir = workflowDocument(dir, run.workflow);
+      const ir = savedDocument(dir, run.workflow);
       const node = ir?.nodes.find((one) => one.id === nodeId);
       if (node?.kind !== 'queue') return;
+
+      // A card asks again each time the counts drawn
+      // on it move, so reads overlap and may land in
+      // any order. Only the one asked last describes
+      // the queue now.
+      const key = JSON.stringify([workflowId, nodeId]);
+      const mine = (asked.get(key) ?? 0) + 1;
+      asked.set(key, mine);
 
       let found: QueueEvidence;
 
@@ -714,6 +916,8 @@ export function runsStore(deps: RunsDeps): RunsStore {
         return;
       }
 
+      if (asked.get(key) !== mine) return;
+
       queueEvidence.set(workflowId, {
         ...queueEvidence.get(workflowId),
         [nodeId]: found,
@@ -725,25 +929,20 @@ export function runsStore(deps: RunsDeps): RunsStore {
 
     refresh: async () => {
       await stack.read();
-      testRun.refresh();
-      await history.refresh();
-
-      // Last, so that what is worth following is
-      // composed from what the two zones have just
-      // read rather than from what they held before.
-      follow.rewatch();
+      await readAfterStack();
     },
 
     // Only the list: which tab somebody is on says
     // nothing about the stack, and reading it would
     // shell out to compose on every click.
     setFilter: history.setFilter,
+    selectRow: history.selectRow,
     select: openRun.open,
     refreshWorkflows: testRun.refreshWorkflows,
     selectStep: openRun.step,
 
     replay,
-    replayRun: (workflowId) => replay(workflowId),
+    replayRun: (workflowId, picked) => replay(workflowId, picked),
 
     /**
      * Cancelling changes what is worth following:
@@ -758,13 +957,10 @@ export function runsStore(deps: RunsDeps): RunsStore {
     },
 
     /**
-     * And resuming puts the run back on screen under
-     * its own id, with a watch whose first tick
-     * reads `ENQUEUED`.
-     *
-     * A session row that cannot be rerun: the input
-     * it carries on with belongs to the run in the
-     * ledger and never passed through this window.
+     * And resuming puts the run back under its own
+     * id, with a watch whose first tick reads
+     * `ENQUEUED`, so the list marks it as it would
+     * any run this window set going.
      */
     resume: async (workflowId) => {
       const done = await history.resume(workflowId);
@@ -778,8 +974,28 @@ export function runsStore(deps: RunsDeps): RunsStore {
     stackRebuild: () => stacking(stack.rebuild),
 
     selectWorkflow: testRun.selectWorkflow,
+    setInput: testRun.setInput,
     runWorkflow: testRun.runWorkflow,
-    rerun: testRun.rerun,
+
+    runTrigger: async (workflow) => {
+      // Asked here rather than left to the start,
+      // which refuses quietly: moving the Runs view
+      // to a workflow it will not run would be the
+      // only mark a press in a window nobody has
+      // trusted left.
+      if (!deps.trust.isTrusted()) return;
+
+      testRun.selectWorkflow(workflow);
+      await testRun.runWorkflow(workflow);
+    },
+
+    openRunInput: async () => {
+      const { input } = testRun.render().testRun;
+      if (input.trim() === '') return;
+
+      await deps.host.showText(input, 'json');
+    },
+
     askAgent: testRun.askAgent,
     copyRunId: (workflowId) => deps.host.copy(workflowId),
 
@@ -787,7 +1003,7 @@ export function runsStore(deps: RunsDeps): RunsStore {
       const dir = project();
       if (dir === undefined) return;
 
-      const found = await history.runOf(workflowId);
+      const found = await ledger.runOf(workflowId);
       if (found === undefined) return;
 
       const saved = projectWorkflows(dir).find(
@@ -801,99 +1017,15 @@ export function runsStore(deps: RunsDeps): RunsStore {
       await deps.host.openCanvas(saved.path);
     },
 
-    /**
-     * The block is looked up in the document as it
-     * is saved now rather than in the drawing the
-     * page was laid out from: somebody following a
-     * block to its code wants the function it runs
-     * today, and a block the document no longer has
-     * has no code to go to.
-     *
-     * Both this and the canvas end up in the same
-     * place, because where a function lives is the
-     * code-behind's answer and there is one of
-     * those per project.
-     */
-    openFunction: async (workflowId, nodeId) => {
-      const dir = project();
-      if (dir === undefined) return;
+    // Untitled, and JSON however it was stored: the
+    // tab is a copy of what the ledger holds, and a
+    // copy with nowhere to be saved cannot be
+    // written back over it.
+    openInput: async (workflowId) => {
+      const printed = printedInput(inputOf(workflowId));
+      if (printed === undefined) return;
 
-      // Reading the code-behind type-checks every
-      // file in it and caches what it found inside
-      // the project, so it is asked here as well as
-      // at the ledger rather than left to the read
-      // that happens to come first.
-      if (!deps.trust.isTrusted()) return;
-
-      const found = await history.runOf(workflowId);
-      if (found === undefined) return;
-
-      const document = workflowDocument(dir, found.name);
-      const node = document?.nodes.find((one) => one.id === nodeId);
-      if (node === undefined) return;
-
-      // Asked only once there is a block to open,
-      // because the answer costs a type-check of
-      // every file in the project.
-      const manifest = manifestFor(dir);
-      if (manifest === undefined) return;
-
-      const unknown = await openHandler(deps.host, dir, manifest, node);
-
-      if (unknown !== undefined) {
-        deps.host.say(messages.openFunctionUnknown(unknown));
-      }
-    },
-
-    /**
-     * Read off the rows the page is already
-     * holding, rather than out of the ledger again:
-     * the frame is part of what the run recorded,
-     * and it arrived with everything else the card
-     * is drawn from.
-     *
-     * The run id is a guard rather than a lookup. A
-     * panel that has moved on names a run this
-     * store is no longer showing, and the right
-     * answer there is nothing at all.
-     */
-    openErrorLocation: async (workflowId, functionId) => {
-      const dir = project();
-      if (dir === undefined) return;
-
-      const shown = openRun.reading();
-      if (shown === undefined || shown.run.workflowId !== workflowId) return;
-
-      const row = shown.steps.find((one) => one.functionId === functionId);
-      const frame = stepError(row?.failure)?.frame;
-
-      const gone = await openSourceFrame(deps.host, dir, frame);
-
-      if (gone !== undefined) {
-        deps.host.say(messages.errorLocationGone(gone));
-      }
-    },
-
-    /**
-     * Off the rows the page is already holding, for
-     * the same reason: the value arrived with
-     * everything else the card is drawn from, and
-     * asking the database again for a column already
-     * in hand is how one page comes to show two
-     * answers.
-     *
-     * A row the ledger recorded no value for has
-     * nothing to open, and opening an empty tab over
-     * it would say there was something there.
-     */
-    openOutput: async (workflowId, functionId) => {
-      const shown = openRun.reading();
-      if (shown === undefined || shown.run.workflowId !== workflowId) return;
-
-      const row = shown.steps.find((one) => one.functionId === functionId);
-      if (row?.output === undefined) return;
-
-      await deps.host.showText(row.output, 'json');
+      await deps.host.showText(printed, 'json');
     },
 
     // Whatever the setting holds, unchanged: it is
@@ -908,19 +1040,27 @@ export function runsStore(deps: RunsDeps): RunsStore {
       await deps.host.openExternal(url);
     },
 
+    // Asked in any window: a page of documentation
+    // reads nothing of the folder and runs nothing
+    // in it.
+    learnConductor: () => deps.host.openExternal(CONDUCTOR_DOCS_URL),
+
     selectNode: openRun.node,
+    chooseFace: openRun.face,
     showTab: openRun.tab,
-    showRaw: openRun.raw,
     refreshRun: openRun.again,
 
     onChanged: changes.on,
+    onInputChanged: testRun.onInputChanged,
 
     dispose: () => {
       for (const subscription of followed) subscription.dispose();
+      reported.dispose();
       // Before the zones, so nothing is still being
       // told about a run while it is being taken
       // apart.
       follow.dispose();
+      ledger.dispose();
       history.dispose();
       openRun.dispose();
       stack.dispose();

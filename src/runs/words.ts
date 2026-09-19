@@ -5,6 +5,7 @@ import { once } from '../once.js';
 
 import type { RunFilter } from './queries.js';
 import type { ServiceHealth } from './stack.js';
+import type { LiveOutcome } from './watch.js';
 
 /**
  * Every word the run list and the flight recorder
@@ -25,70 +26,207 @@ import type { ServiceHealth } from './stack.js';
  * store says them too.
  */
 
-export const runsWords = once(() => ({
-  heading: l10n.t('Runs'),
+/**
+ * Where a run or a step has got to, in the one
+ * vocabulary every panel says it in.
+ *
+ * The keys are `webview/states.ts`'s and the copy
+ * is here, once: every bag that carries these words
+ * takes them from here, and so does the host for the
+ * one sentence it composes with a word in it. `quiet`
+ * is the watch's own and not the ledger's — it is
+ * letting go of a run that may yet move — and it
+ * has to read as something other than an ending.
+ */
+export const runWords = once(
+  () =>
+    ({
+      running: l10n.t('running'),
+      done: l10n.t('done'),
+      failed: l10n.t('failed'),
+      waiting: l10n.t('waiting'),
+      quiet: l10n.t('quiet'),
+      cancelled: l10n.t('cancelled'),
 
-  // Written out rather than abbreviated the way
-  // the design draws them. The panel is narrow
-  // and the drawn control says `RECOV.`, but an
-  // abbreviation is a thing only English can make
-  // — a translator handed `RECOV.` has no way to
-  // know what was cut.
+      // Dispatched more than once and still going: it
+      // is running, but not for the first time, and
+      // somebody reading a slow run is owed that.
+      recovering: l10n.t('recovering'),
+
+      // Filed, and not claimed by a worker yet.
+      queued: l10n.t('queued'),
+
+      // Restarted as often as DBOS allows and then
+      // abandoned. Its own word rather than one more
+      // failure: nothing is going to pick this run
+      // back up, and what caused it will keep
+      // happening until somebody breaks the loop.
+      gaveUp: l10n.t('gave up'),
+    }) satisfies Record<LiveOutcome, string>,
+);
+
+export const runsWords = once(() => ({
+  heading: l10n.t('Local runs'),
+
+  /** Beside the title: whose runs these are, and
+   *  that they are this folder's rather than a
+   *  deployment's. */
+  workspace: l10n.t('{0} · this workspace'),
+
+  // Whole words rather than abbreviations. The
+  // panel is narrow, but an abbreviation is a
+  // thing only English can make — a translator
+  // handed one has no way to know what was cut.
   filters: {
     all: l10n.t('All'),
+    active: l10n.t('Active'),
     failed: l10n.t('Failed'),
-    recovered: l10n.t('Recovered'),
   } satisfies Record<RunFilter, string>,
 
-  recoveredTag: messages.runsRecoveredTag(),
+  /** Under a list the read cut short: the rows it
+   *  draws, then the runs the tab counts. The count
+   *  is the whole ledger's and the page is not. */
+  capped: l10n.t('showing {0} of {1}'),
+
+  /** Where a filter a person picked holds nothing. */
+  noFailed: l10n.t('No failed runs'),
+  noActive: l10n.t('No active runs'),
 
   /** Said on every line the panel worked out rather
    *  than read, so nobody mistakes one for a column. */
   derivedTitle: l10n.t('derived from the last recorded operation'),
 
-  copyRunId: l10n.t('Copy run id'),
+  /** On the step a replay began at, which is worked
+   *  out from the rows it copied. */
+  derived: l10n.t('derived'),
+
+  /**
+   * What the selected run offers, in the words the
+   * Inspector's card says them in.
+   *
+   * Replay says where it starts: from the first row
+   * that threw where the run has one, else from the
+   * top. "Copy id" is a glyph's name and its hover
+   * text, so it is as short as it can be and still
+   * say which thing is copied.
+   */
+  openOnCanvas: l10n.t('Open on canvas'),
+  replayFromHere: l10n.t('Replay from here'),
+  replayFromStart: l10n.t('Replay from start'),
+  askAgent: l10n.t('Ask agent'),
+  copyRunId: l10n.t('Copy id'),
+
+  /**
+   * The lineage lines under a row, in the words the
+   * Inspector's card says them in, so a translator
+   * words a replay once. The view fills each piece
+   * apart, because the id in each is where a way to
+   * that run goes.
+   */
+  replayOf: l10n.t('replay of {0} {1}'),
+  replayTo: l10n.t('└ replay {0} → {1} · {2}'),
+  fromStep: l10n.t('from step {0}'),
+
+  /**
+   * Why there is nothing to read, one state per
+   * line: what is true, and under it the sentence
+   * the host already writes about that state.
+   *
+   * A title says the fact and nothing else. Which
+   * folder, which file and what the database
+   * actually said are the host's to fill, because
+   * only the host knows them — so a title here is
+   * the same words in every window and the line
+   * under it is this window's own.
+   */
+  untrustedTitle: l10n.t('This folder is not trusted'),
+  noProjectTitle: l10n.t('Open an mBoss project'),
+  noDatabaseTitle: l10n.t('No database to read'),
+  noDockerTitle: l10n.t('Docker is not available'),
+  databaseRefusedTitle: l10n.t('The database would not answer'),
 
   untrusted: messages.runsNeedTrust(),
   noProject: messages.runsNoProject(),
-  empty: messages.runsEmpty(),
-  scope: messages.runsScope(),
+
+  /** A daemon that is installed and not running
+   *  lists no containers, which is the same silence
+   *  as a project nobody has started — so the panel
+   *  says which it is, and asking again is the whole
+   *  of what to do about it. */
+  dockerSilentTitle: l10n.t('Docker is not answering'),
+  dockerSilentDetail: l10n.t('Start Docker, then refresh.'),
+  refresh: l10n.t('Refresh'),
+
+  /** The one way out of a stack that is down, and
+   *  what it says while it is going. The label stays
+   *  a label: a control that swapped its words for a
+   *  spinner leaves nobody able to say what they
+   *  pressed. */
+  startApp: l10n.t('Start app'),
+  starting: l10n.t('Starting…'),
+
+  /** A service beside its dot, for somebody who
+   *  cannot see the dot. */
+  serviceLabel: l10n.t('{0} · {1}'),
+
+  appDownTitle: l10n.t('The app is not running'),
+  appDownDetail: l10n.t(
+    'Runs need the local DBOS app. Start it, then run a workflow.',
+  ),
+
+  /** A ledger nobody has written to yet. The app is
+   *  already up by the time this is said, so what is
+   *  left to do is set a workflow going. */
+  emptyTitle: l10n.t('No runs recorded yet'),
+  emptyDetail: l10n.t(
+    'Set a workflow going. Runs appear here as DBOS records them.',
+  ),
+  runNamed: l10n.t('Run {0}'),
 
   /** What the list is: a projection over two tables
    *  in the project's own database, named so nobody
    *  reads it as a service somewhere. */
   projection: l10n.t(
-    'local only · projected from the local DBOS ledger: dbos.workflow_status + dbos.operation_outputs',
-  ),
-  sessionScope: l10n.t(
-    'held in the extension host for this session · durable truth stays in postgres: dbos.workflow_status',
+    'local only · projected from dbos.workflow_status + dbos.operation_outputs',
   ),
 
-  /** Where the runs that are not these live. Drawn
-   *  only where a console is configured, and the
-   *  link is the whole of the integration. */
+  /**
+   * Where the runs that are not these live.
+   *
+   * Named once, in the one state with no local run
+   * to look at instead, and stated rather than
+   * sold: a window that deploys nowhere is told
+   * what Conductor is for and that nothing here
+   * depends on it. Everywhere else the link is the
+   * whole of the integration, and only where a
+   * console is configured.
+   */
+  production: l10n.t('production'),
+  conductorUnconfigured: l10n.t('Not connected to DBOS Conductor'),
+  conductorSetting: l10n.t('{0} is empty', 'mboss.conductor.consoleUrl'),
+  conductorDetail: l10n.t(
+    'mBoss local development is unaffected. Conductor manages deployed applications in production.',
+  ),
+  learnConductor: l10n.t('Learn about Conductor'),
   conductorConfigured: l10n.t('DBOS Conductor · configured'),
   openProduction: l10n.t('Open production in Conductor ↗'),
 
-  localStack: l10n.t('Local Stack'),
-  stackUp: l10n.t('Start'),
-  stackDown: l10n.t('Stop'),
-  rebuildApp: l10n.t('Rebuild'),
+  rebuildApp: l10n.t('Rebuild app'),
   serviceState: {
     running: l10n.t('running'),
     exited: l10n.t('stopped'),
     absent: l10n.t('not started'),
   } satisfies Record<ServiceHealth['state'], string>,
 
-  testRun: l10n.t('Test Run'),
-  workflow: l10n.t('Workflow'),
-  input: l10n.t('Input'),
-  runWorkflow: l10n.t('Run Workflow'),
-  runCaption: l10n.t('POST :3000 → dbos start · nothing leaves this machine'),
-  scheduledNotRunnable: l10n.t('runs on its schedule'),
+  /** One service on the line beside Run: its name,
+   *  then where it listens — or, where nothing is
+   *  listening, the word for the state it is in. */
+  servicePorts: l10n.t('{0} {1}'),
 
-  runningNow: l10n.t('Running Now'),
-  waitingRefresh: l10n.t('waiting · refresh to check'),
-  quietRefresh: l10n.t('quiet · refresh to check'),
+  workflow: l10n.t('workflow'),
+  input: l10n.t('input'),
+  run: l10n.t('Run'),
+  scheduledNotRunnable: l10n.t('runs on its schedule'),
 
   /**
    * The two controls over a run, and never both.
@@ -101,44 +239,22 @@ export const runsWords = once(() => ({
    */
   cancelRun: l10n.t('Cancel run'),
   resumeRun: l10n.t('Resume'),
-
-  thisSession: l10n.t('This Session'),
-  rerunSameInput: l10n.t('Rerun with same input'),
-  resendEvent: l10n.t('Send the event again'),
-  openRun: l10n.t('Open run'),
-  askAgentWhy: l10n.t('Ask agent why'),
-
-  /** The list draws no rows and no blocks of a run,
-   *  so the point a replay starts from is the run's
-   *  own default. */
-  replayRun: l10n.t('Replay this run'),
 }));
 
 export const seeWords = once(() => ({
+  /** The tab's title before any run is known, and
+   *  the name of the strip that switches its views. */
   heading: l10n.t('Run'),
-  nothingSelected: l10n.t('Pick a run to see what it did.'),
-  steps: l10n.t('Steps'),
-  timeline: l10n.t('Run timeline'),
-  hatched: l10n.t('hatched = process down'),
-  restored: l10n.t('restored'),
-  raw: l10n.t('dbos.operation_outputs'),
-  status: l10n.t('dbos.workflow_status'),
-  ledger: l10n.t(
-    'The recovery ledger — your workflow is just rows in Postgres.',
-  ),
-  columns: {
-    stepId: l10n.t('step'),
-    fn: l10n.t('function'),
-    output: l10n.t('output'),
-    committedAt: l10n.t('committed'),
-  },
+  nothingSelected: l10n.t('Pick a run to see what it did'),
 
-  // The glyph is fixed, and it is the mark that
-  // says this is a repeat rather than a new run.
-  // "from here" rather than "from this step",
-  // because a person picks a block on the graph as
-  // often as a row in the trace.
-  replay: l10n.t('↺ Replay From Here'),
+  /** Before the short id on the header, which is
+   *  otherwise a bare `#7089`. */
+  run: l10n.t('run'),
+
+  /** On a trace row DBOS brought back from the
+   *  ledger after a crash, rather than running it
+   *  again. */
+  restored: l10n.t('restored'),
 
   /** The two views of one run. */
   tabs: {
@@ -146,11 +262,11 @@ export const seeWords = once(() => ({
     trace: l10n.t('Trace'),
   },
 
-  refresh: l10n.t('Refresh'),
-
   /**
    * Whether anything is still reading this run, and
-   * what it would take to find out if not.
+   * what it would take to find out if not — the
+   * name of the header's refresh Button, which is a
+   * glyph with nothing else to say it.
    *
    * Said in full rather than as one word, because
    * "waiting" and "quiet" are both stopped watches
@@ -162,86 +278,63 @@ export const seeWords = once(() => ({
     quiet: l10n.t('quiet · refresh to check'),
   },
 
-  recoveredTag: messages.runsRecoveredTag(),
+  /** On a trace row a replay carried over from the
+   *  run it came from, where `restored` is said of
+   *  one DBOS brought back after a crash. */
+  reused: l10n.t('reused'),
 
   /**
-   * On a row a replay carried over from the run it
-   * came from.
+   * What opens the rows the SDK wrote beside a block
+   * row, `{0}` being the function the block runs.
    *
-   * The glyph is fixed and is part of the word: it
-   * is the same mark Replay wears, and what it says
-   * here is that the row is the earlier run's,
-   * copied rather than run a second time.
+   * "Durable operations" because that is what those
+   * rows are to somebody reading a run — the sleeps,
+   * messages and results a durable run is made of —
+   * rather than whose table they sit in. One row is
+   * a word of its own, so a lone status read is
+   * never "1 durable operations".
    */
-  recorded: l10n.t('↺ recorded'),
+  sdkRows: l10n.t('{0} · {1} durable operations'),
+  sdkRow: l10n.t('{0} · 1 durable operation'),
 
   /**
-   * Under the lineage tree.
-   *
-   * The whole point of drawing the tree: a replay
-   * forks a second execution and the run it came
-   * from stays exactly where it was, so neither of
-   * them is a version of the other and both are
-   * still there to be read.
+   * A wait's moments, each said as the moment it is
+   * and never as time elapsed: the page is drawn
+   * again only when something changes, so "for 3 m"
+   * would go stale on a page nobody touched, where a
+   * moment stays true.
    */
-  bothRemain: l10n.t('both remain in dbos.workflow_status'),
+  waitingSince: l10n.t('waiting since {0}'),
+  timeout: l10n.t('timeout {0} d'),
+  wakes: l10n.t('wakes {0}'),
+  woke: l10n.t('woke {0}'),
+  timesOut: l10n.t('times out {0}'),
 
   /** Said on anything the page worked out rather
    *  than read off a row. */
   derived: l10n.t('derived'),
 
-  /** The rows DBOS wrote for its own bookkeeping,
-   *  and what it means that they are here. */
-  showRaw: l10n.t('Show DBOS-owned rows'),
-  dbosOwned: l10n.t('DBOS-owned · shown in raw view · grouped by position'),
+  /** The label over the run's operations, in the
+   *  order it recorded them. */
+  trace: l10n.t('trace'),
 
-  /** A group of rows naming a block the saved
-   *  document does not have. */
-  unattributed: l10n.t('not a block in the saved workflow'),
-
-  // On the id beside a row that started a run of
-  // its own. The row is what the parent recorded
-  // about handing the work over; everything the
-  // work itself did is on the other run's page, and
-  // the id is the only way the ledger gives there.
-  childRun: l10n.t('open the run this item started'),
-
-  /** What the run was started with, and where that
-   *  came from. */
-  workflowInput: l10n.t('WORKFLOW INPUT'),
-  asRecorded: l10n.t('as recorded'),
+  /** The label over the rows that name a block the
+   *  saved document does not have, drawn apart from
+   *  the rows that belong to one. */
+  unattributed: l10n.t('unattributed'),
 
   /**
-   * The two controls over the run on the page, and
-   * the two things the page can already say about
-   * one.
-   *
-   * "Cancel run" rather than "Cancel", because the
-   * rail also carries Replay and Edit workflow and a
-   * bare verb among them names nothing. The labels
-   * are sentence case and the rail sets them in
-   * small caps, so a language whose caps mean
-   * something else is not handed shouting.
+   * How the trace is read, under it: what picking
+   * something opens, and where the SDK's own rows
+   * went. Said once for the list rather than on
+   * every row.
    */
-  cancel: l10n.t('Cancel run'),
-  resume: l10n.t('Resume'),
-  lastRecorded: l10n.t('last recorded'),
-  cancelledAt: l10n.t('cancelled'),
-
-  /**
-   * What resuming a run actually does.
-   *
-   * The point worth making is the durable one: a
-   * resumed run reads its recorded history back
-   * rather than running those operations again. The
-   * second sentence is said only over a run DBOS
-   * gave up on, because that is the only run whose
-   * give-up count starts over.
-   */
-  resumeHint: l10n.t(
-    'Resume continues from the recorded history · completed durable operations are not re-executed',
+  traceHint: l10n.t(
+    'select a row or a node → Run evidence in the inspector · DBOS-owned rows expand under their node',
   ),
-  resumeResetsAttempts: l10n.t('recovery_attempts starts again from 0'),
+
+  /** A run that has written no row yet. */
+  noOperations: l10n.t('no operations recorded'),
 
   /** The way back to Build. It opens the document
    *  and projects nothing onto it: the canvas keeps

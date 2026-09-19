@@ -1,23 +1,38 @@
-import { paletteLabels, canvasWords, inspectorWords } from '../canvas/words.js';
+import type { ToolLine } from '../acp/transcript.js';
+import {
+  canvasWords,
+  durationWords,
+  kindWords,
+  sizeWords,
+} from '../canvas/words.js';
 import { replayBoundaries, type Unoffered } from '../core/index.js';
-import { ownerOf, type NodeBox, type WorkflowIR } from '../core/rules.js';
+import {
+  ownerOf,
+  type NodeBox,
+  type WorkflowIR,
+  type WorkflowNode,
+} from '../core/rules.js';
 import { messages } from '../messages.js';
-import { fine } from '../webview/time.js';
+import { filled } from '../webview/fill.js';
+import { shortRunId } from '../webview/ids.js';
+import {
+  glyphStateOf,
+  runWord,
+  settled,
+  type RunWord,
+} from '../webview/states.js';
+import { clock, duration, fine, when } from '../webview/time.js';
 import type {
+  InspectorMode,
+  ShownRun,
+  RunLevel,
+  RunLineage,
   RunRow,
-  RunSeverity,
-  SeeBar,
-  SeeChip,
   SeeGraph,
   SeeInit,
-  SeeLineageRun,
-  SeeOutage,
-  SeeRawRow,
   SeeRun,
-  SeeTimeline,
-  SessionRow,
-  TraceGroupView,
-  TraceOpView,
+  TraceDetail,
+  TraceRowView,
 } from '../webview/protocol.js';
 
 import type {
@@ -26,35 +41,46 @@ import type {
   RefusedRunEvidence,
   RunEvidence,
 } from './evidence.js';
-import type { Lineage, LineageRun } from './openRun.js';
-import { seeWords } from './words.js';
-import { decidedArms, groupsOf, type TraceGroup } from './operations.js';
+import type { Lineage } from './openRun.js';
+import { runWords, seeWords } from './words.js';
+import { decidedArms, wakeOf, type Wake } from './operations.js';
+import { IN_FLIGHT_STATUSES } from './queries.js';
 import { replayRowReason } from './replayZone.js';
-import { readRun, type Operation, type Reading } from './reading.js';
-import { hasRecovered, recoveriesOf, type Run, type Step } from './rows.js';
-import type { SessionRun } from './sessionLog.js';
-import { liveRunOf } from './watch.js';
-import type { ProjectWorkflow } from './workflows.js';
+import {
+  headlineRow,
+  readRun,
+  traceOf,
+  type Operation,
+  type Reading,
+} from './reading.js';
+import {
+  hasRecovered,
+  inlineJson,
+  recoveriesOf,
+  type Run,
+  type RunInput,
+  type Step,
+  recordedValue,
+  type RecordedValue,
+} from './rows.js';
+import { inspectedRunOf, liveRunOf, type LiveRun } from './watch.js';
 
 /**
- * A row of the run history, a row of this session,
- * and one run in detail, in the words the views
- * draw.
+ * A row of the run history, and one run in
+ * detail, in the words the views draw.
  *
  * What a person reads on a row is resolved here,
  * because a webview has no localization bundle;
  * the store that holds the rows renders the list
- * from these. And every position on the chart is
- * a fraction of its own window rather than a
- * pixel, because the panel is resizable and the
- * host has no idea how wide it is — so the
- * arithmetic is done once, in one place with a
- * test around it, instead of in a renderer that
- * would need to be handed the window to do it.
+ * from these, and the run tab draws its trace from
+ * the rows worded here.
  */
 
-/** Statuses that mean the run has not finished. */
-const IN_FLIGHT = new Set(['PENDING', 'ENQUEUED', 'DELAYED']);
+/** Statuses that mean the run has not finished:
+ *  the set the Active filter asks for, so the
+ *  control a row offers and the filter it is shown
+ *  under cannot disagree. */
+const IN_FLIGHT = new Set<string>(IN_FLIGHT_STATUSES);
 
 /**
  * Statuses a run can be picked back up from.
@@ -68,15 +94,9 @@ const IN_FLIGHT = new Set(['PENDING', 'ENQUEUED', 'DELAYED']);
  */
 const RESUMABLE = new Set(['CANCELLED', 'MAX_RECOVERY_ATTEMPTS_EXCEEDED']);
 
-/**
- * How much of an output one cell carries.
- *
- * The raw panel is a table, and a step that
- * returned a document would otherwise be one row a
- * screen tall. The whole value is a click away in
- * the database this panel names.
- */
-const OUTPUT_CELL = 120;
+/** What DBOS writes when it stops restarting a run:
+ *  it dead-letters it, and writes no error row. */
+const GAVE_UP = 'MAX_RECOVERY_ATTEMPTS_EXCEEDED';
 
 export type SeeView = {
   run: Run;
@@ -104,9 +124,16 @@ export type SeeView = {
    *  views of the run. */
   selectedNode?: string;
 
-  /** Whether the rows DBOS wrote for itself are
-   *  shown. */
-  raw?: boolean;
+  /**
+   * Which of the Inspector's faces a person picked
+   * for that block.
+   *
+   * Absent until somebody picks one, which is not
+   * the same as either: a block picked on a run is
+   * picked to see what the run recorded, until the
+   * person says otherwise.
+   */
+  face?: InspectorMode;
 
   /** Whether a watch is still reading this run. */
   following?: 'following' | 'waiting' | 'quiet';
@@ -130,39 +157,16 @@ export type SeeView = {
 };
 
 /**
- * One session run, in the words the panel draws.
+ * The editor tab's title for a run: the workflow
+ * and the whole id.
  *
- * `keyed` comes from the document rather than from
- * the run: whether sending this input again is the
- * same run is a fact about the workflow's trigger,
- * and it is what decides which of the two actions
- * the row offers.
+ * The one place the whole id is read on the run
+ * tab, where it costs the page nothing and can be
+ * copied; the header names the run by its short
+ * id.
  */
-export function sessionRowOf(
-  run: SessionRun,
-  workflows: readonly ProjectWorkflow[],
-): SessionRow {
-  const trigger = workflows.find((flow) => flow.name === run.workflow)?.trigger;
-
-  return {
-    workflowId: run.workflowId,
-    workflow: run.workflow,
-    outcome: run.outcome,
-    when: sessionWhen(run),
-    stepCount: run.stepCount,
-    recovered: run.recovered,
-    error: run.failedStep?.error ?? run.error,
-    keyed: trigger?.mode === 'event' && trigger.keyPath !== undefined,
-    via: run.via,
-  };
-}
-
-function sessionWhen(run: SessionRun): string {
-  const at = clock(run.startedAt);
-
-  return run.durationMs === undefined
-    ? at
-    : `${at} · ${duration(run.durationMs)}`;
+export function seeTitle(run: Pick<SeeRun, 'name' | 'workflowId'>): string {
+  return messages.runTabLine(run.name, run.workflowId);
 }
 
 export function seeInit(
@@ -173,31 +177,117 @@ export function seeInit(
     type: 'init',
     view: 'see',
     strings: seeWords(),
-    // The card the rail draws about a block is the
-    // Inspector's, so its words travel with the run
-    // rather than being written a second time here.
-    inspector: inspectorWords(),
     run: view === undefined ? undefined : seeRun(view),
     showing,
   };
 }
 
-function seeRun(view: SeeView): SeeRun {
-  const { run, steps } = view;
-
-  // One clock for the whole page, so that a bar's
-  // end and whether a timer has run out are answered
-  // about the same moment. And `lost` rather than
-  // nothing where the project no longer has a
-  // document of this name: that is an answer, and it
-  // is why the trace draws one nameless group.
-  const reading = readRun(
-    run,
-    steps,
+/**
+ * The open run's rows, read against the document
+ * the page was laid out from.
+ *
+ * `lost` rather than nothing where the project no
+ * longer has a document of this name: that is an
+ * answer, and it is why the trace draws every row
+ * apart, under no block. One call for every reader
+ * of the run page's rows, so the page, the
+ * selection and the Inspector cannot attribute a
+ * row three ways.
+ */
+export function readView(view: SeeView, now: number): Reading {
+  return readRun(
+    view.run,
+    view.steps,
     view.ir ?? 'lost',
-    hasRecovered(run),
-    Date.now(),
+    hasRecovered(view.run),
+    now,
+    view.ir,
   );
+}
+
+/**
+ * The run tab's run, as the Inspector reads it:
+ * projected once, at the moment the pane passed,
+ * for the card about the whole run and for the
+ * block picked on it alike.
+ *
+ * One projection rather than two, because the card
+ * and the block used to be projected at two clocks
+ * in two modules, and a run read twice is how two
+ * answers come to disagree. `now` is a parameter
+ * for the reason it is one on `readRun`: the window
+ * a row is drawn in is the reader's, and a moment
+ * kept here would freeze a timer's wait.
+ */
+export type RunTab = {
+  workflowId: string;
+
+  /** The workflow the run is a run of, by name. */
+  name: string;
+
+  /** The run as a canvas draws one, for the card. */
+  run: LiveRun;
+
+  /** The same run with the SDK's own rows put back
+   *  under the blocks they ran in, for a block. */
+  inspected: ShownRun;
+
+  /** Which way out each decided block took, read
+   *  against the saved drawing the page drew, so
+   *  the card and the graph beside it agree. */
+  decided: Record<string, string>;
+
+  recovery: string[] | undefined;
+  lineage: RunLineage[];
+  note: string | undefined;
+
+  /** The saved drawing the rows were read against,
+   *  for the replay's refusal. */
+  ir: WorkflowIR | undefined;
+
+  /** Whether this window cancelled the run. */
+  cancelledHere: boolean;
+
+  /** The block and row picked on the tab, and the
+   *  face somebody picked for that block. */
+  picked: {
+    nodeId: string | undefined;
+    functionId: number | undefined;
+    face: InspectorMode | undefined;
+  };
+};
+
+export function runTabOf(view: SeeView, now: number): RunTab {
+  const reading = readView(view, now);
+
+  return {
+    workflowId: view.run.workflowId,
+    name: view.run.name,
+    run: liveRunOf(view.run, reading),
+    inspected: inspectedRunOf(view.run, reading),
+    decided: Object.fromEntries(decidedArms(reading.steps, view.ir)),
+    recovery: recoverySentences(view.run, reading),
+    lineage: runLineageOf(view.lineage),
+    note: view.note,
+    ir: view.ir,
+    cancelledHere: view.cancelledHere ?? false,
+    picked: {
+      nodeId: view.selectedNode,
+      functionId: view.selectedStep,
+      face: view.face,
+    },
+  };
+}
+
+function seeRun(view: SeeView): SeeRun {
+  const { run } = view;
+
+  // One clock for the whole page, so that where the
+  // run is, whether a timer has run out and whether
+  // a row says the run woke are all answered about
+  // the same moment.
+  const now = Date.now();
+  const reading = readView(view, now);
   const graph = graphOf(view, reading.steps);
 
   // Which rows a replay could start from, asked once
@@ -206,124 +296,296 @@ function seeRun(view: SeeView): SeeRun {
   // whose workflow is gone offers nothing rather
   // than everything.
   const points = boundariesOf(view);
-
-  // The chart and the strip above it are about what
-  // the workflow did, so the SDK's own rows are not
-  // drawn on either. The reading still holds them,
-  // and has to: a wait the SDK wrote is what fills a
-  // gap that would otherwise be read as a crash.
-  const drawn = reading.steps.filter((step) => step.owner !== 'sdk');
+  const page: TracePage = {
+    view,
+    points,
+    open: openRegistrations(reading.steps),
+    now,
+  };
+  const trace = traceOf(reading.steps, reading.owners);
 
   return {
     workflowId: run.workflowId,
+    short: shortRunId(run.workflowId),
     name: run.name,
-    breadcrumb: messages.runBreadcrumb(run.name, run.workflowId),
-    headline:
-      run.completedAt === undefined
-        ? messages.runHeadlineRunning(run.status)
-        : messages.runHeadline(
-            run.status,
-            duration(run.completedAt - run.createdAt),
-          ),
-    // The page holds every row, so it asks the
-    // reading whether a block is parked rather than
-    // the list's question about one recorded name.
-    severity: severityOf(
-      run,
-      reading.steps.some((step) => step.state === 'waiting'),
+    // The reading answered where the run is, with
+    // every row the page holds; the header says that
+    // word rather than asking the steps again, in
+    // the line the Inspector's card says it in.
+    state: glyphStateOf(reading.outcome),
+    line: messages.runTabLine(
+      run.name,
+      runLine({
+        word: reading.outcome,
+        createdAt: run.createdAt,
+        completedAt: run.completedAt,
+        recovered: reading.recovered,
+      }),
     ),
-    span: spanOf(run),
-    recovered: recoveredBanner(run, reading),
-    chips: drawn.map((step) => chipOf(step, points)),
-    timeline: chartOf(reading, drawn),
-    raw: steps.map(rawRowOf),
-    rail: railOf(run),
-    controls: controlsOf(run, drawn, view.cancelledHere ?? false),
-    selectedStep: view.selectedStep,
-    note: view.note,
     graph,
     // Decided by the same call, so the sentence is
     // there exactly when the picture is not.
     noGraph:
       graph === undefined ? messages.runGraphMissing(run.name) : undefined,
     live: liveRunOf(run, reading),
-    groups: groupsOf(reading.steps, { timing: view.timing ?? false }).map(
-      (group) => groupOf(group, view, points),
+    trace: trace.rows.map((row) =>
+      traceRowOf(row.operation, row.nodeId, row.sdk, page),
+    ),
+    unattributed: trace.unattributed.map((one) =>
+      traceRowOf(one, undefined, [], page),
     ),
     selected: {
       nodeId: view.selectedNode,
-      functionId: view.selectedStep,
+      functionId: markedRow(view, reading),
     },
-    showRaw: view.raw ?? false,
     following: view.following ?? 'quiet',
-    input: inputOf(run),
-    lineage: lineageOf(view),
   };
 }
 
 /**
- * The lineage tree, from its top.
+ * The row the trace marks: the one picked, else the
+ * one the picked block is headed by.
  *
- * Drawn from whichever end of a fork the page is
- * showing, so the run it came from is the root when
- * there is one and this run is the root when there
- * is not. The fork point is worded onto the run
- * below it, which is the run that started there.
+ * Asked of the rows the Inspector is handed for the
+ * same run, by the same rule, so the row marked in
+ * the trace is the row the pane draws in full.
  */
-function lineageOf(view: SeeView): SeeLineageRun | undefined {
-  const found = view.lineage;
-  if (found === undefined) return undefined;
+function markedRow(view: SeeView, reading: Reading): number | undefined {
+  if (view.selectedStep !== undefined) return view.selectedStep;
+  if (view.selectedNode === undefined) return undefined;
 
-  const here: SeeLineageRun = {
-    ...lineageRunOf(view.run),
-    startStep: found.parent?.startStep,
-    from: found.parent === undefined ? undefined : replayFrom(found.parent),
-    here: true,
-    forks: found.forks.map((fork) => ({
-      ...lineageRunOf(fork.run),
-      startStep: fork.startStep,
-      from: replayFrom(fork),
-      here: false,
-      forks: [],
-    })),
-  };
+  const rows = inspectedRunOf(view.run, reading).steps.filter(
+    (step) => step.nodeId === view.selectedNode,
+  );
 
-  if (found.parent === undefined) return here;
+  return headlineRow(rows)?.functionId;
+}
+
+/** What every row of the trace is worded against:
+ *  the page, the rows a replay may start from, the
+ *  waits nobody has answered, and the page's one
+ *  clock. */
+type TracePage = {
+  view: SeeView;
+  points: ReplayPoints;
+  open: ReadonlySet<number>;
+  now: number;
+};
+
+/**
+ * The registration row of every wait still open,
+ * by the handle DBOS gave that row.
+ *
+ * Keyed on the block and one round —
+ * `await_details.r0` — because a wait inside a loop
+ * registers again on every round, and the rounds
+ * before the last one have been answered even
+ * though the block is parked all the way through.
+ * The key is read off the recorded name rather than
+ * the drawing, so a run whose document the project
+ * lost still says which round it is sitting on.
+ */
+function openRegistrations(steps: readonly Operation[]): ReadonlySet<number> {
+  const open = new Map<string, number>();
+
+  for (const step of steps) {
+    const last = step.segments.at(-1)?.kind;
+    if (last !== 'register' && last !== 'clear') continue;
+
+    const round = step.name.slice(0, step.name.lastIndexOf('.'));
+
+    if (last === 'register') open.set(round, step.functionId);
+    else open.delete(round);
+  }
+
+  return new Set(open.values());
+}
+
+/** The name the SDK records a sleep under. */
+const SLEEP = 'DBOS.sleep';
+
+/**
+ * One row of the trace, in the words it is drawn
+ * in, with the SDK's rows beside it.
+ *
+ * Every row carries the block it is drawn under, so
+ * the line under an SDK row can name the block it
+ * ran in, and picking any row selects that block.
+ */
+function traceRowOf(
+  operation: Operation,
+  nodeId: string | undefined,
+  sdk: readonly Operation[],
+  page: TracePage,
+): TraceRowView {
+  const node = page.view.ir?.nodes.find((one) => one.id === nodeId);
+  const beside = sdk.map((one) => traceRowOf(one, nodeId, [], page));
 
   return {
-    ...lineageRunOf(found.parent.run),
-    // Nothing was read about what the parent itself
-    // came out of, so the top of the tree says
-    // nothing about it rather than guessing.
-    startStep: undefined,
-    from: undefined,
-    here: false,
-    forks: [here],
+    functionId: operation.functionId,
+    name: operation.name,
+    owner: operation.owner,
+    state: operation.state,
+    reused: operation.reused,
+    ...offerOf(page.points, operation.functionId),
+    childWorkflowId: operation.childWorkflowId,
+    nodeId,
+    duration: durationOf(operation),
+    detail: detailOf(operation, node, page),
+    detailTone: operation.state === 'failed' ? 'fail' : 'faint',
+    sdkLabel:
+      beside.length === 0
+        ? undefined
+        : sdkLabelOf(operation, node, beside.length),
+    sdk: beside,
   };
 }
 
 /**
- * One run of the tree, in the words a row draws.
+ * How long a row took, where that is a length of
+ * time at all.
  *
- * `severity` is the list's own question asked with
- * the evidence this read has, which is no recorded
- * name for the other run — so nothing here can say
- * it is parked, and it does not.
+ * A child start is written with one clock read for
+ * both ends, so its length would always read as
+ * none; a sleep's end is the deadline it was given,
+ * which may not have come yet.
+ *
+ * Waiting on that child is the SDK's own row and
+ * carries the child's id too, but it is a wait that
+ * really took as long as it says, so it keeps its
+ * length. A start is recorded under the child
+ * workflow's name or the queue block's and so is
+ * never the SDK's.
  */
-function lineageRunOf(
-  run: Run,
-): Pick<SeeLineageRun, 'workflowId' | 'status' | 'severity'> {
+function durationOf(operation: Operation): string | undefined {
+  const { startedAt, completedAt } = operation;
+
+  if (startedAt === undefined || completedAt === undefined) return undefined;
+  if (operation.childWorkflowId !== undefined && operation.owner !== 'sdk')
+    return undefined;
+  if (operation.name === SLEEP) return undefined;
+
+  return lasted(completedAt - startedAt);
+}
+
+/**
+ * The line under a trace row. The first rule that
+ * fits is the line.
+ *
+ * A row that threw says what it threw. A wait still
+ * registered says since when, and when it gives up
+ * where the document says. A sleep says when the
+ * run wakes, or woke, or when a wait times out —
+ * only where the host has said the project's SDK
+ * writes the row that is read from, and always as a
+ * moment rather than the number the SDK stored.
+ * Anything else says what it returned, after
+ * whether it came back from the ledger or from the
+ * run it was replayed from; and where it returned
+ * nothing, the block it ran in.
+ */
+function detailOf(
+  operation: Operation,
+  node: WorkflowNode | undefined,
+  page: TracePage,
+): TraceDetail {
+  const words = seeWords();
+
+  if (operation.state === 'failed') {
+    return {
+      derived: undefined,
+      plain: operation.error?.name,
+      verbatim: operation.error?.message,
+    };
+  }
+
+  if (operation.state === 'waiting' && page.open.has(operation.functionId)) {
+    return {
+      derived: parkedLine(operation, node),
+      plain: undefined,
+      verbatim: undefined,
+    };
+  }
+
+  if (operation.name === SLEEP) {
+    const wake = page.view.timing === true ? wakeOf(operation) : undefined;
+
+    return {
+      derived: wake === undefined ? undefined : wakeLine(wake, page.now),
+      plain: wake === undefined ? node?.title : undefined,
+      verbatim: undefined,
+    };
+  }
+
+  const copied = [
+    ...(operation.restored ? [words.restored] : []),
+    ...(operation.reused ? [words.reused] : []),
+  ];
+  const returned = operation.absent ? undefined : operation.shown;
+
   return {
-    workflowId: run.workflowId,
-    status: run.status,
-    severity: severityOf(run, false),
+    derived:
+      copied.length === 0
+        ? undefined
+        : copied.map((word) => `${word} · `).join(''),
+    plain: returned === undefined ? node?.title : undefined,
+    verbatim: returned,
   };
 }
 
-function replayFrom(entry: LineageRun): string {
-  return entry.boundary === undefined
-    ? messages.runReplayFromStep(entry.startStep)
-    : messages.runReplayFrom(entry.boundary);
+/** Since when a wait has been registered, and after
+ *  how long it gives up, where either is known. */
+function parkedLine(
+  operation: Operation,
+  node: WorkflowNode | undefined,
+): string | undefined {
+  const words = seeWords();
+
+  // The rule the pane reads a wait's since by, so
+  // the two say the same moment.
+  const since = operation.completedAt ?? operation.startedAt;
+  const days =
+    node?.kind === 'durableWait' || node?.kind === 'approval'
+      ? node.config.timeoutDays
+      : undefined;
+
+  const parts = [
+    ...(since === undefined ? [] : [filled(words.waitingSince, fine(since))]),
+    ...(days === undefined ? [] : [filled(words.timeout, String(days))]),
+  ];
+
+  return parts.length === 0 ? undefined : parts.join(' · ');
+}
+
+/** A sleep row's moment, said against the page's
+ *  clock. */
+function wakeLine(wake: Wake, now: number): string {
+  const words = seeWords();
+  const at = fine(wake.at);
+
+  if (wake.kind === 'timeout') return filled(words.timesOut, at);
+
+  return filled(wake.at > now ? words.wakes : words.woke, at);
+}
+
+/**
+ * What opens the SDK's rows beside a block row.
+ *
+ * Named after the function the block runs, since
+ * that is the code those rows were written for, and
+ * after the row itself where the block runs none.
+ */
+function sdkLabelOf(
+  operation: Operation,
+  node: WorkflowNode | undefined,
+  count: number,
+): string {
+  const words = seeWords();
+  const named = node?.handler?.export ?? operation.name;
+
+  return count === 1
+    ? filled(words.sdkRow, named)
+    : filled(words.sdkRows, named, String(count));
 }
 
 /**
@@ -345,7 +607,8 @@ function graphOf(
   return {
     ir,
     boxes,
-    labels: paletteLabels(),
+    kindWords: kindWords(),
+    triggerPhrases: canvasWords().triggerPhrases,
     unassigned: canvasWords().unassigned,
     queueCounts: canvasWords().queueCounts,
     caption: messages.runGraphCaption(ir.revision),
@@ -353,111 +616,6 @@ function graphOf(
     // `postMessage`, and a map does not survive
     // being JSON.
     decided: Object.fromEntries(decidedArms(operations, ir)),
-  };
-}
-
-/**
- * One block's turn, in the words the page draws.
- *
- * Only the document says what a block is called, so
- * a group with no block behind it is drawn nameless
- * and the `not a block in the saved workflow` badge
- * carries it. Naming such a group after its first
- * row would be a guess with nothing behind it: rows
- * with no block merge into one group whatever they
- * name, so a run whose document is gone would draw
- * as a single collapsible called after whatever
- * happened to run first.
- */
-function groupOf(
-  group: TraceGroup,
-  view: SeeView,
-  points: ReplayPoints,
-): TraceGroupView {
-  const node = view.ir?.nodes.find((one) => one.id === group.nodeId);
-  const failed = group.operations.some((one) => one.state === 'failed');
-
-  return {
-    nodeId: group.nodeId,
-    title: node?.title ?? '',
-    qualifier: qualifierOf(group),
-    wakes: wakesOf(group, view),
-    // Closed by default, and open where a person is
-    // most likely to be going: the turn that failed,
-    // and the one holding the block they picked.
-    open:
-      failed ||
-      (group.nodeId !== undefined && group.nodeId === view.selectedNode),
-    failed,
-    operations: group.operations.map((one) => opOf(one, points)),
-  };
-}
-
-/**
- * When this block wakes, in words.
- *
- * A timeout marker is drawn wherever one is
- * recorded: the block is parked and the marker says
- * when it stops being. A real sleep is drawn only
- * where the block has exactly one way onward and
- * that way is a timer wait — a bare sleep inside a
- * block that branches afterwards says nothing about
- * where the run goes next, and guessing would be
- * the page making something up.
- */
-function wakesOf(group: TraceGroup, view: SeeView): string | undefined {
-  const wakes = group.wakesAt;
-  if (wakes === undefined) return undefined;
-
-  if (wakes.kind === 'timeout') return messages.runTimesOut(fine(wakes.at));
-
-  return timerWaitAhead(group.nodeId, view)
-    ? messages.runAsleepUntil(fine(wakes.at))
-    : undefined;
-}
-
-function timerWaitAhead(nodeId: string | undefined, view: SeeView): boolean {
-  const ir = view.ir;
-  if (ir === undefined || nodeId === undefined) return false;
-
-  const onward = ir.edges.filter((edge) => edge.from.node === nodeId);
-  const [only] = onward;
-  if (onward.length !== 1 || only === undefined) return false;
-
-  const next = ir.nodes.find((node) => node.id === only.to.node);
-
-  // Timer-sourced and no other kind: a wait on a
-  // person or an event has a deadline too, but it
-  // is the moment that wait gives up rather than
-  // the moment the run comes back.
-  return next?.kind === 'durableWait' && next.config.source.kind === 'timer';
-}
-
-function qualifierOf(group: TraceGroup): string | undefined {
-  if (group.items !== undefined) return messages.runGroupItems(group.items);
-
-  return group.round === undefined
-    ? undefined
-    : messages.runGroupRound(group.round);
-}
-
-function opOf(operation: Operation, points: ReplayPoints): TraceOpView {
-  return {
-    functionId: operation.functionId,
-    name: operation.name,
-    owner: operation.owner,
-    state: operation.state,
-    at:
-      operation.completedAt === undefined
-        ? undefined
-        : fine(operation.completedAt),
-    output: operation.output === undefined ? undefined : cut(operation.output),
-    outputCut: operation.outputCut,
-    error: operation.error?.message,
-    restored: operation.restored,
-    reused: operation.reused,
-    ...offerOf(points, operation.functionId),
-    childWorkflowId: operation.childWorkflowId,
   };
 }
 
@@ -520,136 +678,239 @@ function offerOf(
   };
 }
 
-/** What the run was started with, cut like a cell. */
-function inputOf(run: Run): { text: string; cut: boolean } | undefined {
-  const input = run.input;
-  if (input === undefined || input.shape === 'none') return undefined;
-
-  const text =
-    input.shape === 'payload'
-      ? JSON.stringify(input.value, null, 2)
-      : input.text;
-
-  return { text: cut(text), cut: text.length > OUTPUT_CELL };
-}
-
 /**
  * One run of the history, in the words the list
  * draws.
  *
  * `page` is the rest of what the list is holding,
- * and it is the only place a fork line comes from:
- * `forked_from` is a column every row already
- * selects, so a child on screen is a line drawn for
- * free and a child that is not on screen is a query
- * nobody asked for. An empty page is therefore a row
- * drawn on its own, which is what a caller with no
- * others means.
+ * and it is the only place a replay's lineage
+ * comes from: `forked_from` is a column every row
+ * already selects, so a replay on screen is a line
+ * drawn for free and one that is not is a query
+ * nobody asked for. An empty page is a row drawn
+ * on its own.
+ *
+ * Neither `now` nor `locale` has a default, for the
+ * reason the reading's clock has none: the list is
+ * one page read at one moment, and whether a sleep
+ * has ended and which day a clock is on are both
+ * answered against it — in the editor's language,
+ * which a function reading the machine's would
+ * not be.
  */
-export function rowOf(run: Run, page: readonly Run[] = []): RunRow {
-  const severity = severityOf(run, parked(run.lastOperation));
+export function rowOf(
+  run: Run,
+  page: readonly Run[],
+  now: number,
+  locale: string,
+): RunRow {
+  const word = listedWord(run, now);
+  const { cancel, resume } = runControlsOf(run, false);
 
   return {
     workflowId: run.workflowId,
     name: run.name,
     status: run.status,
-    severity,
-    when: whenOf(run),
+    state: glyphStateOf(word),
+    line: lineOf(run, word, now, locale),
     recovered: hasRecovered(run),
-    // Only past the first: the tag beside it
-    // already says the run recovered, so the
-    // number is worth its space only when it is
-    // more than one.
+    // Only past the first: the line already says
+    // the run recovered, so the number is worth
+    // its space only when it is more than one.
+    // Worked out from a column that counts
+    // dispatches, and marked so.
     recoveredNote:
       recoveriesOf(run) > 1
-        ? messages.runsRecoveredNote(recoveriesOf(run))
+        ? messages.runLevelDerived(
+            messages.runsRecoveredNote(recoveriesOf(run)),
+          )
         : undefined,
     error: run.error,
-    summary: summaryOf(run, severity),
     stoppedAt:
       run.lastOperationAt === undefined
         ? undefined
         : clock(run.lastOperationAt),
     operations: run.operationCount,
-    replayOf:
-      run.forkedFrom === undefined
-        ? undefined
-        : messages.runsReplayOf(run.forkedFrom),
-    forks: page
-      .filter((one) => one.forkedFrom === run.workflowId)
-      .map((one) =>
-        messages.runsReplayInto(
-          one.workflowId,
-          severityOf(one, parked(one.lastOperation)),
-        ),
-      ),
+    lineage: lineageOf(run, page, now),
+    // The list asks every run where it began, and
+    // a run that is not a replay began at the top.
+    startStep: run.forkedFrom === undefined ? undefined : run.startStep,
+    failedStep: run.failedStep,
+    controls: { cancel, resume },
   };
 }
 
 /**
- * Where the run got to, in one line.
- *
- * Every form of it is worked out from the last
- * operation the run recorded of its own, because
- * nothing in the ledger marks a run as being *at* a
- * block. A run that has recorded nothing gets no
- * line: a projection over no rows is not a fact
- * worth drawing.
+ * The word for a listed run, with the list's
+ * evidence for whether it is parked: its last
+ * recorded name, and whether a sleep it began is
+ * still to end. A run asleep on the clock writes
+ * nothing of its own while it sleeps, so its name
+ * alone would call it running.
  */
-function summaryOf(run: Run, severity: RunSeverity): string | undefined {
-  if (severity === 'ok') {
-    return run.operationCount === undefined
-      ? undefined
-      : messages.runDoneSummary(run.operationCount);
-  }
+function listedWord(run: Run, now: number): RunWord {
+  const asleep = run.sleepingUntil !== undefined && run.sleepingUntil > now;
 
-  const at = run.lastOperation;
-  if (at === undefined) return undefined;
-
-  const owner = ownerOf(at);
-  const nodeId = owner.kind === 'node' ? owner.nodeId : at;
-
-  if (severity === 'waiting') {
-    return run.lastOperationAt === undefined
-      ? undefined
-      : messages.runWaitingSummary(nodeId, clock(run.lastOperationAt));
-  }
-
-  return severity === 'running'
-    ? messages.runRunningSummary(nodeId)
-    : messages.runFailedSummary(nodeId);
+  return wordOf(run, parked(run.lastOperation) || asleep);
 }
 
 /**
- * How loudly a run is drawn.
- *
- * `MAX_RECOVERY_ATTEMPTS_EXCEEDED` is its own
- * severity rather than one more failure. A run that
- * threw is a bug to read; a run DBOS restarted as
- * many times as it allows and then stopped
- * restarting is something that will keep happening
- * until somebody breaks the loop, and no mockup
- * draws that state for this to copy.
- *
- * Whether the run is parked arrives as an answer,
- * because the two readers hold different evidence.
- * The list has one recorded name per run and no rows
- * at all; the page has every row it wrote. Asking
- * the list's question of the page is what used to
- * make the page unable to say `waiting`: it reads
- * one run through a query that never selected the
- * column that question is asked of.
+ * A listed run in one line: its word, the run it
+ * is a replay of, whatever its word has to say,
+ * and whether DBOS picked it back up.
  */
-function severityOf(run: Run, parked: boolean): RunSeverity {
-  if (run.status === 'MAX_RECOVERY_ATTEMPTS_EXCEEDED') return 'exhausted';
-  // Before the failed set, which holds it: somebody
-  // asked for this one, so it is not a failure
-  // anybody has to look into.
-  if (run.status === 'CANCELLED') return 'cancelled';
-  if (run.status === 'ERROR') return 'failed';
-  if (!IN_FLIGHT.has(run.status)) return 'ok';
+function lineOf(run: Run, word: RunWord, now: number, locale: string): string {
+  return [
+    runWords()[word],
+    ...(run.forkedFrom === undefined
+      ? []
+      : [messages.runsReplayOf(shortRunId(run.forkedFrom))]),
+    ...partsOf(run, word, now, locale),
+    ...recoveredAfter(word, hasRecovered(run)),
+  ].join(' · ');
+}
 
-  return parked ? 'waiting' : 'running';
+/**
+ * What each word says after itself.
+ *
+ * The clock is when the run started, except where
+ * the question is how long it has waited or when
+ * it wakes. How long a run took only where it
+ * ended by finishing or by throwing: a run DBOS
+ * gave up on or somebody cancelled was stopped
+ * rather than finished, and a length of time for a
+ * run still going would be stale as soon as it was
+ * drawn.
+ */
+function partsOf(
+  run: Run,
+  word: RunWord,
+  now: number,
+  locale: string,
+): string[] {
+  const started = when(run.createdAt, now, locale);
+  const block = blockOf(run.lastOperation);
+  const named = block === undefined ? [] : [block];
+  const after = said(block, messages.runsAfter);
+
+  switch (word) {
+    case 'done':
+      return [started, ...tookOf(run), ...stepsOf(run.operationCount)];
+    case 'failed':
+      return [...named, started, ...tookOf(run)];
+    case 'gaveUp':
+    case 'running':
+    case 'recovering':
+      return [...after, started];
+    case 'queued':
+    case 'cancelled':
+      return [started];
+    case 'waiting':
+      // Parked on a person: the block that asked,
+      // and since when. Otherwise asleep on the
+      // clock: the block it got past, and when the
+      // sleep ends.
+      return parked(run.lastOperation)
+        ? [
+            ...named,
+            ...said(run.lastOperationAt, (at) =>
+              messages.runsSince(when(at, now, locale)),
+            ),
+          ]
+        : [
+            ...after,
+            ...said(run.sleepingUntil, (at) =>
+              messages.runsWakes(when(at, now, locale)),
+            ),
+          ];
+  }
+}
+
+/** A part, where there is anything to say it
+ *  about. */
+function said<Value>(
+  value: Value | undefined,
+  say: (value: Value) => string,
+): string[] {
+  return value === undefined ? [] : [say(value)];
+}
+
+/** The block a recorded name belongs to, else the
+ *  name as it was recorded. */
+function blockOf(name: string | undefined): string | undefined {
+  if (name === undefined) return undefined;
+
+  const owner = ownerOf(name);
+
+  return owner.kind === 'node' ? owner.nodeId : name;
+}
+
+function tookOf(run: Run): string[] {
+  return said(run.completedAt, (at) => lasted(at - run.createdAt));
+}
+
+/** How many blocks a run ran, where it ran any. */
+function stepsOf(count: number | undefined): string[] {
+  if (count === undefined || count === 0) return [];
+
+  return [count === 1 ? messages.runsOneStep() : messages.runsSteps(count)];
+}
+
+/**
+ * Where the run came from and what came out of it
+ * that is on this page, as the Inspector's lineage
+ * lines are built.
+ *
+ * Only runs whose start step was read: a lineage
+ * line says where the replay began, and the list
+ * read asks that of every run. A replay's word is
+ * asked with the list's own evidence, which it has
+ * for every run on the page.
+ */
+function lineageOf(run: Run, page: readonly Run[], now: number): RunLineage[] {
+  const parent: RunLineage[] =
+    run.forkedFrom === undefined || run.startStep === undefined
+      ? []
+      : [
+          {
+            direction: 'of',
+            workflowId: run.forkedFrom,
+            short: shortRunId(run.forkedFrom),
+            startStep: run.startStep,
+          },
+        ];
+
+  const replays = page.flatMap((one): RunLineage[] =>
+    one.forkedFrom !== run.workflowId || one.startStep === undefined
+      ? []
+      : [
+          {
+            direction: 'to',
+            workflowId: one.workflowId,
+            short: shortRunId(one.workflowId),
+            startStep: one.startStep,
+            word: runWords()[listedWord(one, now)],
+          },
+        ],
+  );
+
+  return [...parent, ...replays];
+}
+
+/**
+ * The word for a run this module read, with the
+ * evidence it holds for whether the run is parked.
+ *
+ * The crossing is one function everywhere; what
+ * differs by reader is the evidence, and this is
+ * where a row's is put together.
+ */
+function wordOf(run: Run, parked: boolean): RunWord {
+  return runWord({
+    status: run.status,
+    recoveryAttempts: run.recoveryAttempts,
+    parked,
+  });
 }
 
 /**
@@ -677,163 +938,189 @@ function parked(lastOperation: string | undefined): boolean {
   return last === 'register' || last === 'resend';
 }
 
-function whenOf(run: Run): string {
-  const at = clock(run.createdAt);
+/** What a run's one line is composed from: the
+ *  word its reader worked out, with whatever
+ *  evidence that reader had, and the run's own
+ *  times. */
+export type RunLineOf = {
+  word: RunWord;
+  createdAt: number;
+  completedAt: number | undefined;
+  recovered: boolean;
+};
 
-  return run.completedAt === undefined
-    ? at
-    : `${at} · ${duration(run.completedAt - run.createdAt)}`;
-}
+/**
+ * A run summed up in one line: "done · 1.6 s",
+ * "waiting", "done · 9.1 s · ↻ recovered".
+ *
+ * How long it took only once DBOS has written
+ * `completed_at`, which it does for every way a run
+ * ends and clears on a resume; a length of time for
+ * a run still going would be stale as soon as it
+ * was drawn.
+ */
+export function runLine(run: RunLineOf): string {
+  const { word, createdAt, completedAt, recovered } = run;
+  const parts = [runWords()[word]];
 
-function spanOf(run: Run): string {
-  const started = precise(run.startedAt ?? run.createdAt);
+  if (completedAt !== undefined) parts.push(lasted(completedAt - createdAt));
 
-  return run.completedAt === undefined
-    ? messages.runSpanRunning(started)
-    : messages.runSpan(started, precise(run.completedAt));
+  return [...parts, ...recoveredAfter(word, recovered)].join(' · ');
 }
 
 /**
- * The banner over a run DBOS picked back up.
+ * The recovered tag, where a line should end with
+ * it: on a run that is over, because one still
+ * being picked back up already says "recovering" —
+ * and never after "gave up", which is a word for
+ * being restarted until DBOS stopped. One rule for
+ * the list's line and the run tab's.
+ */
+function recoveredAfter(word: RunWord, recovered: boolean): string[] {
+  return recovered && settled(word) && word !== 'gaveUp'
+    ? [messages.runsRecoveredTag()]
+    : [];
+}
+
+/**
+ * What a recovery cost, as the Inspector's card
+ * about a whole run lists it: sentence by sentence,
+ * each marked derived, because every one of them is
+ * worked out from the rows rather than read off one.
  *
  * Two forms, because there are two things that can
  * honestly be said. When the steps leave a hole
- * wide enough to place, the sentence names what
- * that cost and how many steps came back instead
- * of running. When they do not, the count is all
- * there is — `recovery_attempts` is a number, and
- * no column anywhere holds the moment a process
- * died.
+ * wide enough to place, the sentences name what
+ * that cost and how many operations were reused
+ * rather than run again. When they do not, the
+ * count is all there is — `recovery_attempts` is a
+ * number, and no column anywhere holds the moment a
+ * process died. A run DBOS gave up on says neither:
+ * it never finished, so there is nothing reused to
+ * report, and how many restarts it took is the part
+ * worth reading.
  */
-function recoveredBanner(run: Run, reading: Reading): SeeRun['recovered'] {
+export function recoverySentences(
+  run: Run,
+  reading: Reading,
+): string[] | undefined {
+  if (run.status === GAVE_UP) {
+    return [
+      messages.runLevelDerived(messages.runLevelGaveUp(recoveriesOf(run))),
+    ];
+  }
+
   if (!hasRecovered(run)) return undefined;
 
   const heading = messages.runRecoveredHeading();
   const outage = reading.outage;
 
-  if (outage === undefined) {
-    return {
-      heading,
-      body: messages.runRecoveredUnplaced(),
-      figures: undefined,
-    };
-  }
+  const said =
+    outage === undefined
+      ? [heading, messages.runRecoveredUnplaced()]
+      : [
+          heading,
+          messages.runRecoveredBody(),
+          messages.runRecoveredDown(lasted(outage.to - outage.from)),
+          messages.runRecoveredReused(
+            reading.steps.filter((step) => step.restored).length,
+          ),
+        ];
 
-  const restored = reading.steps.filter((step) => step.restored).length;
-
-  return {
-    heading,
-    body: messages.runRecoveredBody(),
-    figures: {
-      down: messages.runRecoveredDown(duration(outage.to - outage.from)),
-      reused: messages.runRecoveredReused(restored),
-    },
-  };
-}
-
-function chipOf(step: Operation, points: ReplayPoints): SeeChip {
-  return {
-    functionId: step.functionId,
-    name: step.name,
-    restored: step.restored,
-    reused: step.reused,
-    failed: step.error !== undefined,
-    ...offerOf(points, step.functionId),
-  };
+  return said.map(messages.runLevelDerived);
 }
 
 /**
- * The chart, in fractions of its own window.
+ * Where a run came from and what came out of it, one
+ * line each: the run it was replayed from first,
+ * then each replay of it.
  *
- * `0` is the left edge and `1` the right, rounded
- * to something a stylesheet can carry and a test
- * can state. A step DBOS did not time gets no bar
- * and is still drawn, because a step missing from
- * the chart is a step nobody knows ran.
- *
- * The window, the band and the axis come from the
- * whole reading; the bars come from `drawn`, which
- * is the rows a block owns.
+ * The replay's word is asked with the evidence this
+ * read has, which is no recorded name for the other
+ * run — so none of them can be said to be parked.
  */
-function chartOf(reading: Reading, drawn: readonly Operation[]): SeeTimeline {
-  const span = reading.to - reading.from;
-  const place = (at: number): number => round((at - reading.from) / span);
+export function runLineageOf(lineage: Lineage | undefined): RunLineage[] {
+  if (lineage === undefined) return [];
 
-  const bars: SeeBar[] = drawn.map((step) => ({
-    functionId: step.functionId,
-    name: step.name,
-    at:
-      step.startedAt === undefined || step.completedAt === undefined
-        ? undefined
-        : {
-            from: place(step.startedAt),
-            width: round((step.completedAt - step.startedAt) / span),
-          },
-    restored: step.restored,
-    reused: step.reused,
-    failed: step.error !== undefined,
-  }));
-
-  return {
-    bars,
-    outage: bandOf(reading, place, span),
-    ticks: ticksOf(reading),
-  };
-}
-
-function bandOf(
-  reading: Reading,
-  place: (at: number) => number,
-  span: number,
-): SeeOutage | undefined {
-  const outage = reading.outage;
-  if (outage === undefined) return undefined;
-
-  return {
-    from: place(outage.from),
-    width: round((outage.to - outage.from) / span),
-    down: messages.runProcessDown(duration(outage.to - outage.from)),
-    resumed: messages.runResumed(),
-  };
-}
-
-/** The axis: where it started, where it ended, and
- *  the two edges of the hole if there is one. */
-function ticksOf(reading: Reading): { at: number; label: string }[] {
-  const span = reading.to - reading.from;
-  const marks = [
-    reading.from,
-    ...(reading.outage === undefined
+  const parent: RunLineage[] =
+    lineage.parent === undefined
       ? []
-      : [reading.outage.from, reading.outage.to]),
-    reading.to,
+      : [
+          {
+            direction: 'of',
+            workflowId: lineage.parent.run.workflowId,
+            short: shortRunId(lineage.parent.run.workflowId),
+            startStep: lineage.parent.startStep,
+          },
+        ];
+
+  return [
+    ...parent,
+    ...lineage.forks.map((fork): RunLineage => ({
+      direction: 'to',
+      workflowId: fork.run.workflowId,
+      short: shortRunId(fork.run.workflowId),
+      startStep: fork.startStep,
+      word: runWords()[wordOf(fork.run, false)],
+    })),
   ];
-
-  return marks.map((at) => ({
-    at: round((at - reading.from) / span),
-    label: precise(at),
-  }));
-}
-
-function rawRowOf(step: Step): SeeRawRow {
-  return {
-    stepId: step.functionId,
-    fn: step.name,
-    output: cut(step.output ?? step.error ?? ''),
-    committedAt:
-      step.completedAt === undefined ? '' : precise(step.completedAt),
-  };
 }
 
 /**
- * The run as `dbos.workflow_status` holds it.
+ * What a run was started with, as a card draws a
+ * recorded value: whole on one line where it is
+ * short, and named with its size where it is not.
  *
- * The four the design names, plus the version when
- * DBOS recorded one — it is what decides whether a
- * replay of this run can reach a worker at all, so
- * it belongs beside the button that makes one.
+ * The payload itself rather than the argument array
+ * DBOS stores it in; text that was not that array is
+ * shown as it was stored. The preview keeps as much
+ * as a panel holds, which is more than one line
+ * shows. The size is the value's own, written as
+ * compactly as JSON writes it.
  */
-function railOf(run: Run): { label: string; value: string }[] {
+export function recordedValueOf(
+  input: RunInput | undefined,
+): RecordedValue | undefined {
+  if (input === undefined || input.shape === 'none') return undefined;
+
+  const shown =
+    input.shape === 'payload' ? inlineJson(input.value) : input.text;
+  const stored =
+    input.shape === 'payload'
+      ? (JSON.stringify(input.value) ?? '')
+      : input.text;
+
+  return recordedValue(
+    shown,
+    new TextEncoder().encode(stored).length,
+    sizeWords(),
+  );
+}
+
+/**
+ * The run as `dbos.workflow_status` holds it, each
+ * row under its column's own name and holding the
+ * column's own value — `SUCCESS` rather than
+ * "done", because this is the one place a person
+ * reads the ledger itself.
+ *
+ * Four columns, plus the version when DBOS recorded
+ * one: it is what decides whether a replay of this
+ * run can reach a worker at all, so it belongs
+ * beside the button that makes one. Read off either
+ * a run the ledger was asked for or a run a watch
+ * follows, which carry these columns alike.
+ */
+export function ledgerOf(
+  run: Pick<
+    Run,
+    | 'workflowId'
+    | 'status'
+    | 'recoveryAttempts'
+    | 'executorId'
+    | 'applicationVersion'
+  >,
+): { label: string; value: string }[] {
   const rows = [
     { label: 'workflow_uuid', value: run.workflowId },
     { label: 'status', value: run.status },
@@ -850,8 +1137,9 @@ function railOf(run: Run): { label: string; value: string }[] {
 }
 
 /**
- * Which of the two controls the run is open to, and
- * what it already carries.
+ * Which of the two controls a run is open to, when
+ * it was cancelled and whether it gave up — the
+ * Inspector's card about a whole run.
  *
  * Both answers come off the status column and
  * nothing else, because that is the column DBOS's
@@ -860,96 +1148,63 @@ function railOf(run: Run): { label: string; value: string }[] {
  * ('SUCCESS','ERROR')`. Offering either where the
  * statement would change nothing is offering a
  * button that does nothing and says so afterwards.
- *
  * Never both, and the two sets cannot overlap: a run
  * is either still going or it has stopped.
+ *
+ * `completed_at` is what cancelling writes, so it is
+ * the moment shown, in the fine form every recorded
+ * time on the card is written in. "by you" is this
+ * window's memory and nothing else.
  */
-function controlsOf(
-  run: Run,
-  drawn: readonly Operation[],
+export function runControlsOf(
+  run: Pick<Run, 'status' | 'createdAt' | 'completedAt'>,
   cancelledHere: boolean,
-): SeeRun['controls'] {
-  const last = drawn.at(-1);
+): RunLevel['controls'] {
+  const at = fine(run.completedAt ?? run.createdAt);
 
   return {
     cancel: IN_FLIGHT.has(run.status),
     resume: RESUMABLE.has(run.status),
-    cancelled: cancelledAt(run, cancelledHere),
-    lastRecorded:
-      last === undefined
+    cancelledAt:
+      run.status !== 'CANCELLED'
         ? undefined
-        : messages.runLastRecorded(last.name, last.functionId),
+        : cancelledHere
+          ? messages.runCancelledByYou(at)
+          : at,
+    gaveUp: run.status === GAVE_UP,
   };
 }
 
-/**
- * When the run was cancelled, and whether this
- * window is what did it.
- *
- * `completed_at` is what cancelling writes, so it is
- * the moment to show. A cancelled run with no
- * completion recorded is a row this extension did
- * not write and cannot date, and it says the plain
- * status instead of guessing at a time.
- */
-function cancelledAt(run: Run, cancelledHere: boolean): string | undefined {
-  if (run.status !== 'CANCELLED') return undefined;
-
-  const at = precise(run.completedAt ?? run.createdAt);
-
-  return cancelledHere ? messages.runCancelledByYou(at) : at;
-}
-
-/** Seconds with one decimal, the way the design
- *  writes them, and milliseconds under a second. */
-function duration(ms: number): string {
-  return ms < 1000
-    ? messages.runMilliseconds(Math.round(ms))
-    : messages.runSeconds((ms / 1000).toFixed(1));
-}
-
-function clock(epoch: number): string {
-  return new Date(epoch).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function precise(epoch: number): string {
-  return new Date(epoch).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  });
-}
-
-function cut(value: string): string {
-  return value.length <= OUTPUT_CELL
-    ? value
-    : `${value.slice(0, OUTPUT_CELL)}…`;
-}
-
-/** Four decimals is finer than a pixel on any
- *  panel, and keeps the numbers readable. */
-function round(fraction: number): number {
-  return Math.round(fraction * 10_000) / 10_000;
+/** How long something took, said in the host's
+ *  words. The scale is the one every panel reads,
+ *  so a step is rounded the same way here and in
+ *  the frame that draws its own. */
+function lasted(ms: number): string {
+  return duration(ms, durationWords());
 }
 
 /**
- * The run evidence, said twice: once as a summary
- * a person reads in the transcript, and once as
- * the sentence the agent is asked.
+ * The run evidence, said three times: as a summary
+ * a person reads in the transcript, as the sentence
+ * the agent is asked, and as that sentence the way
+ * the transcript shows it.
  *
- * Both are assembled clause by clause from what the
+ * All are assembled clause by clause from what the
  * record carries. A fact the record does not have
  * is left out rather than printed as a label with
  * nothing after it — the record is built not to
  * invent, and words wrapped around it may not
  * either.
+ *
+ * The agent looks a run up by its full id and reads
+ * DBOS's own status word, so its sentence keeps
+ * both. A person knows a run by its short id and
+ * reads the word every panel says, so what the
+ * transcript shows says those instead.
  */
 
 /** The summary folded under the transcript row. */
-export function evidenceLines(evidence: RunEvidence): string[] {
+export function evidenceLines(evidence: RunEvidence): ToolLine[] {
   return evidence.at === 'refused'
     ? refusedLines(evidence)
     : recordedLines(evidence);
@@ -962,8 +1217,28 @@ export function evidenceSentence(evidence: RunEvidence): string {
     return messages.runAskAgentRefused(evidence.workflow, evidence.detail);
   }
 
+  return askedAbout(evidence, evidence.workflowId, evidence.status);
+}
+
+/** The same question about a run the ledger has,
+ *  as the transcript shows it. */
+export function evidenceEcho(evidence: RecordedRunEvidence): string {
+  return askedAbout(
+    evidence,
+    shortRunId(evidence.workflowId),
+    runWords()[evidenceWord(evidence)],
+  );
+}
+
+/** The question's clauses, with the run and its
+ *  status spelled for whoever reads them. */
+function askedAbout(
+  evidence: RecordedRunEvidence,
+  run: string,
+  status: string,
+): string {
   return [
-    headlineOf(evidence),
+    headlineOf(evidence, run, status),
     codeBehind(evidence),
     messages.runAskAgentEvidence(
       evidence.reader.database,
@@ -975,6 +1250,21 @@ export function evidenceSentence(evidence: RunEvidence): string {
 }
 
 /**
+ * The word the run is said in.
+ *
+ * Parked when a row it carries is waiting on
+ * somebody — the record's own evidence, and the
+ * same rows the run tab reads it off.
+ */
+function evidenceWord(evidence: RecordedRunEvidence): RunWord {
+  return runWord({
+    status: evidence.status,
+    recoveryAttempts: evidence.recoveryAttempts,
+    parked: evidence.operations.some((one) => one.state === 'waiting'),
+  });
+}
+
+/**
  * Which run failed, and where.
  *
  * A block where the record names one, the run
@@ -983,27 +1273,22 @@ export function evidenceSentence(evidence: RunEvidence): string {
  * ledger has can be asked about, and one that
  * succeeded has to be described as one.
  */
-function headlineOf(evidence: RecordedRunEvidence): string {
+function headlineOf(
+  evidence: RecordedRunEvidence,
+  run: string,
+  status: string,
+): string {
   const said = observed(evidence);
 
   if (said === undefined) {
-    return messages.runAskAgentNoFailure(
-      evidence.workflowId,
-      evidence.workflow,
-      evidence.status,
-    );
+    return messages.runAskAgentNoFailure(run, evidence.workflow, status);
   }
 
   const title = evidence.node?.title ?? evidence.failedStep?.name;
 
   return title === undefined
-    ? messages.runAskAgentWith(evidence.workflowId, evidence.workflow, said)
-    : messages.runAskAgentAtBlock(
-        evidence.workflowId,
-        evidence.workflow,
-        title,
-        said,
-      );
+    ? messages.runAskAgentWith(run, evidence.workflow, said)
+    : messages.runAskAgentAtBlock(run, evidence.workflow, title, said);
 }
 
 /**
@@ -1030,14 +1315,24 @@ function codeBehind(evidence: RecordedRunEvidence): string | undefined {
   return parts.length === 0 ? undefined : `${parts.join(' · ')}.`;
 }
 
-/** One run, as the summary lists it. */
-function recordedLines(evidence: RecordedRunEvidence): string[] {
+/**
+ * One run, as the summary lists it.
+ *
+ * The error is the run's own words, which can quote
+ * anything, so it is kept apart from the label in
+ * front of it rather than written into it.
+ */
+function recordedLines(evidence: RecordedRunEvidence): ToolLine[] {
   const said = observed(evidence);
   const handler = evidence.handler;
   const retry = evidence.node?.retry;
 
-  return [
-    said === undefined ? undefined : messages.runEvidenceError(said),
+  const error =
+    said === undefined
+      ? []
+      : [{ text: messages.runEvidenceError(''), recorded: said }];
+
+  const facts = [
     evidence.failedStep === undefined
       ? undefined
       : messages.runEvidenceFailedAt(operationText(evidence.failedStep)),
@@ -1056,7 +1351,7 @@ function recordedLines(evidence: RecordedRunEvidence): string[] {
             ? handler.file
             : `${handler.file}:${String(handler.line)}`,
         ),
-    messages.runEvidenceStatus(evidence.status),
+    messages.runEvidenceStatus(runWords()[evidenceWord(evidence)]),
     evidence.recoveryAttempts === 0
       ? undefined
       : messages.runEvidenceRecovered(String(evidence.recoveryAttempts)),
@@ -1068,17 +1363,33 @@ function recordedLines(evidence: RecordedRunEvidence): string[] {
       String(evidence.operations.length),
       String(evidence.operationsTotal),
     ),
-  ].filter((line) => line !== undefined);
+  ];
+
+  return [
+    ...error,
+    ...facts.flatMap((text) => (text === undefined ? [] : [{ text }])),
+  ];
 }
 
 /** A run that never started, as the summary lists
- *  it: what it was going to be, when, and why not. */
-function refusedLines(evidence: RefusedRunEvidence): string[] {
+ *  it: what it was going to be, when, and why not —
+ *  the last in the app's own words. */
+function refusedLines(evidence: RefusedRunEvidence): ToolLine[] {
   return [
-    messages.runEvidenceRefused(evidence.workflow, evidence.refusedAt),
+    {
+      text: messages.runEvidenceRefused(
+        evidence.workflow,
+        fine(evidence.refusedAt),
+      ),
+    },
     ...(evidence.detail === ''
       ? []
-      : [messages.runEvidenceDetail(evidence.detail)]),
+      : [
+          {
+            text: messages.runEvidenceDetail(''),
+            recorded: evidence.detail,
+          },
+        ]),
   ];
 }
 
@@ -1106,7 +1417,7 @@ function operationText(operation: OperationEvidence): string {
   const spent =
     operation.durationMs === undefined
       ? undefined
-      : duration(operation.durationMs);
+      : lasted(operation.durationMs);
 
   return [`${operation.name} · #${String(operation.functionId)}`, spent]
     .filter((part) => part !== undefined)

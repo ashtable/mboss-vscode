@@ -28,8 +28,9 @@ import {
  * import `vscode` directly.
  */
 export type VsCodeApi = {
-  /** Shows a message in the notification area. */
-  info(message: string): void;
+  /** Tells the person something they can act on, in
+   *  the notification area. */
+  say(message: string): void;
 
   /** Runs a command, this extension's or the
    *  editor's own. */
@@ -109,7 +110,7 @@ export type PickChoice = {
 
 export function vsCodeApi(): VsCodeApi {
   return {
-    info: (message) => void window.showInformationMessage(message),
+    say: (message) => void window.showInformationMessage(message),
     run: async (command, ...args) => {
       await commands.executeCommand(command, ...args);
     },

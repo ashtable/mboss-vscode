@@ -5,11 +5,8 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import type { LibManifest } from './core/rules.js';
-import {
-  openHandler,
-  openSourceFrame,
-  type OpensFiles,
-} from './openHandler.js';
+import { messages } from './messages.js';
+import { openHandler, openSourceFrame, type Opener } from './openHandler.js';
 
 /**
  * The way from a block to the code it runs.
@@ -60,13 +57,17 @@ const MANIFEST: LibManifest = {
 type Opened = { path: string; at?: { line: number; column?: number } };
 
 /** Whatever opens files, writing down what it was
- *  asked to open and where. */
-function opener(): OpensFiles & { opened: Opened[] } {
+ *  asked to open and where, and what it was told
+ *  to say. */
+function opener(): Opener & { opened: Opened[]; said: string[] } {
   const opened: Opened[] = [];
+  const said: string[] = [];
 
   return {
     opened,
+    said,
     openFile: async (path, at) => void opened.push({ path, at }),
+    say: (message) => void said.push(message),
   };
 }
 
@@ -74,11 +75,11 @@ describe('opening the function a block runs', () => {
   it('opens the file at the declaration line', async () => {
     const files = opener();
 
-    const unknown = await openHandler(files, PROJECT, MANIFEST, {
+    await openHandler(files, PROJECT, MANIFEST, {
       handler: { export: 'findSlot' },
     });
 
-    expect(unknown).toBeUndefined();
+    expect(files.said).toEqual([]);
     expect(files.opened).toEqual([
       { path: '/work/booking/lib/findSlot.ts', at: { line: 6 } },
     ]);
@@ -116,11 +117,11 @@ describe('opening the function a block runs', () => {
   it('says it does not know an export the manifest lacks', async () => {
     const files = opener();
 
-    const unknown = await openHandler(files, PROJECT, MANIFEST, {
+    await openHandler(files, PROJECT, MANIFEST, {
       handler: { export: 'reschedule' },
     });
 
-    expect(unknown).toBe('reschedule');
+    expect(files.said).toEqual([messages.openFunctionUnknown('reschedule')]);
     expect(files.opened).toEqual([]);
   });
 
@@ -130,9 +131,9 @@ describe('opening the function a block runs', () => {
   it('opens nothing for a block that runs no function', async () => {
     const files = opener();
 
-    const unknown = await openHandler(files, PROJECT, MANIFEST, {});
+    await openHandler(files, PROJECT, MANIFEST, {});
 
-    expect(unknown).toBeUndefined();
+    expect(files.said).toEqual([]);
     expect(files.opened).toEqual([]);
   });
 });
@@ -167,13 +168,13 @@ describe('opening the line a failure came from', () => {
     const files = opener();
     const project = scratch();
 
-    const gone = await openSourceFrame(files, project, {
+    await openSourceFrame(files, project, {
       file: 'lib/boom.ts',
       line: 7,
       column: 11,
     });
 
-    expect(gone).toBeUndefined();
+    expect(files.said).toEqual([]);
     expect(files.opened).toEqual([
       {
         path: join(project, 'lib', 'boom.ts'),
@@ -185,22 +186,22 @@ describe('opening the line a failure came from', () => {
   it('says the file the failure named is gone', async () => {
     const files = opener();
 
-    const gone = await openSourceFrame(files, scratch(), {
+    await openSourceFrame(files, scratch(), {
       file: 'lib/refund.ts',
       line: 4,
       column: 2,
     });
 
-    expect(gone).toBe('lib/refund.ts');
+    expect(files.said).toEqual([messages.errorLocationGone('lib/refund.ts')]);
     expect(files.opened).toEqual([]);
   });
 
   it('opens nothing when the failure named no file', async () => {
     const files = opener();
 
-    const gone = await openSourceFrame(files, scratch(), undefined);
+    await openSourceFrame(files, scratch(), undefined);
 
-    expect(gone).toBeUndefined();
+    expect(files.said).toEqual([]);
     expect(files.opened).toEqual([]);
   });
 });

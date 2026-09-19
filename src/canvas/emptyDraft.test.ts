@@ -40,11 +40,16 @@ const ir = WorkflowIRSchema.parse(
 );
 
 const drawing = {
-  labels: Object.fromEntries(
-    NODE_PALETTE.map((entry) => [entry.kind, entry.label]),
+  kindWords: Object.fromEntries(
+    NODE_PALETTE.map((entry) => [entry.kind, entry.label.toLowerCase()]),
   ) as Record<NodeKind, string>,
+  triggerPhrases: {
+    manual: 'on request',
+    event: 'on event · {0}',
+    schedule: 'on a schedule',
+  },
   unassigned: 'unassigned',
-  runningDerived: 'RUNNING · derived',
+  runningDerived: 'Running · derived',
 };
 
 describe('an empty draft', () => {

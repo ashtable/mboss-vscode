@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import {
   expect,
@@ -12,50 +11,53 @@ import {
 
 import { DIST } from '../../src/build.js';
 
-import { layoutKeyOf } from '../../src/canvas/placement.js';
-import { GRID, snap } from '../../src/canvas/grid.js';
+import { GRID } from '../../src/canvas/grid.js';
 import {
   NODE_PALETTE,
-  WorkflowIRSchema,
-  handlerFit,
   nodeSize,
-  starterNode,
   validateWorkflow,
-  withDecisionCases,
-  type LibManifest,
   type NodeKind,
   type WorkflowIR,
-  type WorkflowNode,
 } from '../../src/core/rules.js';
-import type { QueueEvidence } from '../../src/runs/queueEvidence.js';
-import type { LiveOutcome, StepState } from '../../src/runs/reading.js';
-import type { LiveRun, LiveStep, QueueCounts } from '../../src/runs/watch.js';
 import { liveStep } from '../../src/test-support/runs.js';
-import { filled } from '../../src/webview/fill.js';
-import type {
-  CanvasInit,
-  InspectorMode,
-  ShownRun,
-} from '../../src/webview/protocol.js';
+import { shortRunId } from '../../src/webview/ids.js';
+import type { CanvasInit } from '../../src/webview/protocol.js';
 
-import { mount, type ThemeKind } from './harness.js';
 import {
-  canvasWords as canvasStrings,
-  inspectorWords as inspectorStrings,
-  paletteLabels,
-} from './words.js';
+  IN_FLIGHT,
+  RECORDED_AT,
+  boxes,
+  canvasInit,
+  clickWire,
+  holdWire,
+  ir,
+  manifest,
+  openCanvas,
+  openEveryKind,
+  pickWire,
+  queuedRun,
+  recording,
+  runOf,
+  showing,
+  slugOf,
+  sourceHandle,
+} from './fixtures/canvas.js';
+import { LIBRARY_COLOURS } from './fixtures/library.js';
+import { graphAtRest } from './fixtures/runs.js';
+import { mount, THEMES_ALL, type ThemeKind } from './harness.js';
+import { colourOf, sameColour, type Role } from './palette.js';
+import { settled } from './sweep.js';
+import { canvasWords as canvasStrings } from './words.js';
 
 /**
- * The canvas, driven — palette, graph and the
- * Inspector column, which are one bundle and one
- * message.
+ * The canvas, driven — the palette and the graph,
+ * which are one bundle and one message.
  *
  * Selecting a block is a round trip: the canvas
  * says which one, and the host sends the canvas
- * back with that block in its column. The specs
- * below play the host's half, because the whole
- * point of the column is that both halves land in
- * the same frame.
+ * back with that block marked. The specs below play
+ * the host's half. What the block does is drawn in
+ * the Inspector, and asked in its own spec.
  *
  * The words the view draws are the ones sent in
  * below, not the ones the extension resolves. That
@@ -64,254 +66,6 @@ import {
  * where the host is, and by the bundle scan at the
  * bottom of this file.
  */
-
-function fixture(name: string): unknown {
-  return JSON.parse(
-    readFileSync(
-      fileURLToPath(
-        new URL(`../../mboss-core/fixtures/${name}`, import.meta.url),
-      ),
-      'utf8',
-    ),
-  );
-}
-
-const ir = WorkflowIRSchema.parse(fixture('ir/groom_booking.workflow.json'));
-/**
- * The fixture's own layout, on the grid.
- *
- * The engine spaces a graph on numbers of its own,
- * none of them the canvas's, and the host rounds
- * what it computed onto this grid before sending it.
- * A graph arriving any other way is one this canvas
- * never sees — and a block half a square off the
- * grid moves diagonally the first time somebody
- * nudges it.
- */
-const boxes: CanvasInit['boxes'] = Object.fromEntries(
-  Object.entries(
-    fixture('golden/layout/groom_booking.layout.json') as CanvasInit['boxes'],
-  ).map(([id, box]) => [id, { ...box, x: snap(box.x), y: snap(box.y) }]),
-);
-const manifest = fixture('golden/manifest/lib.manifest.json') as LibManifest;
-
-function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
-  const shown = { document: { ok: true, ir } as CanvasInit['document'], boxes };
-  const drawn = { ...shown, ...over };
-
-  return {
-    type: 'init',
-    view: 'canvas',
-    strings: canvasStrings,
-    paletteLabels,
-    ...shown,
-
-    // Worked out the way the host works it out, so a
-    // spec that shows a different graph gets a
-    // different key without having to say so.
-    layoutKey: drawn.document.ok
-      ? layoutKeyOf(drawn.document.ir, drawn.boxes)
-      : '',
-    // Editable exactly when the document parsed and
-    // nothing is proposed, the way the host says it.
-    editing:
-      drawn.document.ok && over.preview === undefined
-        ? { revision: drawn.document.ir.revision }
-        : undefined,
-    diagnostics: validateWorkflow(ir, { manifest }),
-    manifest,
-    inspector: {
-      strings: inspectorStrings,
-      selected: undefined,
-      mode: 'configure',
-    },
-    preview: undefined,
-    run: undefined,
-    decided: {},
-    ...over,
-  };
-}
-
-/**
- * A block of every kind, in a column.
- *
- * The canonical fixture is a real workflow and so
- * uses six kinds. Seeing that each kind draws its
- * own glyph takes a document that holds them all,
- * which no workflow anybody would write does.
- */
-const everyKind = WorkflowIRSchema.parse({
-  $schema: 'https://mboss.dev/schemas/workflow-v1.json',
-  version: 1,
-  revision: 1,
-  name: 'every_kind',
-  nodes: NODE_PALETTE.map((entry) =>
-    starterNode(entry.kind, slugOf(entry.kind), entry.label),
-  ),
-  edges: [],
-});
-
-const everyKindBoxes: CanvasInit['boxes'] = Object.fromEntries(
-  everyKind.nodes.map((node, index) => {
-    const { width, height } = nodeSize(node.kind);
-
-    return [node.id, { x: 0, y: index * 90, w: width, h: height }];
-  }),
-);
-
-/** A kind's id, written the way node ids are: a
- *  lower-case slug, so `apiCall` is `api_call`. */
-function slugOf(kind: NodeKind): string {
-  return kind.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-}
-
-/** The column of every kind, on a page. */
-async function openEveryKind(page: Page, over: Partial<CanvasInit> = {}) {
-  const harness = await mount(page, 'canvas');
-  await harness.show(
-    canvasInit({
-      document: { ok: true, ir: everyKind },
-      boxes: everyKindBoxes,
-      diagnostics: [],
-      ...over,
-    }),
-  );
-
-  return harness;
-}
-
-/** A queue holding one item back per partition, and
- *  deduplicating on it — which DBOS refuses. */
-const PARTITIONED = {
-  itemsPath: 'pages',
-  queue: { name: 'document-index', partitionConcurrency: 2 },
-  enqueue: { deduplicationPath: 'documentId' },
-};
-
-/** The same block, unpartitioned and untroubled. */
-const INDEXING = {
-  itemsPath: 'pages',
-  queue: { name: 'document-index', globalConcurrency: 8 },
-  enqueue: { deduplicationPath: 'documentId' },
-};
-
-type Finding = CanvasInit['diagnostics'][number];
-
-/** Both of what core says about `PARTITIONED`, in
- *  the words the host would send. */
-const NO_PARTITION_KEY: Finding = {
-  code: 'V17',
-  severity: 'error',
-  nodeId: 'queue',
-  message:
-    '`queue` limits its queue per partition, but does not say which ' +
-    'partition an item belongs to. Set the partition path.',
-};
-
-const DEDUPLICATES: Finding = {
-  code: 'V17',
-  severity: 'error',
-  nodeId: 'queue',
-  message:
-    '`queue` deduplicates items on a partitioned queue, which DBOS does ' +
-    'not support. Drop the deduplication path or the partition limits.',
-};
-
-/** The marker a folding header wears. Drawn rather
- *  than read — it is `aria-hidden` — but it is in
- *  the header's text all the same. */
-const MARK = '▾';
-
-/**
- * The every-kind document with its queue block
- * configured, that block in the column, and
- * whatever core said about the document.
- *
- * The canonical fixture is a real workflow and holds
- * no queue, so the one form the column groups under
- * headers is reachable only from the document that
- * holds one of every kind.
- */
-function showingQueue(
-  config: object,
-  diagnostics: Finding[] = [],
-): Partial<CanvasInit> {
-  const nodes = everyKind.nodes.map((node) =>
-    node.id === 'queue'
-      ? ({ ...node, handler: { export: 'indexPage' }, config } as WorkflowNode)
-      : node,
-  );
-
-  return {
-    document: { ok: true, ir: { ...everyKind, nodes } },
-    inspector: {
-      strings: inspectorStrings,
-      selected: 'queue',
-      mode: 'configure',
-    },
-    diagnostics,
-  };
-}
-
-/**
- * A word the host resolved for a field or a group.
- *
- * The bags are keyed by id, so a missing one reads
- * as `undefined` and would quietly become the string
- * `"undefined"` in an expectation. Asked for here
- * instead, where a missing word is the failure.
- */
-function word(bag: Record<string, string>, id: string): string {
-  const said = bag[id];
-  if (said === undefined) throw new Error(`no word for ${id}`);
-
-  return said;
-}
-
-/** How wide the column of field labels resolved to,
- *  in pixels. */
-async function labelTrack(page: Page): Promise<number> {
-  const tracks = await page
-    .locator('.field[data-control="text"]')
-    .first()
-    .evaluate((field) => getComputedStyle(field).gridTemplateColumns);
-
-  return Number.parseFloat(tracks);
-}
-
-/** What the host sends back once it has been told
- *  which block was clicked. */
-/**
- * The canvas with that block selected — and, where
- * a test needs the block to read differently, with
- * the document changed on the way in. The column
- * reads everything about a block off the document,
- * so that is the only place a variant can come
- * from.
- */
-function showing(
-  nodeId: string,
-  over: Partial<WorkflowNode> = {},
-  mode: InspectorMode = 'configure',
-): Partial<CanvasInit> {
-  const nodes = ir.nodes.map((one) =>
-    one.id === nodeId ? ({ ...one, ...over } as WorkflowNode) : one,
-  );
-
-  return {
-    document: { ok: true, ir: { ...ir, nodes } },
-    inspector: { strings: inspectorStrings, selected: nodeId, mode },
-  };
-}
-
-/** The graph, on a page, showing the canonical
- *  fixture. */
-async function openCanvas(page: Page, theme: ThemeKind = 'light') {
-  const harness = await mount(page, 'canvas', theme);
-  await harness.show(canvasInit());
-
-  return harness;
-}
 
 /**
  * The same page, with nothing on it still moving.
@@ -324,10 +78,14 @@ async function openCanvas(page: Page, theme: ThemeKind = 'light') {
  * movement is shown the value the sheet settles
  * on, and that is the value worth holding.
  */
-async function openAtRest(page: Page, over: Partial<CanvasInit> = {}) {
+async function openAtRest(
+  page: Page,
+  over: Partial<CanvasInit> = {},
+  theme: ThemeKind = 'light',
+) {
   await page.emulateMedia({ reducedMotion: 'reduce' });
 
-  const harness = await mount(page, 'canvas');
+  const harness = await mount(page, 'canvas', theme);
   await harness.show(canvasInit(over));
 
   return harness;
@@ -342,17 +100,89 @@ test.describe('the palette', () => {
     );
   });
 
-  test('groups them the way the catalog groups them', async ({ page }) => {
+  /**
+   * One label over one list. The catalog's order is
+   * what carries the grouping, and four headings
+   * over three rows each spent more of a rail this
+   * narrow than the grouping was worth.
+   */
+  test('draws them as one list under one label', async ({ page }) => {
     await openCanvas(page);
 
-    const control = page.locator('.drawer', { hasText: 'Control' });
+    const parts = await page
+      .locator('.palette')
+      .evaluate((rail) =>
+        [...rail.querySelectorAll('.section-label, [data-palette-kind]')].map(
+          (part) =>
+            part.getAttribute('data-palette-kind') ??
+            `label: ${part.textContent ?? ''}`,
+        ),
+      );
 
-    await expect(control.locator('[data-palette-kind]')).toHaveText([
-      'Branch',
-      'Loop',
-      'Wait',
+    expect(parts).toEqual([
+      `label: ${canvasStrings.blocks}`,
+      ...NODE_PALETTE.map((entry) => entry.kind),
+      `label: ${canvasStrings.lib}`,
     ]);
   });
+
+  /**
+   * The same glyph the canvas draws, so a row and
+   * the block it turns into are recognisably one
+   * thing rather than two lists that happen to be
+   * in the same order.
+   */
+  test('wears the glyph the canvas draws that kind in', async ({ page }) => {
+    await openCanvas(page);
+
+    const drawn: Record<string, (string | null)[]> = {};
+
+    for (const { kind } of NODE_PALETTE) {
+      const row = page.locator(`[data-palette-kind="${kind}"]`);
+
+      await expect(row.locator('.node-icon')).toHaveCount(1);
+
+      drawn[kind] = await row
+        .locator('.node-icon path')
+        .evaluateAll((paths) => paths.map((path) => path.getAttribute('d')));
+    }
+
+    expect(drawn).toEqual(ICON_PATHS);
+  });
+
+  /**
+   * A rail of filled boxes reads as eleven controls.
+   * A rail of words under a glyph reads as a list of
+   * what can go on the canvas, which is what it is —
+   * so the ground arrives under the pointer and
+   * nowhere else.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`spends no ground on a row at rest in ${theme}`, async ({ page }) => {
+      await openCanvas(page, theme);
+
+      const rows = page.locator('[data-palette-kind]');
+
+      await expect(rows).toHaveCount(NODE_PALETTE.length);
+
+      const resting = await rows.evaluateAll((all) =>
+        all.map((row) => getComputedStyle(row).backgroundColor),
+      );
+
+      expect([...new Set(resting)]).toEqual(['rgba(0, 0, 0, 0)']);
+
+      // And the ground is really there to arrive:
+      // a rail with no hover rule at all would pass
+      // the read above and say nothing.
+      await rows.first().hover();
+
+      const hovered = await rows
+        .first()
+        .evaluate((row) => getComputedStyle(row).backgroundColor);
+
+      expect(hovered).not.toBe('rgba(0, 0, 0, 0)');
+    });
+  }
 
   test('lists the code-behind under it, with each signature', async ({
     page,
@@ -376,7 +206,9 @@ test.describe('the palette', () => {
     const harness = await mount(page, 'canvas');
     await harness.show(canvasInit({ manifest: undefined }));
 
-    await expect(page.locator('.drawer-empty')).toHaveText(canvasStrings.noLib);
+    await expect(page.locator('.palette .empty-state .empty-title')).toHaveText(
+      canvasStrings.noLib,
+    );
     await expect(page.locator('[data-lib-fn]')).toHaveCount(0);
   });
 });
@@ -581,6 +413,52 @@ test.describe('the graph', () => {
       state: 'idle',
     });
     await expect(page.locator('#wire-arrow-idle')).toBeAttached();
+
+    // An open chevron rather than a filled
+    // triangle: the head is stroked in the colour
+    // of the line it ends, so the two cannot
+    // disagree about what happened along it.
+    await expect(page.locator('#wire-arrow-idle path')).toHaveCSS(
+      'fill',
+      'none',
+    );
+  });
+
+  /**
+   * What a keyboard on this board is told is this
+   * product's, in the language the editor is running
+   * in. The graph library describes its own keyboard
+   * otherwise — in English, and in terms of a press
+   * that selects and an escape that calls a deletion
+   * off, neither of which this board has.
+   *
+   * Read off the elements the blocks and wires
+   * actually point at rather than off what was
+   * passed in: the library keeps two node
+   * descriptions and picks between them by a flag,
+   * so a sentence sent under the other key would be
+   * a sentence nobody hears.
+   */
+  test('tells a keyboard about this board and not the library’s', async ({
+    page,
+  }) => {
+    await openCanvas(page);
+
+    const said = async (from: Locator): Promise<string> => {
+      const named = await from.getAttribute('aria-describedby');
+
+      expect(named).not.toBeNull();
+
+      return page.locator(`#${named ?? ''}`).innerText();
+    };
+
+    expect(
+      await said(page.locator('.react-flow__node[data-id="find_slot"]')),
+    ).toBe(canvasStrings.ariaLabels['node.a11yDescription.default']);
+
+    expect(await said(page.locator('.react-flow__edge[data-id="e2"]'))).toBe(
+      canvasStrings.ariaLabels['edge.a11yDescription.default'],
+    );
   });
 });
 
@@ -659,7 +537,7 @@ test.describe('one block', () => {
     await openEveryKind(page);
 
     const glyphs = await page
-      .locator('.node-icon svg')
+      .locator('.react-flow__node .node-icon svg')
       .evaluateAll((icons) =>
         icons.map((icon) =>
           [...icon.querySelectorAll('path')]
@@ -722,7 +600,7 @@ test.describe('one block', () => {
 
     await openEveryKind(page);
 
-    await expect(page.locator('.node-icon svg')).toHaveCount(
+    await expect(page.locator('.react-flow__node .node-icon svg')).toHaveCount(
       NODE_PALETTE.length,
     );
     expect(complaints).toEqual([]);
@@ -739,8 +617,8 @@ test.describe('one block', () => {
   }) => {
     await openEveryKind(page);
 
-    await expect(nodeLine(page, 'step')).toHaveText('Step · unassigned');
-    await expect(nodeLine(page, 'branch')).toHaveText('Branch · unassigned');
+    await expect(nodeLine(page, 'step')).toHaveText('step · unassigned');
+    await expect(nodeLine(page, 'branch')).toHaveText('branch · unassigned');
   });
 
   test('says only what a block that runs no code of its own is', async ({
@@ -748,8 +626,19 @@ test.describe('one block', () => {
   }) => {
     await openEveryKind(page);
 
-    await expect(nodeLine(page, 'trigger')).toHaveText('Trigger');
-    await expect(nodeLine(page, 'loop')).toHaveText('Loop');
+    await expect(nodeLine(page, 'loop')).toHaveText('loop');
+    await expect(nodeLine(page, 'durable_wait')).toHaveText('durable wait');
+  });
+
+  /** Except a trigger, whose kind is not the thing
+   *  worth reading about it: how the run gets
+   *  started is. */
+  test('says how a trigger starts a run', async ({ page }) => {
+    await openEveryKind(page);
+
+    await expect(nodeLine(page, 'trigger')).toHaveText(
+      `${canvasStrings.kinds.trigger} · ${canvasStrings.triggerPhrases.manual}`,
+    );
   });
 
   /**
@@ -920,107 +809,6 @@ const proposing = (id: string): CanvasInit['preview'] => ({
   more: undefined,
 });
 
-/**
- * A run of the fixture's workflow, as the watcher
- * reports one.
- *
- * The steps are in the order the ledger holds them,
- * which is the order they ran in — the last of them
- * is the one the block the run is at is worked out
- * from.
- */
-function runOf(
-  steps: readonly (readonly [string, StepState])[],
-  outcome: LiveOutcome = 'running',
-): LiveRun {
-  return {
-    workflowId: 'wf_1',
-    workflow: ir.name,
-    status: outcome === 'running' ? 'PENDING' : 'SUCCESS',
-    steps: steps.map(([nodeId, state], index) =>
-      liveStep({ name: nodeId, nodeId, state, functionId: index }),
-    ),
-    recovered: false,
-    recoveryAttempts: 1,
-    outcome,
-    applicationVersion: 'v0.1.0',
-    createdAt: 1000,
-    startedAt: 1000,
-    completedAt: undefined,
-    input: undefined,
-    forkedFrom: undefined,
-  };
-}
-
-/**
- * A run of the column of every kind, with the queue
- * block's children part-way through it.
- *
- * No rows at all: the queue block records nothing
- * about the work its children do, so what its
- * children are doing is the only thing this run
- * says about anything.
- */
-function queuedRun(
-  counts: Partial<QueueCounts>,
-  evidence?: QueueEvidence,
-): ShownRun {
-  return {
-    ...runOf([]),
-    workflow: everyKind.name,
-    queues: {
-      queue: {
-        queued: 0,
-        delayed: 0,
-        active: 0,
-        done: 0,
-        failed: 0,
-        ...counts,
-      },
-    },
-    ...(evidence === undefined ? {} : { queueEvidence: { queue: evidence } }),
-  };
-}
-
-/**
- * What one read of the whole queue answered with.
- *
- * Per selection rather than per tick, so a run that
- * nobody has opened a queue card on carries none of
- * it — which is what the card's own case about
- * saying nothing yet is drawn from.
- */
-function queueEvidence(over: Partial<QueueEvidence> = {}): QueueEvidence {
-  return {
-    window: {
-      queued: 4,
-      active: 2,
-      started: 74,
-      failedRecently: 2,
-      windowSec: 60,
-    },
-    registered: 'matches',
-    recent: [
-      { workflowId: 'wf_child_1', label: 'doc_7', status: 'PENDING' },
-      {
-        workflowId: 'wf_child_2',
-        label: '…b2c3d4e5',
-        status: 'SUCCESS',
-        completedAt: RECORDED_AT,
-      },
-    ],
-    ...over,
-  };
-}
-
-/** A run still going: two blocks behind it, and a
- *  branch ahead that records nothing, so both of
- *  the blocks past it are where the run might be. */
-const IN_FLIGHT = [
-  ['parse_request', 'done'],
-  ['find_slot', 'done'],
-] as const;
-
 /** A run parked on a person, at the block that is
  *  waiting for them. */
 const PARKED = [
@@ -1035,21 +823,6 @@ const BROKEN = [
   ['parse_request', 'done'],
   ['find_slot', 'failed'],
 ] as const;
-
-/** The same run with its rows spelled out, for the
- *  column that draws one row in full rather than a
- *  graph of all of them. */
-function recording(steps: LiveStep[], over: Partial<LiveRun> = {}): LiveRun {
-  return { ...runOf([]), steps, ...over };
-}
-
-/**
- * A moment built in the browser's own clock rather
- * than parsed out of a UTC string, because the card
- * formats it in that clock and a fixture in another
- * one would be a different time on every machine.
- */
-const RECORDED_AT = new Date(2026, 8, 7, 10, 31, 14, 218).getTime();
 
 /** The parked run again, with the moment it parked
  *  spelled out: the line under the block reads it
@@ -1072,67 +845,19 @@ const WAITING_PARKED = recording(
 /**
  * The line that block then shows.
  *
- * A shape rather than a string, because the time in
- * it is formatted in the browser's own locale and
- * the process running this spec need not share one.
+ * A shape rather than a string, because the epoch
+ * the fixture records reads as a different hour in
+ * every zone — but a closed shape: the clock is
+ * written out rather than asked of a locale, so
+ * nothing is allowed before or after it, and this
+ * page runs in a 12-hour one.
  */
 const WAITING_LINE = new RegExp(
   `^${canvasStrings.waitingSince.replace(
     '{0}',
-    '\\d{1,2}:\\d{2}:\\d{2}\\.\\d{3}',
-  )}`,
+    '\\d{2}:\\d{2}:\\d{2}\\.\\d{3}',
+  )}$`,
 );
-
-/** One step that worked, timed to the millisecond
- *  and carrying what it returned. */
-const DONE = liveStep({
-  name: 'find_slot',
-  nodeId: 'find_slot',
-  functionId: 3,
-  startedAt: RECORDED_AT,
-  completedAt: RECORDED_AT + 48,
-  output: '{"id":"ord_123","amount":1249}',
-});
-
-/** The same step, having thrown somewhere nobody
- *  in this project wrote — which is most of them. */
-const THREW = liveStep({
-  ...DONE,
-  state: 'failed',
-  output: undefined,
-  error: {
-    name: 'StripeTimeoutError',
-    message: 'Request timed out after 30 s',
-    stack: [
-      'StripeTimeoutError: Request timed out after 30 s',
-      '    at post (/app/node_modules/stripe/lib/http.js:212:19)',
-    ].join('\n'),
-    retriesExhausted: false,
-    frame: undefined,
-  },
-});
-
-/** And having thrown on a line of the project's own
- *  code, which is the one case with a line to go
- *  to. */
-const THREW_IN_LIB = liveStep({
-  ...THREW,
-  error: {
-    ...THREW.error!,
-    stack: [
-      'StripeTimeoutError: Request timed out after 30 s',
-      '    at refundPayment (/app/lib/refund-payment.ts:18:11)',
-    ].join('\n'),
-    frame: { file: 'lib/refund-payment.ts', line: 18, column: 11 },
-  },
-});
-
-/** And having thrown on every try DBOS allowed it,
- *  which is the one case that says so out loud. */
-const EXHAUSTED = liveStep({
-  ...THREW,
-  error: { ...THREW.error!, retriesExhausted: true },
-});
 
 /** What a run puts on a block, and what is left of
  *  it once the run has gone past. */
@@ -1343,7 +1068,7 @@ test.describe('the state a block is in', () => {
 
     const block = nodeBody(page, 'twilio_chat');
 
-    await expect(block).toHaveCSS('animation-duration', '1.6s');
+    await expect(block).toHaveCSS('animation-duration', '2s');
 
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
@@ -1415,6 +1140,38 @@ test.describe('the mark a run leaves on a block', () => {
     await expect(nodeBody(page, 'twilio_chat')).not.toContainText('✓');
   });
 
+  /**
+   * A theme that forces its own colours fills the
+   * dot with the page's ground and drops the glow
+   * round the block, so unless the dot keeps a
+   * system colour of its own there, the block a run
+   * is at looks like one it has not reached.
+   */
+  test('keeps the dot where the run is visible when the system forces its colours', async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: 'active' });
+    await openAtRest(page, { run: runOf(IN_FLIGHT) }, 'high-contrast');
+
+    const mark = runMark(page, 'twilio_chat');
+
+    await expect(mark).toHaveAttribute('data-run', 'running');
+
+    const { fill, ground } = await mark.evaluate((element) => ({
+      fill: getComputedStyle(element).backgroundColor,
+      ground: getComputedStyle(document.body).backgroundColor,
+    }));
+
+    // Against the ground rather than a named colour:
+    // the system picks both. Chromium writes an
+    // opaque colour as rgb() with no alpha in it.
+    const opaque = fill.startsWith('rgb(') && !fill.includes('/');
+
+    expect(opaque && !sameColour(fill, ground), `${fill} on ${ground}`).toBe(
+      true,
+    );
+  });
+
   test('crosses the block a run stopped at', async ({ page }) => {
     await openAtRest(page, { run: runOf(BROKEN, 'failed') });
 
@@ -1423,6 +1180,50 @@ test.describe('the mark a run leaves on a block', () => {
     await expect(mark).toHaveText('✕');
     await expect(mark).toHaveCSS('color', 'rgb(238, 93, 104)');
   });
+
+  /**
+   * The tick and the cross are text, so they are
+   * drawn in the ink wherever a theme spends no
+   * colour on state, as every other toned word is:
+   * a voice colour chosen to sit under a word is too
+   * light to be one there.
+   */
+  for (const theme of THEMES_ALL) {
+    const toned = (role: 'ok' | 'fail') =>
+      colourOf(theme, 'state-ink') || colourOf(theme, role);
+
+    test(`ticks a block in the colour it says it finished in (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, { run: runOf(IN_FLIGHT) }, theme);
+
+      const mark = runMark(page, 'find_slot');
+
+      await expect(mark).toHaveText('✓');
+
+      const colour = await mark.evaluate(
+        (element) => getComputedStyle(element).color,
+      );
+
+      expect(sameColour(colour, toned('ok')), colour).toBe(true);
+    });
+
+    test(`crosses a block in the colour it says it failed in (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, { run: runOf(BROKEN, 'failed') }, theme);
+
+      const mark = runMark(page, 'find_slot');
+
+      await expect(mark).toHaveText('✕');
+
+      const colour = await mark.evaluate(
+        (element) => getComputedStyle(element).color,
+      );
+
+      expect(sameColour(colour, toned('fail')), colour).toBe(true);
+    });
+  }
 
   test('leaves a hollow dot where a run is parked', async ({ page }) => {
     await openAtRest(page, { run: runOf(PARKED, 'waiting') });
@@ -1441,16 +1242,49 @@ test.describe('the mark a run leaves on a block', () => {
     await expect(mark).toHaveCSS('animation-name', 'none');
   });
 
-  /** The dot is worked out from the ledger rather
-   *  than read off it, and every derived thing in
-   *  this extension says so. */
-  test('says the running dot is derived, not recorded', async ({ page }) => {
+  /**
+   * Two of the marks on this board were worked out
+   * rather than read off a row — the dot where the
+   * run is, which is derived from the rows either
+   * side of it, and the trigger's tick, which is
+   * read off there being a run at all. Neither has
+   * room for a word, so each carries the admission
+   * in its title and says it to a screen reader
+   * besides. A derived mark somebody takes for a
+   * recorded one is the whole failure mode of a
+   * flight recorder.
+   */
+  test('says which marks it worked out rather than read', async ({ page }) => {
     await openAtRest(page, { run: runOf(IN_FLIGHT) });
 
-    await expect(runMark(page, 'twilio_chat')).toHaveAttribute(
-      'title',
+    const ahead = runMark(page, 'twilio_chat');
+
+    await expect(ahead).toHaveAttribute('data-run', 'running');
+    await expect(ahead).toHaveAttribute('data-provenance', 'derived');
+    await expect(ahead).toHaveAttribute('title', canvasStrings.runningDerived);
+    await expect(ahead).toHaveAccessibleDescription(
       canvasStrings.runningDerived,
     );
+
+    const started = runMark(page, 'booking_requested');
+
+    await expect(started).toHaveAttribute('data-run', 'done');
+    await expect(started).toHaveAttribute('data-provenance', 'derived');
+    await expect(started).toHaveAttribute('title', canvasStrings.derived);
+    await expect(started).toHaveAccessibleDescription(canvasStrings.derived);
+  });
+
+  /** And a mark that came off a row says nothing
+   *  about itself, which is what tells a reader the
+   *  two apart. */
+  test('leaves a recorded mark claiming nothing', async ({ page }) => {
+    await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    const recorded = runMark(page, 'find_slot');
+
+    await expect(recorded).toHaveText('✓');
+    await expect(recorded).not.toHaveAttribute('data-provenance');
+    await expect(recorded).not.toHaveAttribute('title');
   });
 
   /** The mark is the run's, so a canvas nobody is
@@ -1464,6 +1298,30 @@ test.describe('the mark a run leaves on a block', () => {
     await openAtRest(page);
 
     await expect(runMark(page, 'find_slot')).toHaveCount(0);
+  });
+
+  /**
+   * And a block somebody clicked keeps the mark it
+   * earned. The halo is what a click paints, so a
+   * block that lost its tick the moment it was asked
+   * about would answer the one gesture that should
+   * add to what it says by taking something away.
+   */
+  test('keeps the mark under the halo of a block picked', async ({ page }) => {
+    await openAtRest(page, {
+      run: runOf(IN_FLIGHT),
+      selected: 'find_slot',
+    });
+
+    await expect(nodeBody(page, 'find_slot')).toHaveAttribute(
+      'data-state',
+      'selected',
+    );
+
+    const mark = runMark(page, 'find_slot');
+
+    await expect(mark).toHaveAttribute('data-run', 'done');
+    await expect(mark).toHaveText('✓');
   });
 
   /**
@@ -1566,7 +1424,9 @@ test.describe('the mark a run leaves on a block', () => {
     const line = nodeLine(page, 'queue');
 
     await expect(line).toHaveAttribute('data-line', 'unassigned');
-    await expect(line).toHaveText(`Queue · ${canvasStrings.unassigned}`);
+    await expect(line).toHaveText(
+      `${canvasStrings.kinds.queue} · ${canvasStrings.unassigned}`,
+    );
     await expect(runMark(page, 'queue')).toHaveText('✓');
   });
 });
@@ -1579,44 +1439,56 @@ test.describe('the mark a run leaves on a block', () => {
  * It says which run and where it has got to, and
  * nothing about how long ago anything happened: the
  * canvas keeps no clock, and a chip that counted
- * would be one.
+ * would be one. The workflow is not named either —
+ * the canvas the chip sits on is that workflow.
  */
 test.describe('the followed run on the toolbar', () => {
   test('names the run this canvas is following', async ({ page }) => {
     await openAtRest(page, { run: runOf(PARKED, 'waiting') });
 
-    await expect(page.locator('.following')).toHaveText(
-      filled(
-        canvasStrings.following,
-        ir.name,
-        'wf_1',
+    await expect(page.locator('[data-following]')).toHaveText(
+      `${canvasStrings.followingRun} ${shortRunId('wf_1')} · ` +
         canvasStrings.runOutcomes.waiting,
-      ),
     );
   });
 
-  /** The end of it, because the ids this window
-   *  mints open with a timestamp — two runs a minute
-   *  apart share their first fifteen characters. */
-  test('shows the end of a long run id, and the whole of it beside', async ({
-    page,
-  }) => {
+  /**
+   * A few characters of it, with the whole of one
+   * beside: four collide about once in fifty rows,
+   * and a reader holding two of them has to be able
+   * to tell which is which.
+   */
+  test('shows a run by the few characters it is known by', async ({ page }) => {
     const workflowId = 'run_1757232000000_a1b2c3d4';
 
     await openAtRest(page, {
       run: { ...runOf(IN_FLIGHT), workflowId },
     });
 
-    const chip = page.locator('.following');
+    const id = page.locator('[data-following] [data-short-run]');
 
-    await expect(chip).toContainText('…a1b2c3d4');
-    await expect(chip).toHaveAttribute('title', workflowId);
+    await expect(id).toHaveText(shortRunId(workflowId));
+    await expect(id).toHaveAttribute('title', workflowId);
+  });
+
+  /** And it is the way from here to the run itself,
+   *  now that the card beside the graph is about one
+   *  block rather than the whole run. */
+  test('opens the run it names', async ({ page }) => {
+    const harness = await openAtRest(page, { run: runOf(IN_FLIGHT) });
+
+    await page.locator('[data-following]').click();
+
+    expect(await harness.posted()).toContainEqual({
+      type: 'openRun',
+      workflowId: 'wf_1',
+    });
   });
 
   test('says nothing on a canvas following no run', async ({ page }) => {
     await openAtRest(page);
 
-    await expect(page.locator('.following')).toHaveCount(0);
+    await expect(page.locator('[data-following]')).toHaveCount(0);
   });
 });
 
@@ -1667,13 +1539,15 @@ test.describe('the dashes on a wire a run is going down', () => {
 /**
  * What colour a wire is drawn in.
  *
- * The colours live beside the wire rather than in
- * the stylesheet, so that the arrowhead at the end
- * of a line cannot disagree with the line — which
- * also means nothing in the sheet would catch them
- * going wrong. A run whose every wire came out the
- * colour of structure would say a workflow was
- * sitting still while it was going.
+ * A run's colours live beside the wire rather than
+ * in the stylesheet, so that the arrowhead at the
+ * end of a line cannot disagree with the line —
+ * which also means nothing in the sheet would catch
+ * them going wrong. A run whose every wire came out
+ * the colour of structure would say a workflow was
+ * sitting still while it was going. Only a picked
+ * wire's look is the sheet's, since only the
+ * browser knows where a keyboard is.
  */
 test.describe('the colour a wire is drawn in', () => {
   test('draws one nothing is going down as structure', async ({ page }) => {
@@ -1696,6 +1570,38 @@ test.describe('the colour a wire is drawn in', () => {
     await expect(wireBody(page, 'e5')).toHaveCSS('stroke', 'rgb(23, 184, 144)');
   });
 
+  /**
+   * The name of a port on a live wire is a word, and
+   * a theme that carries state in the ink draws every
+   * state word in it: the colour the line takes is
+   * picked to be seen as a line, and is too light to
+   * be read as text there.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`names a port on a live wire in the colour a theme gives state words (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, { run: runOf(IN_FLIGHT) }, theme);
+
+      const port = page.locator('[data-edge-port="e5"]');
+
+      await expect(port).toHaveText('no');
+      await expect(wireBody(page, 'e5')).toHaveAttribute(
+        'data-state',
+        'active',
+      );
+
+      const colour = await port.evaluate(
+        (element) => getComputedStyle(element).color,
+      );
+      const expected = colourOf(theme, 'state-ink') || colourOf(theme, 'ok');
+
+      expect(sameColour(colour, expected), `${colour} ≠ ${expected}`).toBe(
+        true,
+      );
+    });
+  }
+
   /** Behind the run, and faded: it says where the
    *  run has been rather than where it is. */
   test('fades the one a run has already come down', async ({ page }) => {
@@ -1703,7 +1609,7 @@ test.describe('the colour a wire is drawn in', () => {
 
     await expect(wireBody(page, 'e2')).toHaveCSS(
       'stroke',
-      'color(srgb 0.0901961 0.721569 0.564706 / 0.5)',
+      'color(srgb 0.104705 0.67119 0.530448 / 0.613)',
     );
   });
 
@@ -1730,7 +1636,85 @@ test.describe('the colour a wire is drawn in', () => {
 
     await expect(wireBody(page, 'e8')).toHaveCSS('stroke-dasharray', 'none');
   });
+
+  /**
+   * A wire somebody picked, or has the keyboard on,
+   * is drawn in the colour the editor marks focus
+   * in, over whatever a run is doing along it. A
+   * wire that looks the same picked as not leaves a
+   * keyboard with no way of saying where it is. The
+   * arrowhead goes with the line, and the wires
+   * nobody is on keep their own colours.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`draws a picked wire in the focus colour, arrowhead too (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, { run: runOf(IN_FLIGHT) }, theme);
+      await pickWire(page, 'e5');
+
+      await page.mouse.move(0, 0);
+      await settled(page);
+
+      await drawnIn(page, theme, {
+        e5: 'focus-ring',
+        e2: 'edge-done',
+        e10: 'hairline-strong',
+      });
+    });
+
+    test(`draws a wire the keyboard is on in the focus colour, arrowhead too (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, { run: runOf(IN_FLIGHT) }, theme);
+
+      const edge = page.locator('.react-flow__edge[data-id="e10"]');
+
+      // A key first, so the browser takes the focus
+      // for one a keyboard made.
+      await page.keyboard.press('Shift');
+      await edge.focus();
+      await settled(page);
+
+      expect(
+        await edge.evaluate((wire) => wire.matches(':focus-visible')),
+      ).toBe(true);
+      await expect(edge).not.toHaveClass(/selected/);
+
+      await drawnIn(page, theme, {
+        e10: 'focus-ring',
+        e5: 'ok',
+        e2: 'edge-done',
+      });
+    });
+  }
 });
+
+/** Holds each wire's line and arrowhead to the role
+ *  it should be drawn in, in `theme`. */
+async function drawnIn(
+  page: Page,
+  theme: ThemeKind,
+  roles: Record<string, Role>,
+): Promise<void> {
+  for (const [edge, role] of Object.entries(roles)) {
+    const { line, head } = await wireInk(page, edge);
+    const expected = colourOf(theme, role);
+
+    expect
+      .soft(
+        sameColour(line, expected),
+        `${edge}: ${line} ≠ ${role} ${expected}`,
+      )
+      .toBe(true);
+    expect
+      .soft(
+        sameColour(head, expected),
+        `${edge}'s arrowhead: ${head} ≠ ${role} ${expected}`,
+      )
+      .toBe(true);
+  }
+}
 
 /** Tint and ink per tone, as the browser resolves
  *  the mixes over this harness' light surface. The
@@ -1750,22 +1734,22 @@ const TONE_COLOURS = [
   },
   {
     tone: 'agent',
-    tint: 'color(srgb 0.933725 0.915686 0.975294)',
+    tint: 'color(srgb 0.94149 0.927059 0.974745)',
     ink: 'rgb(149, 103, 255)',
   },
   {
     tone: 'ok',
-    tint: 'color(srgb 0.866667 0.942431 0.923608)',
+    tint: 'color(srgb 0.893137 0.949961 0.935843)',
     ink: 'rgb(23, 184, 144)',
   },
   {
     tone: 'warn',
-    tint: 'color(srgb 0.964314 0.925333 0.868784)',
+    tint: 'color(srgb 0.966078 0.935451 0.89102)',
     ink: 'rgb(233, 162, 59)',
   },
   {
     tone: 'fail',
-    tint: 'color(srgb 0.967843 0.899608 0.904784)',
+    tint: 'color(srgb 0.96902 0.917843 0.921725)',
     ink: 'rgb(238, 93, 104)',
   },
 ] as const;
@@ -1782,9 +1766,9 @@ test.describe('the tile a block’s glyph sits in', () => {
     // colours would be a legend to memorise, and
     // the block worth finding across a graph is the
     // one something is happening to.
-    await expect(page.locator('.node-icon[data-tone="neutral"]')).toHaveCount(
-      NODE_PALETTE.length,
-    );
+    await expect(
+      page.locator('.react-flow__node .node-icon[data-tone="neutral"]'),
+    ).toHaveCount(NODE_PALETTE.length);
   });
 
   test('turns brand for the selected block, agent for a proposed one', async ({
@@ -1899,6 +1883,15 @@ test.describe('drawing a wire', () => {
     await expect(refusal).toContainText(
       whatCoreSays('find_slot', 'out', 'record_booking'),
     );
+
+    // The card's heading is the system's one section
+    // label, in the case it was written in: a
+    // refusal set in capitals reads as the product
+    // raising its voice at somebody who drew a wire.
+    const heading = refusal.locator('.section-label');
+
+    await expect(heading).toHaveText(canvasStrings.typedWiring);
+    await expect(heading).toHaveCSS('text-transform', 'none');
 
     expect(await harness.postedOfType('connect')).toEqual([]);
   });
@@ -2080,6 +2073,31 @@ test.describe('a wire being drawn', () => {
     await page.mouse.up();
   });
 
+  for (const theme of THEMES_ALL) {
+    test(`says which shape meets which in the colour a theme gives a gesture’s words (${theme})`, async ({
+      page,
+    }) => {
+      await openCanvas(page, theme);
+      await holdWire(page, 'find_slot');
+      await targetHandle(page, 'book_appointment').hover();
+
+      const note = page.locator('[data-shape-note]');
+
+      await expect(note).toHaveText(
+        'SlotGrid → SlotGrid ✓ · release to connect',
+      );
+
+      const colour = await inkOf(note);
+      const expected = gestureInk(theme);
+
+      expect(sameColour(colour, expected), `${colour} ≠ ${expected}`).toBe(
+        true,
+      );
+
+      await page.mouse.up();
+    });
+  }
+
   test('says nothing where either end names no shape', async ({ page }) => {
     await openEveryKind(page);
     await holdWire(page, 'step');
@@ -2131,12 +2149,37 @@ test.describe('a wire being drawn', () => {
 
     await expect(offered.first()).toBeVisible();
 
-    const kinds = await offered.evaluateAll((rows) =>
-      rows.map((row) => row.getAttribute('data-quick-add-kind')),
+    // Picking one writes a block, which is an
+    // action, so each row is the system's Button
+    // rather than a line of text somebody can
+    // click — and the gesture ended here, so the
+    // first of them is where the keyboard is.
+    const rows = await offered.evaluateAll((found) =>
+      found.map((row) => ({
+        kind: row.getAttribute('data-quick-add-kind'),
+        button: row.classList.contains('btn'),
+        variant: row.getAttribute('data-variant'),
+        holding: row === document.activeElement,
+      })),
     );
+
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.findIndex((row) => row.holding)).toBe(0);
+
+    for (const row of rows) {
+      expect(row.button).toBe(true);
+      expect(row.variant).toBe('quiet');
+    }
+
+    const kinds = rows.map((row) => row.kind);
 
     expect(kinds).toContain('step');
     expect(kinds).not.toContain('trigger');
+
+    const heading = page.locator('[data-quick-add] .section-label');
+
+    await expect(heading).toHaveText(canvasStrings.quickAdd);
+    await expect(heading).toHaveCSS('text-transform', 'none');
 
     // Nothing is written until one is chosen: the
     // list is the question, not the answer.
@@ -2238,36 +2281,34 @@ test.describe('the Arrange button', () => {
   });
 
   /**
-   * Quiet, and shaped like the rest of the chrome:
-   * laying the graph out again is something a person
-   * does now and then, and a button that shouted
-   * would be competing with the graph it is about.
+   * Quiet, and the system's own button rather than
+   * one this screen drew for itself: laying the
+   * graph out again is something a person does now
+   * and then, and a control shaped by hand here is
+   * one nobody maintains beside the other five
+   * surfaces.
    */
   test('wears the shape of an action nobody needs often', async ({ page }) => {
     await openCanvas(page);
 
-    const arrange = page.locator('[data-arrange]');
+    const arrange = page.locator('.btn[data-variant="quiet"][data-arrange]');
 
-    await expect(arrange).toHaveCSS('border-radius', '6px');
+    await expect(arrange).toHaveCount(1);
     await expect(arrange).toHaveCSS('padding', '3px 10px');
-    await expect(arrange).toHaveCSS('font-weight', '600');
+    await expect(arrange).toHaveCSS('letter-spacing', 'normal');
     await expect(arrange).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-    await expect(arrange).toHaveCSS(
-      'color',
-      'color(srgb 0.231373 0.231373 0.231373 / 0.62)',
+
+    const ink = await arrange.evaluate(
+      (button) => getComputedStyle(button).color,
     );
-    await expect(arrange).toHaveCSS(
-      'transition',
-      'background 0.12s cubic-bezier(0.2, 0, 0, 1)',
-    );
+    const expected = colourOf('light', 'ink-muted');
+
+    expect(sameColour(ink, expected), `${ink} ≠ ${expected}`).toBe(true);
 
     // It takes a ground only under the pointer,
     // which is the whole of its reaction.
     await arrange.hover();
-    await expect(arrange).toHaveCSS(
-      'background-color',
-      'color(srgb 0.928078 0.928078 0.928078)',
-    );
+    await expect(arrange).not.toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
   });
 
   /**
@@ -2330,42 +2371,47 @@ test.describe('selecting a block', () => {
 });
 
 /**
- * The one place a block's config is set, and it is
- * a column of this canvas rather than a panel
- * somewhere else: clicking a block and reading what
- * it does happen in the same frame, without a view
- * being disposed in between.
+ * The canvas's own columns: what can go on the
+ * board, and the board. What a block does is set in
+ * the Inspector, a pane of its own beside every
+ * canvas, so a click here only tells the host which
+ * block was picked.
  */
-test.describe('the Inspector column', () => {
+test.describe('the palette beside the graph', () => {
   /**
-   * The column is the right-hand third of one grid,
-   * and the blocks and the wires are the middle of
-   * it. Nothing else in the suite would notice the
-   * grid collapsing to a single track: every other
-   * assertion here finds the column by class and
-   * passes just as well when it is stacked under
-   * the graph at full width, which is not a canvas
-   * anybody can work in.
+   * The palette is the left-hand track of one grid,
+   * and the blocks and the wires are the rest of it.
+   * Nothing else in the suite would notice the grid
+   * collapsing to a single track, or a third one
+   * coming back for a column the canvas no longer
+   * draws.
    */
-  test('stands beside the graph, not under it', async ({ page }) => {
+  test('leaves the graph beside the palette and nothing else', async ({
+    page,
+  }) => {
     await openCanvas(page);
+    await expect(page.locator('.react-flow')).toHaveCount(1);
 
-    // The two outer tracks are fixed; the middle
-    // one is whatever is left of the frame, which
-    // at this suite's viewport is 792px.
+    // The palette is fixed; the graph is whatever
+    // is left of the frame.
+    const width = page.viewportSize()!.width;
+
     await expect(page.locator('.workspace')).toHaveCSS(
       'grid-template-columns',
-      '204px 792px 284px',
+      `204px ${width - 204}px`,
     );
+    await expect(page.locator('.inspector')).toHaveCount(0);
+    await expect(page.locator('[data-inspector-mode]')).toHaveCount(0);
+    await expect(page.locator('[data-inspector-tab]')).toHaveCount(0);
   });
 
   /**
    * And keeps standing there in a narrow editor.
    * A canvas opens in an editor group, so its width
    * is whatever somebody's split happens to be —
-   * and two rails of fixed width in a frame narrower
-   * than both of them leave the graph nothing at
-   * all. The rails give way; the graph has a floor.
+   * and a rail of fixed width in a frame narrower
+   * than it leaves the graph nothing at all. The
+   * rail gives way; the graph has a floor.
    */
   test('gives the graph the room before the rails', async ({ page }) => {
     await openCanvas(page);
@@ -2382,7 +2428,7 @@ test.describe('the Inspector column', () => {
     ).toEqual({ scroll: 480, client: 480 });
   });
 
-  test('shows the block that was clicked, beside it', async ({ page }) => {
+  test('tells the host which block was clicked', async ({ page }) => {
     const harness = await openCanvas(page);
 
     await page.locator('.react-flow__node[data-id="reply_decision"]').click();
@@ -2390,433 +2436,9 @@ test.describe('the Inspector column', () => {
     expect(await harness.postedOfType('select')).toEqual([
       { type: 'select', nodeId: 'reply_decision' },
     ]);
-
-    // The host's half: the canvas comes back with
-    // that block in its column.
-    await harness.show(canvasInit({ ...showing('reply_decision') }));
-
-    await expect(page.locator('[data-inspector-heading]')).toHaveText(
-      'Node inspector · Branch',
-    );
-    await expect(page.locator('[data-field="title"] input')).toHaveValue(
-      'Reply?',
-    );
   });
 
-  test('offers a field per thing the kind carries', async ({ page }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('reply_decision') }));
-
-    await expect(page.locator('[data-field="elsePort"] input')).toHaveValue(
-      'stop',
-    );
-    await expect(page.locator('[data-field="cases"] .row')).toHaveCount(2);
-  });
-
-  test('sends an edit once the field is finished with', async ({ page }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('find_slot') }));
-
-    const title = page.locator('[data-field="title"] input');
-
-    await title.fill('Find an open slot');
-    expect(await harness.postedOfType('edit')).toEqual([]);
-
-    await title.press('Enter');
-
-    const sent = await harness.postedOfType('edit');
-    expect(sent).toHaveLength(1);
-    expect(sent[0]).toMatchObject({
-      baseRevision: ir.revision,
-      node: { id: 'find_slot', title: 'Find an open slot' },
-    });
-  });
-
-  test('puts back what the document says when the edit is abandoned', async ({
-    page,
-  }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('find_slot') }));
-
-    const title = page.locator('[data-field="title"] input');
-
-    await title.fill('Something else entirely');
-    await title.press('Escape');
-
-    await expect(title).toHaveValue('Find open slot');
-    expect(await harness.postedOfType('edit')).toEqual([]);
-  });
-
-  /**
-   * How hard a block tries, shown as the numbers it
-   * will actually run under. A block that carries
-   * no policy of its own reads the defaults rather
-   * than three empty boxes, so nobody has to know
-   * what an empty box would mean.
-   */
-  test('offers the three retry fields on a step', async ({ page }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('find_slot') }));
-
-    await expect(
-      page.locator('[data-field="retryMaxAttempts"] input'),
-    ).toHaveValue('3');
-    await expect(
-      page.locator('[data-field="retryIntervalSeconds"] input'),
-    ).toHaveValue('1');
-    await expect(
-      page.locator('[data-field="retryBackoffRate"] input'),
-    ).toHaveValue('2');
-  });
-
-  /**
-   * And the one kind that has none says why, rather
-   * than leaving the row out and reading as a kind
-   * whose fields somebody forgot.
-   */
-  test('tells a transaction it runs once inside its commit', async ({
-    page,
-  }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('record_booking') }));
-
-    await expect(page.locator('[data-field="retry"] .field-name')).toHaveText(
-      inspectorStrings.retryPolicy,
-    );
-    await expect(page.locator('[data-field="retry"] .field-value')).toHaveText(
-      inspectorStrings.retry,
-    );
-    await expect(page.locator('[data-field="retryMaxAttempts"]')).toHaveCount(
-      0,
-    );
-  });
-
-  /**
-   * A queue block's form, which is the only one in
-   * the column grouped under headers.
-   *
-   * It is grouped because it carries two policies
-   * that are not one another's scope — what the
-   * queue is registered with, and what each item's
-   * enqueue is given — and reading them as one list
-   * is how somebody sets a per-partition limit
-   * believing they set the queue's.
-   */
-  test.describe('a queue block’s two policies', () => {
-    test('come as groups, the last of them folded away', async ({ page }) => {
-      await openEveryKind(page, showingQueue(INDEXING));
-
-      await expect(
-        page.locator('[data-control="section"] .section-head'),
-      ).toHaveText([
-        `${MARK}${word(inspectorStrings.fields, 'queuePolicy')}`,
-        `${MARK}${word(inspectorStrings.fields, 'enqueuePolicy')}`,
-        `${MARK}${word(inspectorStrings.fields, 'advanced')}`,
-      ]);
-
-      await expect(page.locator('[data-field="queueName"] input')).toHaveValue(
-        'document-index',
-      );
-      await expect(page.locator('[data-field="itemsPath"] input')).toHaveValue(
-        'pages',
-      );
-
-      await expect(
-        page.locator('[data-field="advanced"] .section-head'),
-      ).toHaveAttribute('aria-expanded', 'false');
-      await expect(page.locator('[data-field="onConflict"]')).toHaveCount(0);
-    });
-
-    test('accept a rate limit on a queue that has none', async ({ page }) => {
-      const harness = await openEveryKind(page, showingQueue(INDEXING));
-      const per = page.locator('[data-field="rateLimitPer"] input');
-      const seconds = page.locator('[data-field="rateLimitSec"] input');
-
-      await per.fill('100');
-      await per.press('Enter');
-      await seconds.fill('20');
-      await seconds.press('Enter');
-
-      const edits = await harness.postedOfType('edit');
-      expect(edits.at(-1)?.node).toMatchObject({
-        config: {
-          queue: {
-            rateLimit: { limitPerPeriod: 100, periodSec: 20 },
-          },
-        },
-      });
-    });
-
-    test('keep an open group across queue edits from the host', async ({
-      page,
-    }) => {
-      const partitioned = {
-        ...INDEXING,
-        queue: { ...INDEXING.queue, partitionConcurrency: 2 },
-      };
-      const harness = await openEveryKind(page, showingQueue(partitioned));
-      const advanced = page.locator('[data-field="advanced"] .section-head');
-      await advanced.click();
-
-      const per = page.locator('[data-field="partitionRateLimitPer"] input');
-      await per.fill('30');
-      await per.press('Enter');
-      const firstEdit = (await harness.postedOfType('edit')).at(-1);
-      if (firstEdit === undefined) throw new Error('no edit');
-      expect(firstEdit.node).toMatchObject({
-        config: {
-          queue: {
-            partitionRateLimit: { limitPerPeriod: 30, periodSec: 60 },
-          },
-        },
-      });
-
-      const revised = showingQueue({
-        ...partitioned,
-        queue: {
-          ...partitioned.queue,
-          partitionRateLimit: { limitPerPeriod: 30, periodSec: 60 },
-        },
-      });
-      const document = revised.document;
-      if (document === undefined || !document.ok)
-        throw new Error('no document');
-      await harness.show(
-        canvasInit({
-          document: {
-            ok: true,
-            ir: { ...document.ir, revision: document.ir.revision + 1 },
-          },
-          boxes: everyKindBoxes,
-          inspector: revised.inspector,
-          diagnostics: [],
-        }),
-      );
-
-      await expect(advanced).toHaveAttribute('aria-expanded', 'true');
-      await expect(
-        page.locator('[data-field="minPollingIntervalMs"]'),
-      ).toBeVisible();
-
-      const seconds = page.locator(
-        '[data-field="partitionRateLimitSec"] input',
-      );
-      await seconds.fill('2');
-      await seconds.press('Enter');
-      const secondEdit = (await harness.postedOfType('edit')).at(-1);
-      expect(secondEdit?.node).toMatchObject({
-        config: {
-          queue: {
-            partitionRateLimit: { limitPerPeriod: 30, periodSec: 2 },
-          },
-        },
-      });
-    });
-
-    /**
-     * What each group needs saying about it, which
-     * is not a fact about any one field in it: which
-     * process a limit holds back, and which two
-     * settings the app refuses together.
-     */
-    test('say under each header what its fields do not', async ({ page }) => {
-      await openEveryKind(page, showingQueue(INDEXING));
-
-      await expect(
-        page.locator('[data-field="queuePolicy"] .field-note'),
-      ).toHaveText(word(inspectorStrings.hints, 'queuePolicy'));
-      await expect(
-        page.locator('[data-field="enqueuePolicy"] .field-note'),
-      ).toHaveText(word(inspectorStrings.hints, 'enqueuePolicy'));
-    });
-
-    /**
-     * The fold, opened and closed.
-     *
-     * A header owns the run of fields after it as
-     * far as the next header — not the whole rest of
-     * the form — and stays on screen either way,
-     * because it is the way back into what it hides.
-     *
-     * Read with the motion off: the marker's turn is
-     * transitioned, and a transform read while that
-     * is still running is the folded matrix in both
-     * states.
-     */
-    test('fold and unfold a group at its header', async ({ page }) => {
-      await page.emulateMedia({ reducedMotion: 'reduce' });
-      await openEveryKind(page, showingQueue(INDEXING));
-
-      const head = page.locator('[data-field="advanced"] .section-head');
-      const mark = page.locator('[data-field="advanced"] .section-mark');
-
-      await expect(mark).toHaveCSS('transform', 'matrix(0, -1, 1, 0, 0, 0)');
-
-      await head.click();
-
-      await expect(head).toHaveAttribute('aria-expanded', 'true');
-      await expect(mark).toHaveCSS('transform', 'none');
-      await expect(
-        page.locator('[data-field="onConflict"] select'),
-      ).toHaveCount(1);
-
-      await head.click();
-
-      await expect(page.locator('[data-field="onConflict"]')).toHaveCount(0);
-
-      // And a group folded from the top takes its
-      // own fields with it and nobody else's.
-      await page.locator('[data-field="queuePolicy"] .section-head').click();
-
-      await expect(page.locator('[data-field="queueName"]')).toHaveCount(0);
-      await expect(
-        page.locator('[data-field="queuePolicy"] .section-head'),
-      ).toBeVisible();
-      await expect(page.locator('[data-field="itemsPath"] input')).toHaveValue(
-        'pages',
-      );
-    });
-
-    /**
-     * Core reports both of these against the block,
-     * under one rule, at one severity. Only one of
-     * them has a box on this form holding half its
-     * remedy, and that is the one drawn on the box.
-     * The other stays the block's.
-     */
-    test('draw the finding the deduplication path is a way out of', async ({
-      page,
-    }) => {
-      await openEveryKind(
-        page,
-        showingQueue(PARTITIONED, [NO_PARTITION_KEY, DEDUPLICATES]),
-      );
-
-      await expect(
-        page.locator('[data-field="deduplicationPath"] .field-note'),
-      ).toHaveText(DEDUPLICATES.message);
-
-      await expect(page.getByText(NO_PARTITION_KEY.message)).toHaveCount(0);
-    });
-
-    /**
-     * And the labels get the room their scopes need.
-     * `worker concurrency / partition` in the 8.5ch
-     * column every other form is set in is four
-     * stacked fragments beside a one-line box.
-     */
-    test('are labelled in a column wide enough to read', async ({ page }) => {
-      const harness = await openEveryKind(page, showingQueue(INDEXING));
-
-      const labels = page.locator('.fields');
-      await expect(labels).toHaveAttribute('data-labels', 'wide');
-
-      const wide = await labelTrack(page);
-
-      await harness.show(canvasInit({ ...showing('find_slot') }));
-      await expect(page.locator('[data-field="title"] input')).toHaveValue(
-        'Find open slot',
-      );
-
-      expect(wide / (await labelTrack(page))).toBeCloseTo(12 / 8.5, 2);
-    });
-  });
-
-  /**
-   * The column asks two questions about one block —
-   * what it should do, and what a run recorded about
-   * it doing that — and never both at once. Two
-   * faces rather than one long form.
-   */
-  test('offers two faces', async ({ page }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('find_slot') }));
-
-    await expect(page.locator('[data-inspector-mode]')).toHaveAttribute(
-      'data-inspector-mode',
-      'configure',
-    );
-    await expect(page.locator('button[data-inspector-tab]')).toHaveText([
-      inspectorStrings.tabs.configure,
-      inspectorStrings.tabs.evidence,
-    ]);
-    await expect(
-      page.locator('button[data-inspector-tab="configure"]'),
-    ).toHaveAttribute('aria-selected', 'true');
-  });
-
-  /** With no run there is nothing recorded to read,
-   *  and the face says what would give it
-   *  something. */
-  test('disables Run Evidence with no run and says why', async ({ page }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('find_slot') }));
-
-    await expect(
-      page.locator('button[data-inspector-tab="evidence"]'),
-    ).toBeDisabled();
-    await expect(page.locator('.inspector .hint')).toHaveText(
-      inspectorStrings.noRun,
-    );
-
-    await harness.show(
-      canvasInit({ ...showing('find_slot'), run: runOf(IN_FLIGHT) }),
-    );
-
-    await expect(
-      page.locator('button[data-inspector-tab="evidence"]'),
-    ).toBeEnabled();
-    await expect(page.locator('.inspector .hint')).toHaveCount(0);
-  });
-
-  /** Two faces, not one long form: a field somebody
-   *  may change never sits beside a fact they may
-   *  not. */
-  test('shows a block’s fields on Configure only', async ({ page }) => {
-    const harness = await mount(page, 'canvas');
-
-    await harness.show(
-      canvasInit({ ...showing('find_slot'), run: runOf(IN_FLIGHT) }),
-    );
-
-    await expect(page.locator('[data-field="title"]')).toHaveCount(1);
-
-    await harness.show(
-      canvasInit({
-        ...showing('find_slot', {}, 'evidence'),
-        run: runOf(IN_FLIGHT),
-      }),
-    );
-
-    await expect(page.locator('[data-field]')).toHaveCount(0);
-  });
-
-  /**
-   * And the face is the host's to hold. A panel is
-   * torn down whenever it is hidden, so a tab a
-   * person chose survives only where the selection
-   * does.
-   */
-  test('posts the face a person picked', async ({ page }) => {
-    const harness = await mount(page, 'canvas');
-
-    await harness.show(
-      canvasInit({
-        ...showing('find_slot', {}, 'evidence'),
-        run: runOf(IN_FLIGHT),
-      }),
-    );
-
-    await page.locator('button[data-inspector-tab="configure"]').click();
-
-    expect(await harness.postedOfType('inspectorMode')).toEqual([
-      { type: 'inspectorMode', mode: 'configure' },
-    ]);
-  });
-
-  test('says so plainly when the canvas itself is clicked', async ({
-    page,
-  }) => {
+  test('tells the host the canvas itself was clicked', async ({ page }) => {
     const harness = await mount(page, 'canvas');
     await harness.show(canvasInit({ ...showing('find_slot') }));
 
@@ -2824,872 +2446,6 @@ test.describe('the Inspector column', () => {
 
     expect(await harness.postedOfType('select')).toEqual([
       { type: 'select', nodeId: null },
-    ]);
-
-    await harness.show(canvasInit());
-
-    await expect(page.locator('.inspector .state')).toHaveText(
-      inspectorStrings.nothingSelected,
-    );
-    await expect(page.locator('[data-field]')).toHaveCount(0);
-  });
-
-  /**
-   * The other face: what a run recorded about the
-   * block on screen.
-   *
-   * Everything on it was read off the ledger and can
-   * be edited by nobody. DBOS records no per-step
-   * input and no count of the tries a step made, so
-   * the first thing asked of the card is that it
-   * invents neither.
-   */
-  test.describe('what a run recorded about a block', () => {
-    test('never puts an attempt count or an INPUT section on a step card', async ({
-      page,
-    }) => {
-      const harness = await mount(page, 'canvas');
-      const card = page.locator('[data-evidence="block"]');
-
-      for (const step of [DONE, THREW, EXHAUSTED]) {
-        await harness.show(
-          canvasInit({
-            ...showing('find_slot', {}, 'evidence'),
-            run: recording([step]),
-          }),
-        );
-
-        await expect(card).toHaveCount(1);
-
-        const said = (await card.textContent()) ?? '';
-
-        expect(said).not.toMatch(/attempt/i);
-        expect(said).not.toMatch(/\bINPUT\b/);
-        await expect(page.locator('[data-field="input"]')).toHaveCount(0);
-      }
-    });
-
-    test('shows a completed step’s timing, output and configured policy', async ({
-      page,
-    }) => {
-      const harness = await mount(page, 'canvas');
-      await harness.show(
-        canvasInit({
-          ...showing('find_slot', {}, 'evidence'),
-          run: recording([DONE]),
-        }),
-      );
-
-      // The clock is the browser's, so the shape is
-      // what is held rather than the wording: what
-      // matters is that a step timed to the
-      // millisecond is drawn to the millisecond.
-      await expect(
-        page.locator('[data-evidence-field="started"] .value'),
-      ).toHaveText(/\d{1,2}:\d{2}:\d{2}\.\d{3}/);
-      await expect(
-        page.locator('[data-evidence-field="completed"] .value'),
-      ).toHaveText(/\d{1,2}:\d{2}:\d{2}\.\d{3}/);
-      await expect(
-        page.locator('[data-evidence-field="duration"] .value'),
-      ).toHaveText('48 ms');
-
-      await expect(
-        page.locator('[data-evidence-field="output"] .value'),
-      ).toHaveText(DONE.output!);
-
-      // The fixture's block spells the defaults out,
-      // and the card says they are configuration
-      // rather than something the run recorded.
-      await expect(
-        page.locator('[data-evidence-field="retry"] .value'),
-      ).toHaveText('max 3 · interval 1 s · backoff 2×');
-      await expect(
-        page.locator('[data-evidence-field="retry"] .provenance'),
-      ).toHaveText(inspectorStrings.configured);
-    });
-
-    /**
-     * The class DBOS threw first, then its sentence.
-     * A step that ran out of tries says so on a
-     * third line and never lists the tries: one
-     * entry per try is exactly the per-step history
-     * nothing here may claim.
-     */
-    test('shows a failed step’s error, its class first', async ({ page }) => {
-      const harness = await mount(page, 'canvas');
-      await harness.show(
-        canvasInit({
-          ...showing('find_slot', {}, 'evidence'),
-          run: recording([THREW]),
-        }),
-      );
-
-      const error = page.locator('.evidence-error');
-
-      await expect(error).toContainText('StripeTimeoutError');
-      await expect(error).toContainText('Request timed out after 30 s');
-      await expect(error).not.toContainText(inspectorStrings.exhausted);
-
-      await harness.show(
-        canvasInit({
-          ...showing('find_slot', {}, 'evidence'),
-          run: recording([EXHAUSTED]),
-        }),
-      );
-
-      await expect(error).toContainText(inspectorStrings.exhausted);
-    });
-
-    /**
-     * And the way to the line it threw on is offered
-     * only where the stack named a file in the
-     * project's own `lib/`. Most stacks name the SDK
-     * and the generated workflow and nothing else,
-     * and a button that opened one of those would be
-     * worse than no button.
-     */
-    test('shows Open Error Location only when the step has a frame', async ({
-      page,
-    }) => {
-      const harness = await mount(page, 'canvas');
-      await harness.show(
-        canvasInit({
-          ...showing('find_slot', {}, 'evidence'),
-          run: recording([THREW]),
-        }),
-      );
-
-      const door = page.locator('[data-evidence-action="openErrorLocation"]');
-
-      await expect(page.locator('.evidence-error')).toBeVisible();
-      await expect(door).toHaveCount(0);
-
-      await harness.show(
-        canvasInit({
-          ...showing('find_slot', {}, 'evidence'),
-          run: recording([THREW_IN_LIB]),
-        }),
-      );
-
-      await expect(door).toHaveText(inspectorStrings.openErrorLocation);
-      await expect(
-        page.locator('[data-evidence-field="errorLocation"] .hint'),
-      ).toHaveText(inspectorStrings.errorLocationFrom);
-    });
-
-    /**
-     * The block and the row together. A block that
-     * ran more than once failed on one of those
-     * tries, and each wrote a stack of its own.
-     */
-    test('asks for the line by block and row', async ({ page }) => {
-      const harness = await mount(page, 'canvas');
-      await harness.show(
-        canvasInit({
-          ...showing('find_slot', {}, 'evidence'),
-          run: recording([THREW_IN_LIB]),
-        }),
-      );
-
-      await page.locator('[data-evidence-action="openErrorLocation"]').click();
-
-      expect(await harness.postedOfType('openErrorLocation')).toEqual([
-        { type: 'openErrorLocation', nodeId: 'find_slot', functionId: 3 },
-      ]);
-    });
-
-    /**
-     * The ways on from a recorded step, in the order
-     * somebody reaches for them: the code, the line
-     * it broke on, a second run from here, and the
-     * agent.
-     *
-     * Every one of them carries the block, and the
-     * two that start something carry the run as
-     * well — a panel may be drawing a run the
-     * extension has since moved past, and which run
-     * is being asked about is not a question a card
-     * gets to answer from memory.
-     */
-    test('offers the four ways on from a failed step', async ({ page }) => {
-      const harness = await mount(page, 'canvas');
-      await harness.show(
-        canvasInit({
-          ...showing('find_slot', {}, 'evidence'),
-          run: recording([THREW_IN_LIB]),
-        }),
-      );
-
-      await expect(
-        page.locator('.evidence-actions [data-evidence-action]'),
-      ).toHaveText([
-        inspectorStrings.openHandler,
-        inspectorStrings.openErrorLocation,
-        inspectorStrings.replayFrom,
-        inspectorStrings.askAgent,
-      ]);
-
-      await page.locator('[data-evidence-action="openFunction"]').click();
-      await page.locator('[data-evidence-action="replayFrom"]').click();
-      await page.locator('[data-evidence-action="askAgent"]').click();
-
-      expect(await harness.postedOfType('openFunction')).toEqual([
-        { type: 'openFunction', nodeId: 'find_slot' },
-      ]);
-      expect(await harness.postedOfType('replayFrom')).toEqual([
-        { type: 'replayFrom', workflowId: 'wf_1', nodeId: 'find_slot' },
-      ]);
-      expect(await harness.postedOfType('askAgent')).toEqual([
-        { type: 'askAgent', workflowId: 'wf_1', nodeId: 'find_slot' },
-      ]);
-    });
-
-    /** The other three stay: only the line is
-     *  conditional, and a step that broke somewhere
-     *  nobody here wrote is still a step to replay
-     *  or ask about. */
-    test('keeps the other three ways on where there is no line', async ({
-      page,
-    }) => {
-      const harness = await mount(page, 'canvas');
-      await harness.show(
-        canvasInit({
-          ...showing('find_slot', {}, 'evidence'),
-          run: recording([THREW]),
-        }),
-      );
-
-      await expect(
-        page.locator('.evidence-actions [data-evidence-action]'),
-      ).toHaveText([
-        inspectorStrings.openHandler,
-        inspectorStrings.replayFrom,
-        inspectorStrings.askAgent,
-      ]);
-    });
-
-    /**
-     * What the run was started with is a fact about
-     * the run and is drawn here and nowhere else —
-     * which is the other half of the rule the first
-     * case in this block holds a step card to.
-     */
-    test('shows the workflow input and the recovery on the run card', async ({
-      page,
-    }) => {
-      const harness = await mount(page, 'canvas');
-      await harness.show(
-        canvasInit({
-          inspector: {
-            strings: inspectorStrings,
-            selected: undefined,
-            mode: 'evidence',
-          },
-          run: recording([DONE], {
-            input: '{ "orderId": "ord_123" }',
-            recoveryAttempts: 2,
-            applicationVersion: '1',
-          }),
-        }),
-      );
-
-      await expect(page.locator('[data-evidence="run"]')).toHaveCount(1);
-      await expect(
-        page.locator('[data-evidence-field="workflowInput"] .value'),
-      ).toHaveText('{ "orderId": "ord_123" }');
-      await expect(
-        page.locator('[data-evidence-field="recovery"] .value'),
-      ).toHaveText('recovered 1×');
-      await expect(
-        page.locator('[data-evidence-field="recovery"] .hint'),
-      ).toHaveText(inspectorStrings.pickedBackUp);
-      await expect(
-        page.locator('[data-evidence-field="version"] .value'),
-      ).toHaveText('1');
-      await expect(
-        page.locator('[data-evidence-action="openRun"]'),
-      ).toHaveCount(1);
-    });
-  });
-
-  /**
-   * A queue block's card, which is a different card
-   * from every other block's.
-   *
-   * A queue block records no row of its own — the
-   * work is its children's runs — so the card that
-   * draws a block's rows would draw an empty one
-   * here. What there is to say is how many children
-   * are running, what the whole queue is doing, and
-   * whether the app registered the queue the way
-   * the document asks for it.
-   */
-  test.describe('what a run recorded about a queue block', () => {
-    const INDEXED = {
-      itemsPath: 'pages',
-      queue: {
-        name: 'document-index',
-        globalConcurrency: 8,
-        rateLimit: { limitPerPeriod: 5, periodSec: 10 },
-      },
-      enqueue: { deduplicationPath: 'documentId' },
-    };
-
-    /** The every-kind document with its queue block
-     *  configured and its card on screen. */
-    function showingQueueCard(): Partial<CanvasInit> {
-      return {
-        ...showingQueue(INDEXED),
-        inspector: {
-          strings: inspectorStrings,
-          selected: 'queue',
-          mode: 'evidence',
-        },
-      };
-    }
-
-    test('draws a card of its own rather than a block’s rows', async ({
-      page,
-    }) => {
-      await openEveryKind(page, {
-        ...showingQueueCard(),
-        run: queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
-      });
-
-      await expect(page.locator('[data-evidence="queue"]')).toHaveCount(1);
-      await expect(page.locator('[data-evidence="block"]')).toHaveCount(0);
-    });
-
-    test('says what this run’s items are doing, and where each figure came from', async ({
-      page,
-    }) => {
-      await openEveryKind(page, {
-        ...showingQueueCard(),
-        run: queuedRun({ active: 3, queued: 12, delayed: 4, failed: 1 }),
-      });
-
-      await expect(
-        page.locator('[data-evidence-field="queue"] .value'),
-      ).toHaveText('document-index');
-      await expect(
-        page.locator('[data-evidence-field="active"] .value'),
-      ).toHaveText('3 of 8 queue-wide');
-      await expect(
-        page.locator('[data-evidence-field="queued"] .value'),
-      ).toHaveText('12 · 4 delayed');
-      await expect(
-        page.locator('[data-evidence-field="rateLimit"] .value'),
-      ).toHaveText('5 per 10 s');
-
-      await expect(
-        page.locator('[data-evidence-field="active"] .provenance'),
-      ).toHaveText(inspectorStrings.derived);
-      await expect(
-        page.locator('[data-evidence-field="rateLimit"] .provenance'),
-      ).toHaveText(inspectorStrings.configured);
-    });
-
-    /**
-     * The whole queue costs a read of its own, so
-     * until one has been made the card says nothing
-     * about it rather than saying zero.
-     */
-    test('says nothing about the whole queue until a read answers', async ({
-      page,
-    }) => {
-      await openEveryKind(page, {
-        ...showingQueueCard(),
-        run: queuedRun({ active: 3 }),
-      });
-
-      await expect(
-        page.locator('[data-evidence-field="observedStarts"]'),
-      ).toHaveCount(0);
-      await expect(
-        page.locator('[data-evidence-field="registered"]'),
-      ).toHaveCount(0);
-    });
-
-    test('asks for that read when the card is shown', async ({ page }) => {
-      const harness = await openEveryKind(page, {
-        ...showingQueueCard(),
-        run: queuedRun({ active: 3 }),
-      });
-
-      expect(await harness.postedOfType('inspectQueue')).toEqual([
-        { type: 'inspectQueue', workflowId: 'wf_1', nodeId: 'queue' },
-      ]);
-    });
-
-    test('draws what the read answered, said to be worked out', async ({
-      page,
-    }) => {
-      await openEveryKind(page, {
-        ...showingQueueCard(),
-        run: queuedRun({ active: 3, failed: 1 }, queueEvidence()),
-      });
-
-      await expect(
-        page.locator('[data-evidence-field="observedStarts"] .value'),
-      ).toHaveText('74 in the last 60 s');
-      await expect(
-        page.locator('[data-evidence-field="observedStarts"] .provenance'),
-      ).toHaveText(inspectorStrings.derived);
-      await expect(
-        page.locator('[data-evidence-field="registered"] .value'),
-      ).toHaveText(inspectorStrings.queueMatches);
-
-      // The window sees only the children still on
-      // the queue, so its count of failures is the
-      // errored ones and says so.
-      await expect(
-        page.locator('[data-evidence-field="failed"] .value'),
-      ).toHaveText('1 · 2 errored queue-wide in the window');
-    });
-
-    /**
-     * A rate limit is a registration, not a budget
-     * anybody is spending down: the ledger records
-     * what ran, never what it was allowed to run.
-     * A card drawing `12/50 per 10 s` would be
-     * claiming a number nothing measured, so the
-     * shape itself is what is rejected here.
-     */
-    test('never draws a rate as a budget being spent', async ({ page }) => {
-      await openEveryKind(page, {
-        ...showingQueueCard(),
-        run: queuedRun({ active: 3 }, queueEvidence()),
-      });
-
-      const said =
-        (await page.locator('[data-evidence="queue"]').textContent()) ?? '';
-
-      expect(said).not.toMatch(/\d+ ?\/ ?\d+ per/);
-      expect(said).toContain(inspectorStrings.queueLocal);
-    });
-
-    test('says what the app registered where it is not what the document asks for', async ({
-      page,
-    }) => {
-      await openEveryKind(page, {
-        ...showingQueueCard(),
-        run: queuedRun(
-          { active: 3 },
-          queueEvidence({
-            registered: {
-              registered: {
-                name: 'document-index',
-                globalConcurrency: 4,
-                minPollingIntervalMs: 1000,
-              },
-            },
-          }),
-        ),
-      });
-
-      await expect(
-        page.locator('[data-evidence-field="registered"] .value'),
-      ).toHaveText(
-        filled(
-          inspectorStrings.queueDiffers,
-          'global concurrency 4 · min polling interval 1000 ms',
-        ),
-      );
-    });
-
-    /** The canvas is not the run page, so the way to
-     *  a child is the way to any run: open it. */
-    test('opens the run an item started', async ({ page }) => {
-      const harness = await openEveryKind(page, {
-        ...showingQueueCard(),
-        run: queuedRun({ active: 3 }, queueEvidence()),
-      });
-
-      await page.locator('[data-queue-item="wf_child_1"]').click();
-
-      expect(await harness.postedOfType('openRun')).toEqual([
-        { type: 'openRun', workflowId: 'wf_child_1' },
-      ]);
-    });
-  });
-});
-
-/**
- * Which function a block runs, chosen from what the
- * project's code-behind actually offers.
- *
- * The list is the manifest put through one rule —
- * the same rule the drop target asks and the same
- * one validation reports — so what fits is offered
- * and what does not is counted and put away rather
- * than hidden: a function missing from a list with
- * no explanation is a bug report nobody can write.
- */
-test.describe('the function picker', () => {
-  /** What core says can sit behind that block, so
-   *  the assertion cannot drift from the rule. */
-  function fitting(nodeId: string): string[] {
-    const node = ir.nodes.find((one) => one.id === nodeId)!;
-
-    return manifest.functions
-      .filter((fn) => handlerFit(node, fn).fits)
-      .map((fn) => fn.export);
-  }
-
-  async function openPicker(page: Page, nodeId = 'slot_open') {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing(nodeId) }));
-
-    return harness;
-  }
-
-  test('offers what fits, and counts what does not', async ({ page }) => {
-    await openPicker(page);
-
-    const fits = fitting('slot_open');
-    expect(fits.length).toBeGreaterThan(0);
-    expect(fits.length).toBeLessThan(manifest.functions.length);
-
-    await expect(page.locator('[data-picker-fn]')).toHaveText(
-      fits.map((name) => new RegExp(`^${name}`)),
-    );
-    await expect(page.locator('[data-picker-hidden]')).toHaveText(
-      `${manifest.functions.length - fits.length} incompatible functions hidden · show`,
-    );
-  });
-
-  test('shows the rest, each with what is wrong with it', async ({ page }) => {
-    await openPicker(page);
-
-    await page.locator('[data-picker-hidden]').click();
-
-    await expect(page.locator('[data-picker-fn]')).toHaveCount(
-      manifest.functions.length,
-    );
-    await expect(
-      page.locator('[data-picker-fn="parseRequest"] .lib-note'),
-    ).toHaveText('returns BookingReq, decides nothing');
-    await expect(
-      page.locator('[data-picker-fn="autoApprove"] .lib-note'),
-    ).toHaveText('takes ExpenseClaim, needs SlotGrid');
-
-    await page.locator('[data-picker-hidden]').click();
-    await expect(page.locator('[data-picker-fn]')).toHaveCount(
-      fitting('slot_open').length,
-    );
-  });
-
-  /**
-   * The one reason a row is put away that is not
-   * about its signature. A transaction's block puts
-   * whatever its handler does inside the run's own
-   * database transaction, so a handler that calls
-   * another system is making a promise the block
-   * cannot keep — and the repair is a step, not a
-   * type. The row says which call and where, because
-   * it is the only place a person is told before the
-   * generated code runs.
-   */
-  test('puts away a transaction handler that dials out', async ({ page }) => {
-    await openPicker(page, 'record_booking');
-
-    expect(fitting('record_booking')).not.toContain('chargeCard');
-
-    await page.locator('[data-picker-hidden]').click();
-
-    await expect(
-      page.locator('[data-picker-fn="chargeCard"] .lib-note'),
-    ).toHaveText('calls fetch at line 12, needs a step');
-  });
-
-  test('assigns the row that was picked', async ({ page }) => {
-    const harness = await openPicker(page);
-
-    await page.locator('[data-picker-fn="tryAgain"]').click();
-
-    expect(await harness.postedOfType('assign')).toEqual([
-      {
-        type: 'assign',
-        baseRevision: ir.revision,
-        nodeId: 'slot_open',
-        export: 'tryAgain',
-      },
-    ]);
-  });
-
-  /**
-   * The one row the manifest does not decide. A
-   * person names a function before they write it —
-   * which is exactly what the scaffolder writes the
-   * stub for — so the picker cannot be manifest-only
-   * without taking that path away.
-   */
-  test('takes a name for a function nobody has written', async ({ page }) => {
-    const harness = await openPicker(page);
-
-    await page.locator('[data-picker-new]').click();
-
-    const field = page.locator('[data-picker-new] input');
-    await field.fill('decideLater');
-    await field.press('Enter');
-
-    expect(await harness.postedOfType('assign')).toEqual([
-      {
-        type: 'assign',
-        baseRevision: ir.revision,
-        nodeId: 'slot_open',
-        export: 'decideLater',
-      },
-    ]);
-  });
-
-  test('puts the row back when the name is abandoned', async ({ page }) => {
-    const harness = await openPicker(page);
-
-    await page.locator('[data-picker-new]').click();
-
-    const field = page.locator('[data-picker-new] input');
-    await field.fill('decideLater');
-    await field.press('Escape');
-
-    await expect(field).toHaveCount(0);
-    await expect(page.locator('[data-picker-new]')).toHaveText(
-      inspectorStrings.newFunction,
-    );
-    expect(await harness.postedOfType('assign')).toEqual([]);
-  });
-
-  test('says why there is nothing to pick from', async ({ page }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(
-      canvasInit({
-        manifest: undefined,
-        ...showing('slot_open'),
-      }),
-    );
-
-    await expect(page.locator('[data-picker-fn]')).toHaveCount(0);
-    await expect(page.locator('.picker-empty')).toHaveText(
-      inspectorStrings.noLib,
-    );
-    await expect(page.locator('[data-picker-new]')).toBeVisible();
-  });
-
-  /**
-   * The two kinds whose relationship with their
-   * code is the thing a person gets wrong: a branch
-   * owns none of it, and a transaction's writes ride
-   * on the step record.
-   */
-  test('says what a branch and a transaction are', async ({ page }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('slot_open') }));
-
-    await expect(page.locator('[data-callout="branch"]')).toContainText(
-      inspectorStrings.callouts.branch.title,
-    );
-
-    await harness.show(canvasInit({ ...showing('record_booking') }));
-
-    await expect(page.locator('[data-callout="transaction"]')).toContainText(
-      inspectorStrings.callouts.transaction.title,
-    );
-    await expect(page.locator('[data-field="database"]')).toContainText(
-      inspectorStrings.database,
-    );
-  });
-
-  /**
-   * A branch that runs a decision has no predicates
-   * to edit — so its cases are read, not typed, and
-   * they name where each outcome goes.
-   */
-  test('reads a decision’s outcomes rather than editing them', async ({
-    page,
-  }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(
-      canvasInit({
-        ...showing('slot_open', { handler: { export: 'tryAgain' } }),
-      }),
-    );
-
-    await expect(page.locator('[data-outcome="true"]')).toContainText(
-      'Book appointment',
-    );
-    await expect(page.locator('[data-field="cases"]')).toHaveCount(0);
-  });
-
-  /**
-   * A decision can have a way out nobody has wired
-   * yet, and the run stops there. Saying so is the
-   * whole value of reading the outcomes back: a row
-   * that quietly named nothing would look the same
-   * as one leading somewhere.
-   */
-  test('says a way out nothing is wired to ends the run', async ({ page }) => {
-    const branch = ir.nodes.find((one) => one.id === 'slot_open')!;
-    if (branch.kind !== 'branch') throw new Error('slot_open is not a branch');
-
-    // Seeded the way the host seeds them, so the
-    // ports the outcomes are read through are the
-    // ones a person would really have: the two the
-    // branch is already wired by, and a third the
-    // decision brought with it.
-    const decided = withDecisionCases(branch, ['pay', 'refuse', 'hold']);
-    const harness = await mount(page, 'canvas');
-
-    await harness.show(
-      canvasInit({
-        ...showing('slot_open', {
-          ...decided,
-          handler: { export: 'routeClaim' },
-        }),
-      }),
-    );
-
-    await expect(page.locator('[data-outcome="pay"]')).toContainText(
-      'Book appointment',
-    );
-    await expect(page.locator('[data-outcome="refuse"]')).toContainText(
-      'Twilio chat — you decide',
-    );
-    await expect(page.locator('[data-outcome="hold"]')).toHaveText(
-      new RegExp(`${inspectorStrings.end}$`),
-    );
-  });
-
-  /**
-   * A block runs a function; a branch runs its
-   * logic. Asserted on both sides, because a column
-   * that drew one word for every kind would pass a
-   * test that only ever looked at one of them.
-   */
-  test('calls it a function on a block and logic on a branch', async ({
-    page,
-  }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('find_slot') }));
-
-    await expect(page.locator('[data-field="handler"] .field-name')).toHaveText(
-      'function',
-    );
-    await expect(page.locator('[data-field="logic"]')).toHaveCount(0);
-
-    await harness.show(
-      canvasInit({
-        ...showing('slot_open', { handler: { export: 'tryAgain' } }),
-      }),
-    );
-
-    await expect(page.locator('[data-field="logic"] .field-name')).toHaveText(
-      'logic',
-    );
-    await expect(page.locator('[data-field="handler"]')).toHaveCount(0);
-  });
-
-  /**
-   * The value is the way in: there is no native
-   * select here, so the caret is what says the name
-   * can be changed at all.
-   */
-  test('wears a caret on the name, and asks for one when there is none', async ({
-    page,
-  }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('find_slot') }));
-
-    await expect(page.locator('[data-picker-value]')).toHaveText('findSlot ▾');
-
-    await harness.show(canvasInit({ ...showing('slot_open') }));
-
-    await expect(page.locator('[data-picker-value]')).toHaveText(
-      inspectorStrings.dropHere,
-    );
-  });
-
-  /**
-   * The row a block already runs is marked, and the
-   * mark is a tick and a ring rather than a colour
-   * alone — the column is read at a glance and a
-   * tinted row is easy to miss against a tinted
-   * panel.
-   */
-  test('marks the row the block already runs', async ({ page }) => {
-    const harness = await mount(page, 'canvas');
-    await harness.show(
-      canvasInit({
-        ...showing('slot_open', { handler: { export: 'tryAgain' } }),
-      }),
-    );
-
-    const chosen = page.locator('[data-picker-fn="tryAgain"]');
-
-    await expect(chosen).toHaveAttribute('data-state', 'assigned');
-    await expect(chosen).toHaveCSS(
-      'box-shadow',
-      'color(srgb 0.32549 0.403922 1 / 0.45) 0px 0px 0px 1px inset',
-    );
-    expect(
-      await chosen.evaluate((row) => getComputedStyle(row, '::after').content),
-    ).toBe('"✓"');
-  });
-
-  /**
-   * A row that cannot sit behind the block says so
-   * in words and is otherwise drawn like any other.
-   * Dimming it would say the same thing a second
-   * time, in the one language a person cannot read
-   * — and the note is already there.
-   */
-  test('leaves an incompatible row undimmed, and lets it say why', async ({
-    page,
-  }) => {
-    await openPicker(page);
-    await page.locator('[data-picker-hidden]').click();
-
-    const misfit = page.locator('[data-picker-fn="parseRequest"]');
-    const fits = page.locator('[data-picker-fn="tryAgain"]');
-
-    await expect(misfit.locator('.lib-note')).toHaveText(
-      'returns BookingReq, decides nothing',
-    );
-    await expect(misfit).toHaveCSS('opacity', '1');
-    await expect(misfit).toHaveCSS(
-      'background-color',
-      await fits.evaluate((row) => getComputedStyle(row).backgroundColor),
-    );
-  });
-
-  test('offers the way back once the rest are shown', async ({ page }) => {
-    await openPicker(page);
-
-    const toggle = page.locator('[data-picker-hidden]');
-
-    await toggle.click();
-    await expect(toggle).toHaveText(inspectorStrings.hide);
-
-    await toggle.click();
-    await expect(toggle).toHaveText(
-      `${manifest.functions.length - fitting('slot_open').length} incompatible functions hidden · show`,
-    );
-  });
-
-  /**
-   * The way out of the column and into the code.
-   * The block travels and nothing else: where that
-   * function is written, and whether the project's
-   * code-behind still has one of that name, is the
-   * extension's answer rather than the panel's.
-   */
-  test('asks for the code the block already runs', async ({ page }) => {
-    const harness = await openPicker(page, 'find_slot');
-
-    await page.locator('[data-open-function]').click();
-
-    expect(await harness.postedOfType('openFunction')).toEqual([
-      { type: 'openFunction', nodeId: 'find_slot' },
     ]);
   });
 });
@@ -3955,7 +2711,7 @@ test.describe('dragging a block onto the canvas', () => {
     // the surface behind it.
     await expect(under).toHaveCSS(
       'background-color',
-      'color(srgb 0.907843 0.915686 0.975294)',
+      'color(srgb 0.920784 0.927059 0.974745)',
     );
     await expect(page.locator('[data-splice-gap="e3"]')).toHaveCSS(
       'background-color',
@@ -3984,6 +2740,35 @@ test.describe('dragging a block onto the canvas', () => {
 
     await page.mouse.up();
   });
+
+  for (const theme of THEMES_ALL) {
+    test(`offers the splice in the colour a theme gives a gesture’s words (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, {}, theme);
+      await dragBlockOverPane(page, 'step');
+      await overGap(page, 'e2');
+
+      const under = page.locator('[data-splice-gap][data-under]');
+      const title = under.locator('.splice-title');
+      const note = under.locator('.splice-note');
+
+      await expect(title).toHaveText('splice here');
+      await expect(note).toHaveText('edge splits on drop');
+
+      const expected = gestureInk(theme);
+
+      for (const words of [title, note]) {
+        const colour = await inkOf(words);
+
+        expect(sameColour(colour, expected), `${colour} ≠ ${expected}`).toBe(
+          true,
+        );
+      }
+
+      await page.mouse.up();
+    });
+  }
 
   test('puts the block into the wire it was let go of on', async ({ page }) => {
     const harness = await openCanvas(page);
@@ -4050,50 +2835,17 @@ test.describe('dragging a block onto the canvas', () => {
   });
 
   /**
-   * A block that has just arrived says nothing about
-   * itself yet, and the column beside it is where
-   * that gets said. The column is always drawn, so
-   * nothing opens — what happens is that a person is
-   * taken to it.
-   *
-   * Forced, rather than hoped for: the window is
-   * made short enough that the column really
-   * scrolls, and the spec says so before it scrolls
-   * it away.
+   * Where a row goes, and the one thing a drop does
+   * that a person would not guess: let go of a block
+   * over a wire and the wire opens to take it.
    */
-  test('takes a person to what to say about the block next', async ({
+  test('says where a block goes and what a wire does with it', async ({
     page,
   }) => {
-    await page.setViewportSize({ width: 1000, height: 240 });
-
-    const harness = await mount(page, 'canvas');
-    await harness.show(canvasInit({ ...showing('send_confirmation') }));
-
-    const column = page.locator('.inspector');
-    const heading = page.locator('[data-inspector-heading]');
-
-    expect(
-      await column.evaluate(
-        (element) => element.scrollHeight > element.clientHeight,
-      ),
-    ).toBe(true);
-
-    await column.evaluate((element) => {
-      element.scrollTop = element.scrollHeight;
-    });
-    expect(await inViewOf(heading, column)).toBe(false);
-
-    await dragBlockOverPane(page, 'step');
-    await page.mouse.up();
-
-    expect(await inViewOf(heading, column)).toBe(true);
-  });
-
-  test('says how a drag starts and how to call it off', async ({ page }) => {
     await openCanvas(page);
 
     await expect(page.locator('[data-drag-hint]')).toHaveText(
-      'drag starts after 4 px of movement · esc cancels',
+      'drag onto the canvas · drop on an edge to splice',
     );
   });
 });
@@ -4256,6 +3008,29 @@ test.describe('moving a block by hand', () => {
     await page.mouse.up();
     await expect(readout).toHaveCount(0);
   });
+
+  for (const theme of THEMES_ALL) {
+    test(`says where the block is in the colour a theme gives a gesture’s words (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, {}, theme);
+      await holdNode(page, 'find_slot', { x: 70, y: 50 });
+
+      const readout = page.locator('[data-readout]');
+      const at = await flowPosition(page, 'find_slot');
+
+      await expect(readout).toContainText(`x ${at.x} · y ${at.y}`);
+
+      const colour = await inkOf(readout);
+      const expected = gestureInk(theme);
+
+      expect(sameColour(colour, expected), `${colour} ≠ ${expected}`).toBe(
+        true,
+      );
+
+      await page.mouse.up();
+    });
+  }
 
   /**
    * A block off a freshly-arranged graph is moved by
@@ -4746,25 +3521,22 @@ test.describe('building the graph', () => {
 /**
  * The chrome follows the theme, which is the one
  * thing every VS Code user notices immediately. The
- * three appearances are checked for the ground
- * actually changing, not for a particular colour —
- * the colours are the user's.
+ * ground a canvas is drawn on is the editor's own,
+ * so what is asserted is the colour that editor
+ * publishes rather than a colour this product chose.
  */
 test.describe('every theme', () => {
-  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+  for (const theme of THEMES_ALL) {
     test(`draws on the editor’s own ground in ${theme}`, async ({ page }) => {
       await openCanvas(page, theme);
 
       const ground = await page.evaluate(
         () => getComputedStyle(document.body).backgroundColor,
       );
+      const expected = colourOf(theme, 'canvas');
 
-      expect(ground).toBe(
-        {
-          light: 'rgb(255, 255, 255)',
-          dark: 'rgb(31, 31, 31)',
-          'high-contrast': 'rgb(0, 0, 0)',
-        }[theme],
+      expect(sameColour(ground, expected), `${ground} ≠ ${expected}`).toBe(
+        true,
       );
 
       await expect(page.locator('[data-caption="graph"]')).toBeVisible();
@@ -4779,7 +3551,7 @@ test.describe('every theme', () => {
    * an empty string, and every rule reading it
    * silently falls back to the initial value.
    */
-  for (const theme of ['light', 'dark', 'high-contrast'] as const) {
+  for (const theme of THEMES_ALL) {
     test(`mixes the shared roles against the ${theme} ground`, async ({
       page,
     }) => {
@@ -4800,11 +3572,81 @@ test.describe('every theme', () => {
       expect(roles.tracking).not.toBe('');
     });
   }
+
+  /**
+   * Every colour on the board is one this product
+   * chose. The graph library publishes a default
+   * for each part it draws, picked against a white
+   * diagramming page, and a part drawn in one of
+   * those is a part wearing somebody else's theme
+   * in the middle of the editor's.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`draws its own dots and wires in ${theme}`, async ({ page }) => {
+      await openCanvas(page, theme);
+      await clickWire(page, 'e11');
+
+      await expect(
+        page.locator('.react-flow__edge[data-id="e11"]'),
+      ).toHaveClass(/selected/);
+
+      const painted = await page.evaluate(() => {
+        const dot = document.querySelector(
+          '.react-flow__background-pattern.dots',
+        );
+        const wire = document.querySelector('.react-flow__edge.selected .wire');
+
+        if (dot === null || wire === null) return undefined;
+
+        return {
+          dot: getComputedStyle(dot).fill,
+          wire: getComputedStyle(wire).stroke,
+        };
+      });
+
+      if (painted === undefined) throw new Error('the board drew nothing');
+
+      for (const [part, colour] of Object.entries(painted)) {
+        expect(LIBRARY_COLOURS, `${part} in ${theme}`).not.toContain(colour);
+      }
+
+      const expected = colourOf(theme, 'grid-dot');
+
+      expect(
+        sameColour(painted.dot, expected),
+        `${painted.dot} ≠ ${expected}`,
+      ).toBe(true);
+    });
+  }
+
+  /**
+   * A block is a tab stop here, because the arrow
+   * keys nudge whichever one a person is on. The
+   * library hides the ring on it, which leaves a
+   * keyboard with no way of saying where it is.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`rings the block a keyboard is on in ${theme}`, async ({ page }) => {
+      await openCanvas(page, theme);
+
+      const node = page.locator('.react-flow__node[data-id="find_slot"]');
+      await node.focus();
+
+      await expect(node).toHaveCSS('outline-style', 'solid');
+
+      const ring = await node.evaluate(
+        (block) => getComputedStyle(block).outlineColor,
+      );
+      const expected = colourOf(theme, 'focus-ring');
+
+      expect(sameColour(ring, expected), `${ring} ≠ ${expected}`).toBe(true);
+    });
+  }
 });
 
 /**
  * Two views draw the same tab strip and the same
- * provenance chip, so both live in the token layer
+ * focus ring, so both live in the token layer
  * rather than twice in two sheets. These mount a
  * view and put the bare markup on the page: what is
  * being checked is the rule, not the component that
@@ -4838,78 +3680,47 @@ test.describe('the controls two views share', () => {
     // And the half that fails before the rule
     // exists: a bare button already wears the
     // global focus ring, so the outline alone would
-    // pass against nothing.
-    const tracking = await page.evaluate(() => {
-      const control = document.querySelector('button#bare-tab') as HTMLElement;
-      const probe = document.createElement('span');
-
-      probe.style.letterSpacing =
-        getComputedStyle(control).getPropertyValue('--label-tracking');
-      control.append(probe);
-
-      const read = {
-        control: getComputedStyle(control).letterSpacing,
-        system: getComputedStyle(probe).letterSpacing,
-      };
-
-      probe.remove();
-
-      return read;
-    });
-
-    expect(tracking.system).not.toBe('normal');
-    expect(tracking.control).toBe(tracking.system);
+    // pass against nothing. A bare one lays itself
+    // out as an inline block, so this is the rule
+    // speaking and not the browser.
+    await expect(tab).toHaveCSS('display', 'inline-flex');
   });
 
-  test('draws a derived chip dashed, in the strong hairline', async ({
-    page,
-  }) => {
+  /**
+   * A tab is furniture, and furniture is set in the
+   * case it was written in. Capitals and the
+   * tracking that opens them up are spent on what a
+   * run is doing right now, which is the one thing
+   * worth finding across a panel.
+   */
+  test('draws a tab in the case it was written', async ({ page }) => {
     await openCanvas(page);
 
     await page.evaluate(() => {
-      const row = document.createElement('div');
-      row.id = 'told-row';
-      row.style.background = 'var(--surface-2)';
-      row.style.padding = '10px 14px';
-      row.style.width = 'max-content';
-      row.innerHTML =
-        '<span class="mono">await_reply</span>' +
-        '<span class="provenance" data-provenance="derived">derived</span>';
-      document.body.prepend(row);
+      const tab = document.createElement('button');
+      tab.id = 'quiet-tab';
+      tab.className = 'tab';
+      tab.setAttribute('role', 'tab');
+      tab.textContent = 'Graph';
+
+      const word = document.createElement('span');
+      word.id = 'loud-word';
+      word.className = 'state-word';
+      word.textContent = 'running';
+
+      document.body.prepend(tab, word);
     });
 
-    const chip = page.locator('.provenance[data-provenance="derived"]');
+    const tab = page.locator('button#quiet-tab');
+    await expect(tab).toHaveCSS('text-transform', 'none');
+    await expect(tab).toHaveCSS('letter-spacing', 'normal');
 
-    await expect(chip).toHaveCSS('border-top-style', 'dashed');
-
-    const border = await page.evaluate(() => {
-      const probe = document.createElement('span');
-      probe.style.border = '1px solid var(--hairline-strong)';
-      document.body.append(probe);
-
-      const read = {
-        chip: getComputedStyle(
-          document.querySelector('.provenance') as HTMLElement,
-        ).borderTopColor,
-        strong: getComputedStyle(probe).borderTopColor,
-      };
-
-      probe.remove();
-
-      return read;
-    });
-
-    expect(border.chip).toBe(border.strong);
-
-    // The dash has to read as a dash at the size it
-    // is actually drawn, which is a thing only an
-    // eye can answer. The scratch directory is
-    // outside the repository on purpose: a
-    // screenshot committed here becomes a golden
-    // nobody maintains.
-    await page
-      .locator('#told-row')
-      .screenshot({ path: '../scratch/provenance-chip.png' });
+    // The other half of the same rule, so that
+    // "nothing shouts" cannot pass by nothing
+    // carrying the rule at all.
+    const word = page.locator('span#loud-word');
+    await expect(word).toHaveCSS('text-transform', 'uppercase');
+    await expect(word).not.toHaveCSS('letter-spacing', 'normal');
   });
 });
 
@@ -4939,8 +3750,12 @@ test.describe('the built bundles', () => {
       }),
     );
 
-    await expect(page.locator('.palette > .eyebrow')).toHaveText('BLOKKEN');
-    await expect(page.locator('.drawer-empty')).toHaveText('NIETS GESCAND');
+    await expect(page.locator('.palette .section-label').first()).toHaveText(
+      'BLOKKEN',
+    );
+    await expect(page.locator('.palette .empty-state .empty-title')).toHaveText(
+      'NIETS GESCAND',
+    );
     await expect(page.locator('[data-view-toggle="canvas"]')).toHaveText(
       'DOEK',
     );
@@ -4984,32 +3799,36 @@ function wireBody(page: Page, edge: string): Locator {
   return page.locator(`.react-flow__edge[data-id="${edge}"] .wire`);
 }
 
+/**
+ * What a wire's line and its arrowhead are drawn in.
+ *
+ * The arrowhead is whichever marker the page ends
+ * the line in, read from the line's computed style
+ * rather than its attribute, so a rule that swaps
+ * the marker is measured as well as one that swaps
+ * the stroke.
+ */
+function wireInk(
+  page: Page,
+  edge: string,
+): Promise<{ line: string; head: string }> {
+  return wireBody(page, edge).evaluate((wire) => {
+    const style = getComputedStyle(wire);
+    const id = /#([\w-]+)/.exec(style.markerEnd)?.[1];
+    const head =
+      id === undefined ? null : document.querySelector(`marker#${id} path`);
+
+    return {
+      line: style.stroke,
+      head: head === null ? '' : getComputedStyle(head).stroke,
+    };
+  });
+}
+
 /** The ring around a block a wire being drawn could
  *  land on. */
 function ringOf(page: Page, node: string): Locator {
   return nodeBody(page, node).locator('[data-ring]');
-}
-
-/**
- * Presses on a block's out dot and drags away from
- * it, leaving the wire in the air.
- *
- * The hover first is what the graph library needs:
- * it fits the graph to its pane a frame or two after
- * the view opens, and a press aimed at a box read
- * before that lands on the pane behind the dot.
- */
-async function holdWire(page: Page, from: string): Promise<void> {
-  const dot = sourceHandle(page, from, 'out');
-
-  await dot.hover();
-
-  const box = (await dot.boundingBox())!;
-  const at = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-
-  await page.mouse.move(at.x, at.y);
-  await page.mouse.down();
-  await page.mouse.move(at.x, at.y + 30, { steps: 4 });
 }
 
 /** The one mono line under a block's title. */
@@ -5020,12 +3839,6 @@ function nodeLine(page: Page, node: string): Locator {
 /** The tile a block's glyph sits in. */
 function tile(page: Page, node: string): Locator {
   return nodeBody(page, node).locator('.node-icon');
-}
-
-function sourceHandle(page: Page, node: string, port: string): Locator {
-  return page.locator(
-    `.react-flow__node[data-id="${node}"] .react-flow__handle-bottom[data-handleid="${port}"]`,
-  );
 }
 
 function targetHandle(page: Page, node: string): Locator {
@@ -5054,23 +3867,6 @@ async function dragBetween(
     steps: 12,
   });
   await page.mouse.up();
-}
-
-/**
- * Clicks a wire on its own hit area.
- *
- * By the middle of the box rather than by the
- * element, because a straight vertical line has a
- * bounding box no wider than nothing and there is no
- * point in it Playwright will consent to click.
- */
-async function clickWire(page: Page, edge: string): Promise<void> {
-  const hit = page.locator(
-    `.react-flow__edge[data-id="${edge}"] .react-flow__edge-interaction`,
-  );
-  const box = (await hit.boundingBox())!;
-
-  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
 }
 
 /**
@@ -5195,6 +3991,24 @@ async function strokeOf(wire: Locator): Promise<string> {
   return await wire.evaluate((path) => getComputedStyle(path).stroke);
 }
 
+/** And what colour a word is drawn in, the same
+ *  way. */
+async function inkOf(words: Locator): Promise<string> {
+  return await words.evaluate((element) => getComputedStyle(element).color);
+}
+
+/**
+ * What a theme draws a gesture's words in.
+ *
+ * Brand blue, because somebody is doing it — but
+ * where a theme carries state in the ink the brand
+ * is too light to be read as text, and every word
+ * it would colour is drawn in the ink instead.
+ */
+function gestureInk(theme: ThemeKind): string {
+  return colourOf(theme, 'state-ink') || colourOf(theme, 'brand');
+}
+
 /** The same, carried well past the threshold and out
  *  over open canvas, with nothing let go of. */
 async function dragBlockOverPane(page: Page, kind: NodeKind): Promise<void> {
@@ -5222,56 +4036,6 @@ async function overGap(page: Page, edge: string): Promise<void> {
   await page.mouse.move(gap.x + gap.width / 2, gap.y + gap.height / 2, {
     steps: 8,
   });
-}
-
-/**
- * Whether the element is inside the part of its
- * column a person can actually see.
- *
- * By the boxes rather than by whether it is in the
- * page at all: a heading scrolled off the top of a
- * column is still in the DOM, still `toBeVisible`,
- * and still exactly what somebody cannot see.
- */
-async function inViewOf(inner: Locator, outer: Locator): Promise<boolean> {
-  const box = (await inner.boundingBox())!;
-  const frame = (await outer.boundingBox())!;
-
-  return (
-    box.y + box.height > frame.y &&
-    box.y < frame.y + frame.height &&
-    box.x + box.width > frame.x &&
-    box.x < frame.x + frame.width
-  );
-}
-
-/**
- * Waits for the graph to stop moving itself.
- *
- * The canvas fits the graph to its pane once the
- * blocks have been measured, which is a frame or
- * two after the view opens. A coordinate read before
- * that is a coordinate the graph is about to change,
- * and a pointer aimed at it lands on nothing.
- */
-async function graphAtRest(page: Page): Promise<void> {
-  const transform = async (): Promise<string> =>
-    await page
-      .locator('.react-flow__viewport')
-      .evaluate((viewport) => (viewport as HTMLElement).style.transform);
-
-  let last = await transform();
-
-  await expect
-    .poll(async () => {
-      const now = await transform();
-      const still = now !== '' && now === last;
-
-      last = now;
-
-      return still;
-    })
-    .toBe(true);
 }
 
 /** How far the graph is zoomed in, read off the

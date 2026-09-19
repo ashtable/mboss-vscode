@@ -230,23 +230,30 @@ describe('views', () => {
   });
 
   /**
-   * The container holds the two panels that are
-   * about the whole window, and nothing in it
-   * appears and disappears. Setting a block's
-   * config is done in the canvas' own right-hand
-   * column, so there is no view here that another
-   * has to be hidden for — and a `when` clause on
-   * either of these would hide a conversation or a
-   * run history for a reason that has nothing to do
-   * with them.
+   * The container holds the conversation, the run
+   * history and the Inspector, and nothing in it
+   * appears and disappears. The Inspector follows
+   * whichever canvas or run tab was last in front,
+   * and says so when that is neither, so no view
+   * here has to be hidden for another — and a
+   * `when` clause on any of them would hide a
+   * conversation, a run history or a block's
+   * settings for a reason that has nothing to do
+   * with them. The Inspector comes last: it is
+   * about what the other two surfaces point at.
    */
   it('shows every view it declares, all the time', () => {
     expect(views.map((view) => view.id)).toEqual([
       'mboss.agentSidebar',
       'mboss.runs',
+      'mboss.inspector',
     ]);
 
-    expect(views.map((view) => view.when)).toEqual([undefined, undefined]);
+    expect(views.map((view) => view.when)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+    ]);
   });
 });
 

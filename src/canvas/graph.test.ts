@@ -9,10 +9,16 @@ import {
   nodeSize,
   type NodeBox,
   type NodeKind,
+  type WorkflowIR,
 } from '../core/rules.js';
-import type { LiveOutcome, StepState } from '../runs/reading.js';
-import type { LiveRun, QueueCounts } from '../runs/watch.js';
-import { liveStep } from '../test-support/runs.js';
+import type { StepState } from '../runs/reading.js';
+import type { LiveOutcome, LiveRun, QueueCounts } from '../runs/watch.js';
+import {
+  TIMER_THEN_ANSWER,
+  TIMER_WAKES_AT,
+  liveStep,
+  timerThenAnswerRun,
+} from '../test-support/runs.js';
 import { fine } from '../webview/time.js';
 
 import {
@@ -65,33 +71,80 @@ const queueIr = WorkflowIRSchema.parse(
 );
 
 /**
- * That document's two blocks, placed by hand.
+ * A draft with two ways into it, which the rules
+ * allow.
  *
- * There is no blessed layout for it, and the
- * engine that would make one is not in the half of
- * core a webview loads. Nothing asked of this
- * fixture is about where a block sits.
+ * Written here rather than taken from core's
+ * fixtures, none of which has two: the point of it
+ * is that two triggers of one document can start a
+ * run differently, so a phrase worked out once per
+ * document would draw the first one's words on both.
  */
-const queueBoxes: Record<string, NodeBox> = Object.fromEntries(
-  queueIr.nodes.map((node, index) => {
-    const { width, height } = nodeSize(node.kind);
+const TWO_WAYS_IN = WorkflowIRSchema.parse({
+  $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+  version: 1,
+  revision: 1,
+  name: 'two_ways_in',
+  nodes: [
+    {
+      id: 'by_hand',
+      kind: 'trigger',
+      title: 'By hand',
+      config: { mode: 'manual' },
+    },
+    {
+      id: 'on_orders',
+      kind: 'trigger',
+      title: 'On an order',
+      config: { mode: 'event', topic: 'orders' },
+    },
+  ],
+  edges: [],
+});
 
-    return [node.id, { x: 0, y: index * 90, w: width, h: height }];
-  }),
-);
+/**
+ * A document's blocks, placed in a column by hand.
+ *
+ * There is no blessed layout for the fixtures below,
+ * and the engine that would make one is not in the
+ * half of core a webview loads. Nothing asked of any
+ * of them is about where a block sits.
+ */
+function placed(document: WorkflowIR): Record<string, NodeBox> {
+  return Object.fromEntries(
+    document.nodes.map((node, index) => {
+      const { width, height } = nodeSize(node.kind);
 
-const labels = Object.fromEntries(
-  NODE_PALETTE.map((entry) => [entry.kind, entry.label]),
+      return [node.id, { x: 0, y: index * 90, w: width, h: height }];
+    }),
+  );
+}
+
+const queueBoxes = placed(queueIr);
+
+const twoWaysInBoxes = placed(TWO_WAYS_IN);
+
+/** The lower-case form of every label, which is
+ *  what the host sends and what a line reads. */
+const kindWords = Object.fromEntries(
+  NODE_PALETTE.map((entry) => [entry.kind, entry.label.toLowerCase()]),
 ) as Record<NodeKind, string>;
+
+const triggerPhrases = {
+  manual: 'on request',
+  event: 'on event · {0}',
+  schedule: 'on a schedule',
+};
 
 /** The words the host resolves, with nothing
  *  proposed and nothing selected unless a test
  *  says so. */
 function drawing(over: Partial<Drawing> = {}): Drawing {
   return {
-    labels,
+    kindWords,
+    triggerPhrases,
     unassigned: 'unassigned',
-    runningDerived: 'RUNNING · derived',
+    runningDerived: 'Running · derived',
     ...over,
   };
 }
@@ -113,6 +166,7 @@ function run(
     workflowId: 'wf_1',
     workflow: ir.name,
     status: outcome === 'running' ? 'PENDING' : 'SUCCESS',
+    executorId: 'local-dev',
     steps: steps.map(([nodeId, state], index) =>
       liveStep({ name: nodeId, nodeId, state, functionId: index }),
     ),
@@ -124,6 +178,7 @@ function run(
     startedAt: 1000,
     completedAt: undefined,
     input: undefined,
+    recordedInput: undefined,
     forkedFrom: undefined,
   };
 }
@@ -363,7 +418,6 @@ describe('the state a run puts a block in', () => {
     expect(statesOf(nodes)).toMatchObject({
       parse_request: 'done',
       find_slot: 'failed',
-      booking_requested: 'dormant',
     });
   });
 
@@ -641,14 +695,36 @@ describe('the state a run puts a block in', () => {
   });
 
   /**
-   * And what the run says about that block is still
-   * asked for, by the column beside the graph: the
-   * halo is drawn instead of the run's colour, so
-   * the answer cannot be read back off the block —
-   * it is asked of the same function that painted
-   * the others.
+   * And keeps what the run did there beside it. The
+   * halo is drawn instead of the run's colour, so a
+   * block clicked after it finished would otherwise
+   * lose its tick the moment somebody asked about it
+   * — the one gesture that should add to what a
+   * block says, taking something away.
    */
-  describe('as the column beside it asks', () => {
+  it('keeps the mark of a block a person clicked after it finished', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({
+        run: run([['parse_request', 'done']]),
+        selected: 'parse_request',
+      }),
+    );
+    const found = nodes.find((node) => node.id === 'parse_request');
+
+    expect(found?.data.state).toBe('selected');
+    expect(found?.data.run).toBe('done');
+  });
+
+  /**
+   * And what the run says about that block is still
+   * asked for, by the Inspector: the halo is drawn
+   * instead of the run's colour, so the answer
+   * cannot be read back off the block — it is asked
+   * of the same function that painted the others.
+   */
+  describe('as the Inspector asks', () => {
     it('is the state the graph paints the block in', () => {
       const painted = run([
         ['parse_request', 'done'],
@@ -667,10 +743,60 @@ describe('the state a run puts a block in', () => {
 
     it('says nothing about a block no run has been near', () => {
       expect(
-        runStateOf(ir, run(WHOLE_RUN, 'done'), 'booking_requested'),
+        runStateOf(ir, run(WHOLE_RUN, 'done'), 'slot_open'),
       ).toBeUndefined();
       expect(runStateOf(ir, undefined, 'find_slot')).toBeUndefined();
     });
+  });
+});
+
+/**
+ * The trigger, which records nothing of its own.
+ *
+ * It compiles into the way the workflow is started
+ * rather than into a durable operation, so no row is
+ * ever written under its name. What there is instead
+ * is the run: a run exists because the trigger
+ * fired, so the run's own row is the evidence, and a
+ * trigger left grey beside a graph of finished
+ * blocks would be the one block claiming nothing
+ * happened at it.
+ */
+describe('the state a trigger is drawn in', () => {
+  it('is done wherever a run is being shown', () => {
+    const { nodes } = toReactFlow(
+      ir,
+      boxes,
+      drawing({ run: run([['parse_request', 'done']]) }),
+    );
+
+    expect(statesOf(nodes)['booking_requested']).toBe('done');
+  });
+
+  it('is dormant on a canvas showing no run', () => {
+    const { nodes } = toReactFlow(ir, boxes, drawing());
+
+    expect(statesOf(nodes)['booking_requested']).toBe('dormant');
+  });
+
+  /**
+   * And the wire out of it is drawn in what happened
+   * at the far end, the way every other wire is: the
+   * trigger's own state says only that the run
+   * started, which is true of every run ever drawn.
+   */
+  it('tones the wire out of it from the block it feeds', () => {
+    expect(
+      wireStates({
+        run: run(
+          [
+            ['parse_request', 'done'],
+            ['find_slot', 'failed'],
+          ],
+          'failed',
+        ),
+      })['e1'],
+    ).toBe('done');
   });
 });
 
@@ -764,13 +890,30 @@ describe('the line under a title', () => {
   });
 
   it('says a block that runs code of its own has none yet', () => {
-    expect(lineOf('slot_open')).toBe('Branch · unassigned');
+    expect(lineOf('slot_open')).toBe('branch · unassigned');
   });
 
   it('says only what a block that runs no code of its own is', () => {
-    expect(lineOf('booking_requested')).toBe('Trigger');
-    expect(lineOf('await_reply')).toBe('Wait');
-    expect(lineOf('send_confirmation')).toBe('Email');
+    expect(lineOf('await_reply')).toBe('durable wait');
+    expect(lineOf('send_confirmation')).toBe('email send');
+  });
+
+  /**
+   * A trigger says how the run gets started, which
+   * is the one thing about it worth reading from
+   * across a graph — and it is read off that
+   * trigger's own configuration, because a document
+   * may hold several and they need not agree.
+   */
+  it('says how each trigger of a draft starts a run', () => {
+    const { nodes } = toReactFlow(TWO_WAYS_IN, twoWaysInBoxes, drawing());
+
+    expect(
+      Object.fromEntries(nodes.map((node) => [node.id, node.data.line])),
+    ).toEqual({
+      by_hand: 'trigger · on request',
+      on_orders: 'trigger · on event · orders',
+    });
   });
 });
 
@@ -805,12 +948,12 @@ describe('the line under a block a run is parked at', () => {
     toReactFlow(
       ir,
       boxes,
-      drawing({ run: parked, waitingSince: 'WAITING · since {0}' }),
+      drawing({ run: parked, waitingSince: 'Waiting · since {0}' }),
     ).nodes.find((node) => node.id === id);
 
   it('says when the run stopped there', () => {
     expect(nodeAt('await_reply')?.data.line).toBe(
-      `WAITING · since ${fine(since ?? 0)}`,
+      `Waiting · since ${fine(since ?? 0)}`,
     );
     expect(nodeAt('await_reply')?.data.waiting).toBe(true);
   });
@@ -827,7 +970,106 @@ describe('the line under a block a run is parked at', () => {
     const { nodes } = toReactFlow(ir, boxes, drawing({ run: parked }));
 
     expect(nodes.find((node) => node.id === 'await_reply')?.data.line).toBe(
-      'Wait',
+      'durable wait',
+    );
+  });
+});
+
+/**
+ * A wait on the clock, which writes no row under
+ * its own name.
+ *
+ * It compiles to a bare `await DBOS.sleep(ms)`, so
+ * the row the reading hands it is the whole of what
+ * the graph has to go on. Without that row the
+ * block stays dormant however long the run sits
+ * there, and the wire out of it stays structure.
+ */
+describe('the state a wait on the clock is drawn in', () => {
+  const timerBoxes = placed(TIMER_THEN_ANSWER);
+
+  const drawn = (run: LiveRun, over: Partial<Drawing> = {}) =>
+    toReactFlow(TIMER_THEN_ANSWER, timerBoxes, drawing({ run, ...over }));
+
+  const wireStatesOf = (edges: ReturnType<typeof drawn>['edges']) =>
+    Object.fromEntries(
+      edges.map((edge) => [edge.id, edge.data?.state ?? 'idle']),
+    );
+
+  it('is waiting while the run is still sitting the timer out', () => {
+    const { nodes, edges } = drawn(timerThenAnswerRun({ attributed: true }));
+
+    expect(statesOf(nodes)).toMatchObject({
+      let_it_wait: 'waiting',
+      answer_it: 'dormant',
+    });
+
+    // The block after it recorded nothing, so the
+    // wire between them is still structure.
+    expect(wireStatesOf(edges)['e2']).toBe('idle');
+  });
+
+  it('is done once the run has woken and gone on', () => {
+    const { nodes, edges } = drawn(
+      timerThenAnswerRun({ attributed: true, answered: true }),
+    );
+
+    expect(statesOf(nodes)).toMatchObject({
+      let_it_wait: 'done',
+      answer_it: 'done',
+    });
+    expect(wireStatesOf(edges)['e2']).toBe('done');
+  });
+
+  /**
+   * The wire into the wait comes out of the trigger,
+   * which records nothing at all — so, like every
+   * other wire, it is drawn in what is happening at
+   * the far end of it.
+   */
+  it('draws the wire out of the trigger in what the wait is doing', () => {
+    const { edges } = drawn(timerThenAnswerRun({ attributed: true }));
+
+    expect(wireStatesOf(edges)['e1']).toBe('waiting');
+  });
+
+  /** The failing case: the same run with the sleep
+   *  left as the SDK's row says nothing about the
+   *  wait at all. */
+  it('is dormant where nothing gave the wait that row', () => {
+    const { nodes } = drawn(timerThenAnswerRun());
+
+    expect(statesOf(nodes)['let_it_wait']).toBe('dormant');
+  });
+
+  /**
+   * A parked block's line says when the run stopped
+   * there. A sleep row's completion is the moment
+   * the run is due to wake, which is still to come,
+   * so the word is the other one.
+   */
+  it('says when the run wakes rather than when it stopped', () => {
+    const { nodes } = drawn(timerThenAnswerRun({ attributed: true }), {
+      waitingSince: 'waiting · since {0}',
+      waitingWakes: 'waiting · wakes {0}',
+    });
+    const wait = nodes.find((node) => node.id === 'let_it_wait');
+
+    expect(wait?.data.line).toBe(`waiting · wakes ${fine(TIMER_WAKES_AT)}`);
+    expect(wait?.data.waiting).toBe(true);
+  });
+
+  /** A reader with no word for waking draws the
+   *  block it always drew. Filling the other word
+   *  with a wake deadline would say the run stopped
+   *  at a moment still to come. */
+  it('says nothing about waking where nobody sent the word', () => {
+    const { nodes } = drawn(timerThenAnswerRun({ attributed: true }), {
+      waitingSince: 'waiting · since {0}',
+    });
+
+    expect(nodes.find((node) => node.id === 'let_it_wait')?.data.line).toBe(
+      'durable wait',
     );
   });
 });
@@ -917,7 +1159,7 @@ describe('the line under a queue block', () => {
     const queue = queueIr.nodes.find((node) => node.id === 'index_items');
 
     expect(lineOf({ ...queue!, handler: undefined }, drawing())).toBe(
-      'Queue · unassigned',
+      'queue · unassigned',
     );
   });
 

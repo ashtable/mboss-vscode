@@ -1,0 +1,572 @@
+@import '../webview/tokens.css';
+
+/**
+ * The Inspector pane.
+ *
+ * A pane docked in the side bar beside Agent and
+ * Runs, so it sits on the side bar's ground rather
+ * than the editor's or a widget's: any other ground
+ * shows as a seam against the panes above it.
+ */
+
+body {
+  --canvas: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+
+/* The height of the pane rather than at least it.
+   A pane is usually shorter than what it holds, and
+   a page that scrolled would carry the header away
+   with it; whatever scrolls does so inside. */
+.inspector-view {
+  box-sizing: border-box;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* — the header — */
+
+/* The title, then what kind of thing it names, and
+   at the row's far end where that got to, all on
+   one baseline. No rule under it: nothing below is
+   a section it has to be told apart from.
+
+   Where the row runs out of room what follows the
+   title wraps under it, starting under the title
+   rather than floating at the far end of a line of
+   its own. */
+.inspector-header {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-2);
+  row-gap: var(--space-1);
+  padding: var(--space-3) var(--space-3-5) 0;
+}
+
+/* Never wider than the pane: a long name breaks
+   rather than pushing the row sideways. */
+.inspector-title {
+  flex: none;
+  max-width: 100%;
+  margin: 0;
+  font-size: var(--text-md);
+  font-weight: var(--w-semibold);
+  line-height: var(--leading-tight);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.inspector-kind {
+  flex: none;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+/* Takes the room left on the title's line, and no
+   room at all once the status has wrapped under
+   it. */
+.inspector-spacer {
+  flex: 1 0 0;
+}
+
+/* One piece: a state word that wrapped away from
+   its duration reads as two states. */
+.inspector-status {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* A file name is what the machine calls it, and a
+   long one gives way before the title does: it takes
+   the rest of the title's line and is cut short at
+   its far end rather than wrapping under it. */
+.inspector-file {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: end;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+/* — a whole run — */
+
+/* The card scrolls under the header, so somebody
+   scrolled down to the ways on still sees which run
+   they are about. A scroll container shrinks below
+   what it holds without being told to. Inset as the
+   header is, so the two start on one edge. */
+.run-level {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--space-3-5) var(--space-3-5);
+}
+
+.run-section {
+  padding-top: var(--space-3);
+}
+
+.run-section > .section-label {
+  margin-bottom: var(--space-2);
+}
+
+/* The ledger's rows each draw the hairline above
+   themselves; the sentence about them sits clear of
+   the last one. */
+.run-section > [data-ledger] + .field-hint {
+  margin-top: var(--space-2);
+}
+
+.run-section > .field-hint + .field-hint {
+  margin-top: var(--space-1);
+}
+
+/* A fork, one line each, in the machine face. The
+   id in it is a Button, so the line is as tall as
+   the Button is.
+
+   One that runs out of room hangs under its own
+   branch mark, as it does in the list: both views
+   compose these lines from the same sentences, and
+   one phrase reading two ways is worse than either
+   way. Two characters is the mark and the space
+   after it. */
+.lineage-line {
+  margin: 0;
+  padding-inline-start: 2ch;
+  text-indent: -2ch;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+.lineage-line + .lineage-line {
+  margin-top: var(--space-1);
+}
+
+/* Worked out rather than read, and saying so in its
+   title: underlined in dots, the way a phrase with
+   more to say under the pointer is. */
+.lineage-line [data-provenance='derived'] {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+}
+
+.run-controls > .btn {
+  margin-top: var(--space-2);
+}
+
+.run-controls > .field-hint {
+  margin-top: var(--space-1-5);
+}
+
+.run-level > .field-hint {
+  margin-top: var(--space-3);
+}
+
+/* The ways on from the whole run, after the evidence
+   for taking one. A refusal's reason goes on a line
+   of its own under the row rather than between the
+   two Buttons. */
+.run-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3-5);
+}
+
+.run-actions > .field-hint {
+  flex-basis: 100%;
+  order: 1;
+}
+
+/* — a recorded value — */
+
+/* The word saying how it is stored, then the value,
+   a step closer together than the rows around them
+   because the word belongs to the value. */
+.inline-value,
+.artifact-ref {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1-5);
+  min-width: 0;
+}
+
+.inline-value > .state-word,
+.artifact-ref > .state-word {
+  flex: none;
+}
+
+/* A value that fits the line stays on it; a longer
+   one wraps inside the chip under its own first
+   character, keeping its spaces, and breaks an id
+   with nowhere to break. The 1px and 5px have no
+   step of their own: they are what hugs one line of
+   this type. */
+.inline-chip {
+  min-width: 0;
+  padding: 1px 5px;
+  border: 1px solid var(--control-edge);
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  line-height: var(--leading-body);
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.artifact-size {
+  flex: none;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--ink-faint);
+}
+
+/* The front of the value, on one line and cut short:
+   the whole of it is one press away. */
+.artifact-preview {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}
+
+.artifact-ref > .btn {
+  flex: none;
+  margin-inline-start: auto;
+}
+
+/* — a block — */
+
+/* The block's name is the field it is renamed in,
+   at the title's size and weight. It is as wide as
+   the name, so the kind word follows it on the same
+   line, and it gives up room before the pane does.
+   Its text starts on the edge the strip and the
+   face start on: the field's padding and edge are
+   hung out into the header's own inset, where the
+   ring drawn around it while it is in use lands. */
+.inspector-name {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.inspector-name > .field-input {
+  width: auto;
+  min-width: 4ch;
+  margin-inline-start: calc(-1 * (var(--space-1-5) + 1px));
+  field-sizing: content;
+  font-size: var(--text-md);
+  font-weight: var(--w-semibold);
+}
+
+/* The two faces, inset as the header is, so the
+   strip's hairline starts and ends on the edges
+   everything above and below it does. Why a face
+   refuses is said under the hairline, beside the
+   tab it is about. */
+.inspector-strip {
+  flex: none;
+  padding: var(--space-1-5) var(--space-3-5) 0;
+}
+
+.inspector-strip > .field-hint {
+  margin-top: var(--space-2);
+}
+
+/* The face scrolls under the header and the strip,
+   so somebody scrolled down a long form still sees
+   which block, and which face, it belongs to. A
+   scroll container shrinks below what it holds
+   without being told to. */
+.inspector-view > .tabpanel {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3-5);
+}
+
+/* A header over the rows after it, the label over a
+   repeating group, and the function a block runs.
+   Each spans the face rather than sitting in the
+   label column, because it names a group or holds
+   something wider than a value, and each takes the
+   space above that a hairline alone does not give.
+   The line under it is the next row's own. */
+.form-section,
+.form-group,
+.picker-field {
+  padding-block: var(--space-3) var(--space-2);
+}
+
+.form-section > .field-hint {
+  margin-top: var(--space-1);
+}
+
+/* The function a group is named for sits straight
+   under the label that names it: the label has
+   already given the space above. */
+.form-section + .picker-field {
+  padding-top: 0;
+}
+
+/* What a group needs saying once its rows are all
+   drawn, clear of the last of them. */
+.configure > .property + .field-hint {
+  margin-top: var(--space-2);
+}
+
+/* The workflow a trigger starts is read, between
+   rows of fields. Its name starts where their text
+   does, inside their padding and edge, so the
+   values read down one edge whether or not a theme
+   draws the fields' boxes. */
+.configure > .property[data-workflow] > .value {
+  padding-inline-start: calc(var(--space-1-5) + 1px);
+}
+
+/* A sentence about the whole form, after it: as far
+   off the form as a group under its own label. */
+.configure + .field-hint {
+  margin-top: var(--space-3);
+}
+
+/* The ways out of the form, at its foot, each
+   Button its own width. Set further off than the
+   rows are from each other: nothing in it is set,
+   only gone to from here. */
+.configure-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+/* Why a run is not on offer, said on a line of its
+   own where the Button would be, so the Buttons
+   after it start their own line rather than
+   squeezing a sentence between them. */
+.configure-actions > .field-hint {
+  flex-basis: 100%;
+}
+
+/* The input a run from a trigger's card would
+   send, under a label of its own: set off from the
+   rows above as a group is, and each sentence about
+   it a step closer to it than the label is. */
+.run-sample {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1-5);
+  min-width: 0;
+  padding-top: var(--space-3);
+}
+
+/* — what a run recorded about a block — */
+
+/* Read top to bottom as one answer, a step apart.
+   Rows of one reading abut, each drawing the
+   hairline above itself; a sentence about the thing
+   above it sits closer to it than to the next. */
+.evidence-face {
+  min-width: 0;
+}
+
+.evidence-face > * + * {
+  margin-top: var(--space-2);
+}
+
+.evidence-face > .property + .property {
+  margin-top: 0;
+}
+
+.evidence-face > .lib-fn {
+  margin-bottom: 0;
+}
+
+.evidence-face > .callout + .field-hint {
+  margin-top: var(--space-1-5);
+}
+
+/* A group under its own label takes the room above
+   it that the label needs to be read as a heading. */
+.evidence-face > .evidence-section {
+  margin-top: var(--space-3);
+}
+
+.evidence-section > .section-label {
+  margin-bottom: var(--space-1-5);
+}
+
+/* The items a queue block started. One grid across
+   the list, so every item's state starts at the
+   same edge whatever the item is called, and a
+   person reads down the states for the one that
+   failed. The name's column is capped so a long
+   partition key wraps rather than pushing a state
+   and the time it ended out of the pane. */
+.queue-items {
+  display: grid;
+  grid-template-columns: fit-content(40%) minmax(0, 1fr);
+  align-items: center;
+  column-gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.queue-item {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+}
+
+.queue-item > .btn {
+  justify-self: start;
+}
+
+/* A name the application made up has nowhere to
+   break but anywhere. */
+.queue-item-name {
+  overflow-wrap: anywhere;
+}
+
+.evidence-policy {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  overflow-wrap: anywhere;
+}
+
+/* The ways on, after the evidence for taking one,
+   and what the recorded result is for under them:
+   set further off than the readings are from each
+   other, since nothing in them is a reading. */
+.evidence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.evidence-face > .evidence-actions,
+.evidence-face > .evidence-actions ~ .field-hint {
+  margin-top: var(--space-3);
+}
+
+.evidence-face > .evidence-where {
+  margin-top: var(--space-1-5);
+}
+
+/* The whole header is the target: the Button it is
+   drawn with is laid across the face rather than
+   fitted to its label. */
+.section-head {
+  width: 100%;
+}
+
+/* The marker turns rather than swapping shape, so
+   folding and opening are one thing a person
+   watches move. It is turned by `aria-expanded`,
+   which is where the fold is already said. */
+.section-mark {
+  display: inline-block;
+  margin-inline-end: var(--space-1);
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--ink-muted);
+  transform: rotate(-90deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.section-head[aria-expanded='true'] .section-mark {
+  transform: none;
+}
+
+/* — the function picker — */
+
+/* The label over the one row a block's function is,
+   rather than beside it: the row carries a name and
+   a signature, and the label column would leave
+   them nothing to be read in. */
+.picker-field > .property-label {
+  display: block;
+  margin-bottom: var(--space-1-5);
+}
+
+.picker-field > .lib-fn {
+  margin: 0;
+}
+
+.picker-field > .field-hint {
+  margin-top: var(--space-1-5);
+}
+
+/* What could go there instead, under the row that
+   opened it, with the aside about what was put away
+   and the way to name a new one in the same column.
+   The Buttons keep their own width. */
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  margin-top: var(--space-1);
+}
+
+.picker-list > .btn {
+  align-self: flex-start;
+  margin-block: var(--space-1);
+}
+
+.picker-new {
+  display: flex;
+  margin-top: var(--space-1);
+}
+
+.picker-naming {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Spent on the two kinds whose relationship with
+   their code a person would otherwise have to be
+   told twice, under the row it is about. */
+.picker-field > [data-callout] {
+  margin-top: var(--space-2);
+}
+
+/* A repeating group — a branch's cases, a form's
+   fields — is drawn as a stack of small blocks so
+   that where one ends and the next begins is
+   readable without a heading per row. */
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.row {
+  border-left: 2px solid var(--brand);
+  padding-left: var(--space-2);
+}

@@ -1,7 +1,8 @@
 import { hasRecovered, type Run, type Step } from './rows.js';
 
 /**
- * A run, laid out as something drawable.
+ * A run's steps, and where between them the
+ * process was down.
  *
  * The hard part is not the arithmetic, it is the
  * one thing the database does not record. Nothing
@@ -29,19 +30,20 @@ import { hasRecovered, type Run, type Step } from './rows.js';
  * inference, and it has one failure mode worth
  * knowing about — a workflow that genuinely waits
  * a long time between two steps, and also crashed
- * somewhere else, will have its band drawn over
- * the wait. It is bounded by the fact that a run
- * DBOS never recovered never gets a band at all,
- * so the drawing can only be wrong about *where*
- * a real crash was, never about whether there was
- * one.
+ * somewhere else, will have the wait taken for
+ * the outage. It is bounded by the fact that a run
+ * DBOS never recovered never gets an outage at
+ * all, so the reading can only be wrong about
+ * *where* a real crash was, never about whether
+ * there was one.
  *
  * If DBOS ever records a recovery timestamp, this
  * is the one function that changes.
  */
 
-/** One step, with everything the strip and the
- *  bars need. */
+/** One step, as the outage is found from it, and
+ *  whether it finished before the outage and so
+ *  came back from the ledger. */
 export type TimelineStep = {
   functionId: number;
 
@@ -66,7 +68,10 @@ export type TimelineStep = {
 export type Outage = { from: number; to: number };
 
 export type Timeline = {
-  /** The window the bars are drawn in. */
+  /** Where the run starts, and below where it
+   *  ends: the span its rows cover. The reading
+   *  carries it beside the outage, and no view
+   *  draws it. */
   from: number;
 
   to: number;
@@ -77,9 +82,8 @@ export type Timeline = {
 };
 
 /**
- * A window is never zero-width, so that a bar in a
- * run that took no measurable time still has
- * somewhere to be drawn.
+ * A window is never zero-width, so that a run that
+ * took no measurable time still spans a moment.
  */
 const MINIMUM_SPAN_MS = 1;
 
@@ -117,9 +121,9 @@ export function runTimeline(run: Run, steps: Step[], now: number): Timeline {
  *
  * Steps arrive in `function_id` order, which is the
  * order they ran in. A step DBOS has not timed
- * bounds nothing — it is skipped here and still
- * drawn, because a step missing from the strip is
- * a step nobody knows ran.
+ * bounds nothing — it is skipped here, and only
+ * here: the trace still draws it, because a step
+ * left out is a step nobody knows ran.
  */
 function widestHole(steps: Step[]): Outage | undefined {
   const timed = steps.filter(
@@ -148,17 +152,15 @@ function widestHole(steps: Step[]): Outage | undefined {
  *
  * A finished run ends when it finished. One still
  * going ends at the last thing that has happened,
- * because a bar drawn against an unknown end is
- * drawn against nothing.
+ * because its end is not known yet and that is as
+ * far as anything recorded reaches.
  *
  * And never later than the moment it is being read.
  * A sleeping run records the moment it means to
  * wake as the sleep row's completion, which is in
  * the future — taken as the right edge it would
- * squeeze everything that has actually happened
- * into a sliver on the left and say the run had
- * been going for a day when it had been going a
- * second.
+ * say the run had been going for a day when it had
+ * been going a second.
  */
 export function endOf(run: Run, steps: Step[], now: number): number {
   const from = run.startedAt ?? run.createdAt;

@@ -1,29 +1,36 @@
-import { existsSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
 import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
+import { WorkflowIRSchema } from '../core/rules.js';
 import { messages } from '../messages.js';
-import { makeProject, writeWorkflow } from '../test-support/project.js';
+import { writeWorkflow } from '../test-support/project.js';
 import {
   database,
   echoing,
   management,
   host,
-  LEDGER_URL,
+  liveRun,
   project,
   runner,
+  savedWorkflow,
   stack,
   watcher,
+  RUNNING,
   RUN_ROW,
   STEP_ROW,
 } from '../test-support/runs.js';
 
 import type { ReplayQuestion } from './replayZone.js';
+import type { ProjectSdk } from './sdk.js';
 import { sessionLog } from './sessionLog.js';
+import type { StackController, StackStatus } from './stack.js';
+import { runsState } from './state.js';
 import {
+  CONDUCTOR_DOCS_URL,
   runsStore,
   type RunsDeps,
   type RunsHost,
@@ -34,16 +41,27 @@ import {
  * The one door the panels, the commands and the
  * canvas come through.
  *
- * The three zones behind it are each tested against
+ * The zones behind it are each tested against
  * their own collaborators, in their own specs. What
- * is checked here is the composition: that the
- * three are drawn as one picture, that a change in
- * any of them reaches whoever is drawing, that a
- * refresh asks all three, that the zones are
- * introduced to each other where they must be, and
- * that letting go of the door lets go of everything
- * behind it.
+ * is checked here is the composition: that they are
+ * drawn as one picture, that a change in any of
+ * them reaches whoever is drawing, that a refresh
+ * asks them all, that they are introduced to each
+ * other where they must be, and that letting go of
+ * the door lets go of everything behind it.
  */
+
+/** How many times the list itself was read, apart
+ *  from the counts beside it and any one run. */
+function listReads(db: ReturnType<typeof database>): number {
+  return db.asked.filter((text) => text.includes('AS last_operation')).length;
+}
+
+/** Everything already on its way has landed: every
+ *  read the doubles answer settles in microtasks. */
+function flushed(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 function deps(over: Partial<RunsDeps> = {}): RunsDeps {
   return {
@@ -72,10 +90,69 @@ describe('what the list draws', () => {
     expect(init.type).toBe('init');
     expect(init.view).toBe('runs');
     expect(init.project).toBeUndefined();
-    expect(init.strings.scope).toContain('Conductor');
+    expect(init.strings.projection).toContain('dbos.workflow_status');
   });
 
-  it('draws the three zones as one picture', async () => {
+  /**
+   * Every state below the header is a claim about
+   * something read, and the first read has not
+   * finished: a card drawn now would be replaced a
+   * moment later. The run page reading the same
+   * ledger is no read of the stack, so it is not the
+   * list's first read either.
+   */
+  it('draws nothing below the header until its first read', async () => {
+    const store = runsStore(deps());
+
+    expect(store.list().state).toBe('loading');
+
+    await store.select('wf_c9d2f3');
+    expect(store.list().state).toBe('loading');
+
+    await store.refresh();
+    expect(store.list().state).toBe('ok');
+
+    const started = runsStore(deps());
+    await started.stackUp();
+    expect(started.list().state).toBe('ok');
+  });
+
+  /**
+   * The read that ends the loading paint is also
+   * the one that fires the panel's change, so a
+   * subscriber told about it while the list still
+   * counted as unread would draw the header and
+   * nothing under it until somebody asked again.
+   * What a subscriber was handed is the question,
+   * not what the store says once the read has
+   * settled.
+   */
+  it('hands its first reader the page it has just read', async () => {
+    const store = runsStore(deps());
+    const painted: string[] = [];
+
+    store.onChanged(() => painted.push(store.list().state));
+    await store.refresh();
+
+    expect(painted.length).toBeGreaterThan(0);
+    expect(painted.at(-1)).toBe('ok');
+
+    // And the extra repaints are the first read's
+    // alone — the ledger saying what the database
+    // answered, and the read saying so again once
+    // the list counted as read. From the second
+    // read on it is steady.
+    const first = painted.length;
+    await store.refresh();
+    const later = painted.length - first;
+
+    await store.refresh();
+
+    expect(painted.length - first).toBe(later * 2);
+    expect(first).toBe(later + 2);
+  });
+
+  it('draws every zone as one picture', async () => {
     const dir = project();
     const store = runsStore(deps({ host: host({ projects: () => [dir] }) }));
 
@@ -100,11 +177,10 @@ describe('what the list draws', () => {
       { name: 'nightly_sync', title: 'The nightly_sync', mode: 'schedule' },
     ]);
     expect(shown.testRun.selected).toBe('expense_claim');
-    expect(shown.session).toEqual([]);
   });
 });
 
-describe('one door for three zones', () => {
+describe('one door for every zone', () => {
   it('tells whoever is drawing when any of them moves', async () => {
     const store = runsStore(deps({ runner: echoing().start }));
     const changed = vi.fn();
@@ -114,7 +190,8 @@ describe('one door for three zones', () => {
     const afterHistory = changed.mock.calls.length;
     await store.stackUp();
     const afterStack = changed.mock.calls.length;
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
 
     expect(afterHistory).toBeGreaterThan(0);
     expect(afterStack).toBeGreaterThan(afterHistory);
@@ -148,12 +225,148 @@ describe('one door for three zones', () => {
     }));
     const store = runsStore(deps({ runner: ingress.start }));
 
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
     expect(store.list().testRun.problem).toBeDefined();
 
     await store.stackRebuild();
 
     expect(store.list().testRun.problem).toBeUndefined();
+  });
+
+  /**
+   * A stack command changes what the ledger can be
+   * asked and what the app can run, so each one is
+   * followed by the reads a refresh makes — whether
+   * it came from the view or from the title bar,
+   * which call the same verbs.
+   */
+  it('reads the ledger and the workflows again after every stack command', async () => {
+    const dir = project({ workflows: ['groom_booking'] });
+    const db = database();
+    const store = runsStore(
+      deps({ host: host({ projects: () => [dir] }), open: async () => db }),
+    );
+    const commands: [() => Promise<void>, string][] = [
+      [store.stackUp, 'saved_before_up'],
+      [store.stackDown, 'saved_before_down'],
+      [store.stackRebuild, 'saved_before_rebuild'],
+    ];
+
+    for (const [command, name] of commands) {
+      const before = listReads(db);
+      writeFileSync(
+        join(dir, '.mboss', 'workflows', `${name}.workflow.json`),
+        savedWorkflow(name, { mode: 'manual' }),
+        'utf8',
+      );
+
+      await command();
+
+      expect({ name, reads: listReads(db) }).toEqual({
+        name,
+        reads: before + 1,
+      });
+      expect(store.list().testRun.workflows.map((one) => one.name)).toContain(
+        name,
+      );
+    }
+  });
+
+  /**
+   * The database a list could not reach is often
+   * the stack's own, stopped. Starting it is the
+   * answer, and the list says so without anybody
+   * asking for it again.
+   */
+  it('leaves a refused database once Start app brings the stack up', async () => {
+    const db = database();
+    db.fail = 'ECONNREFUSED 127.0.0.1:5432';
+
+    const stopped: StackStatus = {
+      available: true,
+      answered: true,
+      services: [
+        {
+          service: 'postgres',
+          state: 'exited',
+          health: 'none',
+          ports: [],
+          detail: '',
+        },
+        {
+          service: 'app',
+          state: 'exited',
+          health: 'none',
+          ports: [],
+          detail: '',
+        },
+      ],
+      detail: undefined,
+    };
+    const compose = stack(stopped);
+    const controller: StackController = {
+      ...compose.controller,
+      up: async (dir) => {
+        await compose.controller.up(dir);
+        compose.status = RUNNING;
+        db.fail = undefined;
+        db.rows = [];
+        db.counts = { all_runs: '0', active_runs: '0', failed_runs: '0' };
+      },
+    };
+    const store = runsStore(deps({ open: async () => db, stack: controller }));
+
+    await store.refresh();
+    expect(store.list().state).toBe('unreachable');
+    expect(runsState(store.list())).toEqual({
+      row: 'database-refused',
+      regions: ['services', 'state'],
+      action: 'start-app',
+    });
+
+    await store.stackUp();
+    const shown = store.list();
+
+    expect(shown.state).toBe('ok');
+    expect(runsState(shown).row).toBe('no-runs');
+    expect(shown.counts).toEqual({ all: 0, active: 0, failed: 0 });
+    expect(shown.rows).toEqual([]);
+    expect(shown.stack.services.map((one) => one.state)).toEqual([
+      'running',
+      'running',
+    ]);
+  });
+
+  /**
+   * And nothing on the way there says the project
+   * has never run anything.
+   *
+   * The ledger and the list are two signals into one
+   * repaint, and the ledger's is deliberately the
+   * later of the two: a follower woken the moment
+   * the database answered, holding the page read
+   * before it did, would draw the card for a project
+   * with no runs over a ledger full of them.
+   */
+  it('never says a project has no runs on its way to reading some', async () => {
+    const db = database();
+    db.fail = 'ECONNREFUSED 127.0.0.1:5432';
+    const store = runsStore(deps({ open: async () => db }));
+
+    await store.refresh();
+    expect(runsState(store.list()).row).toBe('database-refused');
+
+    const drawn: string[] = [];
+    store.onChanged(() => drawn.push(runsState(store.list()).row));
+
+    db.fail = undefined;
+    await store.refresh();
+
+    expect(drawn).not.toContain('no-runs');
+    expect(drawn.at(-1)).toBe('populated');
+
+    store.dispose();
   });
 
   /** A watch reads the run from the ledger the
@@ -164,7 +377,8 @@ describe('one door for three zones', () => {
       deps({ runner: echoing().start, watch: watch.watch }),
     );
 
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
 
     expect(watch.armed).toHaveLength(1);
   });
@@ -180,7 +394,8 @@ describe('one door for three zones', () => {
       }),
     );
 
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
 
     expect(watch.armed).toEqual([]);
   });
@@ -191,10 +406,314 @@ describe('one door for three zones', () => {
       deps({ runner: echoing().start, watch: watch.watch }),
     );
 
-    await store.runWorkflow('groom_booking', '{}');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
     store.dispose();
 
     expect(watch.armed.map((held) => held.stopped)).toEqual([true]);
+  });
+
+  /**
+   * The Runs view sends every keystroke, and it is
+   * already showing the text: drawing the list again
+   * for one would be a whole picture per character.
+   * Whoever shows the input somewhere else follows
+   * its own signal.
+   */
+  it('tells the Inspector the input moved, drawing no list', () => {
+    const store = runsStore(deps());
+    const one = vi.fn();
+    const two = vi.fn();
+    const drawn = vi.fn();
+
+    store.onInputChanged(one);
+    store.onInputChanged(two);
+    store.onChanged(drawn);
+    store.setInput('{"n":1}');
+
+    expect(one).toHaveBeenCalledTimes(1);
+    expect(two).toHaveBeenCalledTimes(1);
+    expect(drawn).not.toHaveBeenCalled();
+    expect(store.list().testRun.input).toBe('{"n":1}');
+  });
+
+  /**
+   * A trigger's card starts the workflow its
+   * document is, and the Runs view has to show the
+   * run it started — and any refusal — against that
+   * workflow rather than whichever it was set to.
+   */
+  it('starts a trigger’s workflow with the Runs input', async () => {
+    const ingress = echoing();
+    const store = runsStore(deps({ runner: ingress.start }));
+
+    store.refreshWorkflows();
+    expect(store.list().testRun.selected).toBe('expense_claim');
+
+    store.setInput('{"n":1}');
+    await store.runTrigger('groom_booking');
+
+    expect(store.list().testRun.selected).toBe('groom_booking');
+    expect(ingress.requests.map((request) => request.input)).toEqual([
+      { n: 1 },
+    ]);
+    expect(ingress.requests[0]?.workflow).toBe('groom_booking');
+  });
+
+  /**
+   * A card in a window nobody has trusted cannot
+   * start anything, and moving the Runs view to the
+   * workflow it asked for would be the only mark a
+   * dead press left.
+   */
+  it('starts nothing from a card in a window nobody has trusted', async () => {
+    const ingress = echoing();
+    const store = runsStore(
+      deps({ runner: ingress.start, trust: fakeTrust(false) }),
+    );
+
+    store.refreshWorkflows();
+    const selected = store.list().testRun.selected;
+
+    store.setInput('{"n":1}');
+    await store.runTrigger('groom_booking');
+
+    expect(store.list().testRun.selected).toBe(selected);
+    expect(ingress.requests).toEqual([]);
+  });
+
+  /** A start refused before anything is sent still
+   *  says so against the workflow that was asked
+   *  for. */
+  it('draws a refused trigger start against its workflow', async () => {
+    const ingress = echoing();
+    const store = runsStore(deps({ runner: ingress.start }));
+
+    store.refreshWorkflows();
+    store.setInput('{ n: ');
+    await store.runTrigger('groom_booking');
+
+    expect(ingress.requests).toEqual([]);
+    expect(store.list().testRun.selected).toBe('groom_booking');
+    expect(store.list().testRun.problem?.detail).toBe(messages.runNotJson());
+  });
+
+  it('opens the Runs input to read, and nothing for none', async () => {
+    const shown: { content: string; language: string }[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          projects: () => [project()],
+          showText: async (content, language) =>
+            void shown.push({ content, language }),
+        }),
+      }),
+    );
+
+    await store.openRunInput();
+    store.setInput('  ');
+    await store.openRunInput();
+    store.setInput('{"n":1}');
+    await store.openRunInput();
+
+    expect(shown).toEqual([{ content: '{"n":1}', language: 'json' }]);
+  });
+});
+
+/**
+ * Marking a row and opening a run are two things.
+ *
+ * The list marks and opens out a row, and nothing
+ * else moves that mark. Opening a run is what the
+ * run tab, the Inspector, the transcript and the
+ * list's Open on canvas all ask for, and none of
+ * them is a reason for the list to mark another
+ * row.
+ */
+describe('the list’s mark and the run tab', () => {
+  function twoRuns(): RunsStore {
+    const db = database();
+    db.rows = [
+      RUN_ROW,
+      { ...RUN_ROW, workflow_uuid: 'wf_older', created_at: '500' },
+    ];
+
+    return runsStore(deps({ open: async () => db }));
+  }
+
+  it('marks a row without opening it', async () => {
+    const store = twoRuns();
+
+    await store.refresh();
+    store.selectRow('wf_older');
+
+    expect(store.list().selected).toBe('wf_older');
+    expect(store.detail()).toBeUndefined();
+  });
+
+  it('opens a run without moving the list’s mark', async () => {
+    const store = twoRuns();
+
+    await store.refresh();
+    expect(store.list().selected).toBe('wf_c9d2f3');
+
+    await store.select('wf_older');
+
+    expect(store.detail()?.run.workflowId).toBe('wf_older');
+    expect(store.list().selected).toBe('wf_c9d2f3');
+  });
+
+  it('shows a run opened from the list on its graph', async () => {
+    const store = twoRuns();
+
+    store.showTab('trace');
+    await store.select('wf_c9d2f3');
+    expect(store.see().showing).toBe('trace');
+
+    store.showTab('graph');
+
+    expect(store.see().showing).toBe('graph');
+  });
+});
+
+/**
+ * A run this window set going, as the list shows
+ * it.
+ *
+ * The list is read when somebody asks, and a run
+ * started a moment ago is a run somebody is
+ * looking for — so the first report about it reads
+ * the list again under All with that run marked.
+ * After that the list is read again only when the
+ * run moves: a resumed run sits enqueued until a
+ * worker claims it, and a watch ticks twice a
+ * second whether or not anything changed.
+ */
+describe('a run this window set going', () => {
+  function starting(db = database()) {
+    const watch = watcher();
+    const log = sessionLog();
+    const store = runsStore(
+      deps({
+        open: async () => db,
+        runner: echoing().start,
+        watch: watch.watch,
+        sessionLog: log,
+      }),
+    );
+
+    return { db, log, store, watch };
+  }
+
+  /** A run started under Failed, reported once. */
+  async function startedAndReported() {
+    const { db, log, store, watch } = starting();
+
+    await store.refresh();
+    await store.setFilter('failed');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
+
+    const id = log.list()[0]?.workflowId ?? '';
+    db.rows = [{ ...RUN_ROW, workflow_uuid: id, status: 'PENDING' }, RUN_ROW];
+    const before = listReads(db);
+
+    watch.say(
+      id,
+      liveRun({ workflowId: id, status: 'PENDING', outcome: 'running' }),
+    );
+    await vi.waitFor(() =>
+      expect(store.list().rows.map((row) => row.workflowId)).toContain(id),
+    );
+
+    return { db, id, before, store, watch };
+  }
+
+  it('reads the list again under All once the run is first reported, and selects it', async () => {
+    const { db, id, before, store } = await startedAndReported();
+
+    expect(store.list().selected).toBe(id);
+    expect(store.list().filter).toBe('all');
+    expect(listReads(db)).toBe(before + 1);
+  });
+
+  it('reads it again when the run moves, and not when it does not', async () => {
+    const { db, id, store, watch } = await startedAndReported();
+    const first = listReads(db);
+
+    watch.say(
+      id,
+      liveRun({ workflowId: id, status: 'PENDING', outcome: 'running' }),
+    );
+    await flushed();
+
+    expect(listReads(db)).toBe(first);
+
+    db.rows = [{ ...RUN_ROW, workflow_uuid: id }, RUN_ROW];
+    watch.say(
+      id,
+      liveRun({ workflowId: id, status: 'SUCCESS', outcome: 'done' }),
+    );
+    await vi.waitFor(() => expect(listReads(db)).toBe(first + 1));
+    await flushed();
+
+    expect(store.list().selected).toBe(id);
+    expect(store.list().rows[0]?.state).toBe('done');
+  });
+
+  it('selects a run it picked back up once that run is reported', async () => {
+    const db = database();
+    const STOPPED_RUN = {
+      ...RUN_ROW,
+      workflow_uuid: 'wf_stopped',
+      status: 'CANCELLED',
+    };
+    db.rows = [RUN_ROW, STOPPED_RUN];
+    const { store, watch } = starting(db);
+
+    await store.refresh();
+    await store.setFilter('failed');
+    await store.resume('wf_stopped');
+
+    // Picking it back up reads the list, and marks
+    // nothing new by itself.
+    expect(store.list().selected).toBe('wf_c9d2f3');
+
+    db.rows = [{ ...STOPPED_RUN, status: 'ENQUEUED' }, RUN_ROW];
+    watch.say(
+      'wf_stopped',
+      liveRun({
+        workflowId: 'wf_stopped',
+        status: 'ENQUEUED',
+        outcome: 'queued',
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(store.list().rows[0]?.workflowId).toBe('wf_stopped'),
+    );
+
+    expect(store.list().selected).toBe('wf_stopped');
+    expect(store.list().filter).toBe('all');
+  });
+
+  /** A run somebody merely opened is followed too,
+   *  and it is not this window's to put first. */
+  it('reads nothing for a report about a run it did not set going', async () => {
+    const db = database();
+    db.rows = [{ ...RUN_ROW, status: 'PENDING', completed_at: null }];
+    const { store, watch } = starting(db);
+
+    await store.select('wf_c9d2f3');
+    expect(watch.armed).toHaveLength(1);
+
+    const before = listReads(db);
+    watch.say(
+      'wf_c9d2f3',
+      liveRun({ workflowId: 'wf_c9d2f3', status: 'SUCCESS', outcome: 'done' }),
+    );
+    await flushed();
+
+    expect(listReads(db)).toBe(before);
   });
 });
 
@@ -203,15 +722,19 @@ describe('one door for three zones', () => {
  * own share of it.
  *
  * One read, held by the store rather than by either
- * zone, because both surfaces that draw the card
- * ask the same question about the same run — the
- * canvas' column and the run page's rail.
+ * zone, because the card asks the same question
+ * about the same run whichever surface the block
+ * was picked on — a canvas or the run tab.
  */
 describe('what a queue block is doing', () => {
   /** The ledger, answering the three statements a
    *  queue card costs as well as everything the
-   *  list and the page ask. */
-  function queueLedger(name: string) {
+   *  list and the page ask. `started` answers the
+   *  window's count, and may take its time. */
+  function queueLedger(
+    name: string,
+    started: () => Promise<string> = async () => '74',
+  ) {
     const base = database();
     base.rows = [{ ...RUN_ROW, name }];
 
@@ -222,7 +745,12 @@ describe('what a queue block is doing', () => {
 
         if (text.includes('queue_name = $1')) {
           return [
-            { queued: '4', active: '2', started: '74', failed_recently: '0' },
+            {
+              queued: '4',
+              active: '2',
+              started: await started(),
+              failed_recently: '0',
+            },
           ] as Row[];
         }
 
@@ -233,11 +761,10 @@ describe('what a queue block is doing', () => {
     };
   }
 
-  async function showingQueueRun() {
+  async function showingQueueRun(ledger = queueLedger('queue_partitioned')) {
     const dir = project();
     writeWorkflow(dir, 'queue_partitioned');
 
-    const ledger = queueLedger('queue_partitioned');
     const store = runsStore(
       deps({
         host: host({ projects: () => [dir] }),
@@ -255,6 +782,11 @@ describe('what a queue block is doing', () => {
 
     await store.inspectQueue('wf_c9d2f3', 'index_items');
 
+    // And on the copy a block of it is drawn from in
+    // the Inspector, which is the same read.
+    expect(store.tab(0)?.inspected.queueEvidence).toEqual(
+      store.see().run?.live?.queueEvidence,
+    );
     expect(store.see().run?.live?.queueEvidence).toEqual({
       index_items: {
         window: {
@@ -291,6 +823,125 @@ describe('what a queue block is doing', () => {
     await store.inspectQueue('wf_somebody_else', 'index_items');
 
     expect(store.see().run?.live?.queueEvidence).toBeUndefined();
+  });
+
+  /** A card asks again each time the counts drawn
+   *  on it move, and a database promises no order
+   *  between two answers. The older one landing
+   *  last must not put the older picture back. */
+  it('keeps the read asked last when an older one lands after it', async () => {
+    const answers: ((started: string) => void)[] = [];
+    const store = await showingQueueRun(
+      queueLedger(
+        'queue_partitioned',
+        () => new Promise((resolve) => answers.push(resolve)),
+      ),
+    );
+
+    const first = store.inspectQueue('wf_c9d2f3', 'index_items');
+    const second = store.inspectQueue('wf_c9d2f3', 'index_items');
+    await flushed();
+    expect(answers).toHaveLength(2);
+
+    answers[1]?.('2');
+    await second;
+    answers[0]?.('1');
+    await first;
+
+    expect(
+      store.see().run?.live?.queueEvidence?.index_items?.window.started,
+    ).toBe(2);
+  });
+});
+
+/**
+ * The run tab's run, as the Inspector draws a block
+ * of it.
+ *
+ * The page and a canvas draw what the workflow did
+ * and leave the SDK's own rows out. A row picked in
+ * the trace can be one of those, so the Inspector's
+ * copy keeps them, each under the block it is drawn
+ * under and marked as the SDK's.
+ */
+describe('the run a block picked on the run tab is drawn from', () => {
+  /** A store with a run of that workflow open, over
+   *  a project holding it. */
+  async function opened(
+    workflow: string,
+    rows: { name: string; output?: string }[],
+  ): Promise<RunsStore> {
+    const dir = project({ workflows: [] });
+    writeWorkflow(dir, workflow);
+
+    const db = database();
+    db.rows = [{ ...RUN_ROW, name: workflow }];
+    db.steps = rows.map((row, index) => ({
+      ...STEP_ROW,
+      function_id: index,
+      function_name: row.name,
+      output: row.output ?? '{}',
+    }));
+
+    const store = runsStore(
+      deps({ host: host({ projects: () => [dir] }), open: async () => db }),
+    );
+    await store.select('wf_c9d2f3');
+
+    return store;
+  }
+
+  const INTAKE = [
+    { name: 'ask_details' },
+    { name: 'await_details.register' },
+    { name: 'DBOS.recv' },
+    { name: 'DBOS.sleep' },
+    { name: 'await_details.clear' },
+    { name: 'record_intake' },
+  ];
+
+  it('keeps the SDK’s rows, each under the block it ran in', async () => {
+    const store = await opened('form_intake', INTAKE);
+
+    expect(
+      store
+        .tab(0)
+        ?.inspected.steps.map((one) => [
+          one.name,
+          one.nodeId,
+          one.sdk ?? false,
+        ]),
+    ).toEqual([
+      ['ask_details', 'ask_details', false],
+      ['await_details.register', 'await_details', false],
+      ['DBOS.recv', 'await_details', true],
+      ['DBOS.sleep', 'await_details', true],
+      ['await_details.clear', 'await_details', false],
+      ['record_intake', 'record_intake', false],
+    ]);
+  });
+
+  it('leaves the run the page draws without them', async () => {
+    const store = await opened('form_intake', INTAKE);
+    const steps = store.see().run?.live?.steps ?? [];
+
+    expect(steps).toHaveLength(4);
+    expect(steps.some((one) => one.sdk === true)).toBe(false);
+  });
+
+  it('says which way a decided block went, as the page does', async () => {
+    const store = await opened('groom_booking', [
+      { name: 'parse_request' },
+      { name: 'find_slot' },
+      { name: 'slot_open', output: '{"requestedSlotFree":true}' },
+    ]);
+
+    expect(store.tab(0)?.decided).toEqual({ slot_open: 'yes' });
+    expect(store.tab(0)?.decided).toEqual(store.see().run?.graph?.decided);
+  });
+
+  it('has nothing to draw before a run is open', () => {
+    expect(runsStore(deps()).tab(0)).toBeUndefined();
   });
 });
 
@@ -412,6 +1063,30 @@ describe('the console for what is deployed', () => {
 });
 
 /**
+ * Where to read about Conductor, for somebody who
+ * has not got a console.
+ *
+ * A page of documentation reads nothing of the
+ * folder and runs nothing in it, so it is offered
+ * in a window nobody has trusted too.
+ */
+describe('where to read about DBOS Conductor', () => {
+  it('opens the Conductor docs from Learn about Conductor', async () => {
+    const untrusted = recording(project(), '');
+    const store = runsStore(
+      deps({ host: untrusted.host, trust: fakeTrust(false) }),
+    );
+
+    await store.learnConductor();
+
+    expect(CONDUCTOR_DOCS_URL).toBe(
+      'https://docs.dbos.dev/production/conductor',
+    );
+    expect(untrusted.calls).toEqual([`openExternal ${CONDUCTOR_DOCS_URL}`]);
+  });
+});
+
+/**
  * A host that writes down what it was asked to do.
  *
  * The answer `conductorConsoleUrl` gives is the one
@@ -448,18 +1123,20 @@ function recording(
 async function exercise(store: RunsStore): Promise<void> {
   await store.refresh();
   await store.setFilter('failed');
+  store.selectRow('wf_c9d2f3');
   await store.select('wf_c9d2f3');
   await store.openWorkflow('wf_c9d2f3');
-  await store.openFunction('wf_c9d2f3', 'find_slot');
-  await store.openOutput('wf_c9d2f3', 0);
-  await store.runWorkflow('groom_booking', '{}');
-  await store.rerun('wf_c9d2f3');
+  store.setInput('{}');
+  await store.runWorkflow('groom_booking');
+  await store.runTrigger('groom_booking');
+  await store.openRunInput();
   await store.copyRunId('wf_c9d2f3');
   await store.askAgent({ workflowId: 'wf_c9d2f3' });
   await store.stackUp();
   await store.stackRebuild();
   await store.stackDown();
   await store.refreshRun();
+  await store.learnConductor();
   store.list();
   store.see();
   store.dispose();
@@ -543,6 +1220,84 @@ describe('the doors a replay comes through', () => {
     );
   });
 
+  /**
+   * The list offers Replay from where a run failed
+   * or from its start, and says which it means.
+   * Either way the question is the one the page
+   * asks about the same point.
+   */
+  it('carries the list’s pick to the decision the page reaches', async () => {
+    const bare = asking();
+    await bare.store.replayRun('wf_c9d2f3');
+
+    for (const picked of [{ functionId: 0 }, { from: 'start' }] as const) {
+      const page = asking();
+      const list = asking();
+
+      await page.store.replay('wf_c9d2f3', picked);
+      await list.store.replayRun('wf_c9d2f3', picked);
+
+      expect(page.asked).toHaveLength(1);
+      expect(list.asked).toEqual(page.asked);
+    }
+
+    // The start is a point the run's own default is
+    // not, so the case cannot pass by dropping it.
+    const fromStart = asking();
+    await fromStart.store.replayRun('wf_c9d2f3', { from: 'start' });
+
+    expect(fromStart.asked[0]?.detail).not.toBe(bare.asked[0]?.detail);
+  });
+
+  /**
+   * A failure on a row no replay may start from —
+   * the park a form's link opens — is answered with
+   * why, and with the block to go back to, rather
+   * than with a replay from some other point.
+   */
+  it('says why a named step is no place to start, rather than starting somewhere else', async () => {
+    const dir = project({ workflows: [] });
+    writeWorkflow(dir, 'form_intake');
+
+    const db = database();
+    db.rows = [{ ...RUN_ROW, name: 'form_intake', status: 'ERROR' }];
+    db.steps = [
+      { ...STEP_ROW, function_id: 0, function_name: 'ask_details' },
+      {
+        ...STEP_ROW,
+        function_id: 1,
+        function_name: 'await_details.register',
+        error: '{"message":"mailbox full"}',
+      },
+    ];
+
+    const asked: ReplayQuestion[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          projects: () => [dir],
+          confirm: async (question) => {
+            asked.push(question);
+
+            return { at: 'nothing' };
+          },
+        }),
+        open: async () => db,
+      }),
+    );
+
+    await store.replayRun('wf_c9d2f3', { functionId: 1 });
+    await store.replayRun('wf_c9d2f3');
+
+    const [named, whole] = asked;
+
+    expect(named?.detail).toBe(
+      messages.replayRowLinkScoped('Ask for the details'),
+    );
+    expect(whole?.detail).toBeDefined();
+    expect(whole?.detail).not.toBe(named?.detail);
+  });
+
   /** Forking writes into the project's database and
    *  sets code running. */
   it('asks nothing in a window nobody has trusted', async () => {
@@ -573,13 +1328,14 @@ describe('the doors a replay comes through', () => {
  * The decision and the sentence are the list's, and
  * the zone spec beside it is where those are
  * checked. What is checked here is what the store
- * does afterwards: a resumed run goes onto the
- * screen under its own id and onto the one watch
- * this window owns.
+ * does afterwards: a resumed run is filed as one
+ * this window set going and goes onto the one
+ * watch this window owns.
  */
 describe('a run picked back up', () => {
-  it('puts it on screen as a row that cannot be rerun', async () => {
+  it('files it under its own id as this window own', async () => {
     const db = database();
+    const log = sessionLog();
     db.rows = [
       { ...RUN_ROW, workflow_uuid: 'wf_stopped', status: 'CANCELLED' },
     ];
@@ -589,28 +1345,30 @@ describe('a run picked back up', () => {
         host: host({ projects: () => [project()] }),
         open: async () => db,
         openManagement: async () => management(),
+        sessionLog: log,
       }),
     );
 
     await store.resume('wf_stopped');
 
-    // The input it carries on with belongs to the
-    // run in the ledger, which never passed through
-    // this window — so the row offers Open run and
-    // nothing else.
-    expect(store.list().session).toEqual([
+    // Under its own id and not the run it carried
+    // on from: what it carries on with belongs to
+    // the run in the ledger, which never passed
+    // through this window.
+    expect(log.list()).toEqual([
       expect.objectContaining({ workflowId: 'wf_stopped', via: 'resume' }),
     ]);
   });
 
-  it('leaves the session alone when the ledger has no such run', async () => {
+  it('files nothing when the ledger has no such run', async () => {
+    const log = sessionLog();
     const store = runsStore(
-      deps({ host: host({ projects: () => [project()] }) }),
+      deps({ host: host({ projects: () => [project()] }), sessionLog: log }),
     );
 
     await store.resume('wf_nothing');
 
-    expect(store.list().session).toEqual([]);
+    expect(log.list()).toEqual([]);
   });
 });
 
@@ -644,234 +1402,178 @@ describe('a run id somebody wanted', () => {
  * panel. The code-behind is what knows where that
  * function is.
  */
-describe('the way to the code a block runs', () => {
-  /** A project with a workflow the ledger's run is
-   *  a run of, and the `.env` the ledger is read
-   *  through. */
-  async function readable(over: { lib?: 'lib' } = {}): Promise<string> {
-    const dir = await makeProject(over);
-
-    writeWorkflow(dir, 'groom_booking');
-    writeFileSync(join(dir, '.env'), `DATABASE_URL=${LEDGER_URL}\n`, 'utf8');
-
-    return dir;
-  }
-
-  /** A host that writes down every file it was
-   *  asked to open and everything it was told to
-   *  say. */
-  type Watched = {
-    opened: { path: string; at?: { line: number; column?: number } }[];
-    shown: { content: string; language: string }[];
-    said: string[];
-    host: RunsHost;
-  };
-
-  function watching(dir: string): Watched {
-    const opened: { path: string; at?: { line: number; column?: number } }[] =
-      [];
+/**
+ * The whole of what a run was started with.
+ *
+ * The Inspector's card shows only the front of a
+ * long input, and the run tab or the canvas behind
+ * it holds the run it was read from, so the store
+ * is the way to the rest. Untitled and unsaved: it
+ * is a copy of what the ledger recorded, with
+ * nowhere to be written back to.
+ */
+describe('the input a run was started with', () => {
+  function showing(ledger = database()) {
     const shown: { content: string; language: string }[] = [];
-    const said: string[] = [];
-
-    return {
-      opened,
-      shown,
-      said,
-      host: host({
-        projects: () => [dir],
-        say: (message) => void said.push(message),
-        openFile: async (path, at) => void opened.push({ path, at }),
-        showText: async (content, language) =>
-          void shown.push({ content, language }),
-      }),
-    };
-  }
-
-  it("opens a block's function through the run's saved document", async () => {
-    const dir = await readable({ lib: 'lib' });
-    const watched = watching(dir);
-    const store = runsStore(deps({ host: watched.host }));
-
-    await store.openFunction('wf_c9d2f3', 'find_slot');
-
-    expect(watched.opened).toEqual([
-      { path: join(dir, 'lib', 'findSlot.ts'), at: { line: 6 } },
-    ]);
-    expect(watched.said).toEqual([]);
-  });
-
-  /**
-   * A workflow drawn before its code exists is the
-   * ordinary state of one, and agents write these
-   * documents too — so a block naming a function
-   * the scan never found says which name that was
-   * rather than opening nothing.
-   */
-  /**
-   * Reading the code-behind type-checks every file
-   * in a project and writes the manifest it found
-   * inside it, so it is one of the seams a window
-   * nobody has trusted may not reach — asked here
-   * rather than left to the ledger read that happens
-   * to come first.
-   */
-  it('scans nothing in a window nobody has trusted', async () => {
-    const dir = await readable({ lib: 'lib' });
-    const watched = watching(dir);
     const store = runsStore(
-      deps({ host: watched.host, trust: fakeTrust(false) }),
+      deps({
+        host: host({
+          projects: () => [project()],
+          showText: async (content, language) =>
+            void shown.push({ content, language }),
+        }),
+        open: async () => ledger,
+      }),
     );
 
-    await store.openFunction('wf_c9d2f3', 'find_slot');
+    return { store, shown };
+  }
 
-    expect(watched.opened).toEqual([]);
-    expect(existsSync(join(dir, '.mboss', 'manifest.json'))).toBe(false);
+  it('opens the input the run tab’s run was started with', async () => {
+    const { store, shown } = showing();
+
+    await store.select('wf_c9d2f3');
+    await store.openInput('wf_c9d2f3');
+
+    expect(shown).toEqual([
+      { content: '{\n  "email": "ada@example.com"\n}', language: 'json' },
+    ]);
   });
 
-  it('says which function the code-behind has not got', async () => {
-    const dir = await readable();
-    const watched = watching(dir);
-    const store = runsStore(deps({ host: watched.host }));
+  it('opens the input of the run a canvas is following', async () => {
+    const watch = watcher();
+    const log = sessionLog();
+    const shown: { content: string; language: string }[] = [];
+    const store = runsStore(
+      deps({
+        host: host({
+          projects: () => [project()],
+          showText: async (content, language) =>
+            void shown.push({ content, language }),
+        }),
+        runner: echoing().start,
+        watch: watch.watch,
+        sessionLog: log,
+      }),
+    );
 
-    await store.openFunction('wf_c9d2f3', 'find_slot');
+    store.setInput('{}');
+    await store.runWorkflow('groom_booking');
+    const workflowId = log.list()[0]?.workflowId ?? '';
+    watch.say(
+      workflowId,
+      liveRun({
+        workflowId,
+        recordedInput: { shape: 'payload', value: { orderId: 'ord_123' } },
+      }),
+    );
+    await store.openInput(workflowId);
 
-    expect(watched.opened).toEqual([]);
-    expect(watched.said).toEqual([messages.openFunctionUnknown('findSlot')]);
+    expect(store.live()?.workflowId).toBe(workflowId);
+    expect(shown).toEqual([
+      { content: '{\n  "orderId": "ord_123"\n}', language: 'json' },
+    ]);
   });
 
-  /**
-   * The other way in: not the function the block
-   * names, but the line the run recorded a failure
-   * at. The frame comes off the stack the container
-   * wrote, so the file it names is a claim about the
-   * image rather than about this workspace.
-   */
-  describe('the line a failure came from', () => {
-    /** The page, showing a run whose one row failed
-     *  on a line the container recorded. */
-    async function showing(
-      file: string,
-    ): Promise<{ dir: string; store: RunsStore; watched: Watched }> {
-      const dir = await readable({ lib: 'lib' });
-      const watched = watching(dir);
-      const ledger = database();
+  it('opens nothing for a run that recorded no input', async () => {
+    const ledger = database();
+    ledger.rows = [{ ...RUN_ROW, inputs: null }];
+    const { store, shown } = showing(ledger);
 
-      ledger.steps = [
-        {
-          ...STEP_ROW,
-          function_id: 4,
-          function_name: 'find_slot',
-          error: JSON.stringify({
-            json: {
-              name: 'SlotTaken',
-              message: 'no slot left',
-              stack:
-                'SlotTaken: no slot left\n' +
-                `    at findSlot (/app/${file}:6:9)`,
-            },
-            __dbos_serializer: 'superjson',
-          }),
-        },
-      ];
+    await store.select('wf_c9d2f3');
+    await store.openInput('wf_c9d2f3');
 
-      const store = runsStore(
-        deps({ host: watched.host, open: async () => ledger }),
-      );
-
-      await store.select('wf_c9d2f3');
-
-      return { dir, store, watched };
-    }
-
-    it('opens the file the failure came from', async () => {
-      const { dir, store, watched } = await showing('lib/findSlot.ts');
-
-      await store.openErrorLocation('wf_c9d2f3', 4);
-
-      expect(watched.opened).toEqual([
-        { path: join(dir, 'lib', 'findSlot.ts'), at: { line: 6, column: 9 } },
-      ]);
-      expect(watched.said).toEqual([]);
-    });
-
-    it('says the file the failure named is gone', async () => {
-      const { store, watched } = await showing('lib/rescheduleSlot.ts');
-
-      await store.openErrorLocation('wf_c9d2f3', 4);
-
-      expect(watched.opened).toEqual([]);
-      expect(watched.said).toEqual([
-        messages.errorLocationGone('lib/rescheduleSlot.ts'),
-      ]);
-    });
-
-    /** A page that has moved on names a run this
-     *  store is not showing, and gets nothing. */
-    it('opens nothing for a run it is not showing', async () => {
-      const { store, watched } = await showing('lib/findSlot.ts');
-
-      await store.openErrorLocation('wf_somebody_else', 4);
-
-      expect(watched.opened).toEqual([]);
-      expect(watched.said).toEqual([]);
-    });
+    expect(store.detail()?.run.workflowId).toBe('wf_c9d2f3');
+    expect(shown).toEqual([]);
   });
 
-  /**
-   * The third way out of a card, and the one that
-   * goes nowhere near a file: what a step returned,
-   * whole.
-   *
-   * The card draws as much of it as a column can
-   * hold and the raw table as much as a cell can, so
-   * the only place the untruncated bytes exist is
-   * the row the page already read.
-   */
-  describe('the whole of a value the run recorded', () => {
-    const WHOLE = `{"slot":"${'x'.repeat(4000)}"}`;
+  it('opens nothing for a run it is not showing', async () => {
+    const { store, shown } = showing();
 
-    /** The page, showing a run whose one row
-     *  returned more than either surface draws. */
-    async function showing(): Promise<{ store: RunsStore; watched: Watched }> {
-      const dir = await readable();
-      const watched = watching(dir);
-      const ledger = database();
+    await store.select('wf_c9d2f3');
+    await store.openInput('wf_somebody_else');
 
-      ledger.steps = [{ ...STEP_ROW, function_id: 4, output: WHOLE }];
+    expect(shown).toEqual([]);
+  });
+});
 
-      const store = runsStore(
-        deps({ host: watched.host, open: async () => ledger }),
-      );
+/**
+ * Whether a replay from the start is on offer, said
+ * before anybody asks for one: the refusals that
+ * need no row, in the project the store reads runs
+ * from.
+ */
+describe('a replay from the start, before anybody asks', () => {
+  const saved = (dir: string, name: string) =>
+    WorkflowIRSchema.parse(
+      JSON.parse(
+        readFileSync(
+          join(dir, '.mboss', 'workflows', `${name}.workflow.json`),
+          'utf8',
+        ),
+      ),
+    );
 
-      await store.select('wf_c9d2f3');
+  it('says why the project refuses it, and nothing where it does not', () => {
+    const dir = project();
+    const document = saved(dir, 'groom_booking');
+    const refusing = (sdk: ProjectSdk) =>
+      runsStore(
+        deps({ host: host({ projects: () => [dir] }), projectSdk: () => sdk }),
+      ).replayStartRefusal('groom_booking', document);
 
-      return { store, watched };
-    }
+    expect(refusing({ ok: true, version: '5.1.0' })).toBe(
+      messages.replaySdkMajor('4.27.6', '5.1.0'),
+    );
+    expect(refusing({ ok: false, because: 'no-lockfile' })).toBe(
+      messages.replayNoLockfile(),
+    );
+    expect(refusing({ ok: true, version: '4.27.6' })).toBeUndefined();
+  });
 
-    it('opens the stored value as JSON', async () => {
-      const { store, watched } = await showing();
+  it('says there is nothing to replay against without a document', () => {
+    const store = runsStore(deps());
 
-      await store.openOutput('wf_c9d2f3', 4);
+    expect(store.replayStartRefusal('groom_booking', undefined)).toBe(
+      messages.replayNoDocument('groom_booking'),
+    );
+  });
+});
 
-      expect(watched.shown).toEqual([{ content: WHOLE, language: 'json' }]);
-    });
+/** This window's own memory of having cancelled a
+ *  run, asked by run. */
+describe('a run this window cancelled', () => {
+  it('is remembered by id for as long as the window is open', async () => {
+    const PENDING = { ...RUN_ROW, status: 'PENDING', completed_at: null };
+    const ledger = database();
+    ledger.rows = [PENDING];
 
-    it('opens nothing for a run it is not showing', async () => {
-      const { store, watched } = await showing();
+    // A client whose cancel is what moves the row,
+    // the way the real one's statement is.
+    const store = runsStore(
+      deps({
+        open: async () => ledger,
+        openManagement: async () => ({
+          ...management(),
+          cancelWorkflow: async () => {
+            ledger.rows = [{ ...PENDING, status: 'CANCELLED' }];
+          },
+        }),
+      }),
+    );
 
-      await store.openOutput('wf_somebody_else', 4);
+    expect(store.cancelledHere('wf_c9d2f3')).toBe(false);
 
-      expect(watched.shown).toEqual([]);
-    });
+    await store.cancel('wf_c9d2f3');
 
-    /** A step DBOS recorded no value for has nothing
-     *  to open, and says so by doing nothing. */
-    it('opens nothing for a row that returned nothing', async () => {
-      const { store, watched } = await showing();
+    expect(store.cancelledHere('wf_c9d2f3')).toBe(true);
+    expect(store.cancelledHere('wf_somebody_else')).toBe(false);
 
-      await store.openOutput('wf_c9d2f3', 9);
+    // And the Inspector reads it off the one
+    // projection of the open run, not by a question
+    // of its own.
+    await store.select('wf_c9d2f3');
 
-      expect(watched.shown).toEqual([]);
-    });
+    expect(store.tab(0)?.cancelledHere).toBe(true);
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { fakeAgent, type FakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
+import type { AgentPrompt } from '../acp/prompt.js';
 import type { WorkflowIR } from '../core/rules.js';
 import {
   LEDGER_URL,
@@ -16,10 +17,11 @@ import {
   runner,
   watcher,
 } from '../test-support/runs.js';
+import { shortRunId } from '../webview/ids.js';
 
 import { OUTPUT_KEPT } from './rows.js';
 import type { LiveRun } from './watch.js';
-import { sessionLog, type SessionRun } from './sessionLog.js';
+import { sessionLog, type SessionLog, type SessionRun } from './sessionLog.js';
 import { following, type FollowedRun, type Following } from './following.js';
 import { testRunZone, type TestRun, type TestRunDeps } from './testRun.js';
 
@@ -30,26 +32,42 @@ import { testRunZone, type TestRun, type TestRunDeps } from './testRun.js';
  * follow.
  */
 
-function zone(over: Partial<TestRunDeps> = {}): TestRun {
-  return testRunZone({
-    host: host({ projects: () => [project()] }),
-    agent: fakeAgent(),
-    trust: fakeTrust(),
-    runner: async () => ({
-      ok: false,
-      because: 'refused',
-      detail: 'no ingress in this spec',
+/**
+ * The zone, with the log it files starts in.
+ *
+ * What this window set going is the host's own
+ * record rather than something the view is sent, so
+ * a case that wants to see a start filed reads the
+ * log the zone was handed.
+ */
+function zone(
+  over: Partial<TestRunDeps> = {},
+): TestRun & { filed: SessionLog } {
+  const filed = over.sessionLog ?? sessionLog();
+
+  return Object.assign(
+    testRunZone({
+      host: host({ projects: () => [project()] }),
+      agent: fakeAgent(),
+      trust: fakeTrust(),
+      runner: async () => ({
+        ok: false,
+        because: 'refused',
+        detail: 'no ingress in this spec',
+      }),
+      following: follows().held,
+      open: async () => database(),
+      ledger: () => ({ url: LEDGER_URL, from: 'DATABASE_URL' }),
+      // A window that has read neither, which is
+      // what every case says unless it hands one
+      // over.
+      document: () => undefined,
+      manifest: () => undefined,
+      ...over,
+      sessionLog: filed,
     }),
-    sessionLog: sessionLog(),
-    following: follows().held,
-    open: async () => database(),
-    ledger: () => ({ url: LEDGER_URL, from: 'DATABASE_URL' }),
-    // A window that has read neither, which is what
-    // every case says unless it hands one over.
-    document: () => undefined,
-    manifest: () => undefined,
-    ...over,
-  });
+    { filed },
+  );
 }
 
 /**
@@ -142,7 +160,8 @@ describe('the workflows a person can run', () => {
     const shown = zone({ runner: ingress.start });
 
     shown.refresh();
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
     expect(shown.render().testRun.problem).toBeDefined();
 
     shown.selectWorkflow('expense_claim');
@@ -150,6 +169,50 @@ describe('the workflows a person can run', () => {
     expect(shown.render().testRun.selected).toBe('expense_claim');
     expect(shown.render().testRun.hint).toContain('claimId');
     expect(shown.render().testRun.problem).toBeUndefined();
+  });
+});
+
+/**
+ * The Runs view's input box is the one place a run's
+ * input is typed, and the zone holds what it says.
+ *
+ * Every start reads it, whichever door the start
+ * came through. The view is not drawn again for a
+ * keystroke — it is showing the text already — so
+ * the input has a signal of its own, apart from the
+ * one that draws the list.
+ */
+describe('the input a run starts with', () => {
+  it('holds what the Runs view typed, on a signal of its own', () => {
+    const shown = zone();
+    const typed: string[] = [];
+    let drawn = 0;
+
+    shown.onInputChanged(() => void typed.push(shown.render().testRun.input));
+    shown.onChanged(() => void (drawn += 1));
+    shown.setInput('{"n":1}');
+
+    expect(shown.render().testRun.input).toBe('{"n":1}');
+    expect(typed).toEqual(['{"n":1}']);
+    expect(drawn).toBe(0);
+  });
+
+  it('starts every run with it', async () => {
+    const ingress = runner((request) => ({
+      ok: true,
+      workflowId: request.workflowId ?? '',
+    }));
+    const shown = zone({ runner: ingress.start });
+
+    shown.setInput('{"n":1}');
+    await shown.runWorkflow('groom_booking');
+    shown.setInput('{"n":2}');
+    await shown.runWorkflow('groom_booking');
+
+    expect(ingress.requests.map((request) => request.input)).toEqual([
+      { n: 1 },
+      { n: 2 },
+    ]);
   });
 });
 
@@ -170,7 +233,8 @@ describe('starting a run', () => {
     });
     const shown = zone({ runner: ingress.start, sessionLog: log });
 
-    await shown.runWorkflow('groom_booking', '{"bookingId":7}');
+    shown.setInput('{"bookingId":7}');
+    await shown.runWorkflow('groom_booking');
 
     expect(seen?.outcome).toBe('running');
     expect(seen?.workflow).toBe('groom_booking');
@@ -183,25 +247,30 @@ describe('starting a run', () => {
     const ingress = runner(() => ({ ok: true, workflowId: 'wf_echo' }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('expense_claim', '{"claimId":"c-1"}');
+    shown.setInput('{"claimId":"c-1"}');
+    await shown.runWorkflow('expense_claim');
 
     expect(ingress.requests[0]?.trigger).toEqual({
       mode: 'event',
       topic: 'expense.filed',
     });
-    expect(shown.render().session[0]?.workflowId).toBe('wf_echo');
+    expect(shown.filed.list()[0]?.workflowId).toBe('wf_echo');
   });
 
   it('refuses input that is not JSON, and sends nothing', async () => {
     const ingress = runner(() => ({ ok: true, workflowId: 'wf_1' }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('groom_booking', '{ bookingId: ');
+    shown.setInput('{ bookingId: ');
+    await shown.runWorkflow('groom_booking');
 
     expect(ingress.requests).toEqual([]);
     expect(shown.render().testRun.problem).toBeDefined();
     expect(shown.render().testRun.problem?.rebuildToRun).toBe(false);
-    expect(shown.render().session).toEqual([]);
+    // Nothing was filed, so there is no run for the
+    // agent to be asked about.
+    expect(shown.render().testRun.problem?.workflowId).toBeUndefined();
+    expect(shown.filed.list()).toEqual([]);
   });
 
   it('marks a refused manual start failed, with what the route said', async () => {
@@ -212,14 +281,19 @@ describe('starting a run', () => {
     }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const row = shown.render().session[0];
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const row = shown.filed.list()[0];
 
     expect(row?.outcome).toBe('failed');
     expect(row?.error).toBe('the app is not up');
+    // Under the id the session log filed it by, which
+    // is what asking the agent about it needs.
+    expect(row?.workflowId).toBeDefined();
     expect(shown.render().testRun.problem).toEqual({
       detail: 'the app is not up',
       rebuildToRun: false,
+      workflowId: row?.workflowId,
     });
   });
 
@@ -236,7 +310,8 @@ describe('starting a run', () => {
     }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
 
     expect(shown.render().testRun.problem?.detail).toContain('Rebuild');
     expect(shown.render().testRun.problem?.rebuildToRun).toBe(true);
@@ -252,21 +327,24 @@ describe('starting a run', () => {
     }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('expense_claim', '{}');
-    const row = shown.render().session[0];
+    shown.setInput('{}');
+    await shown.runWorkflow('expense_claim');
+    const row = shown.filed.list()[0];
 
     expect(row?.workflowId.startsWith('refused_')).toBe(true);
     expect(row?.error).toBe('no EVENTS_SECRET');
+    expect(shown.render().testRun.problem?.workflowId).toBe(row?.workflowId);
   });
 
   it('does not start a workflow that runs on a schedule', async () => {
     const ingress = runner(() => ({ ok: true, workflowId: 'wf_1' }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('nightly_sync', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('nightly_sync');
 
     expect(ingress.requests).toEqual([]);
-    expect(shown.render().session).toEqual([]);
+    expect(shown.filed.list()).toEqual([]);
   });
 
   it('starts nothing in a window nobody has trusted', async () => {
@@ -277,7 +355,8 @@ describe('starting a run', () => {
       runner: ingress.start,
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
 
     expect(ingress.requests).toEqual([]);
   });
@@ -291,12 +370,13 @@ describe('following a run', () => {
       following: owner.held,
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
 
     // The id the row was recorded under before the
     // request went, which is what the route starts
     // the run as.
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
     expect(owner.watch.armed.map((one) => one.workflowId)).toEqual([
       workflowId,
     ]);
@@ -315,16 +395,17 @@ describe('following a run', () => {
     );
 
     expect(shown.live()?.workflowId).toBe(workflowId);
-    expect(shown.render().session[0]?.outcome).toBe('done');
-    expect(shown.render().session[0]?.stepCount).toBe(2);
+    expect(shown.filed.list()[0]?.outcome).toBe('done');
+    expect(shown.filed.list()[0]?.stepCount).toBe(2);
   });
 
   it('names the step that failed, with what the run recorded', async () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -339,9 +420,10 @@ describe('following a run', () => {
       }),
     );
 
-    expect(shown.render().session[0]?.error).toBe(
-      'login failed — CDC_PASS rotated',
-    );
+    expect(shown.filed.list()[0]?.failedStep).toEqual({
+      name: 'find_slot',
+      error: 'login failed — CDC_PASS rotated',
+    });
   });
 
   /**
@@ -353,15 +435,18 @@ describe('following a run', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
       liveRun({ workflowId, outcome: 'cancelled', status: 'CANCELLED' }),
     );
 
-    expect(shown.render().session[0]?.when).toContain('·');
+    // A run that is over has a length, which is
+    // what a row of it says after its clock.
+    expect(shown.filed.list()[0]?.durationMs).toBeDefined();
     expect(shown.unsettled()).toEqual([]);
   });
 
@@ -380,8 +465,9 @@ describe('following a run', () => {
     const owner = follows(watcher(), () => shown.unsettled());
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
     expect(owner.watch.armed).toHaveLength(1);
 
     owner.watch.say(
@@ -407,8 +493,9 @@ describe('following a run', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const mine = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const mine = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.held.arm('wf_somebody_elses', 'groom_booking');
     owner.watch.say(
@@ -417,7 +504,7 @@ describe('following a run', () => {
     );
 
     expect(shown.live()?.workflowId).not.toBe('wf_somebody_elses');
-    expect(shown.render().session.map((row) => row.workflowId)).toEqual([mine]);
+    expect(shown.filed.list().map((row) => row.workflowId)).toEqual([mine]);
   });
 });
 
@@ -444,7 +531,7 @@ describe('following a run this window did not start itself', () => {
     shown.follow('wf_fork1', 'groom_booking', { via: 'replay' });
 
     expect(log.find('wf_fork1')?.outcome).toBe('running');
-    expect(shown.render().session[0]?.workflowId).toBe('wf_fork1');
+    expect(shown.filed.list()[0]?.workflowId).toBe('wf_fork1');
     expect(owner.watch.armed.map((one) => one.workflowId)).toEqual([
       'wf_fork1',
     ]);
@@ -485,7 +572,7 @@ describe('following a run this window did not start itself', () => {
     shown.follow('wf_fork1', 'groom_booking', { via: 'replay' });
     shown.refused('wf_fork1', 'the database would not answer');
 
-    const row = shown.render().session[0];
+    const row = shown.filed.list()[0];
     expect(row?.outcome).toBe('failed');
     expect(row?.error).toBe('the database would not answer');
 
@@ -511,7 +598,7 @@ describe('following a run this window did not start itself', () => {
     await shown.rerun('wf_fork1');
 
     expect(ingress.requests).toEqual([]);
-    expect(shown.render().session).toHaveLength(1);
+    expect(shown.filed.list()).toHaveLength(1);
   });
 });
 
@@ -520,8 +607,9 @@ describe('running it again', () => {
     const ingress = echoing();
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('groom_booking', '{"bookingId":7}');
-    const first = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{"bookingId":7}');
+    await shown.runWorkflow('groom_booking');
+    const first = shown.filed.list()[0]?.workflowId ?? '';
     await shown.rerun(first);
 
     expect(ingress.requests).toHaveLength(2);
@@ -540,12 +628,13 @@ describe('running it again', () => {
     const ingress = runner(() => ({ ok: true, workflowId: 'wf_echo' }));
     const shown = zone({ runner: ingress.start });
 
-    await shown.runWorkflow('expense_claim', '{"claimId":"c-1"}');
+    shown.setInput('{"claimId":"c-1"}');
+    await shown.runWorkflow('expense_claim');
     await shown.rerun('wf_echo');
 
     expect(ingress.requests).toHaveLength(2);
-    expect(shown.render().session).toHaveLength(1);
-    expect(shown.render().session[0]?.workflowId).toBe('wf_echo');
+    expect(shown.filed.list()).toHaveLength(1);
+    expect(shown.filed.list()[0]?.workflowId).toBe('wf_echo');
   });
 
   it('does nothing for a run it has never heard of', async () => {
@@ -571,7 +660,7 @@ describe('running it again', () => {
     await shown.rerun('wf_resumed');
 
     expect(ingress.requests).toEqual([]);
-    expect(shown.render().session[0]?.via).toBe('resume');
+    expect(shown.filed.list()[0]?.via).toBe('resume');
   });
 });
 
@@ -614,10 +703,12 @@ describe('asking the agent why', () => {
     expect(row?.at === 'tool' && row.target).toContain(RUN_ROW.workflow_uuid);
 
     // Folded rather than spelled into the sentence:
-    // the body is a summary a person opens, and the
-    // machine-readable copy travels beside the
-    // prompt.
-    expect(row?.at === 'tool' && row.body.length).toBeGreaterThan(0);
+    // the lines are a summary a person opens, and
+    // the machine-readable copy travels beside the
+    // prompt. They are lines rather than a body so
+    // a value the run recorded is kept apart.
+    expect(row?.at === 'tool' && row.lines?.length).toBeGreaterThan(0);
+    expect(row?.at === 'tool' && row.body).toEqual([]);
     expect(row?.at === 'tool' && row.action).toEqual({
       label: expect.any(String) as string,
       posts: 'openRun',
@@ -645,7 +736,7 @@ describe('asking the agent why', () => {
     await shown.askAgent({ workflowId: RUN_ROW.workflow_uuid });
 
     expect(agent.told.map((one) => one.at)).toEqual(['note', 'send']);
-    expect(shown.render().session).toEqual([]);
+    expect(shown.filed.list()).toEqual([]);
   });
 
   it('answers refused evidence for a run the ingress refused', async () => {
@@ -659,8 +750,9 @@ describe('asking the agent why', () => {
       })).start,
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     await shown.askAgent({ workflowId });
 
@@ -691,8 +783,9 @@ describe('asking the agent why', () => {
       },
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -741,8 +834,9 @@ describe('asking the agent why', () => {
       following: owner.held,
     });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -797,6 +891,79 @@ describe('asking the agent why', () => {
     expect(handed.focus).toEqual({ how: 'selected', nodeId: 'parse_request' });
   });
 
+  /**
+   * The column shows the question in its own copy,
+   * and offers a replay once the turn has changed
+   * something — both need to know what the question
+   * was about, and the sentence the agent is asked
+   * spells the run in a form the column does not.
+   */
+  it('says what a question is about, and how the column says it', async () => {
+    const agent = fakeAgent();
+    const shown = zone({
+      agent,
+      document: () =>
+        ({
+          name: 'groom_booking',
+          revision: 1,
+          nodes: [
+            {
+              id: 'parse_request',
+              kind: 'step',
+              title: 'Parse request',
+              config: {},
+            },
+          ],
+          edges: [],
+        }) as unknown as WorkflowIR,
+    });
+
+    await shown.askAgent({
+      workflowId: RUN_ROW.workflow_uuid,
+      nodeId: 'parse_request',
+    });
+    await shown.askAgent({ workflowId: RUN_ROW.workflow_uuid });
+
+    const [block, run] = asked(agent);
+
+    expect(block).toMatchObject({
+      workflowId: RUN_ROW.workflow_uuid,
+      nodeId: 'parse_request',
+      block: 'Parse request',
+    });
+    expect(block?.shown).toContain(shortRunId(RUN_ROW.workflow_uuid));
+    expect(block?.shown).not.toContain(RUN_ROW.workflow_uuid);
+
+    // A question about the whole run is about no
+    // block, whichever block the record focused on.
+    expect(run).toMatchObject({ workflowId: RUN_ROW.workflow_uuid });
+    expect(run?.nodeId).toBeUndefined();
+    expect(run?.block).toBeUndefined();
+  });
+
+  /** A run that never started has no id anybody's
+   *  ledger knows, so there is nothing to say it
+   *  was about. */
+  it('says a refused run was about nothing to replay', async () => {
+    const agent = fakeAgent();
+    const shown = zone({
+      agent,
+      runner: runner(() => ({
+        ok: false,
+        because: 'refused',
+        detail: 'ingress said no',
+      })).start,
+    });
+
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
+
+    await shown.askAgent({ workflowId, nodeId: 'started' });
+
+    expect(asked(agent)).toEqual([undefined]);
+  });
+
   /** No connection string is no read at all, rather
    *  than a read of nothing. */
   it('opens nothing in a window with no ledger', async () => {
@@ -818,6 +985,14 @@ describe('asking the agent why', () => {
     expect(agent.told).toEqual([]);
   });
 });
+
+/** What each turn handed to the agent said it was
+ *  about, in the order they were sent. */
+function asked(agent: FakeAgent): (AgentPrompt['about'] | undefined)[] {
+  return agent.told.flatMap((one) =>
+    one.at === 'send' ? [one.prompt.about] : [],
+  );
+}
 
 /** Every record that travelled beside a sentence,
  *  as the JSON it was handed over as. */
@@ -845,8 +1020,9 @@ describe('what a followed run was started with', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{"email":"ada@example.com"}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{"email":"ada@example.com"}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -860,8 +1036,9 @@ describe('what a followed run was started with', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{"email":"ada@example.com"}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{"email":"ada@example.com"}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(workflowId, liveRun({ workflowId, input: undefined }));
 
@@ -926,8 +1103,9 @@ describe('the arms a followed run decided', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -982,8 +1160,9 @@ describe('the value behind a row a followed run wrote', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,
@@ -1002,8 +1181,9 @@ describe('the value behind a row a followed run wrote', () => {
     const owner = follows();
     const shown = zone({ runner: echoing().start, following: owner.held });
 
-    await shown.runWorkflow('groom_booking', '{}');
-    const workflowId = shown.render().session[0]?.workflowId ?? '';
+    shown.setInput('{}');
+    await shown.runWorkflow('groom_booking');
+    const workflowId = shown.filed.list()[0]?.workflowId ?? '';
 
     owner.watch.say(
       workflowId,

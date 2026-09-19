@@ -206,6 +206,20 @@ describe('following the runs somebody is watching', () => {
   });
 
   /**
+   * The same document, whole, because a block that
+   * writes no row under its own name is found by
+   * walking it — which is a question about the
+   * document rather than about any one block of it.
+   */
+  it('hands the watch the document itself as well', () => {
+    const { armed, held } = follow({ document: () => INGESTION });
+
+    held.arm('wf_1', WORKFLOW);
+
+    expect(armed.armed[0]?.document).toBe(INGESTION);
+  });
+
+  /**
    * A document that will not read is a reason to
    * know less about the run, never a reason not to
    * follow it: the steps and the status column say
@@ -218,5 +232,6 @@ describe('following the runs somebody is watching', () => {
 
     expect(armed.armed).toHaveLength(1);
     expect(armed.armed[0]?.queueNodes).toEqual([]);
+    expect(armed.armed[0]?.document).toBeUndefined();
   });
 });

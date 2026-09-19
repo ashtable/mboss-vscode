@@ -4,14 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-The mBoss VS Code extension ("Design Durable Apps with DBOS"). It contributes five
+The mBoss VS Code extension ("Design Durable Apps with DBOS"). It contributes six
 React webviews — the **workflow canvas** (a custom editor for
 `**/.mboss/workflows/*.workflow.json`), the **agent sidebar** (an Agent Client
 Protocol client that drives claude-code / codex / gemini / a custom command), the
 **Runs** list (a project's DBOS run history read from the project's own Postgres),
-the **See** panel (one run in detail) and the **gallery** (the patterns a workflow
-can be started from) — and it ships an MCP server bundle plus
-an Agent Skill that it copies into every project it creates or refreshes.
+the **run tab** (the `see` view: one run in detail, as a graph and a trace), the
+**Inspector** (a side-bar pane about whichever canvas or run tab was last in
+front) and the **gallery** (the patterns a workflow can be started from) — and
+it ships an MCP server bundle plus an Agent Skill that it copies into every
+project it creates or refreshes.
 
 Three nested git submodules, each pinned to a version branch in `.gitmodules`
 (asserted by `src/pins.test.ts`):
@@ -77,20 +79,25 @@ root build refuses a stamp that is not `mcp-server-vX.Y.Z+<sha>`.
 
 `src/build.ts` makes two esbuild calls because `platform` is per build: the
 host (`src/extension.ts` → `dist/extension.cjs`, CommonJS, `@mboss/core`
-aliased, `vscode` + DBOS/elk optional requires external) and the five webviews
-(`src/{canvas,sidebar,runs,see,gallery}/index.tsx` → `dist/webview/<name>.{js,css}`,
+aliased, `vscode` + DBOS/elk optional requires external) and the six webviews
+(`src/{canvas,sidebar,runs,see,inspector,gallery}/index.tsx` → `dist/webview/<name>.{js,css}`,
 ESM, browser, **no alias, no externals but `*.woff2`**). `WEBVIEW_ENTRIES` is
 typed against `WebviewName` in `src/webview/entry.ts`.
 
 - `.tsx` means webview-side React, nothing else. `.ts` is host or isomorphic.
   No host `.ts` imports a `.tsx`.
 - A webview may value-import only browser-safe modules: `src/core/rules.ts`,
-  `src/webview/{client,fill,protocol}.ts`, `src/webview/mount.tsx`,
-  `src/runs/queries.ts` (+ `rows.ts`) and the pure `src/canvas/**/*.ts`
-  modules. It must never value-import
-  `vscode`, `@mboss/core`, `src/messages.ts`, `src/webview/host.ts`, a `node:`
-  builtin or `process.env`. Enforcement is the browser esbuild call failing to
-  resolve, plus `src/build.test.ts` scanning the output.
+  `src/webview/{client,fill,ids,protocol,states,time}.ts`,
+  `src/webview/mount.tsx`, the shared components in `src/webview/signal/`
+  (with their `hook.ts`), `src/runs/queries.ts` (+ `rows.ts` and the
+  `frames.ts` it reads), `src/runs/state.ts` (the table that decides what the
+  Runs view draws in each state), `src/acp/evidenceRow.ts`,
+  `src/sidebar/{markdown,naming}.ts`, `src/inspector/{forms,lens,schedule}.ts`
+  (the fields Configure draws) and the pure `src/canvas/**/*.ts` modules. It
+  must never value-import `vscode`, `@mboss/core`, `src/messages.ts`,
+  `src/webview/host.ts`, a `node:` builtin or `process.env`. Enforcement is the
+  browser esbuild call failing to resolve, plus `src/build.test.ts` scanning
+  the output.
 - `dist/` also carries assets the host needs beside the bundle: `webview/fonts`
   (the CSP allows only self-hosted fonts), `app/` + `workflows/index.ts` +
   `library/` (core's scaffold templates and its pattern library, read via
@@ -130,7 +137,7 @@ behaviour modules take the editor as an argument:
   canvas editor.
 - Only editor plumbing value-imports `vscode`: `extension.ts`, `messages.ts`,
   `trust.ts`, the four `words.ts`, `vscodeApi.ts`, `statusBar.ts`, the providers
-  (`sidebar/view.ts`, `runs/panels.ts`, `canvas/editor.ts`,
+  (`sidebar/view.ts`, `runs/panels.ts`, `inspector/view.ts`, `canvas/editor.ts`,
   `gallery/panel.ts`), `webview/host.ts`, every `host.ts`, and `acp/fs.ts`. `import type { Disposable } from 'vscode'` is fine anywhere.
 - `src/webview/host.ts` is a different kind of `host.ts`: the host side of the
   webview protocol (see below).
@@ -206,6 +213,17 @@ behaviour modules take the editor as an argument:
   which `src/words.test.ts` holds equal to the host's. Rewording a view's copy
   therefore touches its `words.ts`, the bundle and that fixture; a host
   sentence touches `messages.ts`, the bundle and whichever spec pinned it.
+- The bundle is keyed by the literal, so two `l10n.t` calls with the same
+  literal are one entry, translated once for both. The bare `'{0} · {1}'` is
+  shared on purpose: `messages.runTabLine` (a run tab's title and its header
+  line) and `runsWords().serviceLabel` (a service beside its dot) both say a
+  name and then what is said about it. A new bare template joins that entry;
+  give it words of its own unless it joins the same two things the same way.
+- Some of a view's words are filled on the host, also on purpose:
+  `seeWords()`'s `restored`, `reused`, two durable-operations counts and a
+  wait's five moments are what the run tab says, but the trace row's line
+  they go into is composed in `runs/view.ts`. They live in the run tab's bag
+  with the rest of what it says, and ride in its init unread by the view.
 
 ### Webview protocol
 
@@ -222,15 +240,20 @@ behaviour modules take the editor as an argument:
   `mountView` in `src/webview/mount.tsx`.
 - Host → webview is trusted and is always one whole `init` (the `HostMessage`
   union in `protocol.ts`), re-sent on every change. `protocol.ts` is a
-  declaration file rather than a module — five near-disjoint regions, one per
+  declaration file rather than a module — six near-disjoint regions, one per
   view, plus the union and `isHostMessageFor` — and it imports **only leaves**:
   a type it needs must come from a module that does not import it back, which
   is why `StackAction` lives in `runs/stack.ts` beside the commands it names
   rather than beside the zone that tracks one. Views render from the last
-  message and **hold nothing**: an activity-bar view is disposed the moment it
-  is hidden, so all state lives in stores constructed once in `extension.ts`
-  (`agentPanel`, `previewStore`, `runsStore`, `SeePanel`). Stores publish
-  through `src/emitter.ts` (`fire`, `on` returning a `Disposable`, `dispose`).
+  message and **hold only what may be lost with their page** — the run tab's
+  open folds and where its graph was moved to, the composer's unsent text, a
+  tool row opened out, the Inspector's folded groups and the field being typed
+  in, a picker left open, the canvas's JSON face. No view keeps its context
+  while hidden, so VS Code throws the page away and the next one starts from
+  `init`; everything that must outlive that lives in stores constructed once
+  in `extension.ts` (`agentPanel`, `previewStore`, `runsStore`, `SeePanel`).
+  Stores publish through `src/emitter.ts` (`fire`, `on` returning a
+  `Disposable`, `dispose`).
 - Every entry is `mountView('<name>', <Component>)` plus
   `import './<name>.css'`, and every per-view stylesheet starts with
   `@import '../webview/tokens.css'`.
@@ -258,9 +281,19 @@ none of that.
 ### Subsystems
 
 - **`canvas/`** — `editor.ts` is the host side (`CustomTextEditorProvider`, one
-  `CanvasSession` per panel in a static map, `active()` for the Arrange
-  command). Every gesture is a message; every edit lands through
-  `api.replaceDocument` so VS Code keeps undo/dirty/save. A **gesture** is
+  `CanvasSession` per panel). Open sessions live in the `canvasSessions()`
+  registry (`sessions.ts`), built once in `extension.ts`: `active()` for the
+  Arrange command, `forPath`/`whenOpen`, and `onChanged` naming the session that
+  moved, fired whether or not its frame is visible; the canvas's own frame is
+  drawn from that signal too, so a selection the Inspector lets go of (a
+  trigger's Show the run) is drawn on the board. Beside it,
+  `inspector/focus.ts` (`inspectorFocus()`, also built once) holds the canvas or
+  run tab somebody last brought forward; both panels go through its `follow`,
+  which reads `panel.active` once because VS Code fires no view-state event for
+  a panel born in front (`fakeWebview()` fires that event only on a change, for
+  the same reason). Every gesture is a message;
+  every edit lands through `api.replaceDocument` so VS Code keeps
+  undo/dirty/save. A **gesture** is
   what the panel sent; an **edit** is the pure function of the document it
   becomes, worked out in `edits.ts`: `editFor(gesture, context, answered?)`
   takes the document, its boxes, the manifest and the palette labels and answers
@@ -276,10 +309,30 @@ none of that.
   selects, notes and writes.
   `CanvasInit.editing` is the one place a view reads whether it may edit and
   against which revision (absent over an unreadable file or a live proposal),
-  and `inspector.selected` is an id: the column reads a block's fields and
-  where its outcomes lead off the document. The webview never
-  repaints itself: it redraws when `onDocumentChanged` fires `reread` + post
-  (tests simulate this with `livingDocument().saved()`).
+  and `CanvasInit.selected` is an id the graph marks. The block itself is
+  drawn in the Inspector pane (`src/inspector/`): `subject.ts` builds a
+  `BlockSubject` from what a **surface** holds (`inspector/surface.ts`:
+  `BlockSurface`, the one interface a canvas session and the run tab's
+  adapter in `inspector/runTab.ts` both answer; the Inspector reads a canvas
+  through `CanvasSession.block()`), `inspector/blockEvidence.ts`
+  finishes what the run a surface follows recorded about the block — its
+  rows, the row drawn, where it got to by the board's own rule — and
+  `subject.ts` finishes the rest the same way (the block itself, its
+  findings beside the fields that are ways out of them, a decided branch's
+  outcomes, the functions on offer, and through `inspector/runCard.ts` the
+  Runs view as a trigger's card shows it), so the pane draws answers rather
+  than deriving them from a document, a manifest and findings; `InspectorView`
+  routes what the pane says — a face, an edit, the ways into a block's code
+  — to the surface the `about` every one of those carries names (the
+  surface a block was picked on, its document and its id) rather than to
+  whatever is in front when it arrives, and everything about a run to the
+  runs store.
+  A block picked on the run tab is drawn from the document as it is being
+  worked on (the canvas open on it, else the editor's buffer), never the
+  copy the run page read off disk; an edit to it goes through the canvas on
+  that document, opened beside the run tab when none is.
+  The webview never repaints itself: it redraws when `onDocumentChanged`
+  fires `reread` + post (tests simulate this with `livingDocument().saved()`).
   **`canvas/placement.ts` is where a block goes**, browser-safe and read from
   both sides: `onTheGrid` snaps the boxes the engine placed and leaves alone the
   ones the document did; `layoutKeyOf` (revision + hash of nodes/edges/boxes)
@@ -315,29 +368,65 @@ none of that.
   `registry.ts` is the published contract for the `mboss.agent.*` settings.
   `test/fixtures/scripted-peer.mjs` is a hand-written JSON-RPC peer for
   `connection`/`capabilities`/`agent` specs only — do not grow it into an e2e agent.
-- **`runs/`** — `store.ts` is a façade over four zones with their own slots
-  and change signals: `history.ts` (the ledger read, the filter, the rows and
-  counts; it also offers the connection string quietly to whoever arms a
-  watch), **`openRun.ts`** (the run somebody has open — reading it, the
+- **`runs/`** — `store.ts` is a façade over five zones with their own slots
+  and change signals: **`ledger.ts`** (the project's DBOS system database as
+  this window reads it — the address, the one open-read-close, what the
+  database last said and the reads by id), `history.ts` (one page of it: the
+  filter, the rows and counts), **`openRun.ts`** (the run somebody has open — reading it, the
   document laid out beside it, arming its watch, what carries over when the
   same run is read again, which of the two views is on screen, and the
   replay), `stackZone.ts` (what compose says and the three commands) and
   `testRun.ts` (the saved workflows, the chosen one and its input, starting a
-  run, the live watches, the session rows, ask-the-agent). The run page reads
-  the same ledger as the list and **borrows the connection** rather than
-  opening one: what a read learns about somebody's database is a fact about
-  the project, so `history.connection()`/`read()` are lent and the list is
-  what says it. `list()` composes their renders into `RunsInit`, adding which
-  row is marked from the open run; `store.see()` is the whole run page, tab
-  and all, so nothing carries the tab separately. `view.ts` turns a row into
-  words. Each zone's spec builds only that zone's
+  run, the live watches, ask-the-agent). What this window set going is
+  `sessionLog.ts`, host-side only: nothing of it reaches the wire, and a start
+  reads it to know which run a refusal was filed under. The Runs view is a
+  frame round one list — a header, a pinned Run row with its input and the
+  tabs, and a scrolling body — with no card of its own for the stack, a test
+  run, the run being followed or this session; a run this window started is
+  the top row of the ledger, marked and opened out. What it draws below the
+  header is `state.ts`'s answer read region by region: the services compose
+  declares while the app is down, the one card saying why there is no list and
+  the single way out it offers, and the Conductor section, which is drawn in
+  the no-runs state and nowhere else. Stopping the stack is the
+  view's title action (`mboss.stopStack` → `RunsStore.stackDown`) and no
+  webview message. The run input has
+  one writer: the Runs view's box posts every change (`runInput` →
+  `setInput`, on its own `onInputChanged` signal so the list is not drawn
+  again per keystroke), and every start — Run, a trigger's card
+  (`runTrigger`), the palette command — names only the workflow and reads
+  it. Every read of somebody's database goes through `ledger.ts`, **loudly or
+  quietly**: a read a person asked for — the list's page, the run page, the
+  by-id read a control makes before it writes — leaves its sentence in the
+  ledger's own `state`/`detail`/`source`, and one this window made on its own
+  account or on the side of something else — a watch, the object handed to an
+  agent, a queue block's card — takes `quietly()` (the address and the `.env`
+  name it came from) and says nothing. The writers take the quiet address too;
+  `openManagement` stays with whoever writes. A watch holds its own connection
+  across ticks and shares only the pure by-id reads (`runById`,
+  `runRowsById`), which are plain functions over a `Database`. The ledger's
+  `onChanged` fires only when what the database last said actually differs,
+  and fires **after** a read has landed — `history.ts` assigns its page inside
+  the `take`, behind its `latestRead` guard, so a follower woken by the ledger
+  never draws an answering database beside the page from before it answered.
+  `list()` composes every zone's render into `RunsInit`, and says
+  `loading` until a refresh or a stack command has read the stack and then the
+  ledger (the run page's read does not count); the row the
+  list marks is `history.ts`'s own (`selectRow`), never the run `select`
+  opens. A stack command is followed by the reads `refresh()` makes, and a
+  run this window set going is marked and the list read again when its watch
+  first reports it, then whenever its status or word moves.
+  `store.see()` is the whole run page, tab and all, so nothing carries the
+  tab separately. `view.ts` turns a row into words.
+  Each zone's spec builds only that zone's
   collaborators from `src/test-support/runs.ts`. Hand-composed parameterised
   `SELECT`s over `dbos.workflow_status` / `dbos.operation_outputs` via `pg`
   (`queries.test.ts` enforces SELECT-only, the `dbos.` prefix and `$n` binds);
   the one write is a fork through `DBOSClient` (`replay.ts`). `stack.ts` drives `docker compose`
-  with `execFile`; `runner.ts` POSTs to the scaffolded app's `/runs` and
-  `/events` with the secret from the project's `.env` (`env.ts` reads only that
-  file); `watch.ts` polls a started run every 500 ms and goes quiet after 15 s.
+  with `execFile`, and once `ps` has answered asks `config --services` what the
+  file declares, so a service with no container still has an `absent` row and
+  `answered` tells a stopped daemon from a project nobody has started;
+  `runner.ts` POSTs to the scaffolded app's `/runs` and `/events` with the
+  secret from the project's `.env` (`env.ts` reads only that file); `watch.ts` polls a started run every 500 ms and goes quiet after 15 s.
   `queries.ts` and `rows.ts` are shared with the browser bundle: no Node
   imports there; `db.ts` is the only file that may import `pg`.
   **`reading.ts` is the one projection of a run's rows** (`readRun`): every row
@@ -348,8 +437,16 @@ none of that.
   live overlay, whose `LiveRun`/`LiveStep` are a rendering of a reading for the
   wire. What a reader knows about the drawing is three-valued (`Drawing`:
   the document, `'lost'`, `'unasked'`) because the page and the watch meant
-  opposite things by "no drawing". `operations.ts` groups a reading and reads
-  its decided arms; `timeline.ts` owns the outage inference and has one caller.
+  opposite things by "no drawing". `operations.ts` reads a sleep row's wake and
+  a reading's decided arms; `timeline.ts` owns the outage inference and has one
+  caller.
+  `drawnUnder` is the one rule for which block a row — the SDK's own included
+  — is drawn under, and what a row picked on the run tab selects. `traceOf`
+  lays the run tab's trace out by it: each block row with the SDK rows it ran
+  beside, and apart from them the rows drawn under no block. `headlineRow` is
+  the row a block is headed by — its latest failure, else its latest row,
+  never one the SDK wrote — asked by both the Inspector's evidence and the
+  trace's mark for a picked block, so the two cannot mark different rows.
   See `CONTEXT.md` for the vocabulary.
 - **`watchers/`** — per folder: globs for workflow documents, `lib/**` and
   proposals, plus `onDidSaveTextDocument` (a watcher can be silenced by
@@ -389,15 +486,29 @@ Three tiers, three configs, and placement decides which runs:
   DBOS, `fileParallelism: false` (DBOS is a process singleton).
 - **Playwright**: `tests/webview/*.spec.ts` — the built bundles on a page with
   no VS Code; `harness.ts` serves `dist/` through `page.route` and stubs
-  `acquireVsCodeApi`. `retries: 0`. Colour assertions are literal Chromium
-  serialisations on purpose (reading the token back would pass any value).
-  Never measure the graph before a locator expectation or `graphAtRest()` has
-  settled it. A spec may import no `src` module whose transitive graph value-imports
-  `vscode`: nothing aliases it in this tier and there is no `vscode` on disk, so
-  the import fails to resolve and Playwright reports "No tests found" rather than
-  a failing assertion. `@mboss/core` does resolve here — Playwright honours
-  `tsconfig.json` `paths` — but reaching for it pulls elkjs and ts-morph into a
-  spec, so the browser-safe `src/core/rules.ts` is what a spec should use.
+  `acquireVsCodeApi`. `retries: 0`. A colour's expected value is never read back
+  from the page, which would pass whatever the token was changed to. A
+  four-theme case takes it from `tests/webview/palette.ts`: `colourOf` works it
+  out from the two sources the stylesheet does — the harness's `THEMES` maps for
+  the editor's chrome, `tokens.css`'s source hex for Signal's voice — mixing in
+  sRGB the way `color-mix()` does, and `sameColour` compares within ±1/255 a
+  channel, because Chromium spells a hex `rgb()` and a mix `color(srgb …)`.
+  `gallery.spec.ts` holds `palette.ts` to what each theme paints. Some
+  single-theme cases still pin a literal Chromium serialisation; a four-theme
+  case never does. A spec cannot import another spec, so what two specs draw is
+  built in `tests/webview/fixtures/`. `signal.spec.ts`'s "every view, in every
+  theme" mounts each scene in `fixtures/scenes.ts` in the four themes at 12, 13
+  and 16 px and holds it to the rules every view keeps (among them capitals, the
+  ten-pixel floor, the machine face, contrast, a recorded id, status or time
+  left as written); it reads only what a scene draws, so a new kind of element
+  is covered once a scene draws it. Never measure the graph before a locator
+  expectation or `graphAtRest()` has settled it. A spec may import no `src`
+  module whose transitive graph value-imports `vscode`: nothing aliases it in
+  this tier and there is no `vscode` on disk, so the import fails to resolve and
+  Playwright reports "No tests found" rather than a failing assertion.
+  `@mboss/core` does resolve here — Playwright honours `tsconfig.json` `paths` —
+  but reaching for it pulls elkjs and ts-morph into a spec, so the browser-safe
+  `src/core/rules.ts` is what a spec should use.
 
 Doubles and helpers: `test/doubles/vscode.ts` (fails loudly for anything not
 added on purpose), `trust.ts`, `agent.ts`, `watchHost.ts`, `webview.ts`; `src/test-support/` (exempt
@@ -418,6 +529,23 @@ Other content-regex fences: `@agentclientprotocol/sdk` may appear only in
 `from 'node:fs'` in files directly under `src/acp`; `canvas/edits.ts`
 value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
 `messages` or `core/index` (`canvas/edits.test.ts`).
+
+The style fences read source rather than a rendered page, so a rule holds in
+views no spec mounts. `src/webview/styles.test.ts` reads every stylesheet and
+component: a colour literal only in `tokens.css`'s `:root` scale and theme
+blocks, a `color-mix()` or a theme class only in `tokens.css`, and no colour in
+a style prop; nothing on the root worked out from a value a theme re-points; one
+uppercase rule (the state word) and tracking only on a label and a state word;
+every face through one of the two font tokens, and the machine face defined
+once, on the root, and read only where an element asks for it with `.mono` or
+`data-mono`, which every shared component taking a `mono` prop writes; where a
+value came from as a word or a title, never a `provenance` class; no word of its
+own in a shared component, and a view's sheet only placing one; a card only
+where something floats; a bordered Button only in the brand ink; and no click on
+a plain element. `src/words.test.ts` holds the copy: no word in capitals but an
+allowed acronym or a ledger status, anywhere in the bundle or the bags, and no
+label in title case in the bags or in the `messages` sentences a view draws,
+which it lists by module and by key.
 
 ## Conventions
 
@@ -482,7 +610,7 @@ value-imports only `core/rules` and `canvas/wiring` and never names `vscode`,
   which rewrites `l10n/bundle.l10n.json` and `tests/webview/words.json` — never
   edit either by hand. Some copy is duplicated across the two systems on purpose
   (agent names in `package.nls.json` enum descriptions and `messages.agents()`).
-- **Add an Inspector field**: `canvas/inspector/forms.ts` lens + entries in
+- **Add an Inspector field**: `inspector/forms.ts` lens + entries in
   `inspectorFields()`/`inspectorOptions()` in `canvas/words.ts`, then
   `npm run strings`; `forms.test.ts` asserts every field and option has a
   word.

@@ -51,53 +51,6 @@
   min-width: 0;
 }
 
-.segments {
-  display: flex;
-}
-
-.segment {
-  appearance: none;
-  border: 1px solid var(--hairline);
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  padding: var(--space-1) var(--space-3);
-  cursor: pointer;
-}
-.segment + .segment {
-  border-left: 0;
-}
-.segment[aria-pressed='true'] {
-  background: var(--brand);
-  border-color: var(--brand);
-  color: var(--on-brand);
-}
-
-/* The toolbar's one action. Quiet: laying the graph
-   out again is something a person does now and then,
-   not the thing this screen is for. */
-.action {
-  appearance: none;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink-muted);
-  font: inherit;
-  font-weight: 600;
-  font-size: var(--text-xs);
-  padding: 3px 10px;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background var(--dur-fast) var(--ease-out);
-}
-.action:hover {
-  background: var(--surface-2);
-}
-
 .toolbar .caption {
   margin: 0;
   /* A flex item will not shrink below its own text
@@ -110,24 +63,34 @@
   white-space: nowrap;
 }
 
-/* — the three columns — */
+/* — the two columns — */
 
-/* What can go on the canvas, the canvas, and what
-   the block on it does. All three at once, because
-   the middle one is unusable without the other
-   two: picking a block and saying what it does are
-   one gesture, not two panels. */
-/* The rails give way before the graph does. A
+/* What can go on the canvas, and the canvas. What
+   the block on it does is said in the Inspector,
+   a pane beside every canvas, so the graph takes
+   the room a third column would. */
+/* The rail gives way before the graph does. A
    canvas opens in an editor group, so its width is
-   whatever somebody's split happens to be, and two
-   rails of fixed width in a frame narrower than
-   both of them together left the graph nothing at
-   all — a workflow drawn at zero pixels, with the
-   page scrolling sideways to fit the rails. */
+   whatever somebody's split happens to be, and a
+   rail of fixed width in a frame narrower than it
+   would leave the graph nothing at all — a
+   workflow drawn at zero pixels, with the page
+   scrolling sideways to fit the rail. */
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 204px) minmax(320px, 1fr) minmax(0, 284px);
+  grid-template-columns: minmax(0, 204px) minmax(320px, 1fr);
   min-height: 0;
+}
+
+/* The second column is the toolbar's panel, so the
+   panel is the grid cell and whatever it holds has
+   to fill it. A grid of one is what stretches a
+   child in both directions; a block would leave the
+   graph as tall as its own content and the board
+   would end halfway down the editor. */
+.workspace > .tabpanel {
+  display: grid;
+  min-width: 0;
 }
 
 .palette {
@@ -135,142 +98,63 @@
   padding: var(--space-3);
   overflow-y: auto;
 }
-.palette > .eyebrow {
-  margin-bottom: var(--space-3);
+.palette .section-label {
+  margin-bottom: var(--space-1);
 }
 
-.drawer {
-  margin-bottom: var(--space-4);
+/* Under the list it is about. */
+.palette > [data-drag-hint] {
+  margin-top: var(--space-2);
 }
 
-.drawer-name {
-  margin: 0 0 var(--space-1);
-  font-size: var(--text-xs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+/* The rail's second half: what this project's own
+   code offers, under what the catalog does. */
+.lib {
+  margin-top: var(--space-4);
 }
 
-/* Every entry is the same square tag, so the two
-   sections read as one list of things that can go
-   on the canvas — which is what they are. */
-.chip {
-  margin: 0 0 var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--hairline);
-  background: var(--surface-2);
-  font-size: var(--text-sm);
-  cursor: grab;
-}
-.chip:hover {
-  border-color: var(--brand);
-}
-
-/* On its way onto the canvas. Filled rather than
-   ghosted, and dashed at a full pixel: the chip is
-   what a person left behind, and it should read as
-   the source of what they are holding rather than
-   as something half-there itself. That is the
-   opposite of the `/lib` row, which fades because
-   the row *is* the thing travelling. */
-.chip[data-state='dragging'] {
-  border: 1px dashed var(--brand);
-  background: var(--brand-tint);
-}
-
-/* How the gesture works, under the rail it starts
-   in. */
-.drag-hint {
-  margin: 0;
-  font-size: var(--text-xs);
-  color: var(--ink-faint);
-}
-
-/* A function out of the project's code-behind, in
-   the two places one is offered: dragged off the
-   palette onto a block, pressed in the Inspector's
-   picker. One shape, because it is one list — the
-   gesture is what differs. */
-.lib-fn {
-  position: relative;
-  box-sizing: border-box;
-  width: 100%;
+/* One row per kind: the glyph the board will draw it
+   with, and its name. Nothing else — a filled box
+   per row reads as eleven controls rather than as a
+   list of what can go on the board, and the order is
+   what carries the grouping that four headings used
+   to say. */
+[data-palette-kind] {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 0 0 var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border: 1.5px dashed transparent;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 30px;
+  margin: 0;
+  padding: 0 var(--space-1);
   border-radius: var(--r-sm);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
+  font-size: var(--text-md);
   cursor: grab;
 }
-button.lib-fn {
-  cursor: pointer;
-}
-.lib-fn:hover {
+
+/* The ground arrives under the pointer, and the
+   dashed outline is what a theme drawing structure
+   in lines has instead of it. The row already on its
+   way somewhere is left out rather than out-weighed,
+   which would take its tint away. */
+[data-palette-kind]:not([data-state]):hover:not(:focus-visible) {
   background: var(--surface-2);
+  outline: 1px dashed var(--hover-outline);
+  outline-offset: -1px;
 }
 
-.lib-name {
-  font-size: var(--text-sm);
-  color: var(--ink-muted);
-}
-/* The mark the design puts in front of a function
-   everywhere one is named. A glyph, not a word:
-   nothing here is a string a reader's locale
-   changes. */
-.lib-name::before {
-  content: 'ƒ ';
-  color: var(--ink-faint);
-}
-
-.signature {
-  font-size: var(--text-xs);
-  overflow-wrap: anywhere;
-}
-
-/* Why this one cannot sit behind the block that is
-   selected. There is no grey of its own: not
-   getting the assigned row's treatment is the
-   grey, and the note is what says why. */
-.lib-note {
-  font-size: var(--text-xs);
-  color: var(--ink-faint);
-}
-
-/* The function the selected block already runs. */
-.lib-fn[data-state='assigned'] {
+/* On its way onto the canvas. Tinted rather than
+   ghosted: the row is what a person left behind, and
+   it should read as the source of what they are
+   holding rather than as something half-there
+   itself. That is the opposite of the `/lib` row,
+   which fades because the row *is* the thing
+   travelling. An outline rather than a border,
+   because a border on a row that had none moves
+   every row under it. */
+[data-palette-kind][data-state='dragging'] {
   background: var(--brand-tint);
-  box-shadow: inset 0 0 0 1px var(--brand-ring);
-}
-.lib-fn[data-state='assigned'] .lib-name {
-  color: var(--ink);
-  font-weight: 600;
-}
-.lib-fn[data-state='assigned'] .lib-name::before {
-  color: var(--brand);
-}
-.lib-fn[data-state='assigned']::after {
-  content: '✓';
-  position: absolute;
-  top: var(--space-1);
-  right: var(--space-2);
-  color: var(--brand);
-  font-weight: 700;
-}
-
-/* On its way to a block. */
-.lib-fn[data-state='dragging'] {
-  border-color: var(--brand);
-  opacity: 0.85;
-}
-
-.drawer-empty {
-  margin: 0;
-  font-size: var(--text-sm);
+  outline: 1px dashed var(--brand);
+  outline-offset: -1px;
 }
 
 /* What the pointer is holding. The design puts it
@@ -285,12 +169,11 @@ button.lib-fn {
 /* Which run this canvas is drawing itself against,
    at the far end of the toolbar beside the two
    other things that are true of the moment rather
-   than of the file. Nothing is timed here: the run
-   moves, and a chip that counted would need a clock
-   the canvas does not keep. */
-.following {
-  margin: 0 0 0 auto;
-  font-size: var(--text-xs);
+   than of the file. Where it sits is all this says:
+   the chip is a Button, and what a Button looks like
+   is not a per-view decision. */
+[data-following] {
+  margin-left: auto;
   white-space: nowrap;
 }
 
@@ -298,12 +181,14 @@ button.lib-fn {
    proposal rather than to the file. The mockup puts
    it in the tab strip, which no extension can write
    into, so it sits at the far end of the toolbar —
-   the same place, as far as a reader is
-   concerned. */
-.preview-line {
-  margin: 0 0 0 auto;
-  color: var(--brand);
-  white-space: nowrap;
+   the same place, as far as a reader is concerned.
+
+   Where it sits is all this says. That the line is
+   about a proposal is already said by its words and
+   by the dashes the proposed blocks are drawn in,
+   so it spends no colour saying it a third time. */
+[data-preview-headline] {
+  margin-inline-start: auto;
 }
 
 /* — the graph — */
@@ -372,14 +257,14 @@ button.lib-fn {
   margin: 0;
   font-size: 12px;
   font-weight: 500;
-  color: var(--brand);
+  color: var(--state-ink, var(--brand));
 }
 
 .splice-note {
   margin: 0;
   font-size: 10px;
   font-weight: 400;
-  color: var(--brand);
+  color: var(--state-ink, var(--brand));
 }
 
 /* — moving a block that is already on the graph — */
@@ -432,7 +317,7 @@ button.lib-fn {
   top: -22px;
   left: 0;
   font-size: 10px;
-  color: var(--brand);
+  color: var(--state-ink, var(--brand));
   white-space: nowrap;
   pointer-events: none;
 }
@@ -460,8 +345,12 @@ button.lib-fn {
   font-size: var(--text-xs);
 }
 
+/* The ring role rather than a share of the brand:
+   a theme that draws structure in borders re-points
+   that role at the colour it publishes, and the
+   proposal's dash stays visible there. */
 .preview-node {
-  border: 1px dashed color-mix(in srgb, var(--brand) 60%, transparent);
+  border: 1px dashed var(--brand-ring);
   padding: 0 var(--space-1);
 }
 
@@ -490,8 +379,10 @@ button.lib-fn {
   box-shadow: var(--elev-2);
   z-index: 5;
 }
-.rejection .eyebrow {
-  color: var(--brand);
+/* That this is a refusal is said by the words and
+   by the card's own brand border, so the heading
+   over them spends nothing more on it. */
+.rejection .section-label {
   margin-bottom: var(--space-1);
 }
 .rejection p:last-child {
@@ -501,29 +392,10 @@ button.lib-fn {
 
 /* — wires — */
 
-.react-flow__edge .wire {
-  stroke-width: 1.5;
-}
-/* A run going through, and a run parked. The
-   dashes march the way the value is going. */
-.react-flow__edge .wire[data-state='active'],
-.react-flow__edge .wire[data-state='waiting'] {
-  stroke-dasharray: 6 5;
-  animation: sig-edge-flow 0.7s linear infinite;
-}
-/* The one edge that means "again". */
-.react-flow__edge .wire-back {
-  stroke-dasharray: none;
-}
-
-/* Nothing to see: the arrowheads live in here, and
-   a marker is drawn where it is referenced rather
-   than where it is declared. */
-.wire-markers {
-  position: absolute;
-  width: 0;
-  height: 0;
-}
+/* The wires themselves, the arrowheads at the end
+   of them and the ports they run between are in the
+   token sheet: the run page draws all three and
+   loads none of this. */
 
 /* Above the blocks. The graph is a column, so a
    port name will sometimes land over a block —
@@ -540,43 +412,22 @@ button.lib-fn {
   pointer-events: none;
 }
 
-/* Connecting is a drag from one of these, so they
-   have to exist — but a canvas dotted with ports is
-   a diagramming app. They appear on the block under
-   the pointer, and on every block once a wire is
-   being drawn, so a person can see where one could
-   land. Filled leaves, hollow arrives: that is the
-   whole grammar of which end is which. */
-.react-flow__handle {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-out);
-}
-.react-flow__handle-bottom {
-  background: var(--brand);
-  border: 2px solid var(--surface);
-  box-shadow: var(--elev-1);
-}
-.react-flow__handle-top {
-  background: var(--surface);
-  border: 2px solid var(--brand);
-}
-.node:hover .react-flow__handle,
-.react-flow:has(.react-flow__connectionline) .react-flow__handle {
-  opacity: 1;
-}
-/* Mid-drag, the library marks the handle a wire is
-   over, and marks it again once it has asked
-   whether the wire may be drawn. */
-.react-flow__handle.connectingto {
-  background: var(--fail);
-  border-color: var(--fail);
-}
-.react-flow__handle.connectingto.valid {
-  background: var(--brand);
-  border-color: var(--brand);
+/* A wire somebody picked, or has the keyboard on,
+   in the colour the editor marks focus in, over
+   whatever a run is doing along it: a wire that
+   looks the same picked as not leaves a keyboard
+   no way of saying where it is. The line's own
+   stroke falls back past this variable, and the
+   arrowhead is swapped in the same rule, so the
+   two cannot disagree.
+
+   Here rather than in the token sheet: the run
+   page edits nothing and puts no stop on a wire,
+   so a wire there is never where somebody is. */
+.react-flow__edge.selected .wire,
+.react-flow__edge:focus-visible .wire {
+  --wire-picked: var(--xy-edge-stroke-selected);
+  marker-end: url(#wire-arrow-picked);
 }
 
 /* — a wire being drawn — */
@@ -625,7 +476,7 @@ button.lib-fn {
   top: 0;
   left: 0;
   font-size: 10px;
-  color: var(--brand);
+  color: var(--state-ink, var(--brand));
   white-space: nowrap;
   pointer-events: none;
 }
@@ -645,303 +496,9 @@ button.lib-fn {
   padding: var(--space-2);
   min-width: 148px;
 }
-.quick-add-kind {
-  all: unset;
-  padding: 3px var(--space-2);
-  border-radius: var(--r-sm);
-  cursor: pointer;
-}
-.quick-add-kind:hover,
-.quick-add-kind:focus-visible {
-  background: var(--surface-2);
-}
 
 .react-flow__attribution {
   display: none;
-}
-
-/* — the Inspector column — */
-
-/* A fixed label on the left, the value taking the
-   rest, and a hairline between rows. Values are set
-   in the face the user reads code in, because every
-   one of them is a value out of the document — a
-   topic, a path, a handler's name. */
-
-.inspector {
-  border-left: 1px solid var(--hairline);
-  padding: var(--space-3);
-  min-width: 0;
-  overflow-y: auto;
-}
-
-/* The two faces sit above everything either of
-   them draws, so the column reads as one panel
-   answering one of two questions rather than as two
-   panels stacked. */
-.inspector > .tabs {
-  margin-bottom: var(--space-2);
-}
-
-.inspector > .hint {
-  margin-bottom: var(--space-3);
-}
-
-/* A face with no run behind it refuses rather than
-   opening on an empty panel. Scoped here because
-   this is the only tab strip in the extension that
-   can be empty — a run page always has its run. */
-.inspector .tab:disabled {
-  color: var(--ink-faint);
-  cursor: default;
-}
-
-.inspector > .eyebrow {
-  color: var(--brand);
-  margin-bottom: var(--space-3);
-}
-
-.state {
-  margin: 0;
-  font-size: var(--text-sm);
-}
-
-.fields {
-  margin: 0;
-}
-
-.field {
-  display: grid;
-  grid-template-columns: 8.5ch 1fr;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) 0;
-  border-top: 1px solid var(--hairline);
-}
-
-/* One form asks for more label than 8.5ch. A
-   queue's four limits are told apart by the scope
-   in their names, and a scope is no use cut in
-   half — `worker concurrency / partition` in the
-   narrow column is four stacked fragments beside a
-   one-line box. */
-.fields[data-labels='wide'] .field {
-  grid-template-columns: 12ch 1fr;
-}
-
-/* A group's label belongs at the top of the group,
-   not floating halfway down the side of it. */
-.field[data-control='rows'] {
-  align-items: start;
-}
-
-/* And so does a label on a field carrying a
-   sentence under its box. */
-.field[data-noted] {
-  align-items: start;
-}
-
-/* A header over the fields after it. It spans the
-   row rather than sitting in the label column,
-   because it names a group rather than the value
-   beside it, and it takes the space above that the
-   hairline alone does not give. */
-.field[data-control='section'] {
-  display: block;
-  padding-top: var(--space-3);
-}
-
-/* The whole header is the target. Only what a
-   button brings is reset here, so the type
-   treatment stays `.section-label`'s. */
-.section-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  width: 100%;
-  padding: 0;
-  border: none;
-  background: none;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-/* The marker turns rather than swapping shape, so
-   folding and opening are one thing a person
-   watches move. It is turned by `aria-expanded`,
-   which is where the fold is already said. */
-.section-mark {
-  font-size: var(--text-sm);
-  line-height: 1;
-  color: var(--ink-muted);
-  transform: rotate(-90deg);
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.section-head[aria-expanded='true'] .section-mark {
-  transform: none;
-}
-
-/* What a group or a field needs saying about it
-   that is not a value: which process a limit holds
-   back, or what core says is wrong with what is
-   typed above. Under the thing it is about, in the
-   quiet the rest of the column's prose is set in. */
-.field-note {
-  margin: var(--space-1) 0 0;
-  font-size: var(--text-xs);
-  line-height: 1.45;
-  color: var(--ink-muted);
-}
-
-.field-name {
-  font-size: var(--text-xs);
-  overflow-wrap: anywhere;
-}
-
-.field-value {
-  margin: 0;
-  min-width: 0;
-}
-
-/* One control shape for all of them, so a column
-   of fields reads as a column rather than as a
-   sample sheet of widgets. */
-.field-value input[type='text'],
-.field-value textarea,
-.field-value select {
-  box-sizing: border-box;
-  width: 100%;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  padding: 2px var(--space-1);
-  background: var(--vscode-input-background, var(--canvas));
-  color: var(--vscode-input-foreground, var(--ink));
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
-.field-value textarea {
-  resize: vertical;
-}
-.field-value input[type='checkbox'] {
-  margin: 0;
-  accent-color: var(--brand);
-}
-
-/* A row that is read rather than edited: where an
-   outcome goes, which database a transaction
-   commits to. Set in mono, because every one of
-   them is a value out of the graph. */
-.field[data-control='told'] .field-value {
-  font-size: var(--text-sm);
-  overflow-wrap: anywhere;
-}
-
-/* — the function picker — */
-
-/* The picker breaks the column's label-left rhythm
-   on purpose. What follows the label is a list of
-   signatures, and 8.5ch of label in front of them
-   leaves nothing to read them in. */
-.field[data-control='picker'] {
-  display: block;
-}
-
-.picker-value {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-sm);
-}
-
-/* A block that runs nothing yet says where one
-   goes, rather than leaving a blank to guess at. */
-.picker-nothing {
-  display: inline-block;
-  padding: 2px var(--space-2);
-  border: 1.5px dashed var(--hairline-strong);
-  border-radius: var(--r-sm);
-  color: var(--ink-faint);
-}
-
-.picker {
-  margin-bottom: var(--space-2);
-}
-
-.picker-empty {
-  margin: 0 0 var(--space-1);
-  font-size: var(--text-sm);
-}
-
-/* What was left out of the list, and the way to
-   see it. Plain text rather than a button's
-   clothes: it is an aside about the list, not an
-   action on the block. */
-.picker-hidden {
-  all: unset;
-  display: block;
-  margin: var(--space-1) 0 var(--space-2);
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
-
-.picker-name {
-  all: unset;
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-/* The way to the code a block runs, set beside its
-   name rather than under the list: it is about the
-   function already chosen, not about choosing
-   one. */
-.picker-open {
-  all: unset;
-  color: var(--ink-faint);
-  font-size: var(--text-xs);
-  cursor: pointer;
-}
-
-/* The system's callout: a tinted block, no border
-   and no icon. Spent on the two kinds whose
-   relationship with their code a person would
-   otherwise have to be told twice. */
-.callout {
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--r-sm);
-  background: var(--info-tint);
-  color: var(--ink-soft);
-  font-size: var(--text-xs);
-}
-.callout strong {
-  margin-right: 6px;
-  color: var(--info);
-}
-.callout[data-tone='warn'] {
-  background: var(--warn-tint);
-}
-.callout[data-tone='warn'] strong {
-  color: var(--warn);
-}
-
-/* A repeating group — a branch's cases, a form's
-   fields — is drawn as a stack of small blocks so
-   that where one ends and the next begins is
-   readable without a heading per row. */
-.rows {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.row {
-  border-left: 2px solid var(--brand);
-  padding-left: var(--space-2);
-}
-.row .field {
-  grid-template-columns: 7ch 1fr;
-  border-top: 0;
-  padding: 1px 0;
 }
 
 /* — the JSON view, and the unreadable one — */

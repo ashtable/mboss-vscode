@@ -4,6 +4,7 @@ import { agentPanel } from './acp/agent.js';
 import { chooseAgent } from './acp/choose.js';
 import { agentPickerHost, panelHost } from './acp/host.js';
 import { WorkflowCanvasEditor, type CanvasRuns } from './canvas/editor.js';
+import { canvasSessions } from './canvas/sessions.js';
 import { commandHandlers } from './commands.js';
 import { projectHost, runWorkflowHost } from './commands/host.js';
 import { newProject, offerVendorRefresh } from './commands/newProject.js';
@@ -11,6 +12,10 @@ import { runWorkflowCommand } from './commands/runWorkflow.js';
 import { isProject, workflowDocument } from './core/index.js';
 import { galleryHost } from './gallery/host.js';
 import { GalleryPanel } from './gallery/panel.js';
+import { inspectorFocus } from './inspector/focus.js';
+import { inspectorHost } from './inspector/host.js';
+import { runTabSurface } from './inspector/runTab.js';
+import { InspectorView } from './inspector/view.js';
 import { previewStore } from './preview/store.js';
 import { openDatabase, openManagement } from './runs/db.js';
 import { projectSdk } from './runs/sdk.js';
@@ -56,8 +61,9 @@ export function activate(context: ExtensionContext): void {
   const vendor = shippedVendor(context.extensionUri.fsPath);
 
   // The agent, held here rather than by the view
-  // that draws it. A view in the activity bar is
-  // disposed the moment it is hidden, so a session
+  // that draws it. A view in the activity bar
+  // loses its page whenever it is hidden, and a
+  // person can close it altogether, so a session
   // held by the view would be a new agent process
   // every time somebody collapsed the panel.
   const panel = agentPanel(panelHost(context.workspaceState), trust);
@@ -82,7 +88,7 @@ export function activate(context: ExtensionContext): void {
 
         return run.ran ? run.problems : [];
       },
-      say: (message) => api.info(message),
+      say: api.say,
     },
     trust,
     panel,
@@ -110,8 +116,9 @@ export function activate(context: ExtensionContext): void {
   // list in the activity bar, a page in the editor
   // and the canvas all draw it, and any of them can
   // be disposed while the others are on screen.
+  const runsEditor = runsHost(api);
   const runs = runsStore({
-    host: runsHost(),
+    host: runsEditor,
     agent: panel,
     trust,
     open: openDatabase,
@@ -130,31 +137,40 @@ export function activate(context: ExtensionContext): void {
     watch: watchRun,
     sessionLog: sessionLog(),
   });
-  const see = new SeePanel(context.extensionUri, runs);
+  // Which canvas or run tab somebody last brought
+  // forward. Held here because both report into it
+  // and the Inspector, which is neither, reads it.
+  const focus = inspectorFocus();
+  const see = new SeePanel(context.extensionUri, runs, focus);
 
-  // Opening a run takes both the store that reads
-  // it and the page that shows one, so the pair is
-  // put together once here. Two surfaces ask for it
-  // — a card on the canvas, and a row mBoss wrote
-  // into the transcript — and neither has any
-  // business holding both halves.
-  const openRun = async (workflowId: string): Promise<void> => {
-    await runs.select(workflowId);
-    see.show();
-  };
+  // Opening a run is the run tab's own verb: it
+  // reads through the store and then shows itself.
+  // Three surfaces ask for it — the canvas's
+  // followed run, a card in the Inspector, and a row
+  // mBoss wrote into the transcript — and none holds
+  // either half.
+  const openRun = (workflowId: string): Promise<void> => see.open(workflowId);
 
-  // The canvas draws a run and offers the ways out
-  // of it: the whole run, a replay, and the agent.
+  // A replay from a block, which the agent panel
+  // offers after a turn that asked about one.
+  const replayFrom = (workflowId: string, nodeId: string): Promise<void> =>
+    runs.replay(workflowId, { nodeId });
+
+  // The canvas draws a run and offers the one way
+  // out of it its toolbar has: the whole run.
   const canvasRuns: CanvasRuns = {
     live: () => runs.live(),
     decided: (ir) => runs.decided(ir),
     output: (workflowId, functionId) => runs.output(workflowId, functionId),
     openRun,
-    replayFrom: (workflowId, nodeId) => runs.replay(workflowId, { nodeId }),
-    askAgent: (ask) => runs.askAgent(ask),
-    inspectQueue: (workflowId, nodeId) => runs.inspectQueue(workflowId, nodeId),
     onChanged: (listener) => runs.onChanged(listener),
   };
+
+  // Every canvas that is open. Held here rather than
+  // by the editor, because what is not a canvas has
+  // to find one: the Arrange command asks it for the
+  // canvas in front of somebody.
+  const sessions = canvasSessions();
 
   // The shelf of workflows to start from. Held here
   // rather than by the command, so that running it
@@ -172,7 +188,7 @@ export function activate(context: ExtensionContext): void {
     () => runs.stackUp(),
     () => runs.stackDown(),
     runWorkflowCommand(runWorkflowHost(), runs, trust),
-    async () => WorkflowCanvasEditor.active()?.arrange(),
+    async () => sessions.active()?.arrange(),
   );
   for (const [id, handle] of Object.entries(handlers)) {
     context.subscriptions.push(commands.registerCommand(id, handle));
@@ -198,6 +214,82 @@ export function activate(context: ExtensionContext): void {
     workspace.onDidChangeWorkspaceFolders(() => panel.refresh()),
   );
 
+  // The three panes of the mBoss container, built
+  // here rather than inside their registrations, so
+  // the Agent and Runs panes can still be asked
+  // whether they are on screen.
+  const agentView = new AgentSidebarView(
+    context.extensionUri,
+    panel,
+    pickAgent,
+    preview,
+    { openRun, replayFrom },
+  );
+  const runsView = new RunsListView(context.extensionUri, runs, see);
+  const inspectorEditor = inspectorHost();
+
+  // The run tab as a surface a block is picked on,
+  // put together once here because it composes the
+  // store, the registry, the editor and the preview
+  // store, and the Inspector routes to it as it
+  // routes to a canvas.
+  const runTab = runTabSurface({
+    runs: {
+      detail: () => runs.detail(),
+      tab: (now) => runs.tab(now),
+      // The project the store reads its runs from.
+      project: () => runsEditor.projects()[0],
+      chooseFace: (mode) => runs.chooseFace(mode),
+      selectNode: (nodeId) => runs.selectNode(nodeId),
+      onChanged: (listener) => runs.onChanged(listener),
+    },
+    sessions,
+    editor: {
+      openCanvas: inspectorEditor.openCanvas,
+      documentText: inspectorEditor.documentText,
+      onDocumentChanged: (listener) => api.onDocumentChanged(listener),
+    },
+    opener: api,
+    preview,
+    trust,
+    code: watchers,
+  });
+  const inspectorView = new InspectorView(
+    context.extensionUri,
+    {
+      detail: () => runs.detail(),
+      replayStartRefusal: (workflow, document) =>
+        runs.replayStartRefusal(workflow, document),
+      project: () => runsEditor.projects()[0],
+      openRun,
+      replay: (workflowId, picked) => runs.replay(workflowId, picked),
+      askAgent: (ask) => runs.askAgent(ask),
+      inspectQueue: (workflowId, nodeId) =>
+        runs.inspectQueue(workflowId, nodeId),
+      cancel: (workflowId) => runs.cancel(workflowId),
+      resume: (workflowId) => runs.resume(workflowId),
+      openInput: (workflowId) => runs.openInput(workflowId),
+      runInput: () => {
+        const { input, selected, problem } = runs.list().testRun;
+
+        return { input, selected, problem };
+      },
+      runTrigger: (workflow) => runs.runTrigger(workflow),
+      openRunInput: () => runs.openRunInput(),
+      onChanged: (listener) => runs.onChanged(listener),
+      onInputChanged: (listener) => runs.onInputChanged(listener),
+    },
+    trust,
+    panel,
+    sessions,
+    focus,
+    runTab,
+    inspectorEditor,
+    // Whether the container the Inspector sits in is
+    // on screen, told by the two panes beside it.
+    () => agentView.visible() || runsView.visible(),
+  );
+
   context.subscriptions.push(
     WorkflowCanvasEditor.register(
       context.extensionUri,
@@ -207,15 +299,13 @@ export function activate(context: ExtensionContext): void {
       trust,
       watchers,
       panel,
+      sessions,
+      focus,
     ),
-    AgentSidebarView.register(
-      context.extensionUri,
-      panel,
-      pickAgent,
-      preview,
-      openRun,
-    ),
-    RunsListView.register(context.extensionUri, runs, see),
+    AgentSidebarView.register(agentView),
+    RunsListView.register(runsView),
+    InspectorView.register(inspectorView),
+    { dispose: () => runTab.dispose() },
     { dispose: () => see.dispose() },
     { dispose: () => gallery.dispose() },
     { dispose: () => panel.dispose() },

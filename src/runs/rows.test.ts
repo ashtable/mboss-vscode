@@ -6,9 +6,10 @@ import {
   errorIn,
   hasRecovered,
   inputIn,
-  outputIn,
   recoveriesOf,
+  sizeOf,
   stepError,
+  storedValue,
   toCounts,
   toRun,
   toStep,
@@ -162,6 +163,42 @@ describe('a run row', () => {
   });
 });
 
+describe('a listed run', () => {
+  /**
+   * The three the list read asks for so a row can
+   * say "from step", offer a replay from where the
+   * run threw, and tell a run asleep on the clock
+   * from one executing. `bigint` columns arrive as
+   * text and `min(int)` as a number, as `pg` hands
+   * them over.
+   */
+  it('reads where a listed run began, failed and sleeps', () => {
+    const run = toRun({
+      ...RUN,
+      last_reused: '3',
+      failed_step: 2,
+      sleeping_until: '61000',
+    });
+
+    expect(run.startStep).toBe(4);
+    expect(run.failedStep).toBe(2);
+    expect(run.sleepingUntil).toBe(61000);
+  });
+
+  it('reads a run that carried nothing, threw nowhere and never slept', () => {
+    const run = toRun({
+      ...RUN,
+      last_reused: null,
+      failed_step: null,
+      sleeping_until: null,
+    });
+
+    expect(run.startStep).toBe(0);
+    expect(run).not.toHaveProperty('failedStep');
+    expect(run).not.toHaveProperty('sleepingUntil');
+  });
+});
+
 describe('a step row', () => {
   /**
    * `function_id` is the one number in either table
@@ -230,15 +267,15 @@ describe('the filter counts', () => {
   it('reads all three back as numbers', () => {
     const row: CountsRow = {
       all_runs: '6',
+      active_runs: '3',
       failed_runs: '1',
-      recovered_runs: '1',
     };
 
-    expect(toCounts(row)).toEqual({ all: 6, failed: 1, recovered: 1 });
+    expect(toCounts(row)).toEqual({ all: 6, active: 3, failed: 1 });
   });
 
   it('reads an empty database as three zeroes', () => {
-    expect(toCounts(undefined)).toEqual({ all: 0, failed: 0, recovered: 0 });
+    expect(toCounts(undefined)).toEqual({ all: 0, active: 0, failed: 0 });
   });
 });
 
@@ -449,6 +486,24 @@ describe('what a run was started with', () => {
     ).toEqual({ shape: 'payload', value: { email: 'ada@example.com' } });
   });
 
+  it('unwraps the envelope a richer serializer writes', () => {
+    const stored = JSON.stringify({
+      json: [{ email: 'ada@example.com' }],
+      __dbos_serializer: 'superjson',
+    });
+
+    expect(inputIn(stored, 'superjson')).toEqual({
+      shape: 'payload',
+      value: { email: 'ada@example.com' },
+    });
+  });
+
+  it('takes the one argument the portable serializer names', () => {
+    expect(
+      inputIn('{"positionalArgs":[{"n":1}],"namedArgs":{}}', null),
+    ).toEqual({ shape: 'payload', value: { n: 1 } });
+  });
+
   it('keeps anything else as the text it was stored as', () => {
     expect(inputIn('[1,2]', 'superjson')).toEqual({
       shape: 'raw',
@@ -474,22 +529,85 @@ describe('what a run was started with', () => {
  * a panel showing two thousand characters of a
  * megabyte with no sign of it is lying about what
  * the step returned.
+ *
+ * The wrapper the richer serializer writes comes off
+ * first, and that order is the point: an envelope cut
+ * at two thousand characters cannot be opened
+ * afterwards, so a long value would reach the panel
+ * as the serializer's own notes.
  */
 describe('what a step returned', () => {
   it('carries a short output through whole', () => {
-    expect(outputIn('{"confirmation":"AB-1209"}')).toEqual({
-      text: '{"confirmation":"AB-1209"}',
+    expect(storedValue('{"confirmation":"AB-1209"}')).toEqual({
+      raw: '{"confirmation":"AB-1209"}',
+      shown: '{ "confirmation": "AB-1209" }',
       cut: false,
       bytes: 26,
+      absent: false,
     });
   });
 
   it('cuts a long one and says it cut it', () => {
     const long = `"${'x'.repeat(OUTPUT_KEPT + 500)}"`;
-    const read = outputIn(long);
+    const read = storedValue(long);
 
-    expect(read.text).toHaveLength(OUTPUT_KEPT);
+    expect(read.raw).toHaveLength(OUTPUT_KEPT);
+    expect(read.shown).toHaveLength(OUTPUT_KEPT);
     expect(read.cut).toBe(true);
     expect(read.bytes).toBe(OUTPUT_KEPT + 502);
+  });
+
+  it('takes the envelope off before it cuts', () => {
+    const stored = JSON.stringify({
+      json: { note: 'x'.repeat(OUTPUT_KEPT + 3000) },
+      __dbos_serializer: 'superjson',
+    });
+
+    const read = storedValue(stored);
+
+    expect(read.shown).toMatch(/^\{ "note": "x+$/);
+    expect(read.shown).not.toContain('__dbos_serializer');
+    expect(read.shown).toHaveLength(OUTPUT_KEPT);
+    expect(read.cut).toBe(true);
+    expect(read.bytes).toBe(stored.length);
+  });
+
+  it('leaves a value with a json key of its own wrapped', () => {
+    expect(storedValue('{"json":{"rows":3}}').shown).toBe(
+      '{ "json": { "rows": 3 } }',
+    );
+  });
+
+  it('shows what was stored when it is not JSON at all', () => {
+    expect(storedValue('AB-1209').shown).toBe('AB-1209');
+  });
+
+  it('tells a step that returned nothing from one that returned null', () => {
+    const nothing = storedValue(
+      '{"json":null,"meta":{"values":["undefined"]},' +
+        '"__dbos_serializer":"superjson"}',
+    );
+    const empty = storedValue('{"json":null,"__dbos_serializer":"superjson"}');
+
+    expect(nothing.absent).toBe(true);
+    expect(empty.absent).toBe(false);
+    expect(empty.shown).toBe('null');
+  });
+});
+
+/**
+ * How big a recorded value is, where a panel names
+ * it rather than drawing it. One scale for every
+ * panel, in the words the host resolved.
+ */
+describe('the size of a recorded value', () => {
+  const WORDS = { bytes: '{0} B', kilobytes: '{0} KB', megabytes: '{0} MB' };
+
+  it('says bytes, then kilobytes, then megabytes', () => {
+    expect(sizeOf(0, WORDS)).toBe('0 B');
+    expect(sizeOf(1023, WORDS)).toBe('1023 B');
+    expect(sizeOf(1024, WORDS)).toBe('1.0 KB');
+    expect(sizeOf(2560, WORDS)).toBe('2.5 KB');
+    expect(sizeOf(3 * 1024 * 1024, WORDS)).toBe('3.0 MB');
   });
 });

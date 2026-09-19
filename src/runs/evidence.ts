@@ -10,19 +10,15 @@ import {
 
 import type { Database, OpenDatabase } from './db.js';
 import { describeDatabase, type EnvName } from './env.js';
-import { runQuery, stepsQuery } from './queries.js';
+import { runRowsById, type LedgerAddress } from './ledger.js';
 import { readRun, type Operation } from './reading.js';
 import {
   hasRecovered,
   stepError,
-  toRun,
-  toStep,
-  type OperationOutputRow,
-  type Run,
   type RunInput,
+  type Run,
   type Step,
   type StepError,
-  type WorkflowStatusRow,
 } from './rows.js';
 import type { SessionRun } from './sessionLog.js';
 
@@ -156,7 +152,12 @@ export type RefusedRunEvidence = {
   at: 'refused';
   assembledAt: string;
   workflow: string;
-  refusedAt: string;
+
+  /** Epoch milliseconds, as the session log kept
+   *  them, so the row in the column can set the
+   *  moment on the clock every panel reads. */
+  refusedAt: number;
+
   detail: string;
   input: unknown;
 };
@@ -301,7 +302,7 @@ export type EvidenceDeps = {
  */
 export async function assembleRunEvidence(
   deps: EvidenceDeps,
-  ledger: { url: string; from: EnvName },
+  ledger: LedgerAddress,
   ask: AskAgent,
 ): Promise<RunEvidenceRead> {
   const found = await ledgerRead(deps.open, ledger.url, ask.workflowId);
@@ -319,7 +320,7 @@ export async function assembleRunEvidence(
   // asked for, so a row naming a block it does not
   // have is honestly unmapped rather than merely
   // unchecked.
-  const reading = readRun(run, steps, ir ?? 'lost', hasRecovered(run), now);
+  const reading = readRun(run, steps, ir ?? 'lost', hasRecovered(run), now, ir);
 
   const failed = reading.steps.find((one) => one.state === 'failed');
   const focus = focusOf(ask, failed);
@@ -396,7 +397,7 @@ export function refusedRunEvidence(run: SessionRun): RefusedRunEvidence {
     at: 'refused',
     assembledAt: moment(Date.now()),
     workflow: run.workflow,
-    refusedAt: moment(run.startedAt),
+    refusedAt: run.startedAt,
     detail: run.error ?? '',
     input: run.input,
   };
@@ -424,20 +425,9 @@ async function ledgerRead(
   try {
     db = await open(url);
 
-    const one = runQuery(workflowId);
-    const rows = await db.query<WorkflowStatusRow>(one.text, one.values);
-    const row = rows[0];
-    if (row === undefined) return { at: 'absent' };
+    const found = await runRowsById(db, workflowId);
 
-    const recorded = stepsQuery(workflowId);
-
-    return {
-      at: 'read',
-      run: toRun(row),
-      steps: (
-        await db.query<OperationOutputRow>(recorded.text, recorded.values)
-      ).map(toStep),
-    };
+    return found === undefined ? { at: 'absent' } : { at: 'read', ...found };
   } catch {
     return { at: 'unreachable' };
   } finally {
@@ -678,8 +668,8 @@ function durationOf(
 }
 
 /** Epoch milliseconds as a moment an agent can
- *  read, which is the only form of time this object
- *  carries. */
+ *  read, which is the only form of time a run the
+ *  ledger has is described in. */
 function moment(at: number): string {
   return new Date(at).toISOString();
 }

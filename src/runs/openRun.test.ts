@@ -1,37 +1,42 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import { fakeTrust } from '../../test/doubles/trust.js';
-import type { Trust } from '../trust.js';
+import type { WorkflowIR } from '../core/rules.js';
 import {
+  FORM_INTAKE,
   RUN_ROW,
   STEP_ROW,
+  TIMER_THEN_ANSWER,
   database,
   host,
   liveRun,
   liveStep,
-  management,
   project,
   watcher,
 } from '../test-support/runs.js';
+import type { Trust } from '../trust.js';
 
 import { following, type Following } from './following.js';
-import { runHistory } from './history.js';
+import { projectLedger, type Ledger } from './ledger.js';
 import { openRunZone, type OpenRun, type OpenRunDeps } from './openRun.js';
 import type { RunsHost } from './store.js';
 
 /**
  * The run somebody has open.
  *
- * Driven against a database double and a real
- * history beside it, because the two are genuinely
- * coupled: the page reads the same ledger the list
- * does, and what a read learns about somebody's
- * database is the list's to say. Asked through
- * `see()` rather than through the record behind it,
- * so what is checked is what the panel would draw —
- * the assembly and the projection together, which is
- * where the one bug this page has had actually
- * lived.
+ * Driven against a database double and the real
+ * ledger over it, because the page reads the
+ * project's ledger loudly: what a read learns about
+ * somebody's database is a fact about the project,
+ * and lands under the list as well as on this page.
+ * Asked through `see()` rather than through the
+ * record behind it, so what is checked is what the
+ * panel would draw — the assembly and the projection
+ * together, which is where the one bug this page has
+ * had actually lived.
  */
 
 /** The database double, with the rows and steps a
@@ -56,41 +61,86 @@ function follows(watch = watcher()): {
   };
 }
 
-/** A page over one project, reading that database,
- *  with the list it borrows its connection from. */
+/** A page over one project, reading that database
+ *  through the ledger it shares with the list. */
 function page(
   db: Fake,
   over: Partial<OpenRunDeps> & { host?: RunsHost; trust?: Trust } = {},
-): { open: OpenRun; list: ReturnType<typeof runHistory> } {
+): { open: OpenRun; ledger: Ledger } {
   const editor = over.host ?? host({ projects: () => [project()] });
   const trust = over.trust ?? fakeTrust();
 
-  const list = runHistory({
+  const ledger = projectLedger({
     host: editor,
     trust,
     open: async () => db,
-    openManagement: async () => management(),
-    projectSdk: () => ({ ok: true, version: '4.27.6' }),
   });
 
   const open = openRunZone({
     projectSdk: () => ({ ok: true, version: '4.27.6' }),
     following: follows().held,
     project: () => editor.projects()[0],
-    ledger: list,
+    ledger,
     // Nothing in this window has cancelled anything
     // unless a case says otherwise.
     cancelledHere: () => false,
     ...over,
   });
 
-  return { open, list };
+  return { open, ledger };
 }
 
-/** The rows the page would draw, by the name each
- *  one recorded. */
+/** A project with one saved document written whole
+ *  rather than through the trigger-only fixture the
+ *  other cases use. */
+function projectHolding(ir: WorkflowIR): string {
+  const dir = project({ workflows: [] });
+
+  writeFileSync(
+    join(dir, '.mboss', 'workflows', `${ir.name}.workflow.json`),
+    JSON.stringify(ir),
+    'utf8',
+  );
+
+  return dir;
+}
+
+/** A run of that workflow, still going, with the
+ *  rows it has written so far. */
+function reading(
+  ir: WorkflowIR,
+  steps: { name: string; startedAt?: number; completedAt?: number }[],
+): Fake {
+  const db = database();
+
+  db.rows = [
+    { ...RUN_ROW, name: ir.name, status: 'PENDING', completed_at: null },
+  ];
+  db.steps = steps.map((one, index) => ({
+    ...STEP_ROW,
+    function_id: index,
+    function_name: one.name,
+    started_at_epoch_ms: String(one.startedAt ?? 1000),
+    completed_at_epoch_ms: String(one.completedAt ?? 1200),
+  }));
+
+  return db;
+}
+
+/** Every row the page would draw, by the name each
+ *  one recorded, in the order DBOS numbered them:
+ *  the trace, the SDK's rows under it and the rows
+ *  no block owns. */
 function drawnRows(open: OpenRun): string[] {
-  return (open.see().run?.raw ?? []).map((row) => row.fn);
+  const run = open.see().run;
+  const rows = [
+    ...(run?.trace ?? []).flatMap((row) => [row, ...row.sdk]),
+    ...(run?.unattributed ?? []),
+  ];
+
+  return rows
+    .sort((one, other) => one.functionId - other.functionId)
+    .map((row) => row.name);
 }
 
 describe('reading a run', () => {
@@ -109,7 +159,10 @@ describe('reading a run', () => {
 
     await open.open('wf_c9d2f3');
 
-    expect(open.see().run?.input).toBeDefined();
+    expect(open.reading()?.run.input).toEqual({
+      shape: 'payload',
+      value: { email: 'ada@example.com' },
+    });
   });
 
   /**
@@ -135,21 +188,21 @@ describe('reading a run', () => {
 
   /**
    * The other absence: the page keeps what it had
-   * rather than blanking on a hiccup — and the list
-   * beside it says the database stopped answering,
+   * rather than blanking on a hiccup — and the
+   * ledger says the database stopped answering,
    * because that is a fact about the project rather
-   * than about this run.
+   * than about this run, and the list draws it.
    */
-  it('keeps the page when the database stops answering, and the list says so', async () => {
+  it('keeps the page when the database stops answering, and the ledger says so', async () => {
     const db = database();
-    const { open, list } = page(db);
+    const { open, ledger } = page(db);
 
     await open.open('wf_c9d2f3');
     db.fail = 'ECONNREFUSED';
     await open.open('wf_c9d2f3');
 
     expect(open.see().run?.workflowId).toBe('wf_c9d2f3');
-    expect(list.render().state).toBe('unreachable');
+    expect(ledger.render().state).toBe('unreachable');
   });
 
   it('carries the saved workflow when it reads, and nothing when it does not', async () => {
@@ -170,6 +223,64 @@ describe('reading a run', () => {
 
     expect(without.see().run?.graph).toBeUndefined();
     expect(without.see().run?.noGraph).toBeDefined();
+  });
+});
+
+/**
+ * The blocks that write no row under their own
+ * name, read the whole way through the page.
+ *
+ * A wait on the clock compiles to a bare
+ * `DBOS.sleep`, so the SDK's row is the only
+ * evidence it ran — and which wait wrote it is a
+ * question the saved document answers and nothing
+ * else does. A wait on a form is the other way
+ * round: it writes its own rows either side of the
+ * park, and the SDK's pair between them stays the
+ * SDK's.
+ */
+describe('the rows a wait leaves behind', () => {
+  it('draws a wait on the clock from the sleep the SDK wrote', async () => {
+    const wakesAt = Date.now() + 120_000;
+    const db = reading(TIMER_THEN_ANSWER, [
+      { name: 'DBOS.sleep', startedAt: 1000, completedAt: wakesAt },
+    ]);
+
+    const { open } = page(db, {
+      host: host({ projects: () => [projectHolding(TIMER_THEN_ANSWER)] }),
+    });
+
+    await open.open('wf_c9d2f3');
+
+    const live = open.see().run?.live;
+
+    expect(live?.steps.map((step) => step.nodeId)).toEqual(['let_it_wait']);
+    expect(live?.steps[0]?.state).toBe('waiting');
+    expect(live?.outcome).toBe('waiting');
+  });
+
+  it('leaves a wait on a form its own rows and the SDK its pair', async () => {
+    const db = reading(FORM_INTAKE, [
+      { name: 'ask_details' },
+      { name: 'await_details.register' },
+      { name: 'DBOS.recv' },
+      { name: 'DBOS.sleep' },
+      { name: 'await_details.clear' },
+      { name: 'record_intake' },
+    ]);
+
+    const { open } = page(db, {
+      host: host({ projects: () => [projectHolding(FORM_INTAKE)] }),
+    });
+
+    await open.open('wf_c9d2f3');
+
+    expect(open.see().run?.live?.steps.map((step) => step.nodeId)).toEqual([
+      'ask_details',
+      'await_details',
+      'await_details',
+      'record_intake',
+    ]);
   });
 });
 
@@ -295,40 +406,55 @@ describe('what a reader keeps', () => {
   /**
    * Refresh is the same run read again, not a
    * different question. Pressing it while reading a
-   * group two thirds down a trace with the SDK's
-   * own rows shown must not put somebody back at
-   * the top with those rows hidden.
+   * block two thirds down a trace must not put
+   * somebody back at the top.
    */
   it('keeps what somebody was reading when the same run is read again', async () => {
     const { open } = page(twoSteps());
 
     await open.open('wf_c9d2f3');
     open.node('find_slot');
-    open.raw(true);
 
     await open.again();
 
     const shown = open.see().run;
     expect(shown?.selected.nodeId).toBe('find_slot');
-    expect(shown?.selected.functionId).toBe(1);
-    expect(shown?.showRaw).toBe(true);
+    expect(shown?.selected.functionId).toBeUndefined();
   });
 
-  it('starts a different run at the top, with the DBOS rows hidden', async () => {
+  it('keeps a picked row when the same run is read again', async () => {
+    const { open } = page(
+      reading(FORM_INTAKE, [
+        { name: 'ask_details' },
+        { name: 'record_intake' },
+      ]),
+      { host: host({ projects: () => [projectHolding(FORM_INTAKE)] }) },
+    );
+
+    await open.open('wf_c9d2f3');
+    open.step(1);
+
+    await open.again();
+
+    expect(open.see().run?.selected).toEqual({
+      nodeId: 'record_intake',
+      functionId: 1,
+    });
+  });
+
+  it('starts a different run with nothing picked', async () => {
     const db = twoSteps();
     const { open } = page(db);
 
     await open.open('wf_c9d2f3');
     open.node('find_slot');
-    open.raw(true);
 
     db.rows = [{ ...RUN_ROW, workflow_uuid: 'wf_other' }];
     await open.open('wf_other');
 
     const shown = open.see().run;
     expect(shown?.selected.nodeId).toBeUndefined();
-    expect(shown?.selected.functionId).toBe(0);
-    expect(shown?.showRaw).toBe(false);
+    expect(shown?.selected.functionId).toBeUndefined();
   });
 
   /** Which of the two views is on screen belongs to
@@ -350,6 +476,229 @@ describe('what a reader keeps', () => {
   });
 });
 
+/**
+ * What a person has picked on the run tab.
+ *
+ * The graph and the trace share one selection, and
+ * the Inspector is drawn from it. A block picked on
+ * the graph is that block with none of its rows; a
+ * row picked in the trace is that row and the block
+ * it is drawn under, the SDK's own rows included.
+ * The face somebody picked in the Inspector holds
+ * while they stay on that block of that run.
+ */
+describe('what a person has picked on the run tab', () => {
+  /** The intake form's run, open: the form sent,
+   *  the wait parked on it and let go, the answer
+   *  recorded. */
+  async function intake(first: { name: string }[] = []) {
+    const db = reading(FORM_INTAKE, [
+      ...first,
+      { name: 'ask_details' },
+      { name: 'await_details.register' },
+      { name: 'DBOS.recv' },
+      { name: 'DBOS.sleep' },
+      { name: 'await_details.clear' },
+      { name: 'record_intake' },
+    ]);
+    const { open } = page(db, {
+      host: host({ projects: () => [projectHolding(FORM_INTAKE)] }),
+    });
+
+    await open.open('wf_c9d2f3');
+
+    return { open, db };
+  }
+
+  /** What the Inspector reads of the selection. */
+  function picked(open: OpenRun) {
+    const shown = open.reading();
+
+    return {
+      node: shown?.selectedNode,
+      step: shown?.selectedStep,
+      face: shown?.face,
+    };
+  }
+
+  it('opens a run with neither a block nor a row picked', async () => {
+    const { open } = await intake();
+
+    expect(picked(open)).toEqual({ node: undefined, step: undefined });
+  });
+
+  it('lets go of the block and the row when nothing is picked', async () => {
+    const { open } = await intake();
+
+    open.step(5);
+    open.node(null);
+
+    expect(picked(open)).toEqual({ node: undefined, step: undefined });
+  });
+
+  it('picks the block a row is drawn under', async () => {
+    const { open } = await intake();
+
+    open.step(5);
+
+    expect(picked(open)).toEqual({ node: 'record_intake', step: 5 });
+  });
+
+  it('picks the block an SDK row is under, and keeps the row', async () => {
+    const { open } = await intake();
+
+    open.step(2);
+
+    expect(picked(open)).toEqual({ node: 'await_details', step: 2 });
+  });
+
+  /**
+   * Picking the first row a block wrote used to
+   * open a block whose later row failed on the row
+   * that did not, and a replay from there forked
+   * before the failure.
+   */
+  it('picks no row for a block picked on the graph', async () => {
+    const { open } = await intake();
+
+    open.node('await_details');
+
+    expect(picked(open)).toEqual({ node: 'await_details', step: undefined });
+  });
+
+  it('lets go of a row under another block for a block with none', async () => {
+    const { open } = await intake();
+
+    open.step(5);
+    open.node('intake_requested');
+
+    expect(picked(open)).toEqual({ node: 'intake_requested', step: undefined });
+  });
+
+  it('picks no block for a row nothing is drawn under', async () => {
+    const { open } = await intake([{ name: 'deleted_block' }]);
+
+    open.node('record_intake');
+    open.step(0);
+
+    expect(picked(open)).toEqual({ node: undefined, step: 0 });
+  });
+
+  /**
+   * What the run tab marks is the page's to say, so
+   * these ask the page rather than the record.
+   */
+  it('marks the row picked under a block, the SDK’s own included', async () => {
+    const { open } = await intake();
+
+    open.step(2);
+    const run = open.see().run;
+
+    expect(run?.selected).toEqual({ nodeId: 'await_details', functionId: 2 });
+    expect(
+      run?.trace
+        .find((row) => row.functionId === 1)
+        ?.sdk.map((one) => one.functionId),
+    ).toEqual([2, 3]);
+  });
+
+  /**
+   * A block picked on the graph is marked in the
+   * trace by the row it is headed by, which is never
+   * a row the SDK wrote under it — even where that
+   * row is the block's latest.
+   */
+  it('marks the row a picked block is headed by, not an SDK row', async () => {
+    const { open } = await intake();
+
+    open.node('await_details');
+    expect(open.see().run?.selected).toEqual({
+      nodeId: 'await_details',
+      functionId: 4,
+    });
+
+    open.node('intake_requested');
+    expect(open.see().run?.selected).toEqual({
+      nodeId: 'intake_requested',
+      functionId: undefined,
+    });
+
+    open.node(null);
+    expect(open.see().run?.selected).toEqual({
+      nodeId: undefined,
+      functionId: undefined,
+    });
+
+    const parked = reading(FORM_INTAKE, [
+      { name: 'ask_details' },
+      { name: 'await_details.register' },
+      { name: 'DBOS.sleep' },
+    ]);
+    const { open: waiting } = page(parked, {
+      host: host({ projects: () => [projectHolding(FORM_INTAKE)] }),
+    });
+
+    await waiting.open('wf_c9d2f3');
+    waiting.node('await_details');
+
+    expect(waiting.see().run?.selected.functionId).toBe(1);
+  });
+
+  it('keeps a row no block owns out of every block', async () => {
+    const { open } = await intake([{ name: 'deleted_block' }]);
+    const run = open.see().run;
+
+    expect(run?.unattributed.map((row) => row.functionId)).toEqual([0]);
+    expect(
+      run?.trace.flatMap((row) => row.sdk.map((one) => one.functionId)),
+    ).toEqual([3, 4]);
+  });
+
+  it('holds the face somebody picked across rows of one block', async () => {
+    const { open } = await intake();
+
+    open.step(1);
+    open.face('configure');
+    open.step(2);
+    open.step(4);
+
+    expect(picked(open)).toEqual({
+      node: 'await_details',
+      step: 4,
+      face: 'configure',
+    });
+  });
+
+  it('forgets the face once another block, row or run is picked', async () => {
+    const { open, db } = await intake();
+
+    open.step(1);
+    open.face('configure');
+    open.node('record_intake');
+    expect(picked(open).face).toBeUndefined();
+
+    open.step(1);
+    open.face('configure');
+    open.step(5);
+    expect(picked(open).face).toBeUndefined();
+
+    open.face('configure');
+    db.rows = [{ ...RUN_ROW, name: 'form_intake', workflow_uuid: 'wf_other' }];
+    await open.open('wf_other');
+    expect(picked(open).face).toBeUndefined();
+  });
+
+  it('keeps the face when the same run is read again', async () => {
+    const { open } = await intake();
+
+    open.step(1);
+    open.face('configure');
+    await open.again();
+
+    expect(picked(open).face).toBe('configure');
+  });
+});
+
 describe('what a replay left on the page', () => {
   /**
    * The replay itself is decided and made a long
@@ -365,7 +714,7 @@ describe('what a replay left on the page', () => {
     await open.open('wf_c9d2f3');
     open.note('Replaying as wf_fork1.');
 
-    expect(open.see().run?.note).toBe('Replaying as wf_fork1.');
+    expect(open.reading()?.note).toBe('Replaying as wf_fork1.');
   });
 
   it('keeps it when the same run is read again', async () => {
@@ -375,7 +724,7 @@ describe('what a replay left on the page', () => {
     open.note('Replaying as wf_fork1.');
     await open.again();
 
-    expect(open.see().run?.note).toBe('Replaying as wf_fork1.');
+    expect(open.reading()?.note).toBe('Replaying as wf_fork1.');
   });
 
   it('says nothing before a run has been picked', () => {
@@ -429,10 +778,16 @@ describe('whether a project records when a run wakes', () => {
 
       await open.open('wf_c9d2f3');
 
-      const wakes = (open.see().run?.groups ?? []).some(
-        (group) => group.wakes !== undefined,
+      const run = open.see().run;
+      const sleeps = [
+        ...(run?.trace ?? []).flatMap((row) => [row, ...row.sdk]),
+        ...(run?.unattributed ?? []),
+      ].filter((row) => row.name === 'DBOS.sleep');
+      const wakes = sleeps.some((row) =>
+        /^(wakes|woke|times out) /.test(row.detail.derived ?? ''),
       );
 
+      expect(sleeps).toHaveLength(1);
       expect({ sdk, said: wakes }).toEqual({ sdk, said });
     }
   });
@@ -485,15 +840,13 @@ describe('where a run came from and what came out of it', () => {
 
     await open.open('wf_c9d2f3');
 
-    const tree = open.see().run?.lineage;
-    expect(tree?.workflowId).toBe('wf_c9d2f3');
-    expect(tree?.here).toBe(true);
-    expect(tree?.forks.map((one) => one.workflowId)).toEqual(['wf_fork1']);
+    const lineage = open.reading()?.lineage;
+    expect(lineage?.parent).toBeUndefined();
+    expect(lineage?.forks.map((one) => one.run.workflowId)).toEqual([
+      'wf_fork1',
+    ]);
   });
 
-  /** The tree is drawn from its top, so the run this
-   *  one came out of is the root and this run hangs
-   *  under it. */
   it('loads the run this one was forked from', async () => {
     const db = database();
     db.rows = [
@@ -504,11 +857,10 @@ describe('where a run came from and what came out of it', () => {
     const { open } = page(db);
     await open.open('wf_c9d2f3');
 
-    const tree = open.see().run?.lineage;
-    expect(tree?.workflowId).toBe('wf_parent');
-    expect(tree?.status).toBe('ERROR');
-    expect(tree?.here).toBe(false);
-    expect(tree?.forks.map((one) => one.workflowId)).toEqual(['wf_c9d2f3']);
+    const lineage = open.reading()?.lineage;
+    expect(lineage?.parent?.run.workflowId).toBe('wf_parent');
+    expect(lineage?.parent?.run.status).toBe('ERROR');
+    expect(lineage?.forks).toEqual([]);
   });
 
   it('counts the start step from the last reused row', async () => {
@@ -516,7 +868,7 @@ describe('where a run came from and what came out of it', () => {
 
     await open.open('wf_c9d2f3');
 
-    expect(open.see().run?.lineage?.forks[0]?.startStep).toBe(4);
+    expect(open.reading()?.lineage?.forks[0]?.startStep).toBe(4);
   });
 
   it('names the boundary from rows it already loaded', async () => {
@@ -524,7 +876,7 @@ describe('where a run came from and what came out of it', () => {
 
     await open.open('wf_c9d2f3');
 
-    expect(open.see().run?.lineage?.forks[0]?.from).toBe('replay from Started');
+    expect(open.reading()?.lineage?.forks[0]?.boundary).toBe('Started');
   });
 
   /**
@@ -538,7 +890,9 @@ describe('where a run came from and what came out of it', () => {
 
     await open.open('wf_c9d2f3');
 
-    expect(open.see().run?.lineage?.forks[0]?.from).toBe('replay from step 0');
+    const fork = open.reading()?.lineage?.forks[0];
+    expect(fork?.startStep).toBe(0);
+    expect(fork?.boundary).toBeUndefined();
   });
 
   it('says nothing about a run with no replay either side of it', async () => {
@@ -546,6 +900,6 @@ describe('where a run came from and what came out of it', () => {
 
     await open.open('wf_c9d2f3');
 
-    expect(open.see().run?.lineage).toBeUndefined();
+    expect(open.reading()?.lineage).toBeUndefined();
   });
 });

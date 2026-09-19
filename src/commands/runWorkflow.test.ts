@@ -6,6 +6,8 @@ import { describe, expect, it } from 'vitest';
 
 import { fakeAgent } from '../../test/doubles/agent.js';
 import { fakeTrust } from '../../test/doubles/trust.js';
+import { messages } from '../messages.js';
+import type { RunRequest } from '../runs/runner.js';
 import { sessionLog } from '../runs/sessionLog.js';
 import { runsStore, type RunsDeps, type RunsHost } from '../runs/store.js';
 
@@ -22,31 +24,35 @@ import { runWorkflowCommand, type RunWorkflowHost } from './runWorkflow.js';
  * workflow the project has saved.
  */
 
-function project(): string {
+/** A project with those workflows saved, each
+ *  started by hand. */
+function project(names: string[] = ['groom_booking']): string {
   const dir = mkdtempSync(join(tmpdir(), 'mboss-run-workflow-'));
   const workflows = join(dir, '.mboss', 'workflows');
   mkdirSync(workflows, { recursive: true });
 
-  writeFileSync(
-    join(workflows, 'groom_booking.workflow.json'),
-    JSON.stringify({
-      $schema: 'https://mboss.dev/schemas/workflow-v1.json',
-      version: 1,
-      revision: 1,
-      name: 'groom_booking',
-      title: 'Groom booking',
-      nodes: [
-        {
-          id: 'started',
-          kind: 'trigger',
-          title: 'Started',
-          config: { mode: 'manual' },
-        },
-      ],
-      edges: [],
-    }),
-    'utf8',
-  );
+  for (const name of names) {
+    writeFileSync(
+      join(workflows, `${name}.workflow.json`),
+      JSON.stringify({
+        $schema: 'https://mboss.dev/schemas/workflow-v1.json',
+        version: 1,
+        revision: 1,
+        name,
+        title: name,
+        nodes: [
+          {
+            id: 'started',
+            kind: 'trigger',
+            title: 'Started',
+            config: { mode: 'manual' },
+          },
+        ],
+        edges: [],
+      }),
+      'utf8',
+    );
+  }
 
   return dir;
 }
@@ -55,6 +61,7 @@ function runsHost(dir: string): RunsHost {
   return {
     projects: () => [dir],
     say: () => undefined,
+    locale: () => 'en-US',
     setContext: () => undefined,
     copy: async () => undefined,
     openCanvas: async () => undefined,
@@ -77,7 +84,7 @@ function runsHost(dir: string): RunsHost {
  * database connection or shelling out to compose,
  * the way a full `refresh()` would.
  */
-function deps(dir: string): RunsDeps {
+function deps(dir: string, started: RunRequest[]): RunsDeps {
   const refused = (what: string) => (): never => {
     throw new Error(`should not have ${what}`);
   };
@@ -95,10 +102,11 @@ function deps(dir: string): RunsDeps {
       status: refused('asked the stack for its status'),
       appOrigin: refused('asked where the app answers'),
     },
-    runner: async (request) => ({
-      ok: true,
-      workflowId: request.workflowId ?? 'wf_echo',
-    }),
+    runner: async (request) => {
+      started.push(request);
+
+      return { ok: true, workflowId: request.workflowId ?? 'wf_echo' };
+    },
     watch: () => ({ stop: () => undefined }),
     sessionLog: sessionLog(),
     projectSdk: () => ({ ok: false, because: 'no-lockfile' }) as const,
@@ -117,7 +125,6 @@ function host(): RunWorkflowHost & { offered: string[][] } {
 
       return choices[0]?.id;
     },
-    ask: async () => '',
     info: () => undefined,
   };
 }
@@ -125,11 +132,55 @@ function host(): RunWorkflowHost & { offered: string[][] } {
 describe('running a workflow from the palette', () => {
   it('offers the picker a project’s saved workflows before the panel has ever refreshed', async () => {
     const dir = project();
-    const store = runsStore(deps(dir));
+    const store = runsStore(deps(dir, []));
     const editor = host();
 
     await runWorkflowCommand(editor, store, fakeTrust())();
 
     expect(editor.offered).toEqual([['groom_booking']]);
+  });
+
+  /**
+   * The Runs view's input box is the one place a
+   * run's input is typed, so the palette asks only
+   * which workflow. Picking one sets the view to it,
+   * so the run and any refusal are drawn against the
+   * workflow that was started.
+   */
+  it('starts the pick with the Runs input, and selects it', async () => {
+    const started: RunRequest[] = [];
+    const store = runsStore(
+      deps(project(['groom_booking', 'refund_approval']), started),
+    );
+
+    // Set to the other one first, so the pick is
+    // what moves the view.
+    store.refreshWorkflows();
+    store.selectWorkflow('refund_approval');
+    store.setInput('{"n":1}');
+    await runWorkflowCommand(host(), store, fakeTrust())();
+
+    expect(started.map(({ workflow, input }) => ({ workflow, input }))).toEqual(
+      [{ workflow: 'groom_booking', input: { n: 1 } }],
+    );
+    expect(store.list().testRun.selected).toBe('groom_booking');
+  });
+
+  /** Refused before anything is sent, and said in
+   *  the Runs view against the workflow picked. */
+  it('draws a refused Runs input against the pick', async () => {
+    const started: RunRequest[] = [];
+    const store = runsStore(
+      deps(project(['groom_booking', 'refund_approval']), started),
+    );
+
+    store.refreshWorkflows();
+    store.selectWorkflow('refund_approval');
+    store.setInput('{ n: ');
+    await runWorkflowCommand(host(), store, fakeTrust())();
+
+    expect(started).toEqual([]);
+    expect(store.list().testRun.selected).toBe('groom_booking');
+    expect(store.list().testRun.problem?.detail).toBe(messages.runNotJson());
   });
 });

@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
+import type { PromptAbout } from './prompt.js';
 import {
+  editsIn,
   foldUpdates,
   KEPT_TEXT_BYTES,
+  nextActions,
   type FileEditEntry,
   type SessionUpdate,
   type ToolEntry,
@@ -124,6 +127,7 @@ describe('what the agent did', () => {
         kind: 'edit',
         status: 'completed',
         body: [],
+        paths: [],
       },
     ]);
   });
@@ -193,6 +197,133 @@ describe('what the agent did', () => {
   });
 
   /**
+   * What an agent titles a call is its own business:
+   * codex calls every write "Editing files". The
+   * file is on the update anyway, as the diff the
+   * call carries, so the row keeps where it came
+   * from rather than what the title guessed at.
+   */
+  it('names the file an edit touched, whatever its title said', () => {
+    const tool = fold({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'call-1',
+      title: 'Editing files',
+      kind: 'edit',
+      status: 'completed',
+      content: [
+        {
+          type: 'diff',
+          path: '/project/lib/airtableEtl.test.ts',
+          oldText: "srcCustomerId: 'C-100',\n",
+          newText: "srcCustomerId: '  C-100  ',\n",
+        },
+      ],
+    })[0] as ToolEntry;
+
+    expect(tool.paths).toEqual(['/project/lib/airtableEtl.test.ts']);
+    expect([tool.verb, tool.target]).toEqual(['Editing', 'files']);
+  });
+
+  /**
+   * A read carries no diff; the files it looked at
+   * come as locations. A diff and a location can
+   * name the same file, which is still one file.
+   */
+  it('names the files a call reports touching', () => {
+    const paths = (update: SessionUpdate): string[] =>
+      (fold(update)[0] as ToolEntry).paths;
+
+    expect(
+      paths({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-1',
+        title: 'Read two files',
+        kind: 'read',
+        locations: [
+          { path: '/project/a.ts' },
+          { path: '/project/b.ts', line: 3 },
+        ],
+      }),
+    ).toEqual(['/project/a.ts', '/project/b.ts']);
+
+    expect(
+      paths({
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-1',
+        title: 'Edit b.ts',
+        kind: 'edit',
+        content: [{ type: 'diff', path: '/project/b.ts', newText: 'b\n' }],
+        locations: [{ path: '/project/a.ts' }, { path: '/project/b.ts' }],
+      }),
+    ).toEqual(['/project/b.ts', '/project/a.ts']);
+  });
+
+  it("keeps a call's files when an update only moves its status", () => {
+    const tool = fold(
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-1',
+        title: 'Editing files',
+        kind: 'edit',
+        content: [{ type: 'diff', path: '/project/a.ts', newText: 'a\n' }],
+      },
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call-1',
+        status: 'completed',
+      },
+    )[0] as ToolEntry;
+
+    expect(tool.paths).toEqual(['/project/a.ts']);
+  });
+
+  /**
+   * An update that names another file adds to the
+   * call's files rather than replacing them: the
+   * edit to the first file is still in the column,
+   * and a row counting one file above two edits
+   * would be miscounting.
+   */
+  it('keeps every file a call has named, in the order it named them', () => {
+    const entries = fold(
+      {
+        sessionUpdate: 'tool_call',
+        toolCallId: 'call-1',
+        title: 'Editing files',
+        kind: 'edit',
+        content: [{ type: 'diff', path: '/project/a.ts', newText: 'a\n' }],
+      },
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call-1',
+        content: [{ type: 'diff', path: '/project/b.ts', newText: 'b\n' }],
+      },
+      {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'call-1',
+        content: [{ type: 'diff', path: '/project/a.ts', newText: 'A\n' }],
+      },
+    );
+
+    expect((entries[0] as ToolEntry).paths).toEqual([
+      '/project/a.ts',
+      '/project/b.ts',
+    ]);
+    expect(entries.filter((entry) => entry.at === 'file')).toHaveLength(2);
+  });
+
+  it('names no file for a call that reported none', () => {
+    const tool = fold({
+      sessionUpdate: 'tool_call',
+      toolCallId: 'call-1',
+      title: 'workflow.apply_spec dryRun',
+      kind: 'other',
+    })[0] as ToolEntry;
+
+    expect(tool.paths).toEqual([]);
+  });
+
+  /**
    * What a call printed — a command's output, most
    * often. It is the one thing a row would show
    * less of than the card it replaces, so it is
@@ -257,6 +388,11 @@ describe('what happened to a file', () => {
     expect(files[1]?.isNew).toBe(false);
     expect(files.map((file) => file.decision)).toEqual(['pending', 'pending']);
     expect(files.map((file) => file.by)).toEqual(['agent', 'agent']);
+
+    expect((fold(edits)[0] as ToolEntry).paths).toEqual([
+      '/project/lib/twilioChat.ts',
+      '/project/.mboss/workflows/groom.workflow.json',
+    ]);
   });
 
   /**
@@ -417,6 +553,28 @@ describe('what the extension writes itself', () => {
     });
   });
 
+  /**
+   * A question mBoss asked for somebody is sent in
+   * the agent's copy, and the column shows its own;
+   * what it was about is what tells the two apart.
+   */
+  it('remembers what an Ask-agent question was about on the echo', () => {
+    const about: PromptAbout = {
+      workflowId: 'wf_c9d2f3',
+      nodeId: 'refund_payment',
+      block: 'Refund payment',
+      shown: 'Run `#7089` of `refund_order` failed.',
+    };
+
+    expect(said([], 'Run `wf_c9d2f3` failed.', about).at(-1)).toMatchObject({
+      at: 'message',
+      from: 'user',
+      text: 'Run `wf_c9d2f3` failed.',
+      about,
+    });
+    expect(said([], 'wire it').at(-1)).not.toHaveProperty('about');
+  });
+
   it('writes what a person did as an applied edit of theirs', () => {
     expect(
       personEdit({ id: 'apply:p1', verb: 'Applied', target: 'groom' }),
@@ -429,6 +587,136 @@ describe('what the extension writes itself', () => {
       target: 'groom',
       status: 'applied',
       body: [],
+      paths: [],
     });
+  });
+});
+
+/**
+ * The step after a turn that answered a question
+ * about one block of a run.
+ *
+ * Once the agent has changed something, the way to
+ * know whether it worked is to replay the run from
+ * that block. So the column offers it — but only
+ * after a turn that asked about a block and left an
+ * edit standing, because a replay proves nothing
+ * about a turn that changed nothing.
+ */
+describe('what comes after a turn asked about a block', () => {
+  const ABOUT: PromptAbout = {
+    workflowId: 'wf_c9d2f3',
+    nodeId: 'refund_payment',
+    block: 'Refund payment',
+    shown: 'Run `#c9d2` of `refund_order` failed.',
+  };
+
+  const write: SessionUpdate = {
+    sessionUpdate: 'tool_call',
+    toolCallId: 'call-1',
+    title: 'Write lib/refund.ts',
+    kind: 'edit',
+    status: 'completed',
+    content: [
+      {
+        type: 'diff',
+        path: '/project/lib/refund.ts',
+        oldText: 'timeout: 30_000\n',
+        newText: 'timeout: 90_000\n',
+      },
+    ],
+  };
+
+  const FILE = 'call-1:/project/lib/refund.ts';
+
+  /** The echo, then whatever the turn folded in. */
+  const turn = (...updates: SessionUpdate[]): TranscriptEntry[] =>
+    foldUpdates(said([], 'why?', ABOUT), updates);
+
+  const decided = (
+    entries: TranscriptEntry[],
+    decision: FileEditEntry['decision'],
+  ): TranscriptEntry[] =>
+    entries.map((entry) =>
+      entry.at === 'file' ? { ...entry, decision } : entry,
+    );
+
+  it('names the file edits an update writes, as the column files them', () => {
+    const ids = fold(write)
+      .filter((entry) => entry.at === 'file')
+      .map((entry) => entry.id);
+
+    expect(ids).toHaveLength(1);
+    expect(editsIn(write)).toEqual(ids);
+    expect(
+      editsIn({
+        sessionUpdate: 'agent_message_chunk',
+        content: text('done'),
+      }),
+    ).toEqual([]);
+  });
+
+  it('offers the next step once an edit of the turn was applied', () => {
+    const entries = turn(write);
+
+    expect(nextActions(entries, ABOUT, [FILE])).toEqual({
+      at: 'next',
+      id: 'next-0',
+      about: { workflowId: 'wf_c9d2f3', nodeId: 'refund_payment' },
+      block: 'Refund payment',
+      edits: [FILE],
+    });
+
+    // Kept is applied too.
+    expect(nextActions(decided(entries, 'kept'), ABOUT, [FILE])?.edits).toEqual(
+      [FILE],
+    );
+  });
+
+  it('offers nothing when no edit of the turn was applied', () => {
+    const undone = decided(turn(write), 'undone');
+    const failed = turn({ ...write, status: 'failed' });
+    const going = turn({ ...write, status: 'in_progress' });
+
+    // The same turns with the edit left standing
+    // would each offer one, so what is refused
+    // below is the state and not the shape.
+    expect(nextActions(turn(write), ABOUT, [FILE])).toBeDefined();
+
+    expect(nextActions(undone, ABOUT, [FILE])).toBeUndefined();
+    expect(nextActions(failed, ABOUT, [FILE])).toBeUndefined();
+    expect(nextActions(going, ABOUT, [FILE])).toBeUndefined();
+    expect(nextActions(turn(), ABOUT, [])).toBeUndefined();
+  });
+
+  it('offers nothing for a question about a whole run', () => {
+    const { nodeId, block, ...wholeRun } = ABOUT;
+
+    expect([nodeId, block]).toEqual(['refund_payment', 'Refund payment']);
+    expect(nextActions(turn(write), wholeRun, [FILE])).toBeUndefined();
+    expect(nextActions(turn(write), undefined, [FILE])).toBeUndefined();
+  });
+
+  /**
+   * An edit an earlier turn left standing is still
+   * applied, and still in the column — but this turn
+   * did not write it, so it is not this turn's to
+   * offer a replay for.
+   */
+  it('counts only the edits of the turn it ends', () => {
+    const earlier = foldUpdates([], [write]);
+    const entries = said(earlier, 'why?', ABOUT);
+
+    expect(nextActions(entries, ABOUT, [FILE])).toBeDefined();
+    expect(nextActions(entries, ABOUT, [])).toBeUndefined();
+  });
+
+  it('numbers each offer among the offers so far', () => {
+    const first = turn(write);
+    const offered = nextActions(first, ABOUT, [FILE]);
+
+    if (offered === undefined) throw new Error('nothing was offered');
+
+    expect(nextActions([...first, offered], ABOUT, [FILE])?.id).toBe('next-1');
   });
 });

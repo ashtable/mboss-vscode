@@ -14,11 +14,14 @@ import {
   decideReplay,
   offerReplay,
   replayQuestion,
+  replayStartRefusal,
   type ReplayAnswer,
   type ReplayDeps,
   type ReplayQuestion,
+  pointIn,
 } from './replayZone.js';
 import type { Run, Step } from './rows.js';
+import type { ProjectSdk } from './sdk.js';
 import type { RunOrigin } from './testRun.js';
 
 /**
@@ -306,11 +309,13 @@ function recorder(
         builtAt: () => builtAt,
         render: () => ({
           available: true,
+          answered: true,
           services: [
             {
               service: 'app',
               state: 'running',
               health: 'healthy',
+              ports: [3000],
               detail: 'built 12 s ago',
             },
           ],
@@ -499,11 +504,13 @@ describe('deciding whether a run can be replayed from here', () => {
         builtAt: () => 20_000,
         render: () => ({
           available: true,
+          answered: true,
           services: [
             {
               service: 'app',
               state: 'running',
               health: 'healthy',
+              ports: [3000],
               detail: 'built 12 s ago',
             },
           ],
@@ -696,6 +703,196 @@ describe('deciding whether a run can be replayed from here', () => {
 });
 
 /**
+ * A replay from the start: a fork at step 0.
+ *
+ * A fork copies the rows below the step it starts
+ * at, so at 0 it copies nothing — a real start, with
+ * the recorded input, where the first point a block
+ * offers would copy every row before it. With no row
+ * below it, no row can disagree with the document,
+ * and a run that recorded nothing can be replayed
+ * too. What stays is everything that is not about
+ * rows: the document, the lockfile, the SDK and the
+ * generated code.
+ */
+describe('a replay from the start', () => {
+  /** Rows the document could not have written: a
+   *  replay from any of them is refused. */
+  const MOVED = [
+    step({ functionId: 0, name: 'check_policy' }),
+    step({ functionId: 1, name: 'evaluate_refund', output: 'true' }),
+    step({ functionId: 2, name: 'refund_payment', error: 'boom' }),
+  ];
+
+  it('starts at step 0 without asking which rows came first', async () => {
+    const refused = await decideReplay(recorder().deps, RUN, MOVED, {
+      functionId: 2,
+    });
+    const decision = await decideReplay(recorder().deps, RUN, MOVED, {
+      from: 'start',
+    });
+
+    const start = {
+      functionId: 0,
+      nodeId: 'refund_requested',
+      label: 'Refund requested',
+      preferred: true,
+    };
+
+    expect(refused.at === 'unavailable' && refused.because).toBe(
+      'structure-changed',
+    );
+    expect(decision).toMatchObject({
+      at: 'available',
+      boundary: start,
+      boundaries: [start],
+      reused: [],
+    });
+  });
+
+  it('forks from step 0', async () => {
+    const held = recorder();
+
+    await offerReplay(held.deps, RUN, recorded(), { from: 'start' });
+
+    expect(held.client.forkedWith).toMatchObject([
+      { workflowId: 'run_a1', startStep: 0 },
+    ]);
+    expect(held.followed[0]?.origin.replayOf?.functionId).toBe(0);
+  });
+
+  /** A run that threw before its first step, or one
+   *  still queued on an old version, recorded no row
+   *  a block could offer. */
+  it('is offered for a run that recorded nothing', async () => {
+    const decision = await decideReplay(recorder().deps, RUN, [], {
+      from: 'start',
+    });
+
+    expect(decision.at).toBe('available');
+  });
+
+  it('still refuses where the lockfile or the SDK says no', async () => {
+    const without = await decideReplay(
+      recorder({
+        projectSdk: () => ({ ok: false, because: 'no-lockfile' }),
+      }).deps,
+      RUN,
+      recorded(),
+      { from: 'start' },
+    );
+    const newer = await decideReplay(
+      recorder({ projectSdk: () => ({ ok: true, version: '4.0.1' }) }).deps,
+      RUN,
+      recorded(),
+      { from: 'start' },
+    );
+    const major = await decideReplay(
+      recorder({ projectSdk: () => ({ ok: true, version: '5.1.0' }) }).deps,
+      RUN,
+      recorded(),
+      { from: 'start' },
+    );
+
+    expect(
+      [without, newer, major].map((one) =>
+        one.at === 'unavailable' ? one.because : one.at,
+      ),
+    ).toEqual(['no-lockfile', 'sdk-newer', 'sdk-major']);
+  });
+
+  it('still refuses where the generated code is behind', async () => {
+    const decision = await decideReplay(
+      recorder({ project: () => heroProject({ generated: 'behind' }) }).deps,
+      RUN,
+      recorded(),
+      { from: 'start' },
+    );
+
+    expect(decision.at === 'unavailable' && decision.because).toBe(
+      'generated-behind',
+    );
+  });
+
+  /** A draft with no trigger has nowhere a run of it
+   *  could start. */
+  it('offers no start in a document with no trigger', async () => {
+    const draft = {
+      ...HERO,
+      nodes: HERO.nodes.filter((node) => node.kind !== 'trigger'),
+    };
+    const decision = await decideReplay(
+      recorder({ document: async () => draft }).deps,
+      RUN,
+      recorded(),
+      { from: 'start' },
+    );
+    const triggered = await decideReplay(recorder().deps, RUN, recorded(), {
+      from: 'start',
+    });
+
+    expect(triggered.at).toBe('available');
+    expect(decision.at === 'unavailable' && decision.because).toBe(
+      'not-offered',
+    );
+  });
+
+  /**
+   * The refusals that need no row are one rule, so
+   * the Inspector can say before any click whether
+   * a replay from the start is on offer, in the
+   * words the decision itself would use.
+   */
+  it('refuses before reading a row, in one place', async () => {
+    const LOCKED: ProjectSdk = { ok: true, version: '4.27.6' };
+    const cases: {
+      project: string | undefined;
+      document: WorkflowIR | undefined;
+      sdk: ProjectSdk;
+    }[] = [
+      { project: undefined, document: HERO, sdk: LOCKED },
+      { project: HERO_DIR, document: undefined, sdk: LOCKED },
+      {
+        project: HERO_DIR,
+        document: HERO,
+        sdk: { ok: false, because: 'no-lockfile' },
+      },
+      {
+        project: HERO_DIR,
+        document: HERO,
+        sdk: { ok: true, version: '4.0.1' },
+      },
+      {
+        project: HERO_DIR,
+        document: HERO,
+        sdk: { ok: true, version: '5.1.0' },
+      },
+    ];
+
+    for (const { project, document, sdk } of cases) {
+      const alone = replayStartRefusal(RUN.name, project, document, () => sdk);
+      const decided = await decideReplay(
+        recorder({
+          project: () => project,
+          document: async () => document,
+          projectSdk: () => sdk,
+        }).deps,
+        RUN,
+        [],
+        { from: 'start' },
+      );
+
+      expect(alone).toBeDefined();
+      expect(alone).toEqual(decided);
+    }
+
+    expect(
+      replayStartRefusal(RUN.name, HERO_DIR, HERO, () => LOCKED),
+    ).toBeUndefined();
+  });
+});
+
+/**
  * The modal, whole.
  *
  * Pinned as one string rather than field by field
@@ -773,11 +970,13 @@ describe('what the modal says', () => {
           builtAt: () => 20_000,
           render: () => ({
             available: true,
+            answered: true,
             services: [
               {
                 service: 'app',
                 state: 'exited',
                 health: 'none',
+                ports: [],
                 detail: 'built 3 h ago',
               },
             ],
@@ -814,5 +1013,24 @@ describe('what the modal says', () => {
 
     expect(question.detail).toBe(messages.replayNoDocument('refund_flow'));
     expect(question.actions.map((one) => one.at)).toEqual(['again']);
+  });
+});
+
+/**
+ * Where a replay starts, as a message names it.
+ * The run tab and the Inspector both read it this
+ * way, so a replay from the start means the same
+ * thing wherever it was asked for.
+ */
+describe('the point a replay message names', () => {
+  it('reads a replay from the start before a row or a block', () => {
+    expect(pointIn({ from: 'start', functionId: 3, nodeId: 'a' })).toEqual({
+      from: 'start',
+    });
+    expect(pointIn({ functionId: 3, nodeId: 'a' })).toEqual({
+      functionId: 3,
+    });
+    expect(pointIn({ nodeId: 'a' })).toEqual({ nodeId: 'a' });
+    expect(pointIn({})).toBeUndefined();
   });
 });

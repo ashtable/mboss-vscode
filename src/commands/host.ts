@@ -91,13 +91,6 @@ export function runWorkflowHost(): RunWorkflowHost {
       return picked?.id;
     },
 
-    ask: async (prompt) =>
-      await window.showInputBox({
-        title: prompt.title,
-        prompt: prompt.prompt,
-        value: prompt.value,
-      }),
-
     info: (message) => void window.showInformationMessage(message),
   };
 }

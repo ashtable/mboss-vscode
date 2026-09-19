@@ -1,7 +1,8 @@
 import { l10n } from 'vscode';
 
-import type { ToolCallStatus } from '../acp/connection.js';
+import type { ToolCallStatus, ToolKind } from '../acp/connection.js';
 import type { Failure } from '../acp/session.js';
+import type { FileState } from '../acp/transcript.js';
 import { once } from '../once.js';
 
 /**
@@ -20,25 +21,59 @@ import { once } from '../once.js';
  * host's own table and the panel borrows them.
  */
 
+/** The panel's one heading, which is also the
+ *  frame's title: the product, then what this
+ *  panel of it is. */
 export function sidebarHeading(): string {
-  return l10n.t('Agent');
+  return l10n.t('mBoss — Agent');
 }
 
 export const sidebarWords = once(() => ({
   heading: sidebarHeading(),
   chooseAgent: l10n.t('choose'),
+
+  // Why there is no session, as a state and then
+  // what to do about it. A title is not a sentence,
+  // so none of the three ends in a full stop, and
+  // choosing an agent needs no second line: the
+  // picker is in the head.
+  notTrustedTitle: l10n.t('This folder is not trusted'),
   notTrusted: l10n.t('Trust this folder to run a coding agent in it.'),
+  noFolderTitle: l10n.t('No folder open'),
   noProject: l10n.t('Open a folder to run a coding agent in it.'),
-  noAgent: l10n.t('No coding agent chosen yet.'),
+  noAgent: l10n.t('No coding agent chosen yet'),
   connecting: l10n.t('Starting the agent…'),
   ready: l10n.t('Ready.'),
   thinking: l10n.t('Working…'),
   send: l10n.t('Send'),
   stop: l10n.t('Stop'),
   placeholder: l10n.t('Edit the graph, scaffold a lib fn, or ask why…'),
+
+  // The field's own name. The placeholder is an
+  // example of what to write, and it is gone the
+  // moment anything is written.
+  composerLabel: l10n.t('Ask the agent'),
+
+  // Which agent the next prompt goes to, under the
+  // field it is typed into.
+  composerAgent: l10n.t('agent: {0}'),
+
+  // The control that picks files to go with the
+  // prompt, and the way to take one back out,
+  // named by the file.
+  attachFiles: l10n.t('Attach files'),
+  removeAttached: l10n.t('remove {0}'),
+
   newFile: l10n.t('new'),
-  permission: l10n.t('Permission needed'),
-  always: l10n.t('always'),
+
+  // The labels over the two things the panel asks a
+  // person about, in the case they are written in.
+  permission: l10n.t('permission'),
+  proposal: l10n.t('proposal'),
+
+  // How many things a diagnostic found wrong, said
+  // as the state it leaves the work in.
+  failedCount: l10n.t('failed · {0}'),
 
   // The two words the design fixed for the one
   // decision this product is about. They are not
@@ -50,12 +85,45 @@ export const sidebarWords = once(() => ({
   refine: l10n.t('Refine'),
   undo: l10n.t('Undo'),
 
+  // A row the extension wrote is `applied`: it did
+  // the thing rather than asked for it, which to a
+  // reader is simply done. The same word as a call
+  // that completed, so it is translated once.
   toolStatus: {
     pending: l10n.t('queued'),
     in_progress: l10n.t('running'),
     completed: l10n.t('done'),
     failed: l10n.t('failed'),
-  } satisfies Record<ToolCallStatus, string>,
+    applied: l10n.t('done'),
+  } satisfies Record<ToolCallStatus | 'applied', string>,
+
+  // What a call that touched a file did, named by
+  // its kind rather than by the agent's title.
+  // Running a command is what `execute` is. Only
+  // the kinds that are about a file have one, and
+  // the host reading a verb for each of those is
+  // what fails to compile if one goes missing.
+  toolVerbs: {
+    read: l10n.t('Read'),
+    edit: l10n.t('Edit'),
+    delete: l10n.t('Delete'),
+    move: l10n.t('Move'),
+    search: l10n.t('Search'),
+    execute: l10n.t('Run'),
+    fetch: l10n.t('Fetch'),
+  } satisfies Partial<Record<ToolKind, string>>,
+
+  // The first file a call touched, and how many
+  // it touched in all.
+  toolFiles: l10n.t('{0} · {1} files'),
+
+  fileStates: {
+    proposed: l10n.t('proposed'),
+    applied: l10n.t('applied'),
+    failed: l10n.t('failed'),
+    undone: l10n.t('undone'),
+    changed: l10n.t('changed'),
+  } satisfies Record<FileState, string>,
 
   keepEdit: l10n.t('Keep'),
   undoEdit: l10n.t('Undo'),
@@ -68,9 +136,33 @@ export const sidebarWords = once(() => ({
   // entries as it draws them.
   filesChanged: l10n.t('{0} files changed'),
 
+  // The step after a turn that answered a question
+  // about one block: the run by its short id, then
+  // the block. A replay reuses what the run already
+  // recorded before that block, which is why it is
+  // the cheap way to check an edit.
+  applied: l10n.t(
+    'Applied. Replay {0} from {1} to verify — earlier durable results are reused.',
+  ),
+
+  // The two ways on from that sentence: run the
+  // block again, or take back every file the turn
+  // wrote.
+  replayFromHere: l10n.t('Replay from here'),
+  undoTurnEdits: l10n.t('Undo edit'),
+
+  // The row mBoss writes about a run it read, with
+  // the run by its short id. The agent is sent the
+  // same words around the full one.
+  evidenceTarget: l10n.t('run {0} · mBoss run evidence'),
+
   changedSince: l10n.t('changed since · nothing to undo'),
   showLines: l10n.t('{0} lines · show'),
-  planProgress: l10n.t('Plan · {0}/{1}'),
+
+  // The agent's plan, drawn as a row of work: the
+  // verb, and how many steps are folded under it.
+  plan: l10n.t('Plan'),
+  planSteps: l10n.t('{0} steps · show'),
 }));
 
 /**

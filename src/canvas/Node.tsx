@@ -3,6 +3,7 @@ import { useState, type DragEvent } from 'react';
 
 import { truncateTitle, type NodeKind } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
+import { glyphOf } from '../webview/states.js';
 
 import { useEditing } from './Editing.js';
 import { landingOn, useConnecting } from './connect/Connecting.js';
@@ -14,6 +15,7 @@ import {
   wantsHandler,
   type CanvasNode,
   type NodeState,
+  type RunState,
 } from './graph.js';
 import { NodeIcon, TONE } from './icons.js';
 
@@ -140,6 +142,7 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
         counts={data.counts}
         lineTitle={data.lineTitle}
         state={state}
+        run={data.run}
         runTitle={data.runTitle}
       />
 
@@ -168,29 +171,28 @@ export function Node({ data, dragging }: NodeProps<CanvasNode>) {
   );
 }
 
+/** What the one state table hands back for a state
+ *  nothing has finished at. */
+const A_DOT = '·';
+
 /**
- * The mark at the end of a block, saying what the
- * run did there. Keyed on state, the way the tile's
- * tone is.
+ * The mark at the end of a block, out of the one
+ * table every surface says a state with.
  *
- * The three states that are not a run leave none at
- * all. The two the run has not finished leave an
- * empty one on purpose: what each wears is a dot
- * the stylesheet draws, because a tick on a block
- * that has not finished is the one thing this set
- * must never say — and because a block waiting on a
- * person is not doing anything, which is what a
- * turning mark would deny.
+ * A dot is drawn here as a shape rather than as a
+ * character: filled and pulsing where the run is,
+ * hollow and still where it is parked. The shape is
+ * the whole of what those two say — a tick on a
+ * block that has not finished is the one thing this
+ * set must never say, and a turning mark on a block
+ * waiting on a person would deny that nothing is
+ * happening in it.
  */
-const RUN_MARK: Record<NodeState, string | undefined> = {
-  dormant: undefined,
-  selected: undefined,
-  proposed: undefined,
-  running: '',
-  waiting: '',
-  failed: '✕',
-  done: '✓',
-};
+function markFor(run: RunState): string {
+  const { mark } = glyphOf(run);
+
+  return mark === A_DOT ? '' : mark;
+}
 
 /**
  * What a block looks like: its glyph, its name and
@@ -213,6 +215,7 @@ export function BlockFace({
   counts,
   lineTitle,
   state,
+  run,
   runTitle,
 }: {
   kind: NodeKind;
@@ -245,13 +248,17 @@ export function BlockFace({
   lineTitle?: string;
   state: NodeState;
 
-  /** What the mark says it is, for anything that
-   *  cannot see a colour. Absent where the block is
-   *  not part of a run and there is no mark. */
+  /** What the run did here, which is not the state
+   *  the block is drawn in: a block somebody clicked
+   *  wears the halo and keeps its mark. */
+  run?: RunState;
+
+  /** What the mark says about itself, where it has
+   *  anything to say. Only a mark nobody recorded
+   *  does — which is what makes it the one place the
+   *  block admits something was worked out. */
   runTitle?: string;
 }) {
-  const mark = RUN_MARK[state];
-
   return (
     <>
       <NodeIcon kind={kind} tone={TONE[state]} />
@@ -275,9 +282,19 @@ export function BlockFace({
         </p>
       </div>
 
-      {mark === undefined ? null : (
-        <span className="node-run" data-run={state} title={runTitle}>
-          {mark}
+      {/* The mark has no room for a word, so what it
+          says about itself is the title: a pointer
+          finds it there and, because nothing else
+          names this span, so does anything reading
+          the block out. */}
+      {run === undefined ? null : (
+        <span
+          className="node-run"
+          data-run={run}
+          data-provenance={runTitle === undefined ? undefined : 'derived'}
+          title={runTitle}
+        >
+          {markFor(run)}
         </span>
       )}
     </>

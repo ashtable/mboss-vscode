@@ -64,8 +64,11 @@ export type Stack = Disposable & {
   onChanged(listener: () => void): Disposable;
 };
 
+/** Nothing asked: no project, no trust, or no
+ *  read yet. */
 const NO_STACK: StackStatus = {
   available: false,
+  answered: false,
   services: [],
   detail: undefined,
 };
@@ -162,6 +165,7 @@ export function stackZone(deps: StackZoneDeps): Stack {
 
     render: () => ({
       available: stack.available,
+      answered: stack.answered,
       services: stack.services,
       busy,
       detail: stack.detail,

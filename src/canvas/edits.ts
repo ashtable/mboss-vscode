@@ -54,6 +54,7 @@ export type EditMessage = Extract<WebviewMessage, { type: Gesture['type'] }>;
 
 /**
  * A gesture, with the revision it was made against
+ * and the block the Inspector says it is about both
  * left to the session.
  *
  * Derived from the message schema rather than
@@ -61,6 +62,8 @@ export type EditMessage = Extract<WebviewMessage, { type: Gesture['type'] }>;
  * sends is a field this module sees — and a message
  * is one of these already, since the only
  * difference is a field the rule does not read.
+ * Those two it does not: one is the gate, the other
+ * says which surface the gesture is on its way to.
  */
 export type Gesture =
   | Sent<'connect'>
@@ -73,7 +76,7 @@ export type Gesture =
 
 type Sent<T extends string> = Omit<
   Extract<WebviewMessage, { type: T }>,
-  'baseRevision'
+  'baseRevision' | 'about'
 >;
 
 /** The block a wire leaves, and the way out it
@@ -293,7 +296,7 @@ function connected(
  * accepts and the kind's own name, because nobody
  * has said what it does yet — that is the
  * Inspector's next question, which is why the new
- * block is what the column then shows.
+ * block is what the Inspector then shows.
  *
  * Let go of over a wire, it goes into the wire
  * rather than beside it. A wire that cannot be
@@ -413,16 +416,16 @@ function removed(
 }
 
 /**
- * An edit from the Inspector column.
+ * An edit from the Inspector.
  *
  * The node is parsed rather than trusted — it
  * arrives from a frame running scripts — and a
  * node the catalog would not accept is refused
  * rather than written and discovered on the next
- * open: the column shows fields for shapes that are
- * not yet complete, an address not typed or a topic
- * not named, and the document keeps what it had
- * until one of them is.
+ * open: the Inspector shows fields for shapes that
+ * are not yet complete, an address not typed or a
+ * topic not named, and the document keeps what it
+ * had until one of them is.
  */
 function edited(
   gesture: Extract<Gesture, { type: 'edit' }>,

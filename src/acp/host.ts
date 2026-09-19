@@ -1,4 +1,4 @@
-import { window, workspace } from 'vscode';
+import { Uri, window, workspace } from 'vscode';
 
 import type { PanelHost } from './agent.js';
 import { editorFiles } from './fs.js';
@@ -44,6 +44,18 @@ export function panelHost(state: Memento): PanelHost {
     },
 
     files: editorFiles(),
+
+    // Opened on the project because that is where
+    // nearly everything worth attaching is; any
+    // file on disk can still be reached from there.
+    pickFiles: async (project) => {
+      const picked = await window.showOpenDialog({
+        canSelectMany: true,
+        defaultUri: Uri.file(project),
+      });
+
+      return (picked ?? []).map((uri) => uri.fsPath);
+    },
 
     state,
   };

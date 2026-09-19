@@ -3,23 +3,18 @@ import type { Disposable } from 'vscode';
 import { boxesFor } from '../core/index.js';
 import { ownerOf, type WorkflowIR } from '../core/rules.js';
 import { emitter } from '../emitter.js';
-import type { SeeInit } from '../webview/protocol.js';
+import type { InspectorMode, SeeInit } from '../webview/protocol.js';
+import { inFlight } from '../webview/states.js';
 
 import type { Database } from './db.js';
 import type { FollowedRun, Following } from './following.js';
-import { forksQuery, runQuery, stepsQuery } from './queries.js';
-import {
-  toRun,
-  toStep,
-  type OperationOutputRow,
-  type Run,
-  type Step,
-  type WorkflowStatusRow,
-} from './rows.js';
-import { finished, reusedRow } from './reading.js';
+import { runById, runRowsById, type Ledger } from './ledger.js';
+import { forksQuery } from './queries.js';
+import { toRun, type Run, type Step, type WorkflowStatusRow } from './rows.js';
+import { drawnUnder, finished, reusedRow } from './reading.js';
 import type { ProjectSdk } from './sdk.js';
-import { seeInit, type SeeView } from './view.js';
-import { workflowDocument } from './workflows.js';
+import { readView, seeInit, type SeeView } from './view.js';
+import { savedDocument } from './workflows.js';
 
 /**
  * The run somebody has open, and everything about
@@ -43,30 +38,24 @@ import { workflowDocument } from './workflows.js';
  * wrong branch of same-run-versus-different, which
  * nothing that tested the projection could see.
  *
- * The ledger stays the list's. This borrows a
- * connection from it rather than opening one of its
- * own, because what a read learned about somebody's
- * database — that it answered, that it did not — is
- * a fact about the project rather than about the run
- * being read, and the list is what says it.
+ * The read is the project's ledger loudly: what it
+ * learned about somebody's database — that it
+ * answered, that it did not — is a fact about the
+ * project rather than about the run being read, so
+ * it lands under the list as well. The page used to
+ * borrow that connection from the list, which is how
+ * one zone came to own both.
  */
 
 /**
- * The ledger, as the run page borrows it.
+ * The ledger, as the run page reads it.
  *
- * Both of these belong to the list and are handed
- * over: asking for a connection is how the list
- * learns whether the database is reachable, and a
- * read that fails is how it learns it stopped being.
+ * One verb: the page asks two questions of one open
+ * connection — the run, and the runs either side of
+ * it — and the lineage is worth a round trip only
+ * where the run's own columns say there is any.
  */
-export type LedgerAccess = {
-  connection(): string | undefined;
-
-  read<Value>(
-    url: string,
-    take: (db: Database) => Promise<Value>,
-  ): Promise<Value | undefined>;
-};
+export type PageLedger = Pick<Ledger, 'read'>;
 
 /**
  * Where the run came from and what came out of it.
@@ -119,7 +108,7 @@ export type OpenRunDeps = {
 
   project(): string | undefined;
 
-  ledger: LedgerAccess;
+  ledger: PageLedger;
 
   /**
    * Whether this window is what cancelled a run.
@@ -138,22 +127,47 @@ export type OpenRun = Disposable & {
    *  open. */
   open(workflowId: string): Promise<void>;
 
-  /** Which step the rail describes and a replay
-   *  would fork from. */
+  /**
+   * A row picked in the trace, and the block it is
+   * drawn under with it.
+   *
+   * The two views of a run share one selection, so
+   * a row picks its block as well — the SDK's own
+   * rows too, which are drawn under the block they
+   * ran inside. A row drawn under no block picks
+   * none, rather than a block it did not run in.
+   */
   step(functionId: number): void;
 
-  /** Which block on the run's graph a person
-   *  picked. */
-  node(nodeId: string): void;
+  /**
+   * A block picked on the run's graph, and none of
+   * its rows; `null` for the graph's background,
+   * which picks nothing.
+   *
+   * No row, because the block's own card says which
+   * of its rows matters. Picking the first one used
+   * to open a block whose later row failed on the
+   * row that did not, and a replay from there would
+   * fork before the failure.
+   */
+  node(nodeId: string | null): void;
+
+  /**
+   * Which of the Inspector's faces a person picked
+   * for the block they are on.
+   *
+   * Let go of when they move to another block — by
+   * picking it, or by picking a row under it — and
+   * when another run is opened. A row under the same
+   * block keeps it: somebody reading Configure while
+   * walking a block's rows is still on that block.
+   */
+  face(mode: InspectorMode): void;
 
   /** Which of the two views is on screen. It belongs
    *  to the panel rather than to the run, so opening
    *  another leaves it alone. */
   tab(showing: 'graph' | 'trace'): void;
-
-  /** Whether the rows DBOS wrote for itself are
-   *  shown. */
-  raw(raw: boolean): void;
 
   /** Read again, and follow it if it is still
    *  going. */
@@ -186,8 +200,10 @@ export type OpenRun = Disposable & {
    */
   reading(): SeeView | undefined;
 
-  /** The run being shown, for the row the list
-   *  marks and for the tab's own title. */
+  /** The run being shown, for whoever has
+   *  something to say on its page. The row the
+   *  list marks is the list's own, and is not
+   *  this. */
   workflowId(): string | undefined;
 
   /** It, when the ledger says it has not ended — for
@@ -221,12 +237,11 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
       ...shown,
       run: read.run,
       steps: read.steps,
-      following:
-        run.outcome === 'running'
-          ? 'following'
-          : run.outcome === 'waiting'
-            ? 'waiting'
-            : 'quiet',
+      following: inFlight(run.outcome)
+        ? 'following'
+        : run.outcome === 'waiting'
+          ? 'waiting'
+          : 'quiet',
     };
     changed();
   });
@@ -253,7 +268,7 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
   ): Promise<SeeView> => {
     const dir = deps.project();
     const ir =
-      dir === undefined ? undefined : workflowDocument(dir, found.run.name);
+      dir === undefined ? undefined : savedDocument(dir, found.run.name);
     const lineage = lineageOf(found, ir);
 
     // Only a run that is still going is worth
@@ -269,44 +284,36 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
     return {
       run: found.run,
       steps: found.steps,
-      selectedStep: reading?.selectedStep ?? firstStep(found.steps),
+      selectedStep: reading?.selectedStep,
       note,
       ...(lineage === undefined ? {} : { lineage }),
       ...(ir === undefined ? {} : { ir, boxes: await boxesFor(ir) }),
       ...(reading?.selectedNode === undefined
         ? {}
         : { selectedNode: reading.selectedNode }),
-      raw: reading?.raw ?? false,
+      ...(reading?.face === undefined ? {} : { face: reading.face }),
       following: finished(found.run) ? 'quiet' : 'following',
       timing: dir !== undefined && recordsTimings(deps.projectSdk(dir)),
     };
   };
 
   const open = async (workflowId: string): Promise<void> => {
-    const url = deps.ledger.connection();
-    if (url === undefined) return void changed();
-
     // `null` for a run that is not there, against
     // `undefined` for a read that did not happen:
     // a row somebody deleted has to clear what the
     // page is showing, where a database that went
     // away must not, or the page would go blank on
     // a hiccup.
-    const found = await deps.ledger.read(url, async (db) => {
-      const run = await oneRun(db, workflowId);
-      if (run === undefined) return null;
-
-      const steps = stepsQuery(workflowId);
+    const found = await deps.ledger.read(async (db) => {
+      const rows = await runRowsById(db, workflowId);
+      if (rows === undefined) return null;
 
       return {
-        run,
-        steps: (
-          await db.query<OperationOutputRow>(steps.text, steps.values)
-        ).map(toStep),
+        ...rows,
         // Read on the connection that is already
         // open: both questions are asked of the very
         // table the run itself just came out of.
-        ...(await relatedTo(db, run)),
+        ...(await relatedTo(db, rows.run)),
       };
     });
 
@@ -342,39 +349,39 @@ export function openRunZone(deps: OpenRunDeps): OpenRun {
     step: (functionId) => {
       if (shown === undefined) return;
 
-      shown = { ...shown, selectedStep: functionId };
+      const reading = readView(shown, Date.now());
+      const nodeId = drawnUnder(reading.steps, reading.owners).get(functionId);
+
+      shown = {
+        ...shown,
+        selectedStep: functionId,
+        selectedNode: nodeId,
+        face: nodeId === shown.selectedNode ? shown.face : undefined,
+      };
       changed();
     },
 
     node: (nodeId) => {
       if (shown === undefined) return;
 
-      // The two views of a run share one selection,
-      // so picking a block also picks the first
-      // operation that block recorded.
-      const first = shown.steps.find((step) => {
-        const owner = ownerOf(step.name);
-
-        return owner.kind === 'node' && owner.nodeId === nodeId;
-      });
-
       shown = {
         ...shown,
-        selectedNode: nodeId,
-        ...(first === undefined ? {} : { selectedStep: first.functionId }),
+        selectedNode: nodeId ?? undefined,
+        selectedStep: undefined,
+        face: undefined,
       };
+      changed();
+    },
+
+    face: (mode) => {
+      if (shown === undefined) return;
+
+      shown = { ...shown, face: mode };
       changed();
     },
 
     tab: (next) => {
       showing = next;
-      changed();
-    },
-
-    raw: (raw) => {
-      if (shown === undefined) return;
-
-      shown = { ...shown, raw };
       changed();
     },
 
@@ -441,16 +448,6 @@ type Found = {
   forks: Run[];
 };
 
-async function oneRun(
-  db: Database,
-  workflowId: string,
-): Promise<Run | undefined> {
-  const one = runQuery(workflowId);
-  const row = (await db.query<WorkflowStatusRow>(one.text, one.values))[0];
-
-  return row === undefined ? undefined : toRun(row);
-}
-
 /**
  * The runs either side of this one, where its own
  * columns say there are any.
@@ -464,7 +461,9 @@ async function relatedTo(
   run: Run,
 ): Promise<{ parent: Run | undefined; forks: Run[] }> {
   const parent =
-    run.forkedFrom === undefined ? undefined : await oneRun(db, run.forkedFrom);
+    run.forkedFrom === undefined
+      ? undefined
+      : await runById(db, run.forkedFrom);
 
   if (!run.wasForkedFrom) return { parent, forks: [] };
 
@@ -579,11 +578,4 @@ function recordsTimings(sdk: ProjectSdk): boolean {
   if (minor !== RECORDS_TIMINGS[1]) return minor > RECORDS_TIMINGS[1];
 
   return patch >= RECORDS_TIMINGS[2];
-}
-
-/** The step a replay starts from unless somebody
- *  picks another: the first one, which replays the
- *  whole run from its ledger. */
-function firstStep(steps: Step[]): number | undefined {
-  return steps[0]?.functionId;
 }

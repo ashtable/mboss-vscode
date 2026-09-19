@@ -13,18 +13,19 @@ import {
 import { errorIn, type BigIntColumn } from './rows.js';
 
 /**
- * What one queue block is doing, read because
- * somebody selected it.
+ * What one queue block is doing, read because its
+ * card is on screen.
  *
  * The watch already spends a query per queue block
  * per tick on the five numbers a block's line and
  * its card are drawn from. This is the other half —
  * the whole queue rather than this run's share of
  * it, what the running app registered, and the
- * items themselves — and it is read once, when a
- * person opens the card, because none of it changes
- * fast enough to be worth a poll and all of it
- * costs three statements.
+ * items themselves — and it costs three
+ * statements, so it is never polled. The card asks
+ * for it when it is shown and again when those
+ * five numbers move, which is when the items have
+ * moved too.
  *
  * Open, read, close, on one connection. A card is
  * opened occasionally and a connection held for as
@@ -107,13 +108,15 @@ export type QueueEvidence = {
 export type QueueItem = {
   workflowId: string;
 
-  /** What to call it: the partition it belongs to,
-   *  the key it was deduplicated on, or the end of
-   *  its own id. */
-  label: string;
+  /** What the application called it: the partition
+   *  it belongs to, or the key it was deduplicated
+   *  on. Absent where it called it neither, so the
+   *  card can name it by its short id in a span
+   *  that carries the whole one. */
+  label?: string;
 
-  /** DBOS's own word, passed through rather than
-   *  translated. */
+  /** DBOS's own word, passed through: the card says
+   *  it in the words every run is said in. */
   status: string;
 
   completedAt?: number;
@@ -319,9 +322,11 @@ function itemOf(row: ItemRow): QueueItem {
   const completedAt = row.completed_at;
   const failure = errorIn(row.error);
 
+  const label = labelOf(row);
+
   return {
     workflowId: row.workflow_uuid,
-    label: labelOf(row),
+    ...(label === undefined ? {} : { label }),
     status: row.status,
     ...(completedAt === null ? {} : { completedAt: Number(completedAt) }),
     ...(failure === undefined ? {} : { error: failure.message }),
@@ -329,39 +334,21 @@ function itemOf(row: ItemRow): QueueItem {
 }
 
 /**
- * What to call one item.
+ * What the application called one item.
  *
  * The partition key first, then the deduplication
- * id, then the end of the item's own id — which is
- * the reverse of the order those two read in. DBOS
- * clears `deduplication_id` on every terminal
- * transition while `queue_partition_key` survives
- * all of them, so only an item still in flight ever
- * carries a dedup id. On a queue that deduplicates
- * and does not partition, every finished item is
- * therefore labelled by its id and there is nothing
- * else left to label it by.
+ * id — which is the reverse of the order those two
+ * read in. DBOS clears `deduplication_id` on every
+ * terminal transition while `queue_partition_key`
+ * survives all of them, so only an item still in
+ * flight ever carries a dedup id. On a queue that
+ * deduplicates and does not partition, every
+ * finished item is therefore left with no name at
+ * all, and nothing is made up for it here: the id
+ * it is shown by is the one every run is shown by,
+ * and a string baked on this side could only be
+ * text, never the span that carries the whole id.
  */
-function labelOf(row: ItemRow): string {
-  return (
-    row.queue_partition_key ??
-    row.deduplication_id ??
-    shortId(row.workflow_uuid)
-  );
-}
-
-/**
- * How much of a child's id is worth showing.
- *
- * Its end rather than its head, the way the canvas'
- * run chip shows one: the ids DBOS mints open with
- * a timestamp, so two items enqueued together share
- * their first fifteen characters.
- */
-const ID_SHOWN = 8;
-
-function shortId(workflowId: string): string {
-  return workflowId.length <= ID_SHOWN
-    ? workflowId
-    : `…${workflowId.slice(-ID_SHOWN)}`;
+function labelOf(row: ItemRow): string | undefined {
+  return row.queue_partition_key ?? row.deduplication_id ?? undefined;
 }

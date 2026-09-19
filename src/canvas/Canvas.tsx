@@ -31,7 +31,16 @@ import {
 } from '../core/rules.js';
 import { postToHost } from '../webview/client.js';
 import { filled } from '../webview/fill.js';
-import type { CanvasInit, CanvasPreview } from '../webview/protocol.js';
+import { shortRunId } from '../webview/ids.js';
+import type {
+  CanvasInit,
+  CanvasPreview,
+  CanvasStrings,
+  ShownRun,
+} from '../webview/protocol.js';
+import { Button } from '../webview/signal/Button.js';
+import { SectionLabel } from '../webview/signal/SectionLabel.js';
+import { TabPanel, Tabs } from '../webview/signal/Tabs.js';
 
 import { EditingProvider } from './Editing.js';
 import { Node } from './Node.js';
@@ -49,7 +58,6 @@ import { spliceGaps, type SpliceGap } from './drag/gaps.js';
 import { pastThreshold } from './drag/gesture.js';
 import {
   lineOf,
-  runStateOf,
   toReactFlow,
   wantsHandler,
   type CanvasEdge,
@@ -57,14 +65,14 @@ import {
 } from './graph.js';
 import { GRID, guides, movedByGrid } from './grid.js';
 import { landingFor, landsAt, nodesFor, rounded } from './placement.js';
-import { Inspector, showInspectorHeading } from './inspector/Inspector.js';
 import { checkCandidateEdge } from './wiring.js';
 
 import '@xyflow/react/dist/style.css';
 
 /**
- * The workflow canvas: what can go on it, what is
- * on it, and what the selected block does.
+ * The workflow canvas: what can go on it, and what
+ * is on it. What the selected block does is set in
+ * the Inspector, a pane beside the canvas.
  *
  * Everything drawn here came from the host: the
  * parsed document, the boxes core laid it out
@@ -104,6 +112,11 @@ const DELETE_KEYS = ['Backspace', 'Delete'];
 
 /** The four that move a block a square at a time. */
 const NUDGE_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
+
+/** What the toolbar's two tabs open. Named once,
+ *  because the strip and the panel point at each
+ *  other by this id. */
+const PANE = 'canvas-pane';
 
 export function Canvas(init: CanvasInit) {
   const [showing, setShowing] = useState<'canvas' | 'json'>('canvas');
@@ -208,10 +221,10 @@ function Workspace({
   const editing = init.editing;
   const placing = document.ok && showing === 'canvas' && editing !== undefined;
 
-  // The one block the column is showing, and the
-  // rail marks the function of: found once, here.
+  // The one block selected, which the rail marks
+  // the function of: found once, here.
   const selected = document.ok
-    ? document.ir.nodes.find((node) => node.id === init.inspector.selected)
+    ? document.ir.nodes.find((node) => node.id === init.selected)
     : undefined;
 
   const gaps = useMemo(
@@ -223,11 +236,10 @@ function Workspace({
    * Which way out each decided block took, off the
    * wire.
    *
-   * Built once here rather than in each of the two
-   * places that read it: the graph paints the arms
-   * the run did not take as structure, and the
-   * column beside it has to say the same thing
-   * about the block somebody selected.
+   * Built once per message rather than on every
+   * render: the graph paints the arms the run did
+   * not take as structure, and a new map each time
+   * would redraw every wire for nothing.
    */
   const decided = useMemo(
     () => new Map(Object.entries(init.decided)),
@@ -286,11 +298,6 @@ function Workspace({
           ? {}
           : { spliceEdge: landing.gap.edgeId }),
       });
-
-      // A block that has just arrived says nothing
-      // about itself yet, and the column beside the
-      // canvas is where that gets said.
-      showInspectorHeading();
     };
 
     const off = (key: globalThis.KeyboardEvent): void => {
@@ -321,42 +328,29 @@ function Workspace({
           onCarry={carry}
         />
 
-        {document.ok ? (
-          showing === 'canvas' ? (
-            <Graph
-              init={init}
-              ir={document.ir}
-              carrying={flying}
-              decided={decided}
-            />
+        {/* The panel the toolbar's strip opens. A
+            file that will not parse is inside it
+            too: the tabs are still on screen, so
+            what they point at has to be. */}
+        <TabPanel panel={PANE} active={showing}>
+          {document.ok ? (
+            showing === 'canvas' ? (
+              <Graph
+                init={init}
+                ir={document.ir}
+                carrying={flying}
+                decided={decided}
+              />
+            ) : (
+              <Json ir={document.ir} readOnly={editing === undefined} />
+            )
           ) : (
-            <Json ir={document.ir} readOnly={editing === undefined} />
-          )
-        ) : (
-          <section className="unreadable">
-            <p className="title">{init.strings.unreadable}</p>
-            <p className="mono text-muted">{document.detail}</p>
-          </section>
-        )}
-
-        <Inspector
-          strings={init.inspector.strings}
-          selected={
-            document.ok && selected !== undefined
-              ? { ir: document.ir, node: selected }
-              : undefined
-          }
-          mode={init.inspector.mode}
-          run={init.run}
-          runState={
-            document.ok && selected !== undefined
-              ? runStateOf(document.ir, init.run, selected.id, decided)
-              : undefined
-          }
-          lib={init.manifest?.functions}
-          misfits={init.strings.misfits}
-          diagnostics={init.diagnostics}
-        />
+            <section className="unreadable">
+              <p className="title">{init.strings.unreadable}</p>
+              <p className="mono text-muted">{document.detail}</p>
+            </section>
+          )}
+        </TabPanel>
       </div>
     </EditingProvider>
   );
@@ -440,7 +434,8 @@ function inFlight(
       kind: carried.kind,
       title: block.title,
       line: lineOf(block, {
-        labels: init.paletteLabels,
+        kindWords: init.kindWords,
+        triggerPhrases: init.triggerPhrases,
         unassigned: init.strings.unassigned,
       }),
       wanting: wantsHandler(block),
@@ -469,34 +464,37 @@ function Toolbar({
 
   return (
     <header className="toolbar">
-      <div className="segments" role="group">
-        {(['canvas', 'json'] as const).map((view) => (
-          <button
-            key={view}
-            type="button"
-            className="segment"
-            data-view-toggle={view}
-            aria-pressed={showing === view}
-            onClick={() => onShow(view)}
-          >
-            {view === 'canvas' ? init.strings.canvas : init.strings.json}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        items={[
+          {
+            id: 'canvas',
+            label: init.strings.canvas,
+            hook: { 'view-toggle': 'canvas' },
+          },
+          {
+            id: 'json',
+            label: init.strings.json,
+            hook: { 'view-toggle': 'json' },
+          },
+        ]}
+        active={showing}
+        onPick={onShow}
+        label={init.strings.views}
+        panel={PANE}
+      />
 
       <p className="caption text-muted">{init.strings.caption}</p>
 
       {arrangeable === undefined ? null : (
-        <button
-          type="button"
-          className="action"
-          data-arrange
+        <Button
+          variant="quiet"
+          hook={{ arrange: '' }}
           onClick={() =>
             postToHost({ type: 'arrange', baseRevision: arrangeable })
           }
         >
           {init.strings.arrange}
-        </button>
+        </Button>
       )}
 
       {dragging === undefined ? null : (
@@ -506,41 +504,57 @@ function Toolbar({
       )}
 
       {init.run === undefined ? null : (
-        <p className="following mono text-muted" title={init.run.workflowId}>
-          {filled(
-            init.strings.following,
-            init.run.workflow,
-            shortRunId(init.run.workflowId),
-            init.strings.runOutcomes[init.run.outcome],
-          )}
-        </p>
+        <Following run={init.run} strings={init.strings} />
       )}
 
       {init.preview === undefined ? null : (
-        <p className="preview-line eyebrow" data-preview-headline>
+        <SectionLabel hook={{ 'preview-headline': '' }}>
           {init.preview.headline}
-        </p>
+        </SectionLabel>
       )}
     </header>
   );
 }
 
 /**
- * How much of a run's id the chip shows.
+ * The run this canvas is drawing itself against, at
+ * the far end of the toolbar.
  *
- * Its end rather than its head: the ids this window
- * mints open with a timestamp, so two runs a minute
- * apart share their first fifteen characters and a
- * head would name neither of them. The whole of it
- * is on the chip itself for anybody who needs to
- * read it.
+ * A button rather than a line, because it is also
+ * the way from here to the run itself: the card
+ * beside the graph says what one block recorded, and
+ * the whole run is a page. Nothing here is timed —
+ * the run moves, and a chip that counted would need
+ * a clock the canvas does not keep.
+ *
+ * The short id is drawn in a span of its own
+ * carrying the whole of it, because four characters
+ * collide about once in fifty and a reader holding
+ * two of them has to be able to tell which is which.
  */
-const RUN_ID_SHOWN = 8;
-
-function shortRunId(workflowId: string): string {
-  return workflowId.length <= RUN_ID_SHOWN
-    ? workflowId
-    : `…${workflowId.slice(-RUN_ID_SHOWN)}`;
+function Following({
+  run,
+  strings,
+}: {
+  run: ShownRun;
+  strings: CanvasStrings;
+}) {
+  return (
+    <Button
+      variant="quiet"
+      mono
+      hook={{ following: '' }}
+      onClick={() =>
+        postToHost({ type: 'openRun', workflowId: run.workflowId })
+      }
+    >
+      {strings.followingRun}{' '}
+      <span data-short-run={run.workflowId} title={run.workflowId}>
+        {shortRunId(run.workflowId)}
+      </span>
+      {` · ${strings.runOutcomes[run.outcome]}`}
+    </Button>
+  );
 }
 
 function Graph({
@@ -572,17 +586,19 @@ function Graph({
   const editing = init.editing;
   const editable = editing !== undefined;
 
-  // Said once, by the column that is showing it:
-  // the halo and the fields are the same fact.
-  const selected = init.inspector.selected;
+  // Said once, by the host: the halo here and the
+  // block in the Inspector are the same fact.
+  const selected = init.selected;
 
   const drawn = useMemo(
     () =>
       toReactFlow(ir, init.boxes, {
-        labels: init.paletteLabels,
+        kindWords: init.kindWords,
+        triggerPhrases: init.triggerPhrases,
         unassigned: init.strings.unassigned,
         runningDerived: init.strings.runningDerived,
         waitingSince: init.strings.waitingSince,
+        waitingWakes: init.strings.waitingWakes,
         queueCounts: init.strings.queueCounts,
         derived: init.strings.derived,
         proposed: preview?.proposed,
@@ -593,10 +609,12 @@ function Graph({
     [
       ir,
       init.boxes,
-      init.paletteLabels,
+      init.kindWords,
+      init.triggerPhrases,
       init.strings.unassigned,
       init.strings.runningDerived,
       init.strings.waitingSince,
+      init.strings.waitingWakes,
       init.strings.queueCounts,
       init.strings.derived,
       preview?.proposed,
@@ -934,6 +952,13 @@ function Graph({
             nodesDraggable={editable}
             nodesConnectable={editable}
             elementsSelectable={editable}
+            // The library describes its own keyboard
+            // to a screen reader, in English, in
+            // terms of gestures this board does not
+            // have. These are the same sentences
+            // about what it does have, in whatever
+            // language the editor is running in.
+            ariaLabelConfig={init.strings.ariaLabels}
             fitView
             proOptions={{ hideAttribution: true }}
             isValidConnection={allow}
@@ -1045,12 +1070,6 @@ function Graph({
                   position: rounded(landsAt(kind, quickAdd.lands)),
                   connectFrom: { node: quickAdd.from },
                 });
-
-                // The block that has just arrived says
-                // nothing about itself yet, and the
-                // column beside the canvas is where
-                // that gets said.
-                showInspectorHeading();
               }}
             />
           )}
@@ -1063,7 +1082,7 @@ function Graph({
 
       {refused === undefined ? null : (
         <div className="card rejection" data-rejection>
-          <p className="eyebrow">{init.strings.typedWiring}</p>
+          <SectionLabel>{init.strings.typedWiring}</SectionLabel>
           <p className="mono">{refused.message}</p>
         </div>
       )}

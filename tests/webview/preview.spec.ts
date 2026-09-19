@@ -11,7 +11,6 @@ import {
 } from '../../src/core/rules.js';
 import type {
   CanvasInit,
-  CanvasInspector,
   CanvasPreview,
   SidebarInit,
   SidebarPreview,
@@ -20,7 +19,6 @@ import type {
 import { mount, type Harness } from './harness.js';
 import {
   canvasWords as canvasStrings,
-  inspectorWords,
   sidebarWords as sidebarStrings,
 } from './words.js';
 
@@ -63,10 +61,10 @@ const boxes = fixture(
   'golden/layout/groom_booking.layout.json',
 ) as CanvasInit['boxes'];
 
-const HEADLINE = 'PREVIEW — proposed by claude code · not applied yet';
+const HEADLINE = 'Preview — proposed by claude code · not applied yet';
 
 const BANNER =
-  'PREVIEW CHANGES · +2 nodes +2 edges · deterministic layout — ' +
+  'Preview changes · +2 nodes +2 edges · deterministic layout — ' +
   'the agent sent semantics, never coordinates';
 
 const WARNING =
@@ -75,24 +73,6 @@ const WARNING =
 
 /** Two blocks arriving, out of the ten drawn. */
 const PROPOSED = ['twilio_chat', 'await_reply'];
-
-/**
- * The Inspector column, showing nothing.
- *
- * A proposal is not the document, so the host lets
- * go of the selection while one is outstanding —
- * there is nothing on screen an edit could be made
- * to. The column is still drawn; it is the canvas.
- */
-const inspector: CanvasInspector = {
-  strings: inspectorWords,
-  selected: undefined,
-
-  // Nothing is being followed on a canvas showing a
-  // proposal, so there is no evidence to read
-  // either.
-  mode: 'configure',
-};
 
 function preview(over: Partial<CanvasPreview> = {}): CanvasPreview {
   return {
@@ -116,12 +96,19 @@ function canvasInit(over: Partial<CanvasInit> = {}): CanvasInit {
     paletteLabels: Object.fromEntries(
       NODE_PALETTE.map((entry) => [entry.kind, entry.label]),
     ) as CanvasInit['paletteLabels'],
+    kindWords: canvasStrings.kinds,
+    triggerPhrases: canvasStrings.triggerPhrases,
     document: { ok: true, ir },
     boxes,
     layoutKey: layoutKeyOf(ir, boxes),
     diagnostics: [],
     manifest: undefined,
-    inspector,
+
+    // A proposal is not the document, so the host
+    // lets go of the selection while one is
+    // outstanding: there is nothing on screen an
+    // edit could be made to.
+    selected: undefined,
     preview: shown.preview,
     // Editable exactly when nothing is proposed, the
     // way the host says it.
@@ -144,6 +131,7 @@ function sidebarInit(card: SidebarPreview | undefined): SidebarInit {
     prompt: undefined,
     failure: undefined,
     preview: card,
+    attached: [],
   };
 }
 
@@ -181,7 +169,17 @@ test.describe('the canvas in preview', () => {
   }) => {
     await openCanvas(page);
 
-    await expect(page.locator('[data-preview-headline]')).toHaveText(HEADLINE);
+    const headline = page.locator('[data-preview-headline]');
+
+    await expect(headline).toHaveText(HEADLINE);
+
+    // The system's one section label, in the case it
+    // was written in. Whose proposal this is is said
+    // by the words and by the dashes the blocks are
+    // drawn in, so the line spends no capitals and
+    // no colour saying it again.
+    await expect(headline).toHaveClass(/(^|\s)section-label(\s|$)/);
+    await expect(headline).toHaveCSS('text-transform', 'none');
   });
 
   test('says what it would change, and that nobody placed it', async ({
@@ -308,10 +306,16 @@ test.describe('the panel, with a proposal outstanding', () => {
     await expect(page.locator('[data-approve]')).toHaveText('Approve & apply');
     await expect(page.locator('[data-refine]')).toHaveText('Refine');
 
-    // Approving is the primary action; refining is
-    // the way back to the conversation.
-    await expect(page.locator('[data-approve]')).toHaveClass(/primary/);
-    await expect(page.locator('[data-refine]')).not.toHaveClass(/primary/);
+    // Approving is the one thing the section asks
+    // for; refining is the way back to the
+    // conversation, there to be found rather than
+    // read first.
+    await expect(
+      page.locator('[data-approve].btn[data-variant="primary"]'),
+    ).toHaveCount(1);
+    await expect(
+      page.locator('[data-refine].btn[data-variant="quiet"]'),
+    ).toHaveCount(1);
   });
 
   test('says what it would change, and to which workflow', async ({ page }) => {
@@ -321,6 +325,16 @@ test.describe('the panel, with a proposal outstanding', () => {
     await expect(page.locator('[data-preview-card]')).toContainText(
       'groom_booking',
     );
+
+    // A section of the region under the log, said
+    // in a label, not a card of its own.
+    const section = page.locator('section[data-preview-card]');
+
+    await expect(section).toHaveCount(1);
+    await expect(section.locator('.section-label')).toHaveText(
+      sidebarStrings.proposal,
+    );
+    await expect(page.locator('.preview-card')).toHaveCount(0);
   });
 
   test('tells the extension which proposal was approved', async ({ page }) => {
@@ -395,7 +409,15 @@ test.describe('the panel, after an approval', () => {
       undoable: false,
     });
 
-    await expect(page.locator('[data-undo]')).toBeDisabled();
+    const undo = page.locator('[data-undo]');
+
+    await expect(undo).toBeDisabled();
+
+    // Switched off rather than refusing: there is no
+    // sentence to give about why, so nothing is left
+    // for a keyboard to land on and read.
+    await expect(undo).toHaveJSProperty('disabled', true);
+    await expect(undo).not.toHaveAttribute('aria-disabled', /.*/);
   });
 });
 

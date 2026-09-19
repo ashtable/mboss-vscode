@@ -1,19 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
-import { queuedWorkflowName, type WorkflowIR } from '../core/rules.js';
+import type { WorkflowIR } from '../core/rules.js';
+import {
+  TIMER_THEN_ANSWER,
+  TIMER_WAKES_AT,
+  timerThenAnswerRows,
+} from '../test-support/runs.js';
 
-import { decidedArms, groupsOf } from './operations.js';
+import { decidedArms, wakeOf } from './operations.js';
 import { readRun, type Operation } from './reading.js';
 import { errorIn, type Run, type Step } from './rows.js';
 
 /**
- * A run's rows, grouped the way they happened, and
- * the arms it is known to have taken.
- *
- * The grouping is in ledger order and never
- * reordered. A block that ran twice gets two
- * groups; folding them into one would say the run
- * did something it did not do.
+ * The moment a sleep row names, and the arms a run
+ * is known to have taken.
  *
  * Both questions are asked of a reading, which is
  * where a row is attributed — so these cases go
@@ -33,7 +33,7 @@ function operationsOf(
   steps: Step[],
   ir: WorkflowIR | undefined,
 ): Operation[] {
-  return readRun(run, steps, ir ?? 'lost', false, NOW).steps;
+  return readRun(run, steps, ir ?? 'lost', false, NOW, ir).steps;
 }
 
 const RUN: Run = {
@@ -67,17 +67,6 @@ function step(over: Partial<Step> & { name: string }): Step {
   const failure = errorIn(built.error ?? null);
 
   return failure === undefined ? built : { ...built, failure };
-}
-
-/** Rows in the order DBOS numbered them, which is
- *  the order they ran in. */
-function ledger(...names: (string | Partial<Step>)[]): Step[] {
-  return names.map((one, index) =>
-    step({
-      functionId: index,
-      ...(typeof one === 'string' ? { name: one } : { name: '', ...one }),
-    }),
-  );
 }
 
 /**
@@ -125,149 +114,21 @@ const IR: WorkflowIR = {
   edges: [],
 } as unknown as WorkflowIR;
 
-/** The name a queue block's own rows are recorded
- *  under, which is the name its children register
- *  as. */
-const QUEUED = queuedWorkflowName('index_pages', RUN.name);
+/**
+ * When a sleep row says the run wakes, asked of the
+ * row itself: the trace draws the moment on the row
+ * that recorded it, whichever block it sits under.
+ */
+describe('the moment a sleep row names', () => {
+  /** The wake off one of the rows a case read. */
+  function wakeIn(row: Operation | undefined) {
+    if (row === undefined) throw new Error('no such row');
 
-describe('how the rows group', () => {
-  /**
-   * An SDK row is attributed by position: it fell
-   * inside what a block was doing, which is all the
-   * ledger says about it. The raw view says so out
-   * loud rather than pretending it is the block's.
-   */
-  it('keeps a DBOS-owned row in the group it fell inside', () => {
-    const groups = groupsOf(
-      operationsOf(
-        RUN,
-        ledger('manager_ok.register', 'DBOS.recv', 'manager_ok.clear'),
-        IR,
-      ),
-    );
+    return wakeOf(row);
+  }
 
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.nodeId).toBe('manager_ok');
-    expect(groups[0]?.operations.map((one) => one.owner)).toEqual([
-      'node',
-      'sdk',
-      'node',
-    ]);
-  });
-
-  it('counts getStatus as DBOS own', () => {
-    const groups = groupsOf(
-      operationsOf(RUN, ledger('parse_claim', 'getStatus'), IR),
-    );
-
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.operations[1]?.owner).toBe('sdk');
-  });
-
-  it('opens a group of its own for an SDK row nothing precedes', () => {
-    const groups = groupsOf(
-      operationsOf(RUN, ledger('DBOS.getEvent', 'parse_claim'), IR),
-    );
-
-    expect(groups.map((group) => group.nodeId)).toEqual([
-      undefined,
-      'parse_claim',
-    ]);
-    expect(groups[0]?.owner).toBe('sdk');
-  });
-
-  /**
-   * A block a loop went round twice did two
-   * different things, in order, with other blocks
-   * between. One group would say it did one.
-   */
-  it('gives a block a group per round it went', () => {
-    const groups = groupsOf(
-      operationsOf(
-        RUN,
-        ledger('charge_each.r1', 'how_big.r1', 'charge_each.r2'),
-        IR,
-      ),
-    );
-
-    expect(groups.map((group) => group.nodeId)).toEqual([
-      'charge_each',
-      'how_big',
-      'charge_each',
-    ]);
-    expect(groups.map((group) => group.round)).toEqual([1, 1, 2]);
-  });
-
-  /**
-   * A fan-out is one thing the block did, however
-   * many items it did it to — so one group, with the
-   * count.
-   */
-  it('gives a fan-out one group and an item count', () => {
-    const groups = groupsOf(
-      operationsOf(
-        RUN,
-        ledger('charge_each[0]', 'charge_each[1]', 'charge_each[2]'),
-        IR,
-      ),
-    );
-
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.items).toBe(3);
-    expect(groups[0]?.operations).toHaveLength(3);
-  });
-
-  /**
-   * A queue block hands every item over in one turn,
-   * however many items there are, and waits for all
-   * of them there. One group, then — and it holds
-   * both the ids of the runs it started and the
-   * SDK's own rows for the waiting.
-   */
-  it('gives a queue block one group, however many it handed over', () => {
-    const groups = groupsOf(
-      operationsOf(
-        RUN,
-        ledger(
-          { name: QUEUED, childWorkflowId: 'wf_c1' },
-          { name: QUEUED, childWorkflowId: 'wf_c2' },
-          { name: QUEUED, childWorkflowId: 'wf_c3' },
-          'DBOS.getResult',
-          'DBOS.getResult',
-          'DBOS.getResult',
-        ),
-        IR,
-      ),
-    );
-
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.nodeId).toBe('index_pages');
-    expect(
-      groups[0]?.operations.flatMap((one) =>
-        one.childWorkflowId === undefined ? [] : [one.childWorkflowId],
-      ),
-    ).toEqual(['wf_c1', 'wf_c2', 'wf_c3']);
-    expect(
-      groups[0]?.operations.filter((one) => one.owner === 'sdk'),
-    ).toHaveLength(3);
-  });
-
-  /**
-   * The option is declared and threaded here and
-   * changes nothing yet. What separates the two
-   * answers is a group drawn from a sleep row, and
-   * that is only drawn where the project's SDK
-   * records one.
-   */
-  /**
-   * The moment a block wakes is read off a row the
-   * SDK writes beside a wait, and an older SDK
-   * writes no such row — so whether it may be read
-   * at all is the host's answer, and this file
-   * cannot ask.
-   */
-  it('says when a sleeping block wakes, where it may read timings', () => {
-    const found = operationsOf(
+  it('is when a sleeping block wakes', () => {
+    const [, sleep] = operationsOf(
       RUN,
       [
         step({ functionId: 0, name: 'charge_each' }),
@@ -282,30 +143,28 @@ describe('how the rows group', () => {
       IR,
     );
 
-    expect(groupsOf(found, { timing: true })[0]?.wakesAt).toEqual({
+    expect(wakeIn(sleep)).toEqual({
       at: 90_000,
       kind: 'sleep',
     });
   });
 
-  it('says nothing about it where it may not', () => {
-    const found = operationsOf(
-      RUN,
-      [
-        step({ functionId: 0, name: 'charge_each' }),
-        step({
-          functionId: 1,
-          name: 'DBOS.sleep',
-          startedAt: 1000,
-          completedAt: 90_000,
-          output: '90000',
-        }),
-      ],
-      IR,
-    );
+  /**
+   * A wait on the clock owns its sleep row, so the
+   * row is no longer one the SDK wrote for itself —
+   * and the moment it names is still the moment the
+   * block wakes. Reading the wake off who owns the
+   * row rather than off what it is called would
+   * lose it exactly where the block is drawn.
+   */
+  it('is read off a row a wait on the clock owns', () => {
+    const [sleep] = operationsOf(RUN, timerThenAnswerRows(), TIMER_THEN_ANSWER);
 
-    expect(groupsOf(found, { timing: false })[0]?.wakesAt).toBeUndefined();
-    expect(groupsOf(found)[0]?.wakesAt).toBeUndefined();
+    expect(sleep?.nodeId).toBe('let_it_wait');
+    expect(wakeIn(sleep)).toEqual({
+      at: TIMER_WAKES_AT,
+      kind: 'sleep',
+    });
   });
 
   /**
@@ -314,7 +173,7 @@ describe('how the rows group', () => {
    * because the run wakes when somebody answers.
    */
   it('tells a timeout marker from a sleep by its width', () => {
-    const found = operationsOf(
+    const [, sleep] = operationsOf(
       RUN,
       [
         step({ functionId: 0, name: 'manager_ok.register' }),
@@ -329,10 +188,26 @@ describe('how the rows group', () => {
       IR,
     );
 
-    expect(groupsOf(found, { timing: true })[0]?.wakesAt).toEqual({
+    expect(wakeIn(sleep)).toEqual({
       at: 90_000,
       kind: 'timeout',
     });
+  });
+
+  it('is nothing for any other row, or a deadline that is no number', () => {
+    const [own, sleep] = operationsOf(
+      RUN,
+      [
+        step({ functionId: 0, name: 'charge_each', output: '90000' }),
+        step({ functionId: 1, name: 'DBOS.sleep', output: 'soon' }),
+      ],
+      IR,
+    );
+
+    expect(own?.name).toBe('charge_each');
+    expect(sleep?.name).toBe('DBOS.sleep');
+    expect(wakeIn(own)).toBeUndefined();
+    expect(wakeIn(sleep)).toBeUndefined();
   });
 });
 

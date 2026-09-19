@@ -1,4 +1,5 @@
 import { libFrameOf, type SourceFrame } from './frames.js';
+import type { RunFilter } from './queries.js';
 
 /**
  * DBOS's columns, and the fields this view draws
@@ -73,11 +74,20 @@ export type WorkflowStatusRow = {
 
   operation_count?: BigIntColumn | null;
 
-  /** Selected only by the read that lists the runs
-   *  forked from another: the highest operation this
-   *  one carried over. `null` where it carried
-   *  none. */
+  /** Selected by the list and by the read that
+   *  lists the runs forked from another: the
+   *  highest operation this one carried over.
+   *  `null` where it carried none. */
   last_reused?: BigIntColumn | null;
+
+  /** Selected by the list only: the first row of
+   *  the run's own that threw. `min` over `int4`,
+   *  so a number. */
+  failed_step?: number | null;
+
+  /** Selected by the list only: when the run's
+   *  latest sleep was due to end. */
+  sleeping_until?: BigIntColumn | null;
 };
 
 /** A row of `dbos.operation_outputs`, as selected. */
@@ -101,13 +111,13 @@ export type OperationOutputRow = {
   serialization: string | null;
 };
 
-/** The three numbers over the segmented control. */
+/** The three numbers over the filters. */
 export type CountsRow = {
   all_runs: BigIntColumn;
 
-  failed_runs: BigIntColumn;
+  active_runs: BigIntColumn;
 
-  recovered_runs: BigIntColumn;
+  failed_runs: BigIntColumn;
 };
 
 /** One run of a workflow. */
@@ -184,12 +194,24 @@ export type Run = {
   operationCount?: number;
 
   /**
-   * Filled by the read that lists the runs forked
-   * from another: the first step this one ran for
-   * itself, which is the step above the last row it
-   * carried over.
+   * Filled by the list and by the read that lists
+   * the runs forked from another: the first step
+   * this one ran for itself, which is the step above
+   * the last row it carried over. Zero for a run
+   * that carried nothing.
    */
   startStep?: number;
+
+  /** Filled by the list read: the first row of the
+   *  run's own that threw, which is where a replay
+   *  of a failed run starts. */
+  failedStep?: number;
+
+  /** Filled by the list read: when the run's latest
+   *  sleep was due to end, which is how a run
+   *  asleep on the clock is told from one
+   *  executing. */
+  sleepingUntil?: number;
 };
 
 /** One step of a run. */
@@ -214,7 +236,9 @@ export type Step = {
   childWorkflowId: string | undefined;
 };
 
-export type RunCounts = { all: number; failed: number; recovered: number };
+/** One number per filter, keyed by the filter, so
+ *  the two cannot name different sets. */
+export type RunCounts = Record<RunFilter, number>;
 
 /**
  * What `recovery_attempts` reads for a run that
@@ -290,6 +314,12 @@ export function toRun(row: WorkflowStatusRow): Run {
     ...(row.last_reused === undefined
       ? {}
       : { startStep: startStepIn(row.last_reused) }),
+    ...(row.failed_step === undefined || row.failed_step === null
+      ? {}
+      : { failedStep: row.failed_step }),
+    ...(row.sleeping_until === undefined || row.sleeping_until === null
+      ? {}
+      : { sleepingUntil: Number(row.sleeping_until) }),
   };
 }
 
@@ -322,12 +352,12 @@ export function toStep(row: OperationOutputRow): Step {
 }
 
 export function toCounts(row: CountsRow | undefined): RunCounts {
-  if (row === undefined) return { all: 0, failed: 0, recovered: 0 };
+  if (row === undefined) return { all: 0, active: 0, failed: 0 };
 
   return {
     all: Number(row.all_runs),
+    active: Number(row.active_runs),
     failed: Number(row.failed_runs),
-    recovered: Number(row.recovered_runs),
   };
 }
 
@@ -477,18 +507,38 @@ export function inputIn(
   const raw = text(stored);
   if (raw === undefined) return { shape: 'none' };
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return asRaw(raw, serialization);
-  }
+  const read = jsonIn(raw);
+  if (!read.ok) return asRaw(raw, serialization);
 
-  const args = Array.isArray(parsed) ? parsed : fieldOf(parsed, 'json');
+  const args = argumentsIn(read.value);
 
   return Array.isArray(args) && args.length === 1
     ? { shape: 'payload', value: args[0] }
     : asRaw(raw, serialization);
+}
+
+/**
+ * The argument array inside whatever the project's
+ * serializer wrote.
+ *
+ * Three shapes reach this column. The array itself
+ * is what a project with no serializer registered
+ * stores; the richer one wraps it in its marked
+ * envelope; the portable one files the arguments
+ * under `positionalArgs` beside the named ones it
+ * has no column for.
+ *
+ * The marker tells the first two apart, and nothing
+ * else does: a workflow whose one argument is an
+ * object with a `json` field of its own would
+ * otherwise be read as a wrapper and handed over
+ * half unpacked.
+ */
+function argumentsIn(parsed: unknown): unknown {
+  if (Array.isArray(parsed)) return parsed;
+  if (enveloped(parsed)) return fieldOf(parsed, 'json');
+
+  return fieldOf(parsed, 'positionalArgs');
 }
 
 function asRaw(raw: string, serialization: string | null): RunInput {
@@ -502,6 +552,27 @@ function asRaw(raw: string, serialization: string | null): RunInput {
 }
 
 /**
+ * What a run's input box holds, as the payload a
+ * start sends.
+ *
+ * An empty box is a run with no input rather than
+ * a mistake — plenty of workflows take none — and
+ * anything else has to be JSON before it is worth
+ * sending, because the route parses it and would
+ * only say the same thing later.
+ *
+ * Here, beside what a run was started with, rather
+ * than beside the start: a trigger's card says what
+ * Run will do with the box, and one rule read by
+ * both is how the card and the start agree.
+ */
+export function payloadIn(
+  typed: string,
+): { ok: true; value: unknown } | { ok: false } {
+  return typed.trim() === '' ? { ok: true, value: undefined } : jsonIn(typed);
+}
+
+/**
  * How much of a step's output a panel will hold.
  *
  * A step may return a megabyte, and a cell that
@@ -511,22 +582,173 @@ function asRaw(raw: string, serialization: string | null): RunInput {
  */
 export const OUTPUT_KEPT = 2000;
 
-export function outputIn(stored: string | null): {
-  text: string;
+/**
+ * How long a recorded value may be and still be
+ * drawn where it was recorded.
+ *
+ * Past it a panel names the value and offers to open
+ * it instead: a column is not a document viewer, and
+ * a page of JSON dropped into one buries the rows
+ * around it.
+ */
+export const INLINE_LIMIT = 120;
+
+/** The words a size is said in, each a template
+ *  with the number in `{0}`. A webview localizes
+ *  nothing of its own, so they are resolved on the
+ *  host and passed in. */
+export type SizeWords = {
+  bytes: string;
+  kilobytes: string;
+  megabytes: string;
+};
+
+const KILOBYTE = 1024;
+const MEGABYTE = KILOBYTE * KILOBYTE;
+
+/**
+ * How big a recorded value is, for a panel that
+ * names it rather than drawing it.
+ *
+ * Binary units, as the editor itself counts a
+ * file's size. Whole bytes below a kilobyte, one
+ * decimal above: the size says what kind of thing
+ * is behind the button, not how to allocate it.
+ */
+export function sizeOf(bytes: number, words: SizeWords): string {
+  if (bytes < KILOBYTE) return words.bytes.replace('{0}', String(bytes));
+
+  return bytes < MEGABYTE
+    ? words.kilobytes.replace('{0}', (bytes / KILOBYTE).toFixed(1))
+    : words.megabytes.replace('{0}', (bytes / MEGABYTE).toFixed(1));
+}
+
+/** A recorded value as a card draws it: whole where
+ *  it is short enough to read where it was recorded,
+ *  and past that a preview with its size and a way
+ *  to open all of it. */
+export type RecordedValue =
+  | { kind: 'inline'; text: string }
+  | { kind: 'artifact'; preview: string; size: string };
+
+/**
+ * The one rule every card draws a recorded value by.
+ *
+ * `shown` is the value as a person reads it and
+ * `bytes` its size before any cut. Which of the two
+ * shapes a value takes is decided here, against the
+ * one inline limit, for a run's input, a step's
+ * output and the sample a card would start a run
+ * with alike: three cards used to hold three copies
+ * of this, and the fourth would have drifted.
+ */
+export function recordedValue(
+  shown: string,
+  bytes: number,
+  sizes: SizeWords,
+): RecordedValue {
+  return shown.length <= INLINE_LIMIT
+    ? { kind: 'inline', text: shown }
+    : {
+        kind: 'artifact',
+        preview: shown.slice(0, OUTPUT_KEPT),
+        size: sizeOf(bytes, sizes),
+      };
+}
+
+/**
+ * A recorded value, as every panel needs it.
+ *
+ * `raw` is the bytes, which is what the agent is
+ * handed and what "Open" opens. `shown` is the same
+ * value with the serializer's wrapper off and printed
+ * on one line, which is what a person reads. Both are
+ * held to `OUTPUT_KEPT`, and `bytes` is the size
+ * before either cut.
+ */
+export type StoredValue = {
+  raw: string;
+
+  shown: string;
+
+  /** Whether either form stops short of the whole
+   *  value. */
   cut: boolean;
+
   bytes: number;
-} {
+
+  /** Whether the step returned nothing at all, which
+   *  is not the same as returning `null`. */
+  absent: boolean;
+};
+
+/**
+ * What a step returned, out of the bytes the column
+ * holds.
+ *
+ * The wrapper comes off before the cut, and that
+ * order is the whole of it: an envelope cut at two
+ * thousand characters can no longer be opened, so the
+ * other way round puts the serializer's own notes on
+ * the panel for exactly the values too big to read
+ * any other way.
+ */
+export function storedValue(stored: string | null): StoredValue {
   const raw = text(stored) ?? '';
+  const read = jsonIn(raw);
+  const shown = read.ok ? inlineJson(unwrapped(read.value)) : raw;
 
   // `TextEncoder` rather than `Buffer`, because this
   // module is in the browser bundles as well as the
   // host and a Node global there is `undefined`
   // rather than a build failure.
   return {
-    text: raw.slice(0, OUTPUT_KEPT),
-    cut: raw.length > OUTPUT_KEPT,
+    raw: raw.slice(0, OUTPUT_KEPT),
+    shown: shown.slice(0, OUTPUT_KEPT),
+    cut: raw.length > OUTPUT_KEPT || shown.length > OUTPUT_KEPT,
     bytes: new TextEncoder().encode(raw).length,
+    absent: read.ok && returnedNothing(read.value),
   };
+}
+
+/**
+ * A value on one line, spaced to be read rather than
+ * to be parsed: `{ "extracted": 15, "created": 15 }`.
+ *
+ * Printed by `JSON.stringify` and not by hand, so a
+ * string holding a brace or a comma survives it. One
+ * space of indent asks for exactly that spacing, and
+ * closing the newlines up afterwards is what takes
+ * the wrapping away again. A value JSON cannot write
+ * at all prints as nothing.
+ */
+export function inlineJson(value: unknown): string {
+  const printed = JSON.stringify(value, null, 1);
+
+  return printed === undefined ? '' : printed.replace(/\n\s*/g, ' ');
+}
+
+/**
+ * Whether the wrapper says the step returned nothing
+ * at all.
+ *
+ * A `void` step is stored with a `json` of `null` and
+ * type notes saying `undefined`, and those notes are
+ * the only thing telling it apart from a step that
+ * really returned `null`. The two are drawn
+ * differently — no output section against the value
+ * `null` — so a reader that could not tell them
+ * apart would invent a result for every step that
+ * has none.
+ */
+function returnedNothing(value: unknown): boolean {
+  if (!enveloped(value)) return false;
+
+  const values = fieldOf(fieldOf(value, 'meta'), 'values');
+
+  return (
+    Array.isArray(values) && values.length === 1 && values[0] === 'undefined'
+  );
 }
 
 /**
@@ -564,14 +786,35 @@ const SERIALIZER_MARKED = 'superjson';
 export function valueIn(stored: string | undefined): unknown {
   if (stored === undefined) return undefined;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(stored);
-  } catch {
-    return undefined;
-  }
+  const read = jsonIn(stored);
 
-  return enveloped(parsed) ? fieldOf(parsed, 'json') : parsed;
+  return read.ok ? unwrapped(read.value) : undefined;
+}
+
+/**
+ * Stored bytes read back, or the news that they are
+ * not JSON at all.
+ *
+ * The two are told apart rather than both answered
+ * with `undefined`, because they mean opposite things
+ * to a panel: a stored `null` is what the step
+ * returned, and bytes that will not parse are text
+ * somebody has to be shown as they were written.
+ */
+type StoredJson = { ok: true; value: unknown } | { ok: false };
+
+function jsonIn(stored: string): StoredJson {
+  try {
+    return { ok: true, value: JSON.parse(stored) };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/** What the richer serializer's envelope holds, or
+ *  the value itself where there is no envelope. */
+function unwrapped(value: unknown): unknown {
+  return enveloped(value) ? fieldOf(value, 'json') : value;
 }
 
 function enveloped(value: unknown): boolean {

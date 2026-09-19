@@ -178,9 +178,6 @@ export const messages = {
   runsNoProject: () =>
     l10n.t('Open an mBoss project to see how its runs went.'),
 
-  runsEmpty: () =>
-    l10n.t('No runs recorded yet. Start the app and set a workflow going.'),
-
   /**
    * The two ways there is nothing to read, kept
    * apart because what a person does about them is
@@ -295,6 +292,19 @@ export const messages = {
       step,
       error,
     ),
+
+  /**
+   * What the extension asks the agent about a block
+   * as it is set, from the form it is set in.
+   *
+   * No run: the question is about the block, and
+   * the three things that find it are what the
+   * sentence carries — its name as a person reads
+   * it, the id the document knows it by, and the
+   * file, said the way the project names it.
+   */
+  askAboutBlock: (block: string, nodeId: string, file: string) =>
+    l10n.t('Look at block {0} ({1}) in {2}.', block, nodeId, file),
 
   /** The same question about a run no step failed
    *  in — the ingress refused it, or the workflow
@@ -523,25 +533,35 @@ export const messages = {
       file,
     ),
 
-  /** The boundary the design draws, drawn where a
-   *  person can see it. */
-  runsScope: () =>
-    l10n.t("Local runs only. Deployed apps are DBOS Conductor's."),
-
   /** The mark leads, because recovery is what
    *  happened to the run and the tick after it read
    *  as a second opinion about the outcome. */
   runsRecoveredTag: () => l10n.t('↻ recovered'),
 
   /**
-   * Where a run got to, in one line under its row.
+   * The parts of a listed run's line — the block
+   * a run got past, since when it has waited, when
+   * it wakes — each said after the run's word and
+   * joined by ` · `, the way the run tab's line is.
    *
-   * Every form of it is worked out from the last
-   * operation the run recorded of its own — nothing
-   * in the ledger marks a run as being *at* a block
-   * — so the row draws these beside the word that
-   * says they were derived.
+   * Phrases rather than one sentence per form:
+   * every form is the word followed by some of the
+   * same parts, and a translator reorders the words
+   * inside a part rather than the parts of a line.
+   * The block is worked out from the last operation
+   * the run recorded of its own, and the row says
+   * so beside the line.
    */
+  runsAfter: (block: string) => l10n.t('after {0}', block),
+  runsSince: (at: string) => l10n.t('since {0}', at),
+  runsWakes: (at: string) => l10n.t('wakes {0}', at),
+
+  /** Blocks rather than rows, and a form of its
+   *  own for one: `vscode.l10n` has no plural
+   *  forms, and "1 steps" is wrong. */
+  runsSteps: (count: number) => l10n.t('{0} steps', count),
+  runsOneStep: () => l10n.t('1 step'),
+
   /**
    * What the run page's graph is a picture of.
    *
@@ -554,28 +574,6 @@ export const messages = {
   runGraphMissing: (name: string) =>
     l10n.t('no saved workflow named {0} · trace only', name),
 
-  /**
-   * When a block wakes, and when it gives up.
-   *
-   * Both are read off the sleep row the SDK writes
-   * beside a wait — and both are drawn as derived,
-   * because the moment is a deadline the SDK
-   * recorded rather than something that has
-   * happened.
-   */
-  runAsleepUntil: (at: string) => l10n.t('asleep until {0}', at),
-  runTimesOut: (at: string) => l10n.t('times out {0}', at),
-
-  /** What tells one turn of a block from another. */
-  runGroupRound: (round: number) => l10n.t('· round {0}', round),
-  runGroupItems: (items: number) => l10n.t('· {0} items', items),
-
-  runFailedSummary: (node: string) => l10n.t('failed · {0}', node),
-  runWaitingSummary: (node: string, at: string) =>
-    l10n.t('waiting · {0} · {1}', node, at),
-  runRunningSummary: (node: string) => l10n.t('running · after {0}', node),
-  runDoneSummary: (count: number) =>
-    l10n.t('done · {0} durable operations', count),
   /**
    * How many crashes, not what the column says: the
    * column counts dispatches, so a run that never
@@ -643,53 +641,45 @@ export const messages = {
       'DBOS picked this run back up. Its steps are timed too closely together to say where the process went down; the recovery count is in the ledger.',
     ),
 
-  runProcessDown: (duration: string) => l10n.t('process down · {0}', duration),
-  runResumed: () => l10n.t('resumed by DBOS'),
-
-  runHeadline: (status: string, duration: string) =>
-    l10n.t('{0} · {1} total', status, duration),
-  runHeadlineRunning: (status: string) => l10n.t('{0} · still going', status),
-
-  runSpan: (started: string, finished: string) =>
-    l10n.t('started {0} · finished {1}', started, finished),
-  runSpanRunning: (started: string) => l10n.t('started {0}', started),
-
-  runBreadcrumb: (workflow: string, id: string) =>
-    l10n.t('mBoss › runs › {0} › {1}', workflow, id),
-
   /**
-   * Where a replay took over.
+   * One sentence about a recovery, as the
+   * Inspector's card about a whole run lists it.
    *
-   * Named by the block wherever the row at the fork
-   * point still belongs to one, and by DBOS's own
-   * step number otherwise — a workflow edited since
-   * the run has rows naming blocks that are gone,
-   * and the number is the fact that is left.
+   * Every such sentence is worked out from the rows
+   * rather than read off one, and on a card of
+   * plain lines the only place to say so is at the
+   * end of each.
    */
-  runReplayFrom: (block: string) => l10n.t('replay from {0}', block),
-  runReplayFromStep: (step: number) => l10n.t('replay from step {0}', step),
+  runLevelDerived: (sentence: string) => l10n.t('{0} · derived', sentence),
 
   /**
-   * The same fork, from the list.
+   * A run DBOS stopped restarting. Dead-lettering
+   * writes no error row, so the count is what there
+   * is to say, and it is worked out: the column
+   * counts dispatches, one more than restarts.
+   */
+  runLevelGaveUp: (restarts: number) =>
+    l10n.t('DBOS stopped restarting it after {0} restarts', restarts),
+
+  /**
+   * A run tab's name for its run: the workflow, then
+   * what is said about the run — the whole id in the
+   * editor tab's title, the line a run is summed up
+   * in on the header. One template for both, so a
+   * translator moves the workflow in both at once.
+   */
+  runTabLine: (workflow: string, said: string) =>
+    l10n.t('{0} · {1}', workflow, said),
+
+  /**
+   * The run a listed replay came out of, by its
+   * short id, inside the replay's line.
    *
-   * The child line is drawn only for a run already
-   * on the page, so neither of these costs a query:
-   * `forked_from` is a column every row already
-   * selects.
+   * Text rather than a way to that run: the line is
+   * one string, and the row's lineage line below it
+   * is where the id is something to press.
    */
   runsReplayOf: (id: string) => l10n.t('replay of {0}', id),
-  runsReplayInto: (id: string, status: string) =>
-    l10n.t('└ replay → {0} · {1}', id, status),
-
-  /**
-   * Seconds with one decimal, because a local run
-   * is measured in them and the design's own
-   * examples are `8.2 s` and `2.9 s`. Anything
-   * under a second says so in the unit it happened
-   * in rather than as `0.0 s`.
-   */
-  runSeconds: (seconds: string) => l10n.t('{0} s', seconds),
-  runMilliseconds: (ms: number) => l10n.t('{0} ms', ms),
 
   /**
    * What a replay did.
@@ -918,7 +908,7 @@ export const messages = {
     ),
   runResumeStartedOlder: (id: string, version: string, latest: string) =>
     l10n.t(
-      'Resuming {0} under version {1}, and your app is running {2}. Replay From Here forks it under the current version instead.',
+      'Resuming {0} under version {1}, and your app is running {2}. Replay from here forks it under the current version instead.',
       id,
       version,
       latest,
@@ -955,8 +945,8 @@ export const messages = {
     ),
 
   /**
-   * The two lines the run page draws above its
-   * controls.
+   * When a run was cancelled, where this window is
+   * what cancelled it.
    *
    * "by you" is this window's own memory of having
    * asked — no column anywhere records who cancelled
@@ -964,20 +954,18 @@ export const messages = {
    * remembers doing it.
    */
   runCancelledByYou: (at: string) => l10n.t('{0} · by you', at),
-  runLastRecorded: (name: string, step: number) =>
-    l10n.t('{0} · step {1}', name, step),
 
   /**
-   * `mBoss: Run Workflow…`'s two questions: which
-   * one, then what to send it. The picker offers
-   * only what can be started this way — a scheduled
-   * workflow is listed in the panel's own dropdown,
-   * where there is a row to put the reason beside,
-   * and left out here instead.
+   * `mBoss: Run Workflow…`'s one question: which
+   * workflow. The title says where the input comes
+   * from, since nothing in the palette shows it. The
+   * picker offers only what can be started this way
+   * — a scheduled workflow is listed in the panel's
+   * own dropdown, where there is a row to put the
+   * reason beside, and left out here instead.
    */
-  runWorkflowPickTitle: () => l10n.t('Which workflow should run?'),
-  runWorkflowInputTitle: () => l10n.t('What input should it run with?'),
-  runWorkflowInputPrompt: () => l10n.t('JSON, or leave empty for none.'),
+  runWorkflowPickTitle: () =>
+    l10n.t('Which workflow should run with the input in the Runs view?'),
   runWorkflowNone: () =>
     l10n.t('This project has no workflow that can be started by hand.'),
 
@@ -1163,7 +1151,7 @@ export const messages = {
    * so it goes at the top of the canvas itself.
    */
   previewHeadline: (agent: string) =>
-    l10n.t('PREVIEW — proposed by {0} · not applied yet', agent),
+    l10n.t('Preview — proposed by {0} · not applied yet', agent),
 
   /**
    * What a proposal would change, over the sentence
@@ -1177,7 +1165,7 @@ export const messages = {
    */
   previewBanner: (counts: string) =>
     l10n.t(
-      'PREVIEW CHANGES · {0} · deterministic layout — the agent sent semantics, never coordinates',
+      'Preview changes · {0} · deterministic layout — the agent sent semantics, never coordinates',
       counts,
     ),
 
@@ -1214,7 +1202,7 @@ export const messages = {
     ),
 
   previewApplied: (counts: string, revision: number) =>
-    l10n.t('APPLIED · {0} · v{1}', counts, revision),
+    l10n.t('Applied · {0} · v{1}', counts, revision),
 
   previewRefused: (detail: string) =>
     l10n.t('That proposal was not applied: {0}', detail),
@@ -1276,12 +1264,15 @@ export const messages = {
    *
    * Lower case, the way each project spells its
    * own name — this is a list of other people's
-   * products, not a list of headings.
+   * products, not a list of headings. The name
+   * alone, with no "cli": how each one is started
+   * is the picker's detail line, and the panel's
+   * header names the agent rather than its binary.
    */
   agents: (): Record<AgentId, string> => ({
     'claude-code': l10n.t('claude code'),
-    codex: l10n.t('codex cli'),
-    gemini: l10n.t('gemini cli'),
+    codex: l10n.t('codex'),
+    gemini: l10n.t('gemini'),
     custom: l10n.t('custom'),
   }),
 

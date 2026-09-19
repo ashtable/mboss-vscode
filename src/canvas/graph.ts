@@ -12,6 +12,7 @@ import {
 import type { StepState } from '../runs/reading.js';
 import type { LiveRun, LiveStep, QueueCounts } from '../runs/watch.js';
 import { filled } from '../webview/fill.js';
+import { inFlight, type StepWord } from '../webview/states.js';
 import { fine } from '../webview/time.js';
 
 /**
@@ -43,9 +44,11 @@ export type NodeState = 'dormant' | 'selected' | 'proposed' | RunState;
  * What a run says about a block: the three states
  * the ledger records, and the one it only implies.
  *
- * Written as the watcher's own three plus one so
- * that a state the ledger gains cannot be missed
- * here.
+ * The step's own word, so that the board and the
+ * Inspector's card say a block's state in one
+ * vocabulary and look it up in one bag; a state the
+ * ledger gains still cannot be missed here, since
+ * `StepWord` is the run's words cut down to a step's.
  *
  * The parked one is `waiting` and stays `waiting`.
  * It means the run stopped on somebody who has not
@@ -55,7 +58,7 @@ export type NodeState = 'dormant' | 'selected' | 'proposed' | RunState;
  * separate fact, and it belongs to the run rather
  * than to any one block.
  */
-export type RunState = StepState | 'running';
+export type RunState = StepWord;
 
 /** What is happening along a wire. Same story: a
  *  wire is structure until a run is going through
@@ -72,9 +75,22 @@ export type EdgeState = 'idle' | 'active' | 'done' | 'waiting' | 'failed';
  * because it is a fact about this one open canvas.
  */
 export type Drawing = {
-  /** What each kind is called, in the active
-   *  locale. */
-  labels: Record<NodeKind, string>;
+  /**
+   * What each kind is called inside a sentence, in
+   * the active locale.
+   *
+   * The lower-case form rather than the palette's
+   * label, because every line here is a phrase — the
+   * kind followed by what is missing, or by how a
+   * run gets started — and a capital in the middle
+   * of one reads as a proper noun.
+   */
+  kindWords: Record<NodeKind, string>;
+
+  /** How a run gets started, one phrase per way a
+   *  trigger can be set to. `event` carries `{0}`
+   *  for the topic that trigger listens on. */
+  triggerPhrases: { manual: string; event: string; schedule: string };
 
   /** The word after the kind of a block that runs
    *  code nobody has named yet. */
@@ -98,6 +114,21 @@ export type Drawing = {
    * block keeps the line every other block has.
    */
   waitingSince?: string;
+
+  /**
+   * What the line says instead for a block waiting
+   * on the clock, with `{0}` for the moment the run
+   * is due to wake.
+   *
+   * A different word because a different moment: a
+   * wait on the clock is drawn from the sleep row
+   * the SDK wrote, whose completion is the deadline
+   * rather than the moment anything happened. Said
+   * as a "since" it would name a time still to
+   * come. Optional the way `waitingSince` is, and
+   * for the same reason.
+   */
+  waitingWakes?: string;
 
   /**
    * What a queue block's line says while its
@@ -177,8 +208,25 @@ export type CanvasNodeData = {
 
   state: NodeState;
 
-  /** What the run mark says, where there is a run
-   *  and it is at this block. */
+  /**
+   * What the run says about this block, where a run
+   * is being shown and it has something to say.
+   *
+   * Apart from `state`, which answers `selected`
+   * ahead of it: the halo is what a click paints,
+   * and a block clicked after it finished would
+   * otherwise lose the tick it earned the moment
+   * somebody asked about it.
+   */
+  run?: RunState;
+
+  /**
+   * What the run mark says about itself, where it
+   * has anything to say: that this one was worked
+   * out rather than read off a row. A recorded ✓ or
+   * ✕ says nothing, which is what makes the two
+   * tellable apart.
+   */
   runTitle?: string;
 
   [key: string]: unknown;
@@ -251,20 +299,23 @@ export function toReactFlow(
   const blocks = Object.values(boxes);
 
   return {
-    nodes: ir.nodes.map((node) =>
-      toCanvasNode(
+    nodes: ir.nodes.map((node) => {
+      const at = run.nodes.get(node.id);
+
+      return toCanvasNode(
         node,
         boxes[node.id],
-        stateOf(node.id, arriving, drawing.selected, run.nodes),
+        stateOf(node.id, arriving, drawing.selected, at),
+        at,
         lineFor(
           node,
           drawing,
           parked.get(node.id),
           drawing.run?.queues?.[node.id],
         ),
-        drawing.runningDerived,
-      ),
-    ),
+        drawing,
+      );
+    }),
     edges: ir.edges.map((edge) => ({
       id: edge.id,
       type: 'wire',
@@ -292,14 +343,16 @@ function toCanvasNode(
   node: WorkflowNode,
   box: NodeBox | undefined,
   state: NodeState,
+  run: RunState | undefined,
   line: BlockLine,
-  runningDerived: string,
+  drawing: Drawing,
 ): CanvasNode {
   if (box === undefined) {
     throw new Error(`the layout has no box for \`${node.id}\``);
   }
 
   const { width, height } = nodeSize(node.kind);
+  const marked = markTitle(node, run, drawing);
 
   return {
     id: node.id,
@@ -315,12 +368,42 @@ function toCanvasNode(
       node,
       line: line.text,
       state,
+      ...(run === undefined ? {} : { run }),
       ...(line.waiting ? { waiting: true } : {}),
       ...(line.counts ? { counts: true } : {}),
       ...(line.title === undefined ? {} : { lineTitle: line.title }),
-      ...(state === 'running' ? { runTitle: runningDerived } : {}),
+      ...(marked === undefined ? {} : { runTitle: marked }),
     },
   };
+}
+
+/**
+ * What the mark at the end of a block says about
+ * itself.
+ *
+ * Only the two marks nobody recorded say anything:
+ * the dot where a run is now, worked out from the
+ * rows either side of it, and the tick on a trigger,
+ * read off there being a run at all rather than off
+ * a row of the trigger's own. A mark that came from
+ * a row says nothing, and that silence is what tells
+ * a reader which of them to trust as written down.
+ *
+ * A reader who was sent no word for the trigger's
+ * draws a mark that says nothing rather than one
+ * that admits nothing, the way every other optional
+ * word here works.
+ */
+function markTitle(
+  node: WorkflowNode,
+  run: RunState | undefined,
+  drawing: Drawing,
+): string | undefined {
+  if (run === 'running') return drawing.runningDerived;
+
+  return node.kind === 'trigger' && run !== undefined
+    ? drawing.derived
+    : undefined;
 }
 
 /**
@@ -339,6 +422,14 @@ type BlockLine = {
   counts: boolean;
   title: string | undefined;
 };
+
+/** The moment a block stopped at, and whether it is
+ *  a moment still to come. */
+type Parked = { at: number; wake: boolean };
+
+/** The name the SDK records a durable pause under,
+ *  which a wait on the clock is drawn from. */
+const SLEEP = 'DBOS.sleep';
 
 /**
  * The line a block shows, which is the code behind
@@ -361,13 +452,14 @@ type BlockLine = {
 function lineFor(
   node: WorkflowNode,
   drawing: Drawing,
-  since: number | undefined,
+  at: Parked | undefined,
   counts: QueueCounts | undefined,
 ): BlockLine {
-  const parked = drawing.waitingSince;
+  const parked =
+    at?.wake === true ? drawing.waitingWakes : drawing.waitingSince;
 
-  if (since !== undefined && parked !== undefined) {
-    const text = filled(parked, fine(since));
+  if (at !== undefined && parked !== undefined) {
+    const text = filled(parked, fine(at.at));
 
     // A block is the width core laid the graph out
     // at, and a clock written to the millisecond
@@ -412,16 +504,24 @@ function lineFor(
  * the moment. A block that parked more than once
  * has a row for each, and the latest is where the
  * run is sitting now.
+ *
+ * A wait on the clock is the exception, because the
+ * row it is drawn from is the SDK's sleep: that row
+ * is written before the wait and its completion is
+ * the deadline, so what comes back is a wake rather
+ * than a start, and the line says the other word.
  */
-function parkedAt(run: LiveRun | undefined): ReadonlyMap<string, number> {
-  const since = new Map<string, number>();
+function parkedAt(run: LiveRun | undefined): ReadonlyMap<string, Parked> {
+  const since = new Map<string, Parked>();
   if (run === undefined) return since;
 
   for (const step of run.steps) {
     if (step.state !== 'waiting' || step.nodeId === undefined) continue;
 
+    const wake = step.name === SLEEP && step.completedAt !== undefined;
     const at = step.completedAt ?? step.startedAt;
-    if (at !== undefined) since.set(step.nodeId, at);
+
+    if (at !== undefined) since.set(step.nodeId, { at, wake });
   }
 
   return since;
@@ -431,16 +531,15 @@ function parkedAt(run: LiveRun | undefined): ReadonlyMap<string, number> {
  * What the run says about one block, as the graph
  * says it.
  *
- * The column beside the graph draws a card about
- * whichever block somebody selected, and the state
- * on that card has to be the state the block is
- * drawn in — a block a run may be at reads
- * `running` on the canvas and must not read
- * "nothing recorded" a hand's width away. Selection
- * is what the graph paints instead of the run's
- * colour, so the answer cannot be read back off the
- * drawn block; it is asked here, of the function
- * that painted every other one.
+ * The Inspector draws a card about whichever block
+ * somebody selected, and the state on that card has
+ * to be the state the block is drawn in — a block a
+ * run may be at reads `running` on the canvas and
+ * must not read "nothing recorded" a hand's width
+ * away. Selection is what the graph paints instead
+ * of the run's colour, so the answer cannot be read
+ * back off the drawn block; it is asked here, of the
+ * function that painted every other one.
  */
 export function runStateOf(
   ir: WorkflowIR,
@@ -466,12 +565,12 @@ function stateOf(
   id: string,
   proposed: ReadonlySet<string>,
   selected: string | undefined,
-  run: ReadonlyMap<string, RunState>,
+  run: RunState | undefined,
 ): NodeState {
   if (id === selected) return 'selected';
   if (proposed.has(id)) return 'proposed';
 
-  return run.get(id) ?? 'dormant';
+  return run ?? 'dormant';
 }
 
 /**
@@ -518,12 +617,22 @@ function tonesOf(
   // it parked on, one that ended is where it ended,
   // and one the watch let go of is somewhere nobody
   // is being told about any more.
-  const ahead =
-    run.outcome === 'running'
-      ? frontierFrom(ir, run.steps.at(-1)?.nodeId, recorded, decided)
-      : { nodes: new Set<string>(), edges: new Set<string>() };
+  const ahead = inFlight(run.outcome)
+    ? frontierFrom(ir, run.steps.at(-1)?.nodeId, recorded, decided)
+    : { nodes: new Set<string>(), edges: new Set<string>() };
 
   for (const id of ahead.nodes) nodes.set(id, 'running');
+
+  // A trigger writes no row of its own: it compiles
+  // into the way the workflow is started rather than
+  // into a durable operation. The run is the
+  // evidence — there is one because the trigger
+  // fired — so it is done as soon as there is a run
+  // to draw at all, and after the walk, which has no
+  // business putting a trigger ahead of anything.
+  for (const node of ir.nodes) {
+    if (node.kind === 'trigger') nodes.set(node.id, 'done');
+  }
 
   // Last, because what a queue block's children are
   // doing outranks both the rows and the walk.
@@ -689,21 +798,49 @@ function frontierFrom(
  * Which code runs here, when something does. When
  * nothing does, whether that is a block still
  * waiting for a function or a kind that never has
- * one — a Trigger is not "unassigned", it is a
- * trigger, and saying otherwise would send a
- * person looking for code to write.
+ * one — a trigger is not "unassigned", and saying
+ * otherwise would send a person looking for code to
+ * write. What a trigger has instead is how it starts
+ * a run, which is the one thing about it worth
+ * reading from across a graph.
  */
 export function lineOf(
   node: WorkflowNode,
-  drawing: Pick<Drawing, 'labels' | 'unassigned'>,
+  drawing: Pick<Drawing, 'kindWords' | 'triggerPhrases' | 'unassigned'>,
 ): string {
+  const word = drawing.kindWords[node.kind];
+
+  // Before the handler, because a trigger runs no
+  // code of its own: a function named on one is a
+  // document that will not validate, and drawing it
+  // would be this canvas agreeing with the mistake.
+  if (node.kind === 'trigger') {
+    return `${word} · ${startedBy(node.config, drawing.triggerPhrases)}`;
+  }
+
   if (node.handler !== undefined) return `ƒ ${node.handler.export}`;
 
-  const label = drawing.labels[node.kind];
-
   return HANDLER_KINDS.has(node.kind)
-    ? `${label} · ${drawing.unassigned}`
-    : label;
+    ? `${word} · ${drawing.unassigned}`
+    : word;
+}
+
+/**
+ * How one trigger starts a run.
+ *
+ * Read off that trigger's own configuration rather
+ * than off the document, because a draft may hold
+ * several and they need not agree: one phrase per
+ * document would draw the first trigger's words on
+ * every other one.
+ */
+function startedBy(
+  config: Extract<WorkflowNode, { kind: 'trigger' }>['config'],
+  phrases: Drawing['triggerPhrases'],
+): string {
+  if (config.mode === 'event') return filled(phrases.event, config.topic);
+
+  return config.mode === 'schedule' ? phrases.schedule : phrases.manual;
 }
 
 /**

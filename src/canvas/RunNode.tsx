@@ -1,7 +1,5 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 
-import { postToHost } from '../webview/client.js';
-
 import { BlockFace } from './Node.js';
 import { SOURCE_PORT, TARGET_PORT, wantsHandler } from './graph.js';
 import type { CanvasNode } from './graph.js';
@@ -10,16 +8,22 @@ import type { CanvasNode } from './graph.js';
  * One block on a run's graph.
  *
  * The same face the canvas draws, with everything
- * about editing taken away: nothing here is
- * dragged, wired, dropped on or deleted. A run page
- * shows what already happened, and a graph that
- * invited an edit would be offering to change a
- * document from a page about a run of it.
+ * about editing taken away: the run graph edits
+ * nothing, and nothing here is dragged, wired,
+ * dropped on or deleted. A block's configuration is
+ * edited in the Inspector, against the document
+ * buffer, where the canvas's own edits land too.
  *
  * The handles stay, because the wires between
  * blocks are drawn between them — a wire with
  * nowhere to attach is a wire drawn from the top
  * left corner.
+ *
+ * The block takes no click of its own. Picking it
+ * is the graph's to hear, once, through its node
+ * handler; a click here as well would say the same
+ * pick twice, and on a plain element it is a way in
+ * that no key reaches.
  */
 export function RunNode({ data }: NodeProps<CanvasNode>) {
   const { node } = data;
@@ -28,9 +32,9 @@ export function RunNode({ data }: NodeProps<CanvasNode>) {
     <div
       className="node"
       data-run-node={node.id}
+      data-node={node.id}
       data-node-kind={node.kind}
       data-state={data.state}
-      onClick={() => postToHost({ type: 'seeNode', nodeId: node.id })}
     >
       <Handle
         type="target"
@@ -47,6 +51,7 @@ export function RunNode({ data }: NodeProps<CanvasNode>) {
         counts={data.counts}
         lineTitle={data.lineTitle}
         state={data.state}
+        run={data.run}
         runTitle={data.runTitle}
       />
 

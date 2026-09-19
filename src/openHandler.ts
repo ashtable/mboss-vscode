@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { LibManifest } from './core/rules.js';
+import { messages } from './messages.js';
 import type { SourceFrame } from './runs/frames.js';
 
 /**
@@ -9,13 +10,13 @@ import type { SourceFrame } from './runs/frames.js';
  * failure came from.
  *
  * Two surfaces ask for both — the canvas, where a
- * block is being configured, and the run page,
+ * block is being configured, and the run tab,
  * where one is being read about — and they reach
  * the editor through different bags. So the work
- * is written against the one verb both of them
- * have rather than against either bag: what a
- * block names, where the manifest says that name
- * is, and which line to land on.
+ * is written against the two verbs both of them
+ * have rather than against either bag: somewhere to
+ * put a file in front of somebody, and a way to
+ * tell them what could not be opened.
  *
  * There is no symbol lookup here. The scan already
  * read `lib/` and wrote down where each exported
@@ -24,9 +25,10 @@ import type { SourceFrame } from './runs/frames.js';
  * that can disagree with the first.
  */
 
-/** The one thing this needs from whoever called:
- *  somewhere to put a file in front of somebody. */
-export type OpensFiles = {
+/** What this needs from whoever called: somewhere
+ *  to put a file in front of somebody, and a way
+ *  to say what could not be opened. */
+export type Opener = {
   /**
    * Opens the file, with the caret on that line
    * where one is given.
@@ -35,17 +37,19 @@ export type OpensFiles = {
    * every editor a person reads write one down.
    */
   openFile(path: string, at?: { line: number; column?: number }): Promise<void>;
+
+  /** Tells the person something they can act on. */
+  say(message: string): void;
 };
 
 /**
- * Opens the function this block runs, and answers
- * the export it could not find.
+ * Opens the function this block runs, and says
+ * which export it could not find.
  *
- * A name back rather than a sentence: the canvas
- * tells somebody through `VsCodeApi` and the run
- * page through `RunsHost`, and the two name that
- * verb differently, so who says it is the caller's
- * business and this only says which name it was.
+ * Said here rather than answered back: every caller
+ * used to carry the same tail, turning the name
+ * into the same sentence, because the two bags once
+ * named the telling verb differently.
  *
  * A block with no function is not one of those
  * cases. Drawing a workflow before writing its
@@ -60,16 +64,21 @@ export type OpensFiles = {
  * check here would.
  */
 export async function openHandler(
-  opener: OpensFiles,
+  opener: Opener,
   project: string,
   manifest: LibManifest,
   node: { handler?: { export: string } },
-): Promise<string | undefined> {
+): Promise<void> {
   const named = node.handler?.export;
-  if (named === undefined) return undefined;
+  if (named === undefined) return;
 
   const found = manifest.functions.find((one) => one.export === named);
-  if (found === undefined) return named;
+
+  if (found === undefined) {
+    opener.say(messages.openFunctionUnknown(named));
+
+    return;
+  }
 
   // A manifest an older build cached carries no
   // line, and the file is still what somebody asked
@@ -79,14 +88,12 @@ export async function openHandler(
     join(project, found.file),
     found.line === undefined ? undefined : { line: found.line },
   );
-
-  return undefined;
 }
 
 /**
  * Opens the line a recorded failure came from, and
- * answers the file it named where this workspace
- * no longer has one.
+ * says which file it named where this workspace no
+ * longer has one.
  *
  * The existence check is the whole difference from
  * the function above. A manifest names a file the
@@ -103,17 +110,19 @@ export async function openHandler(
  * door for one.
  */
 export async function openSourceFrame(
-  opener: OpensFiles,
+  opener: Opener,
   project: string,
   frame: SourceFrame | undefined,
-): Promise<string | undefined> {
-  if (frame === undefined) return undefined;
+): Promise<void> {
+  if (frame === undefined) return;
 
   const path = join(project, frame.file);
 
-  if (!existsSync(path)) return frame.file;
+  if (!existsSync(path)) {
+    opener.say(messages.errorLocationGone(frame.file));
+
+    return;
+  }
 
   await opener.openFile(path, { line: frame.line, column: frame.column });
-
-  return undefined;
 }

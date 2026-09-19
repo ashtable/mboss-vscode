@@ -1,24 +1,35 @@
 import type { PanelStatus } from '../acp/agent.js';
-import type { PermissionPrompt, TranscriptEntry } from '../acp/transcript.js';
+import type { PromptAttachment } from '../acp/prompt.js';
+import type {
+  FileEditEntry,
+  FileState,
+  MessageEntry,
+  NextEntry,
+  PermissionPrompt,
+  TranscriptEntry,
+} from '../acp/transcript.js';
 import type { canvasWords, inspectorWords } from '../canvas/words.js';
 import type { galleryWords } from '../gallery/words.js';
 import type {
   Diagnostic,
+  LibFunction,
   LibManifest,
   NodeBox,
   NodeKind,
   WorkflowIR,
+  WorkflowNode,
 } from '../core/rules.js';
 import type { RunFilter } from '../runs/queries.js';
-import type { RunCounts } from '../runs/rows.js';
+import type { StepState } from '../runs/reading.js';
+import type { RecordedValue, RunCounts, StepError } from '../runs/rows.js';
 import type { ServiceHealth, StackAction } from '../runs/stack.js';
-import type { QueueEvidence } from '../runs/queueEvidence.js';
-import type { LiveOutcome } from '../runs/reading.js';
-import type { SessionVia } from '../runs/sessionLog.js';
+import type { QueueEvidence, QueueItem } from '../runs/queueEvidence.js';
 import type { LiveRun } from '../runs/watch.js';
 import type { runsWords, seeWords } from '../runs/words.js';
 import type { WorkflowTrigger } from '../runs/workflows.js';
 import type { sidebarWords } from '../sidebar/words.js';
+
+import type { GlyphState, StepWord } from './states.js';
 
 /**
  * What the host and a webview say to each other.
@@ -48,21 +59,21 @@ import type { sidebarWords } from '../sidebar/words.js';
  * file edited elsewhere, a manifest that finished
  * scanning, a different node selected. A view
  * therefore renders from whatever last arrived and
- * holds nothing of its own that it could not
- * rebuild.
+ * holds nothing of its own it cannot afford to
+ * lose — a fold left open, a word half typed —
+ * which goes with its page when it is hidden.
  */
 
 /**
  * The run a view draws.
  *
  * What the watch reads every tick, plus what the
- * host read once because somebody opened a queue
- * block's card. The second half is per selection
- * and not per tick — a watch's budget for a queue
- * block is one query and it is already spent — so
- * it rides beside the tick's picture rather than
- * inside it, and a run nobody has asked about
- * carries none of it.
+ * host read because a queue block's card asked.
+ * The second half is never read per tick — a
+ * watch's budget for a queue block is one query and
+ * it is already spent — so it rides beside the
+ * tick's picture rather than inside it, and a run
+ * nobody has asked about carries none of it.
  *
  * Keyed by block id, because a workflow may hold
  * more than one queue block and a person may have
@@ -74,7 +85,7 @@ export type ShownRun = LiveRun & {
 
 /** Sent whenever the host has state to show. */
 export type HostMessage =
-  CanvasInit | SidebarInit | RunsInit | SeeInit | GalleryInit;
+  CanvasInit | SidebarInit | RunsInit | SeeInit | InspectorInit | GalleryInit;
 
 export type CanvasInit = {
   type: 'init';
@@ -84,6 +95,14 @@ export type CanvasInit = {
   /** What the eleven palette entries are called, in
    *  the active locale. */
   paletteLabels: Record<NodeKind, string>;
+
+  /** The same eleven as a line says them, inside a
+   *  sentence. */
+  kindWords: Record<NodeKind, string>;
+
+  /** How a run gets started, one phrase per way a
+   *  trigger can be set to. */
+  triggerPhrases: CanvasStrings['triggerPhrases'];
 
   document: CanvasDocument;
 
@@ -130,9 +149,18 @@ export type CanvasInit = {
    */
   manifest: LibManifest | undefined;
 
-  /** The canvas' third column, and the one block it
-   *  is showing. */
-  inspector: CanvasInspector;
+  /**
+   * The block selected on this canvas, by id: always
+   * a block of the document on screen, and never
+   * while a proposal is showing.
+   *
+   * Only the id, because the graph marks it and the
+   * palette offers what fits it, and both already
+   * hold the document. What the block does is drawn
+   * in the Inspector, which is sent the block
+   * itself.
+   */
+  selected: string | undefined;
 
   /**
    * An agent's proposal, drawn over the graph.
@@ -173,7 +201,7 @@ export type CanvasInit = {
 };
 
 export type CanvasPreview = {
-  /** `PREVIEW — proposed by claude code · not
+  /** `Preview — proposed by claude code · not
    *  applied yet` */
   headline: string;
 
@@ -207,28 +235,6 @@ export type CanvasDocument =
 export type CanvasEditing = { revision: number };
 
 /**
- * The Inspector, as a column of the canvas.
- *
- * Which block is selected is said once, here, and
- * the graph reads the halo off it — rather than an
- * id travelling beside a node the same message
- * already carries.
- */
-export type CanvasInspector = {
-  strings: InspectorStrings;
-
-  /** The block the column is showing, by id: always
-   *  a block of the document on screen, and never
-   *  while a proposal is showing. What the column
-   *  draws for it — its fields, where its outcomes
-   *  lead — is read off the document. */
-  selected: string | undefined;
-
-  /** Which of the column's two faces is on screen. */
-  mode: InspectorMode;
-};
-
-/**
  * The two questions the Inspector answers about a
  * block, and never both at once.
  *
@@ -252,11 +258,11 @@ export type Callout = { title: string; body: string };
  * Sent again in full whenever anything moves — a
  * chunk arrives, a tool finishes, an agent is
  * chosen. The panel is a view in the activity bar,
- * which VS Code disposes the moment it is hidden,
- * so a panel that held its own transcript would
- * lose the conversation the first time somebody
- * collapsed it. Everything below is held by the
- * extension.
+ * whose page VS Code throws away whenever it is
+ * hidden, so a panel that held its own transcript
+ * would lose the conversation the first time
+ * somebody collapsed it. Everything below is held
+ * by the extension.
  */
 export type SidebarInit = {
   type: 'init';
@@ -269,7 +275,7 @@ export type SidebarInit = {
 
   status: PanelStatus;
 
-  transcript: TranscriptEntry[];
+  transcript: SidebarEntry[];
 
   /** What the agent is waiting to be told. */
   prompt: PermissionPrompt | undefined;
@@ -281,7 +287,41 @@ export type SidebarInit = {
   /** What the person is being asked to answer about
    *  an agent's proposal, if anything. */
   preview: SidebarPreview | undefined;
+
+  /** The files the next prompt will carry, each
+   *  named by its place in the project. */
+  attached: PromptAttachment[];
 };
+
+/**
+ * One entry in the conversation, with what the
+ * host worked out for drawing it.
+ *
+ * The fold records what the agent sent; what a
+ * person reads needs more than one entry can say
+ * alone. A file is named by its place in the
+ * project, which needs `node:path`; whether its
+ * edit went through is its call's to say, and the
+ * call is another entry. So the host works each
+ * out and the view only draws it.
+ *
+ * A tool row's `verb` and `target`, a file's
+ * `lines` and a question's `text` are the fold's
+ * own fields rewritten rather than new ones beside
+ * them, so the view reads one name whichever wrote
+ * it. A question mBoss asked for somebody is shown
+ * in the column's own copy, and its `about` is what
+ * says so. A file always carries where it is shown
+ * and where it stands, because every drawing of one
+ * reads both; a thought carries `reasoning` only
+ * while it is work under way; the step after a turn
+ * always carries the sentence that offers it.
+ */
+export type SidebarEntry =
+  | Exclude<TranscriptEntry, MessageEntry | FileEditEntry | NextEntry>
+  | (MessageEntry & { reasoning?: { verb: string; target: string } })
+  | (FileEditEntry & { shownPath: string; state: FileState })
+  | (NextEntry & { sentence: string });
 
 /**
  * The card over the composer, in one of the three
@@ -320,12 +360,19 @@ export type SidebarPreview =
 export type SidebarStrings = ReturnType<typeof sidebarWords>;
 
 /**
- * The run list, in the mBoss container.
+ * The run list, in the mBoss container: a frame
+ * round one list, and nothing else.
  *
  * A picture of somebody else's Postgres, which is
  * a thing that can be absent, unreachable or
  * empty — so the state comes first and the rows
  * are only meaningful under `ok`.
+ *
+ * What this window has set going is not on the
+ * wire. A run it started is a row of the ledger
+ * like any other, marked and opened out; the log
+ * of them stays on the host, where a start reads
+ * it to know whose refusal it was.
  */
 export type RunsInit = {
   type: 'init';
@@ -354,7 +401,9 @@ export type RunsInit = {
 
   rows: RunRow[];
 
-  /** Which run the detail tab is showing. */
+  /** The row the list has marked and opened out:
+   *  the list's own, and not whichever run the
+   *  run tab is showing. */
   selected: string | undefined;
 
   /** The project's own containers. */
@@ -362,13 +411,6 @@ export type RunsInit = {
 
   /** Starting one run of a saved workflow. */
   testRun: RunByHand;
-
-  /** The run being followed, if one is. */
-  live: LiveRun | undefined;
-
-  /** What this window has set going, newest
-   *  first. */
-  session: SessionRow[];
 
   /**
    * Whether a DBOS Conductor console is configured
@@ -393,6 +435,12 @@ export type RunsInit = {
  */
 export type StackZone = {
   available: boolean;
+
+  /** Whether compose answered at all: false for a
+   *  daemon that is not running, which lists no
+   *  services exactly as a project nobody has
+   *  started would without it. */
+  answered: boolean;
 
   services: ServiceHealth[];
 
@@ -433,6 +481,12 @@ export type TestRunProblem = {
   detail: string;
 
   rebuildToRun: boolean;
+
+  /** The id the session log filed the refused
+   *  start under, which is what asking the agent
+   *  about it names. None where the start was
+   *  refused before anything was filed. */
+  workflowId: string | undefined;
 };
 
 export type RunnableWorkflow = {
@@ -449,54 +503,27 @@ export type RunnableWorkflow = {
   topic?: string;
 };
 
-/** One run this window started, in the words the
- *  panel draws. */
-export type SessionRow = {
-  workflowId: string;
-
-  workflow: string;
-
-  outcome: LiveOutcome;
-
-  /** `14:02 · 8.2 s`, already formatted. */
-  when: string;
-
-  stepCount: number;
-
-  recovered: boolean;
-
-  /** What it failed with — a step's error, or the
-   *  ingress refusing to start it. */
-  error: string | undefined;
-
-  /** Whether sending the same input again is the
-   *  same run, by the route's own idempotency. */
-  keyed: boolean;
-
-  /**
-   * How the run got here.
-   *
-   * Both of the row's send-it-again actions use the
-   * input the row was started with, and only a run
-   * somebody typed an input for has one — a fork or
-   * a resume carries the input of the run it came
-   * from, which lives in the ledger and never
-   * passed through this window. So anything but
-   * `start` draws the row with Open run alone.
-   */
-  via: SessionVia;
-};
-
 /**
  * Why the list is or is not showing runs.
  *
- * `unreachable` covers both halves of the same
- * experience — no connection string in the
- * project's `.env`, and a database that would not
- * answer — because what a person does about either
- * is read the sentence under it.
+ * - `loading`: nothing has been read yet, so the
+ *   view draws its header and nothing a moment
+ *   later would replace.
+ * - `ok`: the ledger answered; the rows are the
+ *   answer.
+ * - `untrusted`, `no-project`: nothing is read in
+ *   a folder nobody trusts, or without a project.
+ * - `no-database`: the project's `.env`, or the
+ *   connection string in it, is missing — a file
+ *   to fix, which starting the stack would not.
+ * - `unreachable`: there is a database to read and
+ *   it would not answer, which is most often the
+ *   stack's own, stopped.
+ *
+ * `detail` says which file or which refusal.
  */
-export type RunsState = 'ok' | 'untrusted' | 'no-project' | 'unreachable';
+export type RunsState =
+  'loading' | 'ok' | 'untrusted' | 'no-project' | 'no-database' | 'unreachable';
 
 export type RunRow = {
   workflowId: string;
@@ -507,82 +534,76 @@ export type RunRow = {
   /** DBOS's own status word. */
   status: string;
 
-  severity: RunSeverity;
+  /**
+   * The glyph the row's mark is drawn with, from
+   * the list's own evidence: one recorded name and
+   * when the run's sleep ends. A run DBOS gave up
+   * on is `failed` and a cancelled one `idle`; the
+   * line says which.
+   */
+  state: GlyphState;
 
-  /** `14:02 · 8.2 s`, already formatted. */
-  when: string;
+  /**
+   * Where the run got to, in one line: its word,
+   * the block it reached, when it started or since
+   * when it has waited, how long it took and how
+   * many blocks it ran — whichever of those its
+   * word has to say.
+   *
+   * The block is worked out from the last operation
+   * the run recorded of its own, because nothing in
+   * the ledger marks a run as being *at* a block,
+   * so the row says the line was derived.
+   */
+  line: string;
 
   /** Whether DBOS ever picked this run back up. */
   recovered: boolean;
 
-  /** `1 crash · 1 retry`, when it did. */
+  /** `recovered from 2 crashes · derived`, when it
+   *  did more than once. */
   recoveredNote: string | undefined;
 
   /** What it failed with, shown on the row itself
    *  rather than behind a click. */
   error: string | undefined;
 
-  /**
-   * Where the run got to, worked out from the last
-   * operation it recorded of its own.
-   *
-   * Nothing in the ledger marks a run as being *at*
-   * a block, so this is derived and the row says so
-   * beside it. Absent for a run that has recorded
-   * nothing of its own — a projection over no rows
-   * is not a fact.
-   */
-  summary: string | undefined;
-
-  /** When that operation landed, for a row to put
-   *  where a reader can check it. */
+  /** When the last operation of its own landed,
+   *  for a row to put where a reader can check
+   *  it. */
   stoppedAt: string | undefined;
 
-  /** How many durable operations it recorded. */
+  /** How many blocks it ran. */
   operations: number | undefined;
 
   /**
-   * `replay of wf_a1b4e7`, where the run came out of
-   * another one.
+   * The run it was replayed from, then each replay
+   * of it **that is on this page**.
    *
    * Read off `forked_from`, which every row already
-   * selects — a replay is a second run beside the
-   * first rather than a repair of it, and both are
-   * on this list.
+   * selects, so neither costs a query: a replay
+   * further down the history is simply not drawn
+   * here.
    */
-  replayOf: string | undefined;
+  lineage: RunLineage[];
+
+  /** Where a replay began, on a run that is one. */
+  startStep: number | undefined;
+
+  /** The first row of its own that threw, which is
+   *  where a replay of it starts. */
+  failedStep: number | undefined;
 
   /**
-   * `└ replay → wf_fork1 · ERROR`, one per run that
-   * came out of this one **and is on this page**.
-   *
-   * Never a query of its own: the list draws what it
-   * is already holding, so a fork further down the
-   * history is simply not drawn here.
+   * The two controls its status allows, by the rule
+   * the Inspector's card reads. Sent rather than
+   * worked out by the view, because the glyph says
+   * neither: a run that threw and one DBOS gave up on
+   * are both failed, and only the second can be
+   * resumed.
    */
-  forks: string[];
+  controls: { cancel: boolean; resume: boolean };
 };
-
-/**
- * How loudly a run is drawn.
- *
- * `exhausted` is the run DBOS gave up recovering.
- * No mockup draws that state — both drawn examples
- * are ordinary successes that recovered once — so
- * it is its own severity rather than an ordinary
- * failure: a run that failed is a bug to read, and
- * a run that failed *after* being restarted as
- * many times as DBOS allows is a loop somebody has
- * to break.
- *
- * `cancelled` is its own for the opposite reason:
- * somebody asked for it, so it is not news anybody
- * has to look into. The run still appears under the
- * Failed filter, which is DBOS's own partial index
- * rather than anything this panel decides.
- */
-export type RunSeverity =
-  'ok' | 'running' | 'waiting' | 'failed' | 'exhausted' | 'cancelled';
 
 export type RunsStrings = ReturnType<typeof runsWords>;
 
@@ -590,121 +611,42 @@ export type RunsStrings = ReturnType<typeof runsWords>;
  * One run, in as much detail as the ledger holds.
  *
  * Its own editor tab rather than a section of the
- * list: the Gantt, the raw table and the rail are
- * a page, and the list is 300px wide.
+ * list: the graph and the trace are a page, and the
+ * list is 300px wide. What the run recorded about a
+ * block, or about the whole run, is the
+ * Inspector's, so none of its words travel here.
  */
 export type SeeInit = {
   type: 'init';
   view: 'see';
   strings: SeeStrings;
 
-  /**
-   * The Inspector's words, because the rail draws
-   * the Inspector's own card about whichever block
-   * is selected.
-   *
-   * A second bag rather than the card's words folded
-   * into this view's: the card is one component and
-   * two surfaces draw it, and a copy of its words
-   * per surface is how two surfaces come to word one
-   * card differently.
-   */
-  inspector: InspectorStrings;
-
   run: SeeRun | undefined;
 
   /** Which of the two views of the run is on
-   *  screen. Held by the extension, because a view
-   *  is disposed the moment it is hidden. */
+   *  screen. Held by the extension, because a
+   *  hidden tab's page is thrown away. */
   showing: 'graph' | 'trace';
 };
 
 export type SeeRun = {
+  /** The whole id, which the header gives only to a
+   *  pointer: the editor tab's title carries it. */
   workflowId: string;
 
+  /** `#7089`, the id a person reads a run by. */
+  short: string;
+
+  /** The workflow it is a run of. */
   name: string;
 
-  /** `mBoss › runs › groom_booking › wf_c9d2f3` */
-  breadcrumb: string;
+  /** Where it has got to, as the header's dot draws
+   *  it. */
+  state: GlyphState;
 
-  /** `SUCCESS · 8.2 s total` */
-  headline: string;
-
-  severity: RunSeverity;
-
-  /** `started 14:02:11 · finished 14:02:19` */
-  span: string;
-
-  /** The banner over a run DBOS picked back up. */
-  recovered:
-    | {
-        heading: string;
-
-        body: string;
-
-        /**
-         * How long nothing ran, and how many durable
-         * operations came back — each its own line
-         * so the page can mark it derived beside the
-         * figure rather than burying it in a
-         * paragraph.
-         *
-         * Absent where the steps are timed too
-         * closely together to place the gap at all,
-         * which is what the other form of the body
-         * is about.
-         */
-        figures: { down: string; reused: string } | undefined;
-      }
-    | undefined;
-
-  chips: SeeChip[];
-
-  timeline: SeeTimeline;
-
-  /** `dbos.operation_outputs`, as a table. */
-  raw: SeeRawRow[];
-
-  /** `dbos.workflow_status`, as the rail draws it. */
-  rail: { label: string; value: string }[];
-
-  /**
-   * The two controls, and what a run already
-   * carrying one of them says.
-   *
-   * Never both: cancel is meaningless once a run has
-   * stopped and resume is meaningless while one is
-   * still going, so the status column answers each
-   * of them and the answers cannot both be yes.
-   */
-  controls: {
-    cancel: boolean;
-
-    resume: boolean;
-
-    /**
-     * `10:58:22`, or `10:58:22 · by you` where this
-     * window is what asked.
-     *
-     * "by you" is window memory and nothing else —
-     * no column records who cancelled a run — so it
-     * goes when the window closes and is never
-     * claimed for a run cancelled anywhere else.
-     */
-    cancelled: string | undefined;
-
-    /** `charge_card · step 3`: how far the run got,
-     *  which is where resuming would carry on
-     *  from. */
-    lastRecorded: string | undefined;
-  };
-
-  /** Which step the replay button would fork
-   *  from. */
-  selectedStep: number | undefined;
-
-  /** What the last replay did, or would not do. */
-  note: string | undefined;
+  /** `groom_booking · done · 1.6 s`: the workflow,
+   *  then the line every surface sums a run up in. */
+  line: string;
 
   /**
    * The workflow as it is saved, laid out, with what
@@ -735,73 +677,27 @@ export type SeeRun = {
    *  drawn onto it. */
   live: ShownRun | undefined;
 
-  /** The trace, in the turns each block took. */
-  groups: TraceGroupView[];
+  /** The trace, one recorded operation to a row, in
+   *  the order DBOS numbered them, with the SDK's
+   *  own rows under the block row they ran beside. */
+  trace: TraceRowView[];
 
-  /** The block and the operation a person picked,
-   *  shared by both views of the run. */
+  /** The rows drawn under no block: a block the
+   *  saved document no longer has, or an SDK row
+   *  before any block's. */
+  unattributed: TraceRowView[];
+
+  /**
+   * The block a person picked, shared by both views
+   * of the run, and the row the trace marks: the row
+   * picked, else the row the picked block is headed
+   * by.
+   */
   selected: { nodeId: string | undefined; functionId: number | undefined };
-
-  /** Whether the rows DBOS wrote for itself are
-   *  shown. `raw` above is the table itself. */
-  showRaw: boolean;
 
   /** Whether a watch is still reading this run, and
    *  what it would take to find out if not. */
   following: 'following' | 'waiting' | 'quiet';
-
-  /** What the run was started with, as recorded. */
-  input: { text: string; cut: boolean } | undefined;
-
-  /**
-   * The lineage tree, from its top: the run this one
-   * was replayed from where there is one, this run
-   * otherwise.
-   *
-   * Absent where nothing was replayed either side of
-   * it, which is most runs. A tree rather than the
-   * two columns it is read from, because the page
-   * draws one picture whichever end of the fork it
-   * is showing.
-   */
-  lineage: SeeLineageRun | undefined;
-};
-
-/**
- * One run in the lineage tree.
- *
- * A replay forks a new execution and the run it came
- * from stays exactly where it was, so this is a tree
- * of runs that all still exist rather than a history
- * of one that changed.
- */
-export type SeeLineageRun = {
-  workflowId: string;
-
-  /** DBOS's own word, passed through as everywhere
-   *  else; `severity` is what it is drawn by. */
-  status: string;
-
-  severity: RunSeverity;
-
-  /**
-   * The first step this run ran for itself, and
-   * `replay from Refund payment` — or
-   * `replay from step 4` where the row at that step
-   * names no block the saved document still has.
-   *
-   * Both absent at the top of the tree, which
-   * nothing here is known to have come out of.
-   */
-  startStep: number | undefined;
-
-  from: string | undefined;
-
-  /** Whether this is the run the page is showing. */
-  here: boolean;
-
-  /** The runs replayed from it. */
-  forks: SeeLineageRun[];
 };
 
 /**
@@ -817,7 +713,13 @@ export type SeeGraph = {
 
   boxes: Record<string, NodeBox>;
 
-  labels: Record<NodeKind, string>;
+  /** What each kind is called inside a line, in the
+   *  active locale. */
+  kindWords: Record<NodeKind, string>;
+
+  /** How a run gets started, one phrase per way a
+   *  trigger can be set to. */
+  triggerPhrases: CanvasStrings['triggerPhrases'];
 
   /** The word after the kind of a block that runs
    *  code nobody has named yet. */
@@ -837,39 +739,35 @@ export type SeeGraph = {
   decided: Record<string, string>;
 };
 
-/** One block's turn, with whatever the SDK wrote
- *  while it was taking it. */
-export type TraceGroupView = {
-  /** The block it belongs to, where the saved
-   *  document still has one. */
-  nodeId: string | undefined;
+/**
+ * The one line under a trace row, in its parts.
+ *
+ * Kept apart rather than joined because each part
+ * is a different kind of claim, and the view draws
+ * each its own way, in this order: what the page
+ * worked out (a wake, a wait, a copy), what it
+ * names (a block, an error's class), and what the
+ * run recorded, exactly.
+ */
+export type TraceDetail = {
+  /** `wakes 14:04:11.000`, `restored · `: worked
+   *  out rather than read off the row. */
+  derived: string | undefined;
 
-  /** What to call it: the block's title, or the
-   *  recorded name where nothing owns it. */
-  title: string;
+  /** The block's title, or the class of what the
+   *  row threw. */
+  plain: string | undefined;
 
-  /** `· round 2`, `· 12 items`, or nothing. */
-  qualifier: string | undefined;
-
-  /**
-   * `asleep until 14:04:11.000` or
-   * `times out 14:04:11.000`, where the project's
-   * SDK records the row it is read off. Derived: it
-   * is a deadline the SDK wrote down rather than
-   * something that has happened.
-   */
-  wakes: string | undefined;
-
-  /** Whether it is open when the page is drawn. */
-  open: boolean;
-
-  failed: boolean;
-
-  operations: TraceOpView[];
+  /** What the row returned or the message it threw,
+   *  on one line, as recorded. */
+  verbatim: string | undefined;
 };
 
-/** One recorded row, as the trace draws it. */
-export type TraceOpView = {
+/**
+ * One row of the trace: a recorded operation, and
+ * the rows the SDK wrote beside it.
+ */
+export type TraceRowView = {
   functionId: number;
 
   /** The name the ledger recorded. */
@@ -878,22 +776,6 @@ export type TraceOpView = {
   owner: 'node' | 'sdk' | 'unmapped';
 
   state: 'done' | 'failed' | 'waiting';
-
-  /** `14:02:19.240`, or nothing where DBOS did not
-   *  time it. */
-  at: string | undefined;
-
-  /** What it returned, cut where it was long. */
-  output: string | undefined;
-
-  outputCut: boolean;
-
-  /** What it failed with. */
-  error: string | undefined;
-
-  /** Whether it came back from the ledger rather
-   *  than running again. */
-  restored: boolean;
 
   /**
    * Whether it was carried over from the run this
@@ -915,92 +797,459 @@ export type TraceOpView = {
   /** The run a fan-out item started, where it
    *  started one. */
   childWorkflowId: string | undefined;
-};
 
-export type SeeChip = {
-  functionId: number;
+  /** The block it is drawn under, where it is drawn
+   *  under one. */
+  nodeId: string | undefined;
 
-  name: string;
+  /** `1.2 s`, where DBOS timed both ends and the
+   *  two are a length of time. A child start is
+   *  written with one clock read for both, and a
+   *  sleep's end is a deadline, so neither has one.
+   *  Waiting on that child carries the same id and
+   *  does have one: the reason a row is blanked is
+   *  that its two ends are one moment, not that a
+   *  child is named. */
+  duration: string | undefined;
 
-  /** Whether its output came back from Postgres
-   *  rather than from running the code again. */
-  restored: boolean;
+  detail: TraceDetail;
 
-  /** Whether it was carried over from the run this
-   *  one was replayed from. */
-  reused: boolean;
+  /** `fail` on a row that threw, `faint` otherwise. */
+  detailTone: 'fail' | 'faint';
 
-  failed: boolean;
+  /** `recordIntake · 2 durable operations`: what
+   *  opens the rows under it, where there are any. */
+  sdkLabel: string | undefined;
 
-  /** Whether a replay may start here, and why not
-   *  when it may not. */
-  replayable: boolean;
-
-  because: string | undefined;
-};
-
-/**
- * The Gantt, in fractions of its own window.
- *
- * Fractions rather than pixels because the panel
- * is resizable and the host has no idea how wide
- * it is. The arithmetic is done once, here, rather
- * than in a renderer that would have to be given
- * the window to do it.
- */
-export type SeeTimeline = {
-  bars: SeeBar[];
-
-  /** The hatched band, when a crash could be
-   *  placed. */
-  outage: SeeOutage | undefined;
-
-  ticks: { at: number; label: string }[];
-};
-
-export type SeeBar = {
-  functionId: number;
-
-  name: string;
-
-  /** `0` is the left edge of the window, `1` the
-   *  right. Absent when DBOS did not time it. */
-  at: { from: number; width: number } | undefined;
-
-  restored: boolean;
-
-  /** Whether it was carried over from the run this
-   *  one was replayed from. */
-  reused: boolean;
-
-  failed: boolean;
-};
-
-export type SeeOutage = {
-  from: number;
-
-  width: number;
-
-  /** `process down · 2.9 s` */
-  down: string;
-
-  /** `resumed by DBOS` */
-  resumed: string;
-};
-
-export type SeeRawRow = {
-  stepId: number;
-
-  fn: string;
-
-  /** Exactly the bytes the column holds, cut to
-   *  something a cell can carry. */
-  output: string;
-
-  committedAt: string;
+  /** The rows the SDK wrote beside it, in the order
+   *  they ran. Always empty on one of those. */
+  sdk: TraceRowView[];
 };
 
 export type SeeStrings = ReturnType<typeof seeWords>;
+
+/**
+ * The Inspector: one pane in the side bar about
+ * whichever canvas or run tab was last in front.
+ *
+ * One pane rather than a column in each surface,
+ * so a block reads the same wherever somebody
+ * picked it, and the run tab has room for its
+ * graph and its trace. The host decides what the
+ * pane is about and sends the whole of it; the
+ * pane, like every other view, holds nothing it
+ * cannot afford to lose — a group folded, a field
+ * being typed in.
+ */
+export type InspectorInit = {
+  type: 'init';
+  view: 'inspector';
+  strings: InspectorStrings;
+  subject: InspectorSubject;
+};
+
+/**
+ * What the pane is about: nothing, a block, or a
+ * whole run.
+ *
+ * Nothing still names the canvas file when a canvas
+ * is in front, so a person can tell an empty pane
+ * waiting on that canvas from one about no surface
+ * at all.
+ */
+export type InspectorSubject =
+  | { at: 'none'; file: string | undefined }
+  | { at: 'block'; block: BlockSubject }
+  | { at: 'run'; run: RunLevel };
+
+/**
+ * A block, from a canvas or from the run tab.
+ *
+ * Configure reads the document buffer on either
+ * surface, because an edit lands in the buffer and
+ * the run tab's own copy was read off disk once.
+ */
+export type BlockSubject = {
+  source: 'canvas' | 'run';
+
+  /**
+   * Where the document is. The pane draws the blocks
+   * of every open document, and two documents can
+   * share a name and their blocks' ids, so this is
+   * what tells one block's form from the other's.
+   */
+  path: string;
+
+  workflow: string;
+
+  /**
+   * The block as the document buffer holds it — a
+   * canvas session's read, or the text document's,
+   * never the run's disk copy — and nothing where
+   * the document no longer has it: a block a run
+   * recorded and the document has lost since, which
+   * has nothing to configure.
+   */
+  node: WorkflowNode | undefined;
+
+  /** Present when the buffer parses and no proposal
+   *  is showing: what every edit carries as
+   *  `baseRevision`. */
+  revision: number | undefined;
+
+  nodeId: string;
+
+  face: InspectorMode;
+
+  /** What core says about this block, beside the
+   *  field that is a way out of each finding: the
+   *  sentence the Problems panel is showing. */
+  notes: Record<string, string[]>;
+
+  /** Where each way out of a decided branch leads;
+   *  nothing for any other block. */
+  outcomes: DecisionOutcome[];
+
+  /** What the project's code-behind offers, which
+   *  is what the picker offers; nothing where the
+   *  code has not been read. */
+  lib: LibFunction[] | undefined;
+
+  kindWords: Record<NodeKind, string>;
+
+  /** What the run the surface follows recorded
+   *  about the block; nothing where it follows
+   *  none. */
+  evidence: BlockEvidence | undefined;
+
+  /** Only on a trigger block. */
+  runInput: RunInputView | undefined;
+
+  /**
+   * The sentence the canvas shows over an agent's
+   * proposal, when one is waiting on this document
+   * and is why `revision` is held back.
+   *
+   * Only on the run tab. A canvas lets go of its
+   * selection when a proposal arrives, so a canvas
+   * block never has one to explain; a block picked
+   * on a run stays, and has to say why it cannot be
+   * edited.
+   */
+  proposal: string | undefined;
+};
+
+/**
+ * Which block a message from the pane is about: the
+ * surface it was picked on, the document it is in
+ * and its id.
+ *
+ * Said in every message about a block, because one
+ * pane draws them all and what is in front can
+ * change between a message being made and it being
+ * heard.
+ */
+export type BlockAbout = Pick<BlockSubject, 'source' | 'path' | 'nodeId'>;
+
+/**
+ * What one run recorded about one block, finished
+ * for the pane the way the card about a whole run
+ * is.
+ *
+ * Present with no rows whenever a run is followed —
+ * a trigger writes none, and a block the run has
+ * not reached has written none yet — and absent
+ * only where no run is. Times stay epoch numbers:
+ * turning one into a clock is the reader's locale's
+ * business and belongs where the card is drawn.
+ */
+export type BlockEvidence = {
+  /** The run the rows are of, which every way on
+   *  from the face names. */
+  workflowId: string;
+
+  /** Its rows, in the order DBOS numbered them. */
+  rows: EvidenceRow[];
+
+  /**
+   * The one row the face draws in full: the row
+   * somebody picked, where it is one of this
+   * block's, and the block's headline otherwise —
+   * its latest failure, else its latest row. A pick
+   * that is another block's row is not an answer
+   * about this block, so it falls back to the
+   * headline rather than to nothing.
+   */
+  drawn: EvidenceRow | undefined;
+
+  /** Whether the drawn row is one somebody picked,
+   *  rather than the headline. */
+  picked: boolean;
+
+  /** Where the block got to, for the head of the
+   *  pane. Nothing where the run says nothing about
+   *  it, and nothing for a queue block: its state is
+   *  its children's, seldom all at one. */
+  state: BlockState | undefined;
+
+  /**
+   * When the run parked here, where it is parked
+   * here now: the moment the registration landed.
+   * A time and never a count, because nothing is
+   * still reading a run that parked.
+   */
+  waitingSince: number | undefined;
+
+  /** How many times round this run went inside the
+   *  block, where it is a loop and went round at
+   *  all. */
+  rounds: number | undefined;
+
+  /** What the drawn row returned, as the face draws
+   *  it: nothing where it returned nothing, or where
+   *  the block is a wait on the clock, whose row's
+   *  value is the time it wakes. */
+  output: RecordedValue | undefined;
+
+  /** A queue block's card, whose readings are
+   *  counted rather than recorded. */
+  queue: QueueCardEvidence | undefined;
+};
+
+/**
+ * Where a block got to: read off its drawn row, or
+ * worked out — a trigger fired because the run
+ * exists, and a block with no row yet is where the
+ * run may be — which the line says, so a pointer
+ * and a screen reader find it.
+ */
+export type BlockState =
+  | { word: StepWord; read: 'row'; functionId: number }
+  | { word: StepWord; read: 'derived'; derived: 'trigger' | 'running' };
+
+/** One row the ledger holds for a block. */
+export type EvidenceRow = {
+  /** DBOS's own numbering, which is the order the
+   *  rows ran in. */
+  functionId: number;
+
+  /** The name the ledger recorded, whole. */
+  name: string;
+
+  /** Which part of the block this row is — `[2]`,
+   *  `.r3`, `.register` — or nothing where the block
+   *  wrote a single row. */
+  part: string | undefined;
+
+  state: StepState;
+
+  startedAt: number | undefined;
+
+  completedAt: number | undefined;
+
+  /** How long it took, where the SDK timed both
+   *  ends. */
+  durationMs: number | undefined;
+
+  /** What it returned, as far as the reading kept
+   *  it. */
+  output: string | undefined;
+
+  /** The same value with the serializer's wrapper
+   *  off, which is the form a person reads. */
+  shown: string | undefined;
+
+  /** How big the stored value was before any cut. */
+  bytes: number;
+
+  /** Whether the step returned nothing at all, which
+   *  is not the same as returning `null`. */
+  absent: boolean;
+
+  error: StepError | undefined;
+
+  /** Whether the output came back from Postgres
+   *  rather than from running the code again. */
+  restored: boolean;
+
+  /** Whether the row was carried over from the run
+   *  this one was replayed from. */
+  reused: boolean;
+
+  /** Whether the SDK wrote the row for itself under
+   *  the block, rather than the block writing it. */
+  sdk: boolean;
+};
+
+/** Which reading a row on a queue block's card is,
+ *  which is also the word it is drawn under. */
+export type QueueRowId = keyof InspectorStrings['queueRows'];
+
+/**
+ * One reading on a queue block's card.
+ *
+ * A shape of its own rather than an `EvidenceRow`:
+ * those are the ledger's rows for a block, keyed by
+ * the number DBOS gave each of them. A queue
+ * block's counts are none of that — no row anywhere
+ * holds them.
+ */
+export type QueueRow = {
+  id: QueueRowId;
+
+  label: string;
+
+  value: string;
+
+  /** Whether the panel worked the figure out or
+   *  found it in the document. Every reading on the
+   *  card says which, because half of them are the
+   *  run and half of them are what somebody wrote. */
+  provenance: 'derived' | 'configured';
+};
+
+/**
+ * A queue block's card: every reading on it, in the
+ * order drawn, and the items the block started,
+ * newest first, where the whole queue was read.
+ */
+export type QueueCardEvidence = {
+  rows: QueueRow[];
+
+  recent: QueueItem[];
+};
+
+/**
+ * Where one way out of a decision leads.
+ *
+ * A branch that runs a function has no predicates
+ * to edit — the function decided these — so its
+ * cases are read beside the wires they stand for.
+ * The word for an outcome nothing is wired to is
+ * the pane's, not this: this says which block, or
+ * none, and the pane draws it.
+ */
+export type DecisionOutcome = {
+  /** The value the function returns to take this
+   *  way out, as it reads. */
+  value: string;
+
+  /** The title of the block it leads to, absent
+   *  where the port is unwired. */
+  target: string | undefined;
+};
+
+/**
+ * The Runs view, as a trigger's card shows it: read
+ * there and never written from here, so the view
+ * stays the one place a run's input is typed, and
+ * worked out on the host, so the card draws it.
+ */
+export type RunInputView = {
+  /** The saved workflow this document is, by name,
+   *  where the Runs view has one: the name a run
+   *  starts. */
+  saved: string | undefined;
+
+  /** What Run would start the workflow with, as the
+   *  card draws it, and whether it is JSON; nothing
+   *  for an empty box. */
+  sample: { value: RecordedValue; json: boolean } | undefined;
+
+  /** The sentence saying Run switches the Runs view,
+   *  where it is set to another workflow. */
+  switches: string | undefined;
+
+  /** Why the Runs view's last start of this workflow
+   *  was refused, where it was. */
+  refused: string | undefined;
+
+  /**
+   * Whether Run would start what the canvas shows —
+   * the saved workflow, by name — or the one
+   * sentence saying why not. A trigger on a
+   * schedule is started by DBOS and never by Run,
+   * which the pane says in the run's place, reading
+   * the draft's mode rather than the file's.
+   */
+  start: { ok: true; workflow: string } | { ok: false; reason: string };
+};
+
+/**
+ * A whole run, when one is in front and no block of
+ * it is picked.
+ *
+ * The recovery sentences, the lineage and the
+ * replay note are read only on the run tab, which
+ * reads the ledger for them; a run a canvas follows
+ * carries none of the three.
+ */
+export type RunLevel = {
+  source: 'canvas' | 'run';
+
+  workflowId: string;
+
+  short: string;
+
+  workflow: string;
+
+  state: GlyphState;
+
+  /** The run's one line: "done · 1.6 s",
+   *  "waiting", "done · 9.1 s · ↻ recovered". */
+  line: string;
+
+  input: RecordedValue | undefined;
+
+  ledger: { label: string; value: string }[];
+
+  recovery: string[] | undefined;
+
+  /** The parent first (at most one `of`), then one
+   *  `to` per replay started from this run; empty
+   *  when nothing was replayed either side. */
+  lineage: RunLineage[];
+
+  controls: {
+    cancel: boolean;
+    resume: boolean;
+    cancelledAt: string | undefined;
+    gaveUp: boolean;
+  };
+
+  /** Whether Replay from start (a fork at step 0)
+   *  is on offer; `replayRefused` says why when it
+   *  is not. */
+  replayStart: boolean;
+
+  replayRefused: string | undefined;
+
+  note: string | undefined;
+};
+
+/** One lineage line. The view composes the words,
+ *  because each id in them is a Button. */
+export type RunLineage =
+  | {
+      /** The run this one was replayed from. */
+      direction: 'of';
+      workflowId: string;
+      short: string;
+      /** This run's own first step: where the
+       *  replay forked. */
+      startStep: number;
+    }
+  | {
+      /** A replay started from this run. */
+      direction: 'to';
+      workflowId: string;
+      short: string;
+      /** The replay's own first step. */
+      startStep: number;
+      /** The replay's word, as a run's outcome is
+       *  said. */
+      word: string;
+    };
 
 /**
  * The patterns a workflow can be started from.

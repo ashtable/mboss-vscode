@@ -25,6 +25,9 @@ import type {
   WorkflowIR,
   WorkflowNode,
 } from '../core/rules.js';
+import { emitter } from '../emitter.js';
+import type { InspectorFocus } from '../inspector/focus.js';
+import type { BlockInputs } from '../inspector/surface.js';
 import { messages } from '../messages.js';
 import { openHandler, openSourceFrame } from '../openHandler.js';
 import type { PreviewModel } from '../preview/model.js';
@@ -36,7 +39,6 @@ import { mountWebview, type Heard } from '../webview/host.js';
 import type {
   CanvasDocument,
   CanvasInit,
-  CanvasInspector,
   InspectorMode,
   ShownRun,
 } from '../webview/protocol.js';
@@ -50,12 +52,8 @@ import {
 } from './edits.js';
 import { layoutKeyOf, onTheGrid } from './placement.js';
 import { misfitNote } from './misfit.js';
-import {
-  canvasWords,
-  inspectorWords,
-  misfitWords,
-  paletteLabels,
-} from './words.js';
+import type { CanvasSessions } from './sessions.js';
+import { canvasWords, kindWords, misfitWords, paletteLabels } from './words.js';
 
 /**
  * The editor a workflow document opens in.
@@ -125,55 +123,15 @@ export type CanvasRuns = {
   /**
    * Puts one run on screen in the flight recorder.
    *
-   * The way out of the column: a card here says what
-   * the run recorded about one block, and the whole
-   * run is a page. The canvas hands over an id and
-   * nothing else — which run the page then reads,
-   * and whether it opens a tab or reveals the one
-   * that is already there, is the store's answer.
+   * The way out of the toolbar's followed-run chip:
+   * the canvas draws where a run has got to, and
+   * the whole run is a page. The canvas hands over
+   * an id and nothing else — which run the page then
+   * reads, and whether it opens a tab or reveals the
+   * one that is already there, is the store's
+   * answer.
    */
   openRun(workflowId: string): Promise<void>;
-
-  /**
-   * Offers a replay of that run from that block.
-   *
-   * A block and not a row: a card here is one
-   * block's turn, and a block that ran more than
-   * once has several rows behind it. Which of them a
-   * replay would start from, and whether it may
-   * start at all, is decided where the run's rows
-   * are — the canvas holds a drawing and none of
-   * them.
-   */
-  replayFrom(workflowId: string, nodeId: string): Promise<void>;
-
-  /**
-   * Hands that run to the agent, with the block a
-   * card was showing.
-   *
-   * Any run the ledger has rather than only the one
-   * this canvas is drawing itself against: what is
-   * read about a run is read where the run's rows
-   * are, and the canvas holds no rows at all.
-   */
-  askAgent(ask: {
-    workflowId: string;
-    nodeId?: string;
-    functionId?: number;
-  }): Promise<void>;
-
-  /**
-   * Reads what one queue block is doing beyond this
-   * run's own share of it.
-   *
-   * Asked when somebody opens the block's card and
-   * never on a tick: the whole queue, what the
-   * running app registered and the items themselves
-   * are three statements that change too slowly to
-   * poll. The answer arrives as the run does, on
-   * the next draw.
-   */
-  inspectQueue(workflowId: string, nodeId: string): Promise<void>;
 
   onChanged(listener: () => void): Disposable;
 };
@@ -198,20 +156,6 @@ export type CanvasCode = {
 export class WorkflowCanvasEditor implements CustomTextEditorProvider {
   static readonly viewType = 'mboss.workflowCanvas';
 
-  /**
-   * Every canvas that is open, so a command can find
-   * the one it is about.
-   *
-   * A command runs from the palette with no argument
-   * and no idea which tab is in front of anybody, and
-   * a workflow is edited in a panel rather than in a
-   * `TextEditor` the platform would hand over. So the
-   * panels say who they are, and the platform's own
-   * `active` flag answers which of them a person is
-   * looking at.
-   */
-  private static readonly open = new Map<WebviewPanel, CanvasSession>();
-
   constructor(
     private readonly extensionUri: Uri,
     private readonly api: VsCodeApi,
@@ -220,6 +164,8 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     private readonly trust: Trust,
     private readonly code: CanvasCode,
     private readonly agent: Agent,
+    private readonly sessions: CanvasSessions,
+    private readonly focus: InspectorFocus,
   ) {}
 
   static register(
@@ -230,6 +176,8 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
     trust: Trust,
     code: CanvasCode,
     agent: Agent,
+    sessions: CanvasSessions,
+    focus: InspectorFocus,
   ): Disposable {
     return window.registerCustomEditorProvider(
       WorkflowCanvasEditor.viewType,
@@ -241,19 +189,11 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         trust,
         code,
         agent,
+        sessions,
+        focus,
       ),
       { supportsMultipleEditorsPerDocument: false },
     );
-  }
-
-  /** The canvas a person is looking at, if one is on
-   *  screen. */
-  static active(): CanvasSession | undefined {
-    for (const [panel, session] of WorkflowCanvasEditor.open) {
-      if (panel.active) return session;
-    }
-
-    return undefined;
   }
 
   async resolveCustomTextEditor(
@@ -268,39 +208,79 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
       this.trust,
       this.agent,
     );
+    // Heard before the first read rather than after
+    // the mount, because that read lays the graph
+    // out and a tab can be closed while it runs: a
+    // panel already closed by then has said so, and
+    // everything below would be left with nobody to
+    // take it back out again.
+    //
+    // Out of the registry before focus moves on, so
+    // whoever hears the move never finds this canvas
+    // still open.
+    let closed = false;
+    const letGo: Disposable[] = [];
+
+    panel.onDidDispose(() => {
+      closed = true;
+      for (const one of letGo.splice(0)) one.dispose();
+    });
+
     await session.reread();
 
-    WorkflowCanvasEditor.open.set(panel, session);
+    // Nothing to open for a tab that has gone: a
+    // closed panel throws at whoever asks it
+    // anything, this canvas among them.
+    if (closed) return;
 
-    const mounted = mountWebview(panel, {
+    const registered = this.sessions.register(
+      document.uri.fsPath,
+      session,
+      panel,
+    );
+
+    // Followed once registered, so whoever hears
+    // focus move to this canvas finds it open.
+    const focused = this.focus.follow({ at: 'canvas', session }, panel);
+
+    letGo.push(registered, focused);
+
+    // The session says when it moved, whether or not
+    // the frame is showing: a hidden frame is not
+    // painted, and the Inspector drawing this canvas's
+    // block has to be right all the same. The frame
+    // draws itself from that word, so a selection the
+    // Inspector lets go of is drawn on the board too.
+    // Let go of after the registration, which forwards
+    // it, has let go itself.
+    letGo.push({ dispose: () => session.dispose() });
+
+    mountWebview(panel, {
       extensionUri: this.extensionUri,
       view: 'canvas',
       title: basename(document.uri.path),
       init: () => session.init(),
-      heard: (message) => {
-        if (session.heard(message)) mounted.repaint();
-      },
+      heard: (message) => session.heard(message),
       follows: [
+        (repaint) => session.onChanged(repaint),
+
         // A change to the file from anywhere — a hand
         // edit in the JSON view, an agent writing
         // through the control plane — is read again
         // and drawn.
-        (repaint) =>
+        () =>
           this.api.onDocumentChanged((changedDocument) => {
             if (changedDocument.uri.toString() !== document.uri.toString()) {
               return;
             }
 
-            void session.reread().then(repaint);
+            void session.reread();
           }),
 
         // A proposal can appear or be answered while
         // this panel is open, and it changes what the
         // panel is drawing — not only what it says.
-        (repaint) =>
-          this.preview.onChanged(() => {
-            void session.reread().then(repaint);
-          }),
+        () => this.preview.onChanged(() => void session.reread()),
 
         // A run moves while the document sits still, so
         // this is a repaint rather than a re-read: the
@@ -311,10 +291,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         // most runs are runs of some other workflow, so
         // the session says whether this canvas is
         // drawing anything different.
-        (repaint) =>
-          this.runs.onChanged(() => {
-            if (session.followRun()) repaint();
-          }),
+        () => this.runs.onChanged(() => session.followRun()),
 
         // A manifest is a type-check of the project's
         // code-behind, far too slow to open a file
@@ -323,10 +300,7 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         // moment the scan lands — which in a restricted
         // window is when the person trusts the folder,
         // and not before.
-        (repaint) =>
-          this.trust.onGranted(() => {
-            void session.scan().then(repaint);
-          }),
+        () => this.trust.onGranted(() => void session.scan()),
 
         // A function written into `lib/` while this tab
         // is open is one the palette, the picker and the
@@ -335,20 +309,14 @@ export class WorkflowCanvasEditor implements CustomTextEditorProvider {
         // the project has been generated, which is when
         // its code-behind was last read; the scan itself
         // is a hash of the files when nothing changed.
-        (repaint) =>
+        () =>
           this.code.onGenerated((project) => {
-            if (session.inProject(project)) {
-              void session.scan().then(repaint);
-            }
+            if (session.inProject(project)) void session.scan();
           }),
       ],
     });
 
-    void session.scan().then(mounted.repaint);
-
-    panel.onDidDispose(() => {
-      WorkflowCanvasEditor.open.delete(panel);
-    });
+    void session.scan();
   }
 }
 
@@ -373,7 +341,7 @@ export class CanvasSession {
   private live: PreviewModel | undefined;
 
   /**
-   * The block the Inspector column is showing.
+   * The block selected on this canvas.
    *
    * A fact about this one open canvas rather than
    * about the window: two canvases are two
@@ -390,17 +358,31 @@ export class CanvasSession {
    *
    * Undefined means nobody has said, which is not
    * the same as either face: with a run in focus the
-   * column opens on what it recorded, and without
+   * Inspector opens on what it recorded, and without
    * one there is nothing to open on. Held beside the
    * selection because it is the same kind of fact
-   * about the same column, and it is let go of in
+   * about the same block, and it is let go of in
    * the same place.
    */
-  private chosenMode: InspectorMode | undefined;
+  private chosenFace: InspectorMode | undefined;
 
   /** The run being followed, when it is a run of
    *  this workflow. */
   private run: ShownRun | undefined;
+
+  /**
+   * Said whenever this canvas moved: a selection, a
+   * face pick, a re-read, a run it follows, a scan
+   * that read something.
+   *
+   * Said by the session, since it is the one that
+   * knows. Nine sites in two modules used to say it
+   * on the session's behalf, three different ways,
+   * and a selection made from the Inspector's pane
+   * was drawn on the board only where the pane
+   * remembered to.
+   */
+  private readonly changes = emitter();
 
   constructor(
     private readonly document: TextDocument,
@@ -437,8 +419,33 @@ export class CanvasSession {
       ? onTheGrid(this.read.ir, await boxesFor(this.read.ir))
       : {};
 
-    this.followRun();
+    this.takeRun();
     this.reselect();
+    this.changes.fire();
+  }
+
+  /** Hears this canvas move, whether or not its frame
+   *  is showing. */
+  onChanged(listener: () => void): Disposable {
+    return this.changes.on(listener);
+  }
+
+  /** Lets go of everyone hearing it, once its tab has
+   *  gone. */
+  dispose(): void {
+    this.changes.dispose();
+  }
+
+  /**
+   * Takes the run this canvas is about, and says so
+   * where the panel is now drawing a different one.
+   *
+   * The store speaks up for everything it holds, and
+   * most runs are runs of some other workflow, so a
+   * tick that changes nothing here is silent.
+   */
+  followRun(): void {
+    if (this.takeRun()) this.changes.fire();
   }
 
   /**
@@ -453,7 +460,7 @@ export class CanvasSession {
    * identity because the store hands out a new
    * reading each time the ledger says something new.
    */
-  followRun(): boolean {
+  private takeRun(): boolean {
     const live = this.runs.live();
     const here = live?.workflow === this.name ? live : undefined;
 
@@ -465,7 +472,7 @@ export class CanvasSession {
     // out a fresh reading whenever the ledger says
     // anything new, and a face that reset on every
     // reading would be one nobody could hold.
-    if (here?.workflowId !== this.run?.workflowId) this.chosenMode = undefined;
+    if (here?.workflowId !== this.run?.workflowId) this.chosenFace = undefined;
 
     this.run = here;
 
@@ -490,6 +497,7 @@ export class CanvasSession {
     if (project === undefined) return;
 
     this.manifest = await Promise.resolve(manifestFor(project));
+    this.changes.fire();
   }
 
   /** Whether the document this canvas is drawing is
@@ -504,45 +512,53 @@ export class CanvasSession {
       view: 'canvas',
       strings: canvasWords(),
       paletteLabels: paletteLabels(),
+      kindWords: kindWords(),
+      triggerPhrases: canvasWords().triggerPhrases,
       document: this.read,
 
-      // Said once. Every gesture the panel sends
-      // carries this revision, and whether it may
-      // send one at all is the same fact: not over a
-      // file that will not parse, and not over a
-      // proposal nobody has approved.
-      editing:
-        this.read.ok && this.live === undefined
-          ? { revision: this.read.ir.revision }
-          : undefined,
+      editing: editingAt(this.revision()),
       boxes: this.boxes,
 
       // An unreadable document draws no graph at all,
       // so there is no picture for a key to name.
       layoutKey: this.read.ok ? layoutKeyOf(this.read.ir, this.boxes) : '',
 
-      // A proposal shows what the rules found when
-      // it was written, which is what the agent was
-      // told and what a person is being asked to
-      // approve.
-      diagnostics:
-        this.live?.diagnostics ??
-        (this.read.ok ? checkWorkflow(this.read.ir, this.manifest) : []),
-
+      diagnostics: this.diagnostics(),
       manifest: this.manifest,
-      inspector: this.inspector(),
+      selected: this.nodeAt(this.selected)?.id,
       preview: this.live === undefined ? undefined : canvasPreview(this.live),
       run: this.run,
+      decided: this.decided(),
+    };
+  }
 
-      // Asked only where this canvas is drawing a
-      // run of its own workflow: with no run there
-      // are no decisions, and with an unreadable
-      // file there is no document to read them
-      // against.
-      decided:
-        this.run === undefined || !this.read.ok
-          ? {}
-          : Object.fromEntries(this.runs.decided(this.read.ir)),
+  /**
+   * What the Inspector draws a block from, read off
+   * this canvas whether or not its panel is showing.
+   *
+   * Each field is worked out by the same rule the
+   * panel's own message uses, so the two never
+   * disagree. A canvas draws a block and none of its
+   * rows, and its rows come from the run it follows
+   * at that run's own moment, so the clock is not
+   * read here.
+   */
+  block(): BlockInputs {
+    return {
+      source: 'canvas',
+      file: basename(this.document.uri.fsPath),
+      path: this.document.uri.fsPath,
+      workflow: this.name,
+      read: this.read,
+      revision: this.revision(),
+      manifest: this.manifest,
+      diagnostics: this.diagnostics(),
+      selected: this.nodeAt(this.selected)?.id,
+      face: this.face(),
+      run: this.run,
+      decided: this.decided(),
+      proposedBy: this.live?.proposedBy,
+      functionId: undefined,
     };
   }
 
@@ -551,108 +567,38 @@ export class CanvasSession {
    * arriving while a proposal is drawn is refused
    * here rather than only being unreachable there.
    *
-   * Answers whether the panel has to be drawn
-   * again. Everything that writes the document is
-   * drawn again anyway, when the change comes back
-   * through `onDocumentChanged`; a selection is not
-   * in the document, so it is the one thing that has
-   * to say so.
+   * Everything that writes the document is drawn
+   * again when the change comes back through
+   * `onDocumentChanged`; a selection is not in the
+   * document, and `select` says so itself.
    */
-  heard(message: Heard<'canvas'>): boolean {
-    // Asked before the proposal gate, because
-    // neither writes the document: what a run
-    // recorded is readable whatever is drawn over
-    // the graph, and a card whose buttons went dead
-    // because somebody else's draft arrived would be
-    // a card nobody could trust.
+  heard(message: Heard<'canvas'>): void {
+    // Asked before the proposal gate, because it
+    // writes nothing: the run a canvas is following
+    // is readable whatever is drawn over the graph.
     if (message.type === 'openRun') {
       void this.runs.openRun(message.workflowId);
 
-      return false;
+      return;
     }
 
-    if (message.type === 'openOutput') {
-      this.showOutput(message.workflowId, message.functionId);
-
-      return false;
-    }
-
-    // A read as well, and one about the project
-    // rather than about this document: opening the
-    // code behind a block changes nothing here, so
-    // it does not go through the revision gate that
-    // every edit does.
-    if (message.type === 'openFunction') {
-      void this.showFunction(message.nodeId);
-
-      return false;
-    }
-
-    if (message.type === 'openErrorLocation') {
-      void this.showErrorLocation(message.nodeId, message.functionId);
-
-      return false;
-    }
-
-    // A write into the project's database rather
-    // than into this document, so it goes through
-    // neither the proposal gate nor the revision
-    // one. The block is all that travels; every
-    // question about the run is answered where the
-    // run's rows are.
-    if (message.type === 'replayFrom') {
-      if (message.nodeId !== undefined) {
-        void this.runs.replayFrom(message.workflowId, message.nodeId);
-      }
-
-      return false;
-    }
-
-    // A read too, and one whose answer arrives in
-    // another panel entirely — so nothing here is
-    // drawn again and no gate applies.
-    if (message.type === 'askAgent') {
-      void this.runs.askAgent(message);
-
-      return false;
-    }
-
-    // A read as well, and one that draws this panel
-    // again when it lands — but through the store's
-    // own change signal rather than from here, the
-    // way a tick does.
-    if (message.type === 'inspectQueue') {
-      void this.runs.inspectQueue(message.workflowId, message.nodeId);
-
-      return false;
-    }
-
-    if (this.live !== undefined) return false;
+    if (this.live !== undefined) return;
 
     if (message.type === 'select') {
       this.select(message.nodeId);
 
-      return true;
+      return;
     }
 
     if (message.type === 'text') {
       this.replaceText(message.text);
 
-      return false;
-    }
-
-    // Which face is showing is not in the document
-    // either, so the panel has to be drawn again for
-    // the same reason a selection does.
-    if (message.type === 'inspectorMode') {
-      this.chosenMode = message.mode;
-
-      return true;
+      return;
     }
 
     // Everything else this panel says is an edit, and
     // the compiler is what says so: what is left after
-    // those two is `EditMessage` exactly, so a new
+    // those is `EditMessage` exactly, so a new
     // message that is not an edit stops compiling here
     // rather than being quietly performed. An edit may
     // have to ask which way out of a block a new wire
@@ -660,9 +606,48 @@ export class CanvasSession {
     // when it lands is write the document, and the
     // panel is drawn again from that rather than from
     // here.
-    void this.perform(message);
+    void this.edit(message);
+  }
 
-    return false;
+  /**
+   * Shows that block in the Inspector, or nothing.
+   *
+   * Only a block the document on screen has: a
+   * selection names something a person can edit, so
+   * a draft on screen — where nothing can be — takes
+   * no selection at all. A selection is not in the
+   * document, so this is the one move nothing else
+   * would say.
+   */
+  select(nodeId: string | null): void {
+    if (this.live !== undefined) return;
+
+    this.selected = this.nodeAt(nodeId ?? undefined)?.id;
+    this.changes.fire();
+  }
+
+  /**
+   * Picks which of the Inspector's two faces shows,
+   * for as long as the same run is in focus.
+   *
+   * Refused over a draft for the reason a selection
+   * is, and said for the same reason too.
+   */
+  chooseFace(mode: InspectorMode): void {
+    if (this.live !== undefined) return;
+
+    this.chosenFace = mode;
+    this.changes.fire();
+  }
+
+  /**
+   * An edit, from this canvas's panel or from the
+   * Inspector: the gates, the question and the
+   * write, answered once it has landed or been
+   * refused.
+   */
+  edit(message: EditMessage): Promise<void> {
+    return this.perform(message);
   }
 
   /**
@@ -706,6 +691,48 @@ export class CanvasSession {
     return basename(this.document.uri.fsPath).replace(/\.workflow\.json$/, '');
   }
 
+  /**
+   * The revision an edit is made against, or none.
+   *
+   * Said once. Every gesture carries this revision,
+   * and whether one may be sent at all is the same
+   * fact: not over a file that will not parse, and
+   * not over a proposal nobody has approved.
+   */
+  private revision(): number | undefined {
+    return this.read.ok && this.live === undefined
+      ? this.read.ir.revision
+      : undefined;
+  }
+
+  /**
+   * What core makes of what is on screen.
+   *
+   * A proposal shows what the rules found when it
+   * was written, which is what the agent was told
+   * and what a person is being asked to approve.
+   */
+  private diagnostics(): CanvasInit['diagnostics'] {
+    return (
+      this.live?.diagnostics ??
+      (this.read.ok ? checkWorkflow(this.read.ir, this.manifest) : [])
+    );
+  }
+
+  /**
+   * Which way out each decided block took.
+   *
+   * Asked only where this canvas is drawing a run of
+   * its own workflow: with no run there are no
+   * decisions, and with an unreadable file there is
+   * no document to read them against.
+   */
+  private decided(): CanvasInit['decided'] {
+    return this.run === undefined || !this.read.ok
+      ? {}
+      : Object.fromEntries(this.runs.decided(this.read.ir));
+  }
+
   /** The outstanding proposal about this document,
    *  if there is one. */
   private proposalHere(): PreviewModel | undefined {
@@ -716,19 +743,8 @@ export class CanvasSession {
       : this.preview.forWorkflow(project, this.name);
   }
 
-  /** The column's words, and the block it is
-   *  showing — by id, since the panel holds the
-   *  document the block is in. */
-  private inspector(): CanvasInspector {
-    return {
-      strings: inspectorWords(),
-      selected: this.nodeAt(this.selected)?.id,
-      mode: this.mode(),
-    };
-  }
-
   /**
-   * Which face the column shows.
+   * Which face the Inspector shows.
    *
    * With no run there is nothing recorded to read,
    * so the question does not arise. With one, what
@@ -736,10 +752,10 @@ export class CanvasSession {
    * they say otherwise, and then that is what they
    * get for as long as it is the same run.
    */
-  private mode(): InspectorMode {
+  private face(): InspectorMode {
     if (this.run === undefined) return 'configure';
 
-    return this.chosenMode ?? 'evidence';
+    return this.chosenFace ?? 'evidence';
   }
 
   /**
@@ -757,14 +773,20 @@ export class CanvasSession {
    * A row the ledger recorded no value for has
    * nothing to open, and an empty tab over it would
    * say there was something there.
+   *
+   * A read, so no gate applies: what a run recorded
+   * is readable whatever is drawn over the graph,
+   * and a card whose buttons went dead because
+   * somebody else's draft arrived would be a card
+   * nobody could trust.
    */
-  private showOutput(workflowId: string, functionId: number): void {
+  async openOutput(workflowId: string, functionId: number): Promise<void> {
     if (this.run?.workflowId !== workflowId) return;
 
     const stored = this.runs.output(workflowId, functionId);
     if (stored === undefined) return;
 
-    void this.api.showText(stored, 'json');
+    await this.api.showText(stored, 'json');
   }
 
   /**
@@ -775,19 +797,20 @@ export class CanvasSession {
    * has read — so a window nobody has trusted, where
    * there is no scan, opens nothing rather than
    * running one to answer a click.
+   *
+   * About the project rather than this document, so
+   * it goes through neither the proposal gate nor
+   * the revision one: looking at the code behind a
+   * block changes nothing here.
    */
-  private async showFunction(nodeId: string): Promise<void> {
+  async openFunction(nodeId: string): Promise<void> {
     const project = projectOf(this.document.uri.fsPath);
     const node = this.nodeAt(nodeId);
 
     if (project === undefined || node === undefined) return;
     if (this.manifest === undefined) return;
 
-    const unknown = await openHandler(this.api, project, this.manifest, node);
-
-    if (unknown !== undefined) {
-      this.api.info(messages.openFunctionUnknown(unknown));
-    }
+    await openHandler(this.api, project, this.manifest, node);
   }
 
   /**
@@ -801,10 +824,7 @@ export class CanvasSession {
    * longer has. Neither is worth a sentence — there
    * is simply nothing to go to.
    */
-  private async showErrorLocation(
-    nodeId: string,
-    functionId: number,
-  ): Promise<void> {
+  async openErrorLocation(nodeId: string, functionId: number): Promise<void> {
     const project = projectOf(this.document.uri.fsPath);
     if (project === undefined) return;
 
@@ -812,15 +832,7 @@ export class CanvasSession {
       (one) => one.nodeId === nodeId && one.functionId === functionId,
     );
 
-    const gone = await openSourceFrame(this.api, project, row?.error?.frame);
-
-    if (gone !== undefined) {
-      this.api.info(messages.errorLocationGone(gone));
-    }
-  }
-
-  private select(nodeId: string | null): void {
-    this.selected = this.nodeAt(nodeId ?? undefined)?.id;
+    await openSourceFrame(this.api, project, row?.error?.frame);
   }
 
   /** The node by that id, if the document on screen
@@ -832,7 +844,7 @@ export class CanvasSession {
   }
 
   /**
-   * Keeps the column on the same node after the
+   * Keeps the selection on the same node after the
    * document changes, and lets it go when the node
    * is gone — or when a proposal has taken the
    * document's place, since there is then nothing
@@ -940,7 +952,7 @@ export class CanvasSession {
     if (!this.read.ok) return undefined;
     if (baseRevision === this.read.ir.revision) return this.read.ir;
 
-    this.api.info(messages.canvasEditStale());
+    this.api.say(messages.canvasEditStale());
 
     return undefined;
   }
@@ -977,7 +989,7 @@ export class CanvasSession {
    * through the document VS Code owns, which is what
    * puts it on the undo stack beside every other
    * edit to the file. What follows a write — the
-   * block the column shows next, the row in the
+   * block selected next, the row in the
    * agent's transcript — follows only what actually
    * landed: a refused or stale edit has already been
    * said out loud, and a row about it would claim
@@ -990,7 +1002,7 @@ export class CanvasSession {
     if (outcome.at === 'nothing') return;
 
     if (outcome.at === 'refused') {
-      this.api.info(refusalOf(outcome));
+      this.api.say(refusalOf(outcome));
 
       return;
     }
@@ -1014,6 +1026,12 @@ export class CanvasSession {
       }),
     );
   }
+}
+
+/** The editing slot of a panel's message, from the
+ *  revision an edit would be made against. */
+function editingAt(revision: number | undefined): CanvasInit['editing'] {
+  return revision === undefined ? undefined : { revision };
 }
 
 /**

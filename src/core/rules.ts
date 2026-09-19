@@ -73,10 +73,12 @@ export type { Diagnostic } from '../../mboss-core/src/validate/index.js';
 export {
   HANDLER_KINDS,
   decisionValues,
+  declaredTypeMisfit,
   handlerFit,
 } from '../../mboss-core/src/validate/handler-fit.js';
 
 export type {
+  DeclaredTypeMisfit,
   HandlerFit,
   HandlerMisfit,
 } from '../../mboss-core/src/validate/handler-fit.js';

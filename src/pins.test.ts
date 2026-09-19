@@ -23,7 +23,7 @@ const gitmodules = readFileSync(join(REPO_ROOT, '.gitmodules'), 'utf8');
 
 describe('the nested library', () => {
   it('is pinned to the released branch', () => {
-    expect(gitmodules).toMatch(/^\s*branch = core-v0\.0\.7$/m);
+    expect(gitmodules).toMatch(/^\s*branch = core-v0\.0\.13$/m);
   });
 
   it('is nested at the path the aliases point at', () => {
@@ -50,7 +50,7 @@ describe('the nested library', () => {
 describe('the vendored control plane', () => {
   it('takes the server from its released branch', () => {
     expect(gitmodules).toMatch(/^\s*path = mboss-mcp-server$/m);
-    expect(gitmodules).toMatch(/^\s*branch = mcp-server-v0\.0\.2$/m);
+    expect(gitmodules).toMatch(/^\s*branch = mcp-server-v0\.0\.8$/m);
   });
 
   it('takes the skill from its own released branch', () => {

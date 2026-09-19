@@ -17,7 +17,12 @@ import {
   toolKey,
   type Memento,
 } from './permissions.js';
-import { promptBlocks, type AgentPrompt } from './prompt.js';
+import {
+  attachmentOf,
+  promptBlocks,
+  type AgentPrompt,
+  type PromptAttachment,
+} from './prompt.js';
 import type { AgentCommand, AgentId } from './registry.js';
 import {
   IDLE,
@@ -27,7 +32,13 @@ import {
   type SessionEvent,
   type SessionState,
 } from './session.js';
-import { foldUpdate, said, type PermissionPrompt } from './transcript.js';
+import {
+  editsIn,
+  foldUpdate,
+  nextActions,
+  said,
+  type PermissionPrompt,
+} from './transcript.js';
 import type {
   DiagnosticEntry,
   FileEditEntry,
@@ -40,12 +51,12 @@ import type {
  *
  * One of these lives for as long as the window
  * does, outside every view. That is the point: the
- * panel is a view in the activity bar, and VS Code
- * disposes a hidden view and builds it again when
- * it is shown. A session held by the view would be
+ * panel is a view in the activity bar, which loses
+ * its page whenever it is hidden and can be closed
+ * altogether. A session held by the view would be
  * a second agent process every time somebody
- * selected a node, and a transcript held by the
- * view would be gone with it.
+ * collapsed the panel, and a transcript held by
+ * the view would be gone with it.
  *
  * So the agent starts on the first thing somebody
  * types, never on a view being resolved, and
@@ -74,6 +85,18 @@ export type PanelState = {
   prompt: PermissionPrompt | undefined;
 
   failure: Failure | undefined;
+
+  /**
+   * Where the session runs, so a file the agent
+   * names can be drawn by its place in the project.
+   * The panel's host is the one thing that knows,
+   * and it is private to this module.
+   */
+  project: string | undefined;
+
+  /** The files the next thing somebody types will
+   *  carry, in the order they were picked. */
+  attached: PromptAttachment[];
 };
 
 /**
@@ -97,6 +120,11 @@ export type PanelHost = {
   chosen(): { id: AgentId; launch: AgentCommand | undefined } | undefined;
 
   files: AgentFiles;
+
+  /** Asks somebody for files, starting in the
+   *  project. Their absolute paths, or none if the
+   *  dialog was dismissed. */
+  pickFiles(project: string): Promise<string[]>;
 
   /** Where an "always" answer is kept — the
    *  workspace's own state, never the editor's. */
@@ -165,13 +193,10 @@ export type AgentPanel = Agent & {
    * Called whenever anything above moves. Returns
    * the way to stop being called.
    *
-   * The view that listens is disposed and rebuilt
-   * every time it is hidden, which in this
-   * extension is every time somebody selects a
-   * block — so a listener with no way off this
-   * list would leave one dead view being repainted
-   * per selection, for as long as the window is
-   * open.
+   * The view that listens can be closed, and is
+   * disposed then, so a listener with no way off
+   * this list would leave a dead view being
+   * repainted for as long as the window is open.
    */
   onChanged(listener: () => void): Disposable;
 
@@ -198,6 +223,27 @@ export type AgentPanel = Agent & {
 
   /** Answers whatever the agent is waiting on. */
   answer(optionId: string, kind: PermissionOptionKind): Promise<void>;
+
+  /** Asks for files to go with the next thing
+   *  somebody types, and holds them until it goes.
+   *  A file already held is held once. */
+  attach(): Promise<void>;
+
+  /** Lets one held file go. Does nothing to a uri
+   *  that names none. */
+  detach(uri: string): void;
+
+  /**
+   * Sends what somebody typed, with every file held
+   * for it, and lets those files go.
+   *
+   * Its own verb rather than `send`, which the
+   * stores hand the agent their own questions
+   * through: an approval or a failed run must never
+   * carry off a file somebody picked for something
+   * they have not typed yet.
+   */
+  prompt(text: string): Promise<void>;
 
   /** Ends the session and forgets the
    *  conversation. Changing agents is a new
@@ -231,6 +277,29 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
    * the project, and never told the agent.
    */
   let queued: AgentPrompt[] = [];
+
+  /**
+   * The file edits the turn now running has
+   * written, and nothing while no turn runs.
+   *
+   * Taken when a prompt is actually sent and let go
+   * when its turn ends — never when it is queued —
+   * so a question waiting behind a turn already
+   * going is not credited with what that turn
+   * wrote, and what comes after the turn is decided
+   * about the prompt that started it.
+   */
+  let written: string[] | undefined;
+
+  /**
+   * The files the next typed prompt carries.
+   *
+   * Held here rather than in the view, which is
+   * thrown away whenever it is hidden: a file picked
+   * before a trip to the canvas is still meant for
+   * the prompt after it.
+   */
+  let attached: PromptAttachment[] = [];
 
   const changed = changes.fire;
 
@@ -300,6 +369,7 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
         {
           onUpdate: (update) => {
             transcript = foldUpdate(transcript, update);
+            written?.push(...editsIn(update));
             changed();
           },
           onPermission,
@@ -353,14 +423,29 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
     // mBoss attached is a page of JSON assembled for
     // the agent to read, and a transcript is what a
     // person reads.
-    transcript = said(transcript, prompt.text);
+    transcript = said(transcript, prompt.text, prompt.about);
+
+    const wrote: string[] = [];
+
+    written = wrote;
     move({ is: 'prompted' });
     changed();
 
     try {
       await live.prompt(promptBlocks(prompt, live.accepts));
     } finally {
+      written = undefined;
       move({ is: 'turnEnded' });
+    }
+
+    // Asked only of a turn that ended rather than
+    // threw: one that failed has no edit worth
+    // replaying the run to test.
+    const offered = nextActions(transcript, prompt.about, wrote);
+
+    if (offered !== undefined) {
+      transcript = [...transcript, offered];
+      changed();
     }
 
     const next = queued.shift();
@@ -379,6 +464,8 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
         prompt:
           session.at === 'awaitingPermission' ? session.prompt : undefined,
         failure: session.at === 'failed' ? session.failure : undefined,
+        project: host.project(),
+        attached,
       };
     },
 
@@ -428,6 +515,44 @@ export function agentPanel(host: PanelHost, trust: Trust): AgentPanel {
     },
 
     send,
+
+    attach: async () => {
+      const project = host.project();
+
+      if (project === undefined) return;
+
+      const picked = (await host.pickFiles(project)).map((path) =>
+        attachmentOf(path, project),
+      );
+      const fresh = picked.filter(
+        (file) => !attached.some((held) => held.uri === file.uri),
+      );
+
+      if (fresh.length === 0) return;
+
+      attached = [...attached, ...fresh];
+      changed();
+    },
+
+    detach: (uri) => {
+      const kept = attached.filter((file) => file.uri !== uri);
+
+      if (kept.length === attached.length) return;
+
+      attached = kept;
+      changed();
+    },
+
+    prompt: async (text) => {
+      const carried = attached;
+
+      // Let go as the prompt goes rather than when
+      // its turn ends: anything attached from here on
+      // is for the next one.
+      attached = [];
+      changed();
+      await send({ text, attached: carried });
+    },
 
     cancel: async () => {
       await live?.cancel();

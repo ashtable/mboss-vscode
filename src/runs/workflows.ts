@@ -83,7 +83,13 @@ function read(path: string): ProjectWorkflow | undefined {
 }
 
 /**
- * The document a run was a run of, whole.
+ * The document a run was a run of, whole, as it is
+ * saved.
+ *
+ * Read off disk and parsed, which is what tells it
+ * apart from core's `workflowDocument`, the path a
+ * document of that name would be at: the two used
+ * to share the name and answer different questions.
  *
  * Nothing rather than a refusal for a workflow the
  * project no longer has — somebody renamed it, or
@@ -93,7 +99,7 @@ function read(path: string): ProjectWorkflow | undefined {
  * picture is missing, and saying so is the page's
  * job rather than this one's.
  */
-export function workflowDocument(
+export function savedDocument(
   project: string,
   name: string,
 ): WorkflowIR | undefined {
@@ -118,29 +124,67 @@ function document(path: string): WorkflowIR | undefined {
 }
 
 /**
+ * Whether the document saved at that path is left
+ * out of the project's workflows only because its
+ * event trigger names no topic.
+ *
+ * Such a file is on disk and reads, and yet there
+ * is nowhere to post its input, so it cannot be
+ * started — which is worth saying to whoever is
+ * looking at it, where a draft with no trigger has
+ * nothing to fix but being finished. A file that
+ * does not read needs no topic either.
+ */
+export function needsTopic(path: string): boolean {
+  const config = triggerConfigOf(document(path)?.nodes ?? []);
+
+  return config?.mode === 'event' && topicOf(config) === undefined;
+}
+
+/**
  * How the document says a run of it begins.
  *
  * A workflow with no trigger node has no way to be
  * started at all — it is a draft somebody is part
- * way through drawing — so it is not offered.
+ * way through drawing — so it is not offered. Nor is
+ * an event trigger with no topic, which is what
+ * switching a trigger to an event leaves until
+ * somebody names one: its input would be posted to
+ * no route.
  */
 function triggerOf(
   nodes: readonly { kind: string; config: unknown }[],
 ): WorkflowTrigger | undefined {
-  const node = nodes.find((one) => one.kind === 'trigger');
-  const config = node?.config as
-    { mode?: string; topic?: string; idempotencyKeyPath?: string } | undefined;
+  const config = triggerConfigOf(nodes);
 
   if (config?.mode === 'manual') return { mode: 'manual' };
   if (config?.mode === 'schedule') return { mode: 'schedule' };
 
-  if (config?.mode === 'event' && config.topic !== undefined) {
-    return {
-      mode: 'event',
-      topic: config.topic,
-      keyPath: config.idempotencyKeyPath,
-    };
-  }
+  if (config?.mode !== 'event') return undefined;
 
-  return undefined;
+  const topic = topicOf(config);
+
+  return topic === undefined
+    ? undefined
+    : { mode: 'event', topic, keyPath: config.idempotencyKeyPath };
+}
+
+type TriggerConfig = {
+  mode?: string;
+  topic?: string;
+  idempotencyKeyPath?: string;
+};
+
+function triggerConfigOf(
+  nodes: readonly { kind: string; config: unknown }[],
+): TriggerConfig | undefined {
+  return nodes.find((one) => one.kind === 'trigger')?.config as
+    TriggerConfig | undefined;
+}
+
+/** The topic a trigger posts to. The document's
+ *  schema wants the key, so an empty one is how a
+ *  trigger names none. */
+function topicOf(config: TriggerConfig): string | undefined {
+  return config.topic === '' ? undefined : config.topic;
 }

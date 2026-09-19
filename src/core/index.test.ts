@@ -25,7 +25,7 @@ import {
 } from './index.js';
 import * as fromIndex from './index.js';
 import * as fromRules from './rules.js';
-import { paletteLabels } from '../canvas/words.js';
+import { kindWords, paletteLabels } from '../canvas/words.js';
 import {
   makeProject,
   readWorkflowFixture,
@@ -145,6 +145,21 @@ describe('the palette labels', () => {
   it('still say what the catalog says they say', () => {
     for (const entry of NODE_PALETTE) {
       expect(paletteLabels()[entry.kind]).toBe(entry.label);
+    }
+  });
+
+  /**
+   * The same word again, for the lines that say a
+   * kind inside a sentence. It is a second set of
+   * strings rather than a `toLowerCase` call because
+   * casing is the locale's business — but in the
+   * source language the two have to be the same
+   * word, or a block would be one thing on the
+   * palette and another under its own title.
+   */
+  it('are the same words the lines say, in lower case', () => {
+    for (const entry of NODE_PALETTE) {
+      expect(kindWords()[entry.kind]).toBe(entry.label.toLowerCase());
     }
   });
 });
@@ -313,6 +328,7 @@ describe('the boundary', () => {
     expect(fromIndex.compileWorkflow).toBe(fromCore.compileWorkflow);
     expect(fromIndex.replayBoundaries).toBe(fromCore.replayBoundaries);
     expect(fromIndex.traceGrammar).toBe(fromCore.traceGrammar);
+    expect(fromIndex.traceOwners).toBe(fromCore.traceOwners);
     expect(fromIndex.matchTrace).toBe(fromCore.matchTrace);
     expect(fromIndex.listPatterns).toBe(fromCore.listPatterns);
     expect(fromIndex.patternNamed).toBe(fromCore.patternNamed);

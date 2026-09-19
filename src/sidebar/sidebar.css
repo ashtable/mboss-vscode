@@ -4,14 +4,14 @@
  * The agent panel.
  *
  * A work log, not a chat window. Prose is prose;
- * everything the agent *did* is a card with a
- * status rail down its left edge and one row per
+ * everything the agent *did* is a one-line card
+ * with a rail down its left edge, and a card per
  * file it touched, so the half of the
  * conversation that changes the project is the
  * half that reads as structure. Colour carries
  * exactly two facts here and nothing else: the
  * rail says who did this (`--agent` or `--brand`),
- * and a status word says what happened to it.
+ * and a state word says what happened to it.
  *
  * A view docked in the activity bar is narrow and
  * sits against the editor's side-bar ground rather
@@ -28,100 +28,91 @@ body {
    composer stays where a person left it. A panel
    that grew with its log would carry the box they
    type into further below the fold with every chunk
-   that arrived. */
+   that arrived. Nothing inside it may make the page
+   itself scroll either: that would carry the head
+   away. The head, the log and the region under it
+   each run to the panel's edges, and each keeps its
+   own padding. */
 .agent {
   box-sizing: border-box;
   height: 100vh;
-  padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  overflow: hidden;
 }
 
 /* — the head — */
 
 .agent-head {
+  flex: none;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding-bottom: var(--space-2);
+  padding: var(--space-2-5) var(--space-3-5);
   border-bottom: 1px solid var(--hairline);
 }
 
-.agent-head > .eyebrow {
-  color: var(--brand);
-}
-
-.agent-name {
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 2px var(--space-2);
-  cursor: pointer;
-  transition:
-    border-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out);
-}
-
-.agent-name::after {
-  content: ' ▾';
-}
-
-.agent-name:hover {
-  border-color: var(--brand);
-  color: var(--brand);
-}
-
-.state {
+/* The product, then the panel: said once, at the
+   weight of a title and at the editor's own size,
+   in the case it is spelled in. */
+.agent-title {
   margin: 0;
-  font-size: var(--text-sm);
-  color: var(--ink-muted);
+  font-size: var(--text-md);
+  font-weight: var(--w-semibold);
+  line-height: var(--leading-tight);
+  color: var(--ink);
 }
 
-/* — something went wrong — */
-
-.failure {
-  border: 1px solid var(--warn);
-  border-radius: var(--r-md);
-  background: var(--warn-tint);
-  padding: var(--space-3);
-}
-
-.failure > .eyebrow {
-  color: var(--warn);
-  text-transform: none;
-  letter-spacing: 0.02em;
-  font-size: var(--font-size);
-}
-
-.failure-detail {
-  margin: var(--space-1) 0 0;
-  font-size: var(--text-sm);
+/* Why there is nothing to talk to holds its own
+   air under the head, and the log under it takes
+   what is left. */
+.agent > .empty-state {
+  flex: none;
 }
 
 /* — the conversation — */
 
-/* The one part that scrolls. `min-height: 0` is
-   what lets it: a flex child's floor is its content
+/* The part that scrolls. `min-height: 0` is what
+   lets it: a flex child's floor is its content
    otherwise, and a column of them would push the
-   composer out of the panel rather than scroll. */
+   composer out of the panel rather than scroll. The
+   padding runs down the right edge too, because the
+   editor's scrollbar is drawn over the log rather
+   than beside it. */
 .transcript {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   margin: 0;
-  padding: 0;
+  padding: var(--space-3-5);
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-2-5);
+}
+
+/* Everything under the log: a question, a proposal,
+   what went wrong, and the composer. Its ceiling is
+   a share of the view, edge to edge, rather than of
+   what is in it, so the log always keeps the rest;
+   past it, this region scrolls on its own. */
+.agent-foot {
+  box-sizing: border-box;
+  flex: none;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2-5);
+  padding: var(--space-2-5) var(--space-3-5);
+  border-top: 1px solid var(--hairline);
+}
+
+/* Nothing to say and nowhere to type, before there
+   is an agent: no band at all. */
+.agent-foot:empty {
+  display: none;
 }
 
 .said {
@@ -130,226 +121,262 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* Paragraphs and lists an agent wrote, spaced the
+   way the log spaces its blocks, a step closer. */
+.prose > * {
+  margin: 0;
+}
+
+.prose > * + * {
+  margin-top: var(--space-2);
+}
+
+.prose ul,
+.prose ol {
+  padding-inline-start: var(--space-5);
+}
+
+/* A name out of the code, which asks for the
+   machine face by its hook, at the size that face
+   reads level with the words around it. */
+.prose code {
+  font-size: 0.92em;
+}
+
 /* What a person asked for, set apart from what
-   came back — the one place the accent tint is
-   used as a fill. */
+   came back — inset from the leading edge and on
+   the accent's wash, the one place that wash is a
+   fill. Its edge is drawn only where a theme
+   draws every control's. */
 .said[data-from='user'] {
-  margin-left: var(--space-6);
-  padding: var(--space-2);
-  border-radius: var(--r-sm);
+  margin-inline-start: var(--space-7);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--control-edge);
+  border-radius: var(--r-md);
   background: var(--brand-tint);
-  border-left: 2px solid var(--brand);
+}
+
+.said-typed {
+  margin: 0;
 }
 
 /* Thinking is a note in the margin, not speech. */
 .said[data-from='thought'] {
-  padding-left: var(--space-3);
-  border-left: 1px solid var(--hairline);
+  padding-inline-start: var(--space-3);
+  border-inline-start: 2px solid var(--hairline);
   font-size: var(--text-sm);
   color: var(--ink-muted);
 }
 
 /* — a unit of work — */
 
-/* The shape both `.tool` and `.file` share: a card
-   with a rail down its left edge naming who did
-   this. Only provenance ever colours the rail —
-   what happened to the call or the file is a word,
-   never a second colour on the same edge. */
-.tool,
-.file {
+/* A card with a rail down its left edge naming who
+   did this. Only provenance ever colours the rail —
+   how the call went is a word at the end of the
+   line, never a second colour on the same edge. */
+.tool {
   border: 1px solid var(--hairline);
   border-left-width: var(--rail-w);
   border-radius: var(--r-sm);
   background: var(--surface);
-  padding: var(--space-2) var(--space-3);
+  box-shadow: var(--elev-1);
 }
 
-.tool[data-by='agent'],
-.file[data-by='agent'] {
+.tool[data-by='agent'] {
   border-left-color: var(--agent);
 }
 
-.tool[data-by='person'],
-.file[data-by='person'] {
+.tool[data-by='person'] {
   border-left-color: var(--brand);
 }
 
-.tool-row {
+/* One line, whatever it names: the verb and the
+   word at the end keep their room and the target
+   gives up its end. */
+.tool-line {
   margin: 0;
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
   gap: var(--space-2);
-}
-
-.tool-mark {
-  flex: none;
-  width: 1em;
-  text-align: center;
-  color: var(--ink-muted);
+  padding: var(--space-1-5) var(--space-3) var(--space-1-5) var(--space-2);
+  white-space: nowrap;
+  font-size: var(--text-control);
 }
 
 .tool-verb {
-  font-weight: 600;
+  flex: none;
+  font-weight: var(--w-semibold);
+}
+
+/* A title that is a whole sentence is all verb, so
+   the verb is what gives up its end. With a target
+   beside it, a verb keeps every letter. */
+.tool-line:not(:has(> .tool-target)) > .tool-verb {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tool-target {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.tool-detail {
   color: var(--ink-muted);
-  font-size: var(--text-sm);
 }
 
-.tool-status {
-  margin-left: auto;
+.tool-line > .state-word {
   flex: none;
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
+  margin-inline-start: auto;
 }
 
-.tool[data-status='in_progress'] .tool-status {
-  color: var(--ok);
+/* The fold and the way to the run, under the line
+   they belong to, set in as far as the line is: a
+   control's edge, where a theme draws one, starts
+   under the verb rather than against the rail. */
+.tool-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) var(--space-1-5);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .tool[data-status='in_progress'] .tool-status {
-    animation: sig-pulse var(--dur-slow) ease-in-out infinite;
-  }
-}
-
-.tool[data-status='completed'] .tool-status {
-  color: var(--ink-muted);
-}
-
-.tool[data-status='failed'] .tool-status {
-  color: var(--fail);
-}
-
-.tool-body-toggle {
-  display: block;
-  margin: var(--space-2) 0 0;
-  border: none;
-  background: transparent;
-  color: var(--ink-muted);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-  letter-spacing: 0.04em;
-  padding: 0;
-  cursor: pointer;
-}
-
-.tool-body-toggle:hover {
-  color: var(--ink);
-  text-decoration: underline;
+/* What the row folded away, once somebody asked. */
+.tool-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--hairline);
 }
 
 .tool-body {
-  margin: var(--space-2) 0 0;
+  margin: 0;
   font-size: var(--text-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--ink-muted);
 }
 
-/* The one place a row the extension wrote leads.
-   Drawn like the fix on a diagnostic, because it is
-   the same kind of thing: one door out of a row,
-   quiet until somebody wants it. */
-.tool-action {
-  margin: var(--space-2) 0 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.tool-action:hover {
-  transform: translateY(var(--lift));
-  border-color: var(--brand);
-}
-
 /* — a file, and its diff — */
 
+/* One card: the header, the lines and the footer
+   are its parts rather than cards of their own. It
+   clips its parts to its corners, so the header's
+   ground and a tinted last line keep the card's
+   shape. */
+.file {
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
+}
+
+/* Laid out as a call's row is, so a call and the
+   file it wrote read as one grammar: what was done,
+   to what, and where it stands. Who did it is said
+   once, down the header's edge; down the lines as
+   well it would be a rail beside the tints. */
 .file-head {
   margin: 0;
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  font-size: var(--text-sm);
-}
-
-/* The end of a path is the part worth reading, so
-   a long one loses its head rather than its
-   filename. */
-.file-head > .path {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: var(--space-1-5) var(--space-3) var(--space-1-5) var(--space-2);
+  border-left: var(--rail-w) solid var(--agent);
+  background: var(--surface-2);
   white-space: nowrap;
-  direction: rtl;
-  text-align: left;
+  font-size: var(--text-control);
 }
 
-.stat {
+.file[data-by='person'] > .file-head {
+  border-left-color: var(--brand);
+}
+
+.file-verb {
   flex: none;
-  display: flex;
-  gap: var(--space-2);
-  font-family: var(--font-mono);
+  font-weight: var(--w-semibold);
 }
 
-.stat > .new {
-  font-family: var(--font-body);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+/* Where the file sits gives up its end first; the
+   file's own name is what somebody is looking for,
+   so it keeps every letter. */
+.file-path {
+  display: flex;
+  min-width: 0;
   color: var(--ink-muted);
 }
 
-.stat > .added {
-  color: var(--ok);
-}
-
-.stat > .removed {
-  color: var(--fail);
-}
-
-.diff {
-  margin: var(--space-2) 0 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
+.file-dir {
+  min-width: 0;
   overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+}
+
+.file-name {
+  flex: none;
+}
+
+.file-stat {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+}
+
+/* Counted, not written, so in the machine face by
+   its hook. In the voice's two colours, read as
+   text through the state ink wherever those colours
+   are too light to be text. */
+.file-counts {
+  display: flex;
+  gap: var(--space-1-5);
+  font-size: var(--text-sm);
+  font-weight: var(--w-semibold);
+}
+
+.file-counts > .added,
+.diff-line[data-kind='add'] > .sign {
+  color: var(--state-ink, var(--ok));
+}
+
+.file-counts > .removed,
+.diff-line[data-kind='del'] > .sign {
+  color: var(--state-ink, var(--fail));
+}
+
+/* Code is read in the columns it was written in, so
+   the lines never wrap: they scroll sideways as one
+   block. A grid, so every line is as wide as the
+   longest and a wash runs the whole way under it. */
+.diff {
+  display: grid;
+  overflow-x: auto;
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+
+/* A scrolled block a keyboard lands on draws its
+   ring inside the card, which clips anything
+   outside. */
+.diff:focus-visible {
+  outline-offset: -2px;
 }
 
 .diff-line {
   margin: 0;
   display: grid;
-  grid-template-columns: 2.4em 2.4em 1em 1fr;
-  gap: var(--space-1);
-  padding: 0 var(--space-2);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  grid-template-columns: 30px 14px 1fr;
+  min-width: max-content;
+  padding-inline-end: var(--space-3);
+  white-space: pre;
 }
 
 .diff-line > .gutter {
-  text-align: right;
+  padding-inline-end: var(--space-2);
+  text-align: end;
   color: var(--ink-faint);
 }
 
@@ -361,366 +388,281 @@ body {
   background: var(--diff-add-bg);
 }
 
-.diff-line[data-kind='add'] > .sign {
-  color: var(--ok);
-}
-
 .diff-line[data-kind='del'] {
   background: var(--diff-del-bg);
 }
 
-.diff-line[data-kind='del'] > .sign {
-  color: var(--fail);
-}
-
-.diff-line[data-kind='skip'] {
-  display: block;
-  padding: 2px var(--space-2);
-  color: var(--ink-faint);
-}
-
-.file-actions {
-  margin: var(--space-2) 0 0;
+/* What can still be done about the file, or why
+   nothing can; and, on a diagnostic, the one way to
+   hand it back. */
+.file-foot,
+.diagnostic-foot {
   display: flex;
-  gap: var(--space-2);
-}
-
-.file-actions > button {
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.file-actions > button:hover {
-  transform: translateY(var(--lift));
-  border-color: var(--brand);
-}
-
-.file-note {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-xs);
-  color: var(--warn);
-}
-
-/* Decided rows stay legible but step back, so a
-   growing conversation reads by what is still
-   waiting on somebody. */
-.file[data-decision='kept'],
-.file[data-decision='undone'] {
-  opacity: 0.7;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1-5) var(--space-3);
+  border-top: 1px solid var(--hairline);
 }
 
 /* — the row that closes out a turn's edits — */
 
+/* One more footer, in the card's own shape: how many
+   files it is about, and what to do to all of them
+   at once. */
 .files-batch {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  border: 1px dashed var(--hairline-strong);
+  gap: var(--space-3);
+  padding: var(--space-1-5) var(--space-3);
+  border: 1px solid var(--hairline);
   border-radius: var(--r-sm);
-  padding: var(--space-1) var(--space-2);
-  font-size: var(--text-xs);
-  color: var(--ink-muted);
+  background: var(--surface);
+  box-shadow: var(--elev-1);
 }
 
-.files-batch-actions {
+/* — the step after a turn — */
+
+.next-sentence {
+  margin: 0;
+}
+
+.next-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
-}
-
-.files-batch-actions > button {
-  border: none;
-  background: transparent;
-  color: var(--brand);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: 0.04em;
-  padding: 0;
-  cursor: pointer;
-}
-
-.files-batch-actions > button:hover {
-  text-decoration: underline;
+  margin-top: var(--space-2);
 }
 
 /* — what went wrong — */
 
+/* A card laid out the way a call's row is, with a
+   rail in the failure's colour on its head where a
+   call has one in its author's: what matters about
+   this block is that it failed. */
 .diagnostic {
   border: 1px solid var(--hairline);
-  border-left-width: var(--rail-w);
-  border-left-color: var(--fail);
   border-radius: var(--r-sm);
   background: var(--surface);
-  padding: var(--space-2) var(--space-3);
+  box-shadow: var(--elev-1);
+  overflow: hidden;
+}
+
+.diagnostic-head {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1-5) var(--space-3) var(--space-1-5) var(--space-2);
+  border-left: var(--rail-w) solid var(--fail);
+  font-size: var(--text-control);
+}
+
+.diagnostic-source {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: var(--w-semibold);
+}
+
+.diagnostic-head > .state-word {
+  flex: none;
+}
+
+/* Each thing found, as a line of evidence read down
+   its codes. */
+.diagnostic-rows {
+  display: flex;
+  flex-direction: column;
+  /* The three has no step: it is the lead the lines
+     of one finding list are set at. */
+  gap: 3px;
+  padding: var(--space-1-5) var(--space-3);
 }
 
 .diagnostic-row {
+  margin: 0;
   display: flex;
+  align-items: baseline;
   gap: var(--space-2);
-  margin: var(--space-2) 0 0;
   font-size: var(--text-sm);
 }
 
-.diagnostic-fix {
-  margin: var(--space-2) 0 0;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: var(--text-xs);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.diagnostic-fix:hover {
-  transform: translateY(var(--lift));
-  border-color: var(--brand);
-}
-
-/* — the plan — */
-
-.plan-toggle {
-  border: none;
-  background: transparent;
-  color: var(--ink-muted);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-sm);
-  padding: 0;
-  cursor: pointer;
-}
-
-.plan-toggle::before {
-  content: '▸';
-  display: inline-block;
-  margin-right: var(--space-1);
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.plan-toggle[data-open='true']::before {
-  transform: rotate(90deg);
-}
-
-.plan-toggle:hover {
-  color: var(--ink);
-}
-
-.plan-steps {
-  margin-top: var(--space-1);
-}
-
-.step {
-  display: flex;
-  gap: var(--space-2);
-  margin: var(--space-1) 0 0;
-  font-size: var(--text-sm);
-}
-
-.step-mark {
+.diagnostic-code {
   flex: none;
-  color: var(--brand);
+  font-weight: var(--w-semibold);
+  color: var(--state-ink, var(--fail));
 }
 
-.step[data-status='completed'] {
-  color: var(--ink-muted);
+.diagnostic-at {
+  flex: none;
+  color: var(--ink-faint);
+}
+
+.diagnostic-message {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* — the one question the panel asks — */
 
+/* On the waiting tint, flat rather than a card: it
+   is pinned by the composer, not stacked in the log.
+   Its edge is drawn only where a theme draws every
+   control's. */
 .permission {
-  border: 1px solid var(--warn);
+  border: 1px solid var(--control-edge);
   border-radius: var(--r-md);
   background: var(--warn-tint);
   padding: var(--space-3);
 }
 
-.permission > .eyebrow {
-  color: var(--warn);
+/* What is asked, then the call it is about. */
+.permission-head,
+.proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
 }
 
-.permission-title {
-  margin: var(--space-1) 0 var(--space-3);
+.permission-tool,
+.proposal-workflow {
+  min-width: 0;
   overflow-wrap: anywhere;
+  font-size: var(--text-control);
 }
 
-.permission-options {
+.permission-options,
+.proposal-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-}
-
-.permission-options > button {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: var(--text-sm);
-  padding: var(--space-1) var(--space-2);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.permission-options > button:hover {
-  transform: translateY(var(--lift));
-}
-
-/* Weight follows what the answer costs: allowing
-   once is the solid, expected answer; allowing
-   always is the same colour with less ink, because
-   it is the bigger promise; rejecting asks for
-   nothing at all. */
-.permission-options > button[data-kind='allow_once'] {
-  border-color: var(--brand);
-  background: var(--brand);
-  color: var(--on-brand);
-}
-
-.permission-options > button[data-kind='allow_always'] {
-  border-color: var(--brand);
-  color: var(--brand);
-}
-
-.permission-options > button[data-kind^='reject'] {
-  border-color: transparent;
-  color: var(--ink-muted);
-}
-
-.always {
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
+  margin-top: var(--space-2);
 }
 
 /* — the composer — */
 
+/* One card holding the field and its row of
+   controls, so the agent a prompt goes to and the
+   way to send it read as part of what is being
+   written. It keeps the widget ground the rest of
+   the panel does not: it is the one thing here
+   somebody writes in. */
 .composer {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  border-top: 1px solid var(--hairline);
-  padding-top: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  box-shadow: var(--elev-1);
 }
 
+/* One ring, on the card, drawn inside its edge so
+   the region it sits in cannot clip it. An outline
+   rather than a shadow, because forced colours keep
+   an outline and drop a shadow. */
+.composer:focus-within {
+  outline: 1px solid var(--vscode-focusBorder, var(--brand));
+  outline-offset: -1px;
+}
+
+/* The height is what was typed: at least three
+   lines, so an empty field reads as somewhere to
+   write, and at most a share of the panel, past
+   which the draft scrolls inside itself. Never a
+   grip, which let the field be dragged shut or
+   taller than the panel. The ceiling's floor wins
+   in a short panel, which keeps three lines
+   meaningful there. */
 .composer textarea {
   box-sizing: border-box;
+  display: block;
   width: 100%;
-  resize: vertical;
-  border: 1px solid var(--hairline);
-  border-radius: var(--r-sm);
-  background: var(--vscode-input-background, transparent);
+  margin: 0;
+  field-sizing: content;
+  resize: none;
+  border: none;
+  background: transparent;
   color: var(--vscode-input-foreground, var(--ink));
   font-family: var(--font-body);
   font-size: var(--font-size);
-  padding: var(--space-2);
-  transition: border-color var(--dur-fast) var(--ease-out);
+  /* The nine has no step of its own: it is the
+     inset the field's first line is drawn at. */
+  padding: 9px var(--space-3) var(--space-0-5);
+  line-height: var(--leading-body);
+  min-height: calc(3lh + 9px + var(--space-0-5));
+  max-height: clamp(160px, 40vh, 320px);
+  overflow-y: auto;
 }
 
+.composer textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground, var(--ink-faint));
+}
+
+/* The card draws the ring; a second one inside it
+   would say there were two things to type into. */
 .composer textarea:focus-visible {
-  border-color: var(--brand);
+  outline: none;
 }
 
-.composer button {
-  align-self: flex-end;
-  border: 1px solid var(--brand);
-  border-radius: var(--r-sm);
-  background: var(--brand-tint);
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  padding: var(--space-1) var(--space-4);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
+/* The files the next prompt carries, between what
+   is being typed and the controls that send it. Set
+   in from the card's edge as far as the typing is,
+   so a name starts where a line of the prompt does;
+   a long list wraps rather than widening the card. */
+.composer [data-attached] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-0-5) var(--space-3);
+  padding: var(--space-1) var(--space-2) 0 var(--space-3);
 }
 
-.composer button:hover {
-  transform: translateY(var(--lift));
+/* A name and the control that takes it back out
+   stay on one line together, apart enough that the
+   edge a high-contrast theme draws round the control
+   does not touch the name. */
+.attached-file {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.composer button[data-stop] {
-  border-color: var(--warn);
-  background: var(--warn-tint);
+.composer-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2) var(--space-2) var(--space-3);
+}
+
+/* Send, or Stop, at the trailing edge whatever sits
+   before it. */
+.composer-meta > :last-child {
+  margin-inline-start: auto;
 }
 
 /* — a proposal, waiting for an answer — */
 
-/* Dashed and tinted, the same treatment the blocks
-   on the canvas get: everything about a proposal is
-   drawn in pencil until somebody approves it. */
-.preview-card {
-  border: 1px dashed var(--brand);
-  border-radius: var(--r-md);
-  background: var(--brand-tint);
-  padding: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-
-.preview-card > .eyebrow {
-  color: var(--brand);
-  margin-bottom: var(--space-1);
-}
-
-.preview-summary,
-.preview-warning {
-  margin: 0 0 var(--space-3);
+/* A section of the region, not a card: the canvas
+   draws the proposal in pencil, and this is only
+   where it is answered. */
+.proposal-summary,
+.proposal-warning {
+  margin: var(--space-1) 0 0;
   font-size: var(--text-sm);
+  overflow-wrap: anywhere;
 }
 
-.preview-actions {
-  display: flex;
-  gap: var(--space-2);
+.proposal-summary {
+  color: var(--ink-soft);
 }
 
-.preview-actions button {
-  border: 1px solid var(--brand);
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--ink);
-  font-weight: 600;
-  font-size: var(--text-xs);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  padding: var(--space-1) var(--space-3);
-  cursor: pointer;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.preview-actions button:hover:not(:disabled) {
-  transform: translateY(var(--lift));
-}
-
-/* Approving is the decision the card exists for, so
-   it takes the room and the ink; refining is the
-   way back to the conversation. */
-.preview-actions button.primary {
-  flex: 1;
-  background: var(--brand);
-  color: var(--on-brand);
-}
-
-.preview-actions button:disabled {
-  border-color: var(--hairline);
-  color: var(--ink-faint);
-  cursor: default;
+/* Set apart from whatever above it shares the
+   region; at the top, the region's own edge already
+   does that. */
+.agent-foot > * + .proposal {
+  padding-top: var(--space-2-5);
+  border-top: 1px solid var(--hairline);
 }

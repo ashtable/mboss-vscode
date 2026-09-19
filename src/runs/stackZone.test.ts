@@ -28,11 +28,13 @@ const MINUTE = 60 * 1000;
 function built(at: number): StackStatus {
   return {
     available: true,
+    answered: true,
     services: [
       {
         service: 'app',
         state: 'running',
         health: 'healthy',
+        ports: [3000],
         detail: 'built 12 s ago · :3000',
         builtAt: at,
       },
@@ -68,6 +70,27 @@ describe('the local stack', () => {
       `down ${dir}`,
       `rebuild ${dir}`,
     ]);
+  });
+
+  /**
+   * Before the first read nobody has asked
+   * compose anything, which is not the same as a
+   * daemon that did not answer.
+   */
+  it('says compose was never asked before anything is read', async () => {
+    const shown = zone();
+
+    expect(shown.render()).toEqual({
+      available: false,
+      answered: false,
+      services: [],
+      busy: undefined,
+      detail: undefined,
+    });
+
+    await shown.read();
+
+    expect(shown.render().answered).toBe(true);
   });
 
   it('reads what is running after every command', async () => {
@@ -178,6 +201,7 @@ describe('the local stack', () => {
   it('says why nothing can run, when nothing can', async () => {
     const compose = stack({
       available: false,
+      answered: false,
       services: [],
       detail: 'Docker is not on the PATH',
     });

@@ -37,17 +37,27 @@ export function l10nBundle(): Record<string, string> {
   return readJson(join(REPO_ROOT, 'l10n', 'bundle.l10n.json'));
 }
 
-/** Every TypeScript file under `src/`, recursively. */
-export function sourceFiles(): string[] {
+/** Every file under `src/` matching a name. */
+function filesUnder(matching: RegExp): string[] {
   const walk = (dir: string): string[] =>
     readdirSync(dir).flatMap((name) => {
       const path = join(dir, name);
 
       if (statSync(path).isDirectory()) return walk(path);
-      return /\.tsx?$/.test(name) ? [path] : [];
+      return matching.test(name) ? [path] : [];
     });
 
   return walk(join(REPO_ROOT, 'src'));
+}
+
+/** Every TypeScript file under `src/`, recursively. */
+export function sourceFiles(): string[] {
+  return filesUnder(/\.tsx?$/);
+}
+
+/** Every stylesheet under `src/`, recursively. */
+export function styleFiles(): string[] {
+  return filesUnder(/\.css$/);
 }
 
 /**

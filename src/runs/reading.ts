@@ -1,13 +1,15 @@
+import { traceGrammar, traceOwners, type RecordedRow } from '../core/index.js';
 import {
   ownerOf,
   type RecordedSegment,
   type WorkflowIR,
 } from '../core/rules.js';
+import { runWord, type RunWord } from '../webview/states.js';
 
-import { FAILED_STATUSES } from './queries.js';
+import { FAILED_STATUSES, SUCCEEDED_STATUS } from './queries.js';
 import {
-  outputIn,
   stepError,
+  storedValue,
   type Run,
   type Step,
   type StepError,
@@ -35,10 +37,18 @@ import { runTimeline, type Outage } from './timeline.js';
  * sitting out a timer — decides whether a watch
  * keeps reading somebody's database.
  *
- * Browser-safe: no filesystem, no database, no clock
- * of its own. Whether the run recovered is sticky
- * state the watch holds across ticks, so it arrives
- * as an answer rather than being re-derived here.
+ * Host-only, where it used to be browser-safe: a
+ * block that writes no row of its own is found by
+ * the compiler's own walk over the document, and
+ * that walk sits behind the barrel that reaches the
+ * layout engine. Nothing on the browser side loses
+ * by it — every frame is handed a reading rather
+ * than making one.
+ *
+ * No database and no clock of its own. Whether the
+ * run recovered is sticky state the watch holds
+ * across ticks, so it arrives as an answer rather
+ * than being re-derived here.
  */
 
 /**
@@ -53,20 +63,6 @@ export type StepState = 'done' | 'failed' | 'waiting';
 
 /** Who a recorded row belongs to. */
 export type OperationOwner = 'node' | 'sdk' | 'unmapped';
-
-/**
- * Where the run is, as the ledger has it.
- *
- * `waiting` and `quiet` are both stopped watches and
- * are kept apart on purpose. A parked run is waiting
- * on a person and will move when they act; a quiet
- * one is waiting on nobody and the watch simply let
- * go of it. Telling somebody a quiet run is waiting
- * would send them looking for an email that was
- * never sent.
- */
-export type LiveOutcome =
-  'running' | 'done' | 'failed' | 'waiting' | 'quiet' | 'cancelled';
 
 /**
  * What the reader knows about the drawing.
@@ -114,10 +110,22 @@ export type Operation = {
 
   completedAt: number | undefined;
 
-  /** What it returned, cut where it was long. */
+  /** What it returned, as the bytes were stored, cut
+   *  where they were long. */
   output: string | undefined;
 
+  /** The same value with the serializer's wrapper
+   *  off, printed on one line for a panel to draw. */
+  shown: string | undefined;
+
   outputCut: boolean;
+
+  /** How big the stored value was before any cut. */
+  bytes: number;
+
+  /** Whether the step returned nothing at all, which
+   *  is not the same as returning `null`. */
+  absent: boolean;
 
   error: StepError | undefined;
 
@@ -162,10 +170,11 @@ export function reusedRow(step: Step, createdAt: number): boolean {
  * Whoever draws only a workflow's own work filters
  * on `owner`.
  *
- * `from`, `to` and `outage` are the window those
- * rows are drawn in, spelled the way `runTimeline`
- * answers them, because that is the module that owns
- * the outage inference and this one only asks it.
+ * `from`, `to` and `outage` are the span those
+ * rows cover and where in it the process was down,
+ * spelled the way `runTimeline` answers them,
+ * because that is the module that owns the outage
+ * inference and this one only asks it.
  */
 export type Reading = {
   steps: Operation[];
@@ -176,28 +185,42 @@ export type Reading = {
 
   outage: Outage | undefined;
 
-  outcome: LiveOutcome;
+  /** Whether the run is sitting on somebody — a
+   *  block parked on a person, or a timer still
+   *  ahead of now — answered once with every row
+   *  the run wrote, and carried so that nobody who
+   *  draws the run asks the steps the same question
+   *  again and gets half the answer. */
+  parked: boolean;
+
+  /** Where the run is, in the one word every
+   *  surface says it in. Never `quiet`: that is the
+   *  watch's word, and the watch adds it. */
+  outcome: RunWord;
 
   /** Sticky: once the ledger has said a run was
    *  picked back up, it stays said. */
   recovered: boolean;
+
+  /**
+   * The block the compiler's walk over the document
+   * placed each row inside, by the row's handle.
+   *
+   * Kept rather than thrown away once the timer rows
+   * are found, because it is the first half of which
+   * block a row is drawn under, and a second walk
+   * made somewhere else could answer differently.
+   * Empty where no document came with the rows, and
+   * where the compiler cannot describe the one that
+   * did.
+   */
+  owners: ReadonlyMap<number, string>;
 };
-
-/** The one status that means it worked. */
-const SUCCEEDED = 'SUCCESS';
-
-/** One of the three DBOS calls failed, told apart
- *  because somebody asked for it. */
-const CANCELLED = 'CANCELLED';
-
-/** DBOS's own three, widened so a status read out of
- *  a row can be compared against them. */
-const FAILED: readonly string[] = FAILED_STATUSES;
 
 /** DBOS's own three and the one that worked, so a
  *  status read out of a row can be asked whether the
  *  run is over at all. */
-const ENDED: readonly string[] = [SUCCEEDED, ...FAILED_STATUSES];
+const ENDED: readonly string[] = [SUCCEEDED_STATUS, ...FAILED_STATUSES];
 
 /**
  * Whether the ledger says this run is over.
@@ -210,12 +233,24 @@ export function finished(run: Run): boolean {
   return ENDED.includes(run.status);
 }
 
+/**
+ * The run, read.
+ *
+ * `drawing` and `document` are two arguments and
+ * not one because they answer different questions.
+ * The drawing decides whether a name a row carries
+ * still belongs to a block anybody can click, and a
+ * watch has deliberately not looked. The document
+ * is where a row carrying no name at all is placed,
+ * and a watch is handed one for exactly that.
+ */
 export function readRun(
   run: Run,
   steps: Step[],
   drawing: Drawing,
   recovered: boolean,
   now: number,
+  document: WorkflowIR | undefined,
 ): Reading {
   // The blocks the drawing has; the empty set where
   // the project lost it, which attributes nothing;
@@ -229,6 +264,8 @@ export function readRun(
         : new Set(drawing.nodes.map((node) => node.id));
 
   const parked = parkedNodes(steps.map((step) => step.name));
+  const owners = ownersOf(document, steps);
+  const timers = timerRows(document, owners, steps, now);
   const timeline = runTimeline(run, steps, now);
   const restored = new Map(
     timeline.steps.map((step) => [step.functionId, step.restored]),
@@ -239,19 +276,210 @@ export function readRun(
       step,
       known,
       parked,
+      timers.get(step.functionId),
       restored.get(step.functionId) ?? false,
       run.createdAt,
     ),
   );
+
+  // A step that threw is not an ending: DBOS may
+  // retry it, and only the status column says the
+  // run is over. What this reader adds to the
+  // status is whether the run is parked, which it
+  // alone can see: a block waiting on a person, or
+  // a timer still ahead of now.
+  const parkedRun =
+    operations.some((one) => one.state === 'waiting') || asleep(steps, now);
 
   return {
     steps: operations,
     from: timeline.from,
     to: timeline.to,
     outage: timeline.outage,
-    outcome: outcomeOf(run, operations, steps, now),
+    parked: parkedRun,
+    outcome: runWord({
+      status: run.status,
+      recoveryAttempts: run.recoveryAttempts,
+      parked: parkedRun,
+    }),
     recovered,
+    owners,
   };
+}
+
+/**
+ * Which block each row is drawn under.
+ *
+ * A row a block wrote is that block's. A row the
+ * SDK wrote for itself belongs to whichever block
+ * it ran inside, which the walk over the document
+ * says wherever it can. Where it cannot, the rows
+ * are still laid out in the order they ran: a
+ * wait's park sits under the registration nobody
+ * has cleared yet, and any other row under the
+ * last block row before it. Rows the order cannot
+ * place — one before any block row, one naming a
+ * block the document lost — sit under nothing,
+ * rather than under a block they did not run in.
+ *
+ * One rule, for everybody who has to ask: which
+ * block a row picked on the run tab selects, and
+ * which block's evidence counts that row as its
+ * own.
+ */
+export function drawnUnder(
+  steps: readonly Operation[],
+  owners: ReadonlyMap<number, string>,
+): Map<number, string> {
+  const placed = new Map<number, string>();
+
+  // The last block row so far, and the wait still
+  // registered, if one is.
+  let before: string | undefined;
+  let registered: string | undefined;
+
+  for (const step of steps) {
+    if (step.owner === 'node' && step.nodeId !== undefined) {
+      placed.set(step.functionId, step.nodeId);
+      before = step.nodeId;
+
+      const last = step.segments.at(-1)?.kind;
+      if (last === 'register') registered = step.nodeId;
+      if (last === 'clear' && registered === step.nodeId) {
+        registered = undefined;
+      }
+
+      continue;
+    }
+
+    if (step.owner !== 'sdk') continue;
+
+    const nodeId =
+      owners.get(step.functionId) ??
+      (PARKS.includes(step.name) ? registered : undefined) ??
+      before;
+
+    if (nodeId !== undefined) placed.set(step.functionId, nodeId);
+  }
+
+  return placed;
+}
+
+/** The two rows the SDK writes while a wait is
+ *  parked: the message it waits for, and the sleep
+ *  that times the wait out. */
+const PARKS: readonly string[] = ['DBOS.recv', 'DBOS.sleep'];
+
+/** One row of a run's trace, with the rows the SDK
+ *  wrote beside it, in the order they ran. */
+export type TraceRow = {
+  operation: Operation;
+
+  /** The block it is drawn under. */
+  nodeId: string;
+
+  sdk: Operation[];
+};
+
+/** A run's rows as the trace lays them out, and the
+ *  rows no block is drawn under. */
+export type Trace = {
+  rows: TraceRow[];
+
+  unattributed: Operation[];
+};
+
+/**
+ * The rows, laid out the way the run tab's trace
+ * draws them.
+ *
+ * Nested by `drawnUnder` rather than by where a row
+ * happens to fall. An SDK row filed under whatever
+ * block row came just before it could sit under one
+ * block while picking it selects another; so it
+ * sits beside the last row of its own block before
+ * it, or the first one after it where its block had
+ * not written one yet.
+ *
+ * Nothing is dropped. An SDK row whose block wrote
+ * no row of its own is a row of the trace in its
+ * own right, and a row drawn under no block — one
+ * naming a block the document lost, or an SDK row
+ * before any block row — is kept apart rather than
+ * filed under a block it did not run in.
+ */
+export function traceOf(
+  steps: readonly Operation[],
+  owners: ReadonlyMap<number, string>,
+): Trace {
+  const placed = drawnUnder(steps, owners);
+  const written = new Set(
+    steps.flatMap((step) =>
+      step.owner === 'node' && step.nodeId !== undefined ? [step.nodeId] : [],
+    ),
+  );
+
+  const rows: TraceRow[] = [];
+  const unattributed: Operation[] = [];
+
+  // The latest row of each block so far, and the
+  // SDK rows waiting for their block's first row.
+  const latest = new Map<string, TraceRow>();
+  const early = new Map<string, Operation[]>();
+
+  for (const step of steps) {
+    const nodeId = placed.get(step.functionId);
+
+    if (nodeId === undefined) {
+      unattributed.push(step);
+      continue;
+    }
+
+    if (step.owner === 'node' || !written.has(nodeId)) {
+      const row = { operation: step, nodeId, sdk: early.get(nodeId) ?? [] };
+
+      early.delete(nodeId);
+      latest.set(nodeId, row);
+      rows.push(row);
+      continue;
+    }
+
+    const beside = latest.get(nodeId);
+
+    if (beside !== undefined) {
+      beside.sdk.push(step);
+    } else {
+      early.set(nodeId, [...(early.get(nodeId) ?? []), step]);
+    }
+  }
+
+  return { rows, unattributed };
+}
+
+/**
+ * The row a block is headed by: its latest failure,
+ * else its latest row.
+ *
+ * A block that failed on its third item is being
+ * looked at because of that item, and burying it
+ * under two that worked would answer a question
+ * nobody asked. A row the SDK wrote under the block
+ * is never it: that row is the machinery a block
+ * runs on, drawn when somebody picks it in the
+ * trace, and a block headed by it would lead with a
+ * `DBOS.sleep` rather than with what the block did.
+ *
+ * Here beside `drawnUnder` rather than with either
+ * reader, because the pane's face and the row the
+ * run tab marks for a picked block both ask it, and
+ * two copies could come to mark different rows.
+ */
+export function headlineRow<Row extends { state: StepState; sdk?: boolean }>(
+  rows: readonly Row[],
+): Row | undefined {
+  const own = rows.filter((row) => row.sdk !== true);
+
+  return own.findLast((row) => row.state === 'failed') ?? own.at(-1);
 }
 
 /**
@@ -281,46 +509,160 @@ export function readRun(
  * sitting there whether or not the block is still
  * drawn, and the row that says so is the only
  * evidence there is.
+ *
+ * `timer` is the third answer, and the only one the
+ * name cannot give at all: a row the walk placed
+ * inside a wait on the clock. See `timerRows`.
  */
 function attributed(
   step: Step,
   known: ReadonlySet<string> | undefined,
   parked: ReadonlySet<string>,
+  timer: TimerRow | undefined,
   restored: boolean,
   createdAt: number,
 ): Operation {
-  const owner = ownerOf(step.name);
-  const output = outputIn(step.output ?? null);
+  const named = ownerOf(step.name);
+  const value = storedValue(step.output ?? null);
   const failure = stepError(step.failure);
 
   const nodeId =
-    owner.kind !== 'node'
+    timer?.nodeId ??
+    (named.kind !== 'node'
       ? undefined
-      : known === undefined || known.has(owner.nodeId)
-        ? owner.nodeId
-        : undefined;
+      : known === undefined || known.has(named.nodeId)
+        ? named.nodeId
+        : undefined);
+
+  // Where the run is sitting: a block whose latest
+  // registration nobody has cleared, or a timer
+  // whose deadline is still ahead.
+  const waiting =
+    timer !== undefined
+      ? timer.waiting
+      : named.kind === 'node' && parked.has(named.nodeId);
 
   return {
     name: step.name,
     nodeId,
     owner:
-      owner.kind === 'sdk' ? 'sdk' : nodeId === undefined ? 'unmapped' : 'node',
-    segments: owner.kind === 'node' ? owner.segments : [],
-    state:
-      failure !== undefined
-        ? 'failed'
-        : owner.kind === 'node' && parked.has(owner.nodeId)
-          ? 'waiting'
-          : 'done',
+      nodeId !== undefined ? 'node' : named.kind === 'sdk' ? 'sdk' : 'unmapped',
+    segments: named.kind === 'node' ? named.segments : [],
+    state: failure !== undefined ? 'failed' : waiting ? 'waiting' : 'done',
     functionId: step.functionId,
     startedAt: step.startedAt,
     completedAt: step.completedAt,
-    output: step.output === undefined ? undefined : output.text,
-    outputCut: output.cut,
+    output: step.output === undefined ? undefined : value.raw,
+    shown: step.output === undefined ? undefined : value.shown,
+    outputCut: value.cut,
+    bytes: value.bytes,
+    absent: value.absent,
     error: failure,
     childWorkflowId: step.childWorkflowId,
     restored,
     reused: reusedRow(step, createdAt),
+  };
+}
+
+/** One recorded row a wait on the clock wrote, and
+ *  whether the run is still sitting it out. */
+type TimerRow = { nodeId: string; waiting: boolean };
+
+/** The name the SDK records a durable pause under,
+ *  which is the same string whichever block asked
+ *  for it. */
+const SLEEP = 'DBOS.sleep';
+
+/**
+ * Where the walk over the document placed each row.
+ *
+ * Asked of where a row fell rather than of its
+ * name, because the SDK's own rows carry no block
+ * in their names at all — two waits in one
+ * document write the identical string.
+ *
+ * No cache. The walk is an in-memory plan of one
+ * document, and every caller that reaches here has
+ * just read somebody's database.
+ */
+function ownersOf(
+  document: WorkflowIR | undefined,
+  steps: readonly Step[],
+): ReadonlyMap<number, string> {
+  if (document === undefined) return new Map();
+
+  try {
+    return traceOwners(traceGrammar(document), steps.map(recordedRow));
+  } catch {
+    // The compiler refuses a document it cannot
+    // describe, and a run of one is still a run. A
+    // panel that threw over it would go blank
+    // exactly where somebody needs to read what
+    // happened.
+    return new Map();
+  }
+}
+
+/**
+ * Which rows are a wait-on-the-clock's own.
+ *
+ * Such a wait compiles to a bare `await
+ * DBOS.sleep(ms)` and writes nothing under its own
+ * name, so the SDK's row is the only evidence the
+ * block ran at all, and which wait wrote it is the
+ * walk's answer.
+ *
+ * Only a wait on the clock. A wait on a form and an
+ * approval park on `DBOS.recv` with a sleep beside
+ * it timing the park out, and both already write
+ * rows of their own; giving them the SDK's pair as
+ * well would draw one block twice.
+ */
+function timerRows(
+  document: WorkflowIR | undefined,
+  owners: ReadonlyMap<number, string>,
+  steps: readonly Step[],
+  now: number,
+): ReadonlyMap<number, TimerRow> {
+  const rows = new Map<number, TimerRow>();
+  if (document === undefined) return rows;
+
+  const timers = new Set(
+    document.nodes
+      .filter(
+        (node) =>
+          node.kind === 'durableWait' && node.config.source.kind === 'timer',
+      )
+      .map((node) => node.id),
+  );
+
+  for (const step of steps) {
+    if (step.name !== SLEEP) continue;
+
+    const nodeId = owners.get(step.functionId);
+    if (nodeId === undefined || !timers.has(nodeId)) continue;
+
+    rows.set(step.functionId, {
+      nodeId,
+      // The row records the wake deadline as its
+      // completion and is written before the sleep,
+      // so only the clock says whether the run is
+      // still sitting it out.
+      waiting: step.completedAt !== undefined && step.completedAt > now,
+    });
+  }
+
+  return rows;
+}
+
+/** A row as the compiler's walk reads one: the
+ *  handle, the name, and whether it finished. */
+export function recordedRow(step: Step): RecordedRow {
+  return {
+    functionId: step.functionId,
+    name: step.name,
+    completedAt: step.completedAt,
+    failed: step.error !== undefined,
   };
 }
 
@@ -357,31 +699,6 @@ export function parkedNodes(names: readonly string[]): Set<string> {
 }
 
 /**
- * Where the run is, as the ledger has it.
- *
- * A step that threw is not an ending: DBOS may retry
- * it, and only the status column says the run is
- * over.
- */
-function outcomeOf(
-  run: Run,
-  operations: readonly Operation[],
-  all: readonly Step[],
-  now: number,
-): LiveOutcome {
-  if (run.status === SUCCEEDED) return 'done';
-
-  // Before the failed set, which contains it.
-  // Somebody asked for this one; it is not a failure
-  // anybody has to look into.
-  if (run.status === CANCELLED) return 'cancelled';
-  if (FAILED.includes(run.status)) return 'failed';
-  if (operations.some((one) => one.state === 'waiting')) return 'waiting';
-
-  return asleep(all, now) ? 'waiting' : 'running';
-}
-
-/**
  * Whether the run is sitting out a timer *now*.
  *
  * A sleep row records the wake deadline as its
@@ -409,7 +726,7 @@ function outcomeOf(
 function asleep(steps: readonly Step[], now: number): boolean {
   return steps.some(
     (step) =>
-      step.name === 'DBOS.sleep' &&
+      step.name === SLEEP &&
       step.completedAt !== undefined &&
       step.completedAt > now,
   );

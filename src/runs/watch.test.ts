@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { TIMER_THEN_ANSWER } from '../test-support/runs.js';
+
 import type { OpenDatabase } from './db.js';
 import type { OperationOutputRow, WorkflowStatusRow } from './rows.js';
 import {
-  SETTLED,
   WATCH_INTERVAL_MS,
   WATCH_QUIET_MS,
   watchRun,
@@ -171,7 +172,10 @@ function recordedStep(over: {
     startedAt: 1000,
     completedAt: 1200,
     output: '{}',
+    shown: '{}',
     outputCut: false,
+    bytes: 2,
+    absent: false,
     error: undefined,
     childWorkflowId: undefined,
     restored: false,
@@ -217,7 +221,7 @@ describe('watchRun', () => {
     db.steps = [{ name: 'parse_request' }];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -226,6 +230,7 @@ describe('watchRun', () => {
         workflowId: RUN_ID,
         workflow: 'counter',
         status: 'SUCCESS',
+        executorId: 'local-dev',
         outcome: 'done',
         recovered: false,
         recoveryAttempts: 1,
@@ -235,6 +240,7 @@ describe('watchRun', () => {
         startedAt: 1000,
         completedAt: 2000,
         input: undefined,
+        recordedInput: undefined,
         forkedFrom: undefined,
         steps: [recordedStep({ name: 'parse_request' })],
       },
@@ -246,13 +252,48 @@ describe('watchRun', () => {
     expect(db.closed).toBe(1);
   });
 
+  /**
+   * A canvas following a run draws the run-level
+   * card from what the watch reports and nothing
+   * else, so the two facts that card needs — which
+   * process owns the run, and what it was started
+   * with — have to come off the tick rather than be
+   * decorated on afterwards.
+   *
+   * The input crosses twice on purpose: printed for
+   * a panel that puts it in a cell, and as it was
+   * read for one that formats it itself.
+   */
+  it('says which process owns the run and what started it', async () => {
+    const db = ledger(
+      runRow({
+        executor_id: 'worker-7',
+        inputs: JSON.stringify([{ email: 'ada@example.com' }]),
+      }),
+    );
+    db.steps = [{ name: 'parse_request' }];
+
+    const seen: LiveRun[] = [];
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
+
+    await settle();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.executorId).toBe('worker-7');
+    expect(seen[0]?.recordedInput).toEqual({
+      shape: 'payload',
+      value: { email: 'ada@example.com' },
+    });
+    expect(seen[0]?.input).toBe('{\n  "email": "ada@example.com"\n}');
+  });
+
   it('reports a run that ended in an error, with what it said', async () => {
     const db = ledger(
       runRow({ status: 'ERROR', error: '{"message":"no slot"}' }),
     );
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -268,7 +309,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -289,7 +330,7 @@ describe('watchRun', () => {
     db.steps = [{ name: 'parse_request' }, { name: 'await_reply.register' }];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -318,7 +359,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -337,7 +378,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -371,7 +412,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -389,12 +430,64 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
     expect(seen[0]?.outcome).toBe('running');
     expect(db.closed).toBe(0);
+  });
+
+  /**
+   * A wait on the clock writes no row under its own
+   * name, so the sleep the SDK wrote is the only
+   * evidence the block ran at all — and which wait
+   * wrote it is a question only the saved document
+   * can answer. A watch is armed with one for
+   * exactly that.
+   */
+  it('gives a sleeping timer’s row to the wait that wrote it', async () => {
+    const db = ledger(runRow({ name: 'timer_then_answer' }));
+    const started = Date.now();
+    db.steps = [
+      {
+        name: 'DBOS.sleep',
+        startedAt: started,
+        completedAt: started + 60_000,
+      },
+    ];
+
+    const seen: LiveRun[] = [];
+    watchRun(db.open, URL, RUN_ID, [], TIMER_THEN_ANSWER, (run) =>
+      seen.push(run),
+    );
+
+    await settle();
+
+    expect(seen[0]?.steps.map((step) => step.nodeId)).toEqual(['let_it_wait']);
+    expect(seen[0]?.steps[0]?.state).toBe('waiting');
+  });
+
+  /** Armed with none, the same row is the SDK's and
+   *  a canvas is handed nothing to paint the wait
+   *  with. */
+  it('leaves it the SDK’s where the arming carried no document', async () => {
+    const db = ledger(runRow({ name: 'timer_then_answer' }));
+    const started = Date.now();
+    db.steps = [
+      {
+        name: 'DBOS.sleep',
+        startedAt: started,
+        completedAt: started + 60_000,
+      },
+    ];
+
+    const seen: LiveRun[] = [];
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
+
+    await settle();
+
+    expect(seen[0]?.steps).toEqual([]);
   });
 
   it("leaves out the SDK's own bookkeeping", async () => {
@@ -406,7 +499,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -424,7 +517,7 @@ describe('watchRun', () => {
     ];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -439,7 +532,7 @@ describe('watchRun', () => {
     const db = ledger(runRow({ recovery_attempts: '2' }));
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -459,7 +552,7 @@ describe('watchRun', () => {
     db.steps = [{ name: 'parse_request' }];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle(WATCH_INTERVAL_MS * 5);
 
@@ -472,7 +565,7 @@ describe('watchRun', () => {
     db.steps = [{ name: 'parse_request' }];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle();
 
@@ -493,7 +586,7 @@ describe('watchRun', () => {
     db.steps = [{ name: 'parse_request' }];
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle(WATCH_QUIET_MS - WATCH_INTERVAL_MS);
 
@@ -515,7 +608,7 @@ describe('watchRun', () => {
     db.status = undefined;
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle(WATCH_INTERVAL_MS * 2);
 
@@ -532,7 +625,7 @@ describe('watchRun', () => {
     db.fail = 'ECONNREFUSED 127.0.0.1:5432';
 
     const seen: LiveRun[] = [];
-    watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
     await settle(WATCH_QUIET_MS);
 
@@ -544,7 +637,9 @@ describe('watchRun', () => {
     const db = ledger();
 
     const seen: LiveRun[] = [];
-    const watcher = watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+    const watcher = watchRun(db.open, URL, RUN_ID, [], undefined, (run) =>
+      seen.push(run),
+    );
 
     await settle();
 
@@ -577,7 +672,9 @@ describe('watchRun', () => {
       db.steps = [{ name: 'parse_request' }];
 
       const reads: LedgerRead[] = [];
-      watchRun(db.open, URL, RUN_ID, [], (_run, read) => reads.push(read));
+      watchRun(db.open, URL, RUN_ID, [], undefined, (_run, read) =>
+        reads.push(read),
+      );
 
       await settle();
 
@@ -627,7 +724,7 @@ describe('watchRun', () => {
       ];
 
       const seen: LiveRun[] = [];
-      watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+      watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
       await settle();
 
@@ -654,7 +751,7 @@ describe('watchRun', () => {
       const db = ledger(runRow({ status: 'CANCELLED' }));
 
       const seen: LiveRun[] = [];
-      watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+      watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
       await settle();
 
@@ -679,18 +776,6 @@ describe('watchRun', () => {
 
     it('gives up after fifteen seconds of silence', () => {
       expect(WATCH_QUIET_MS).toBe(15_000);
-    });
-
-    /**
-     * A different question from when the watch lets
-     * go, which the two cases above it are about.
-     * This is the list a session row consults, and
-     * an outcome missing from it is a row that
-     * never gets a duration and is re-armed by
-     * every refresh for ever.
-     */
-    it('counts done, failed and cancelled as finished', () => {
-      expect([...SETTLED].sort()).toEqual(['cancelled', 'done', 'failed']);
     });
   });
   /**
@@ -732,6 +817,7 @@ describe('watchRun', () => {
             queuedName: 'thumbnail.queued.document_ingestion_queued',
           },
         ],
+        undefined,
         (run) => seen.push(run),
       );
 
@@ -754,7 +840,7 @@ describe('watchRun', () => {
       db.steps = [{ name: 'parse_request' }];
 
       const seen: LiveRun[] = [];
-      watchRun(db.open, URL, RUN_ID, [], (run) => seen.push(run));
+      watchRun(db.open, URL, RUN_ID, [], undefined, (run) => seen.push(run));
 
       await settle();
 
@@ -776,7 +862,9 @@ describe('watchRun', () => {
       db.counts = { [INDEX_PAGES.queuedName]: counts({ queued: 42 }) };
 
       const seen: LiveRun[] = [];
-      watchRun(db.open, URL, RUN_ID, [INDEX_PAGES], (run) => seen.push(run));
+      watchRun(db.open, URL, RUN_ID, [INDEX_PAGES], undefined, (run) =>
+        seen.push(run),
+      );
 
       await settle();
 
@@ -803,7 +891,9 @@ describe('watchRun', () => {
       db.counts = { [INDEX_PAGES.queuedName]: counts({ queued: 42 }) };
 
       const seen: LiveRun[] = [];
-      watchRun(db.open, URL, RUN_ID, [INDEX_PAGES], (run) => seen.push(run));
+      watchRun(db.open, URL, RUN_ID, [INDEX_PAGES], undefined, (run) =>
+        seen.push(run),
+      );
 
       await settle(WATCH_QUIET_MS);
 

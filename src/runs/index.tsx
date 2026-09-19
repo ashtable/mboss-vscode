@@ -1,684 +1,489 @@
-import { useState } from 'react';
+import { Fragment, useRef, type ReactNode } from 'react';
 
 import { postToHost } from '../webview/client.js';
+import { filled } from '../webview/fill.js';
 import { mountView } from '../webview/mount.js';
-import type {
-  RunRow,
-  RunsInit,
-  RunsStrings,
-  SessionRow,
-  StackZone,
-  RunByHand,
-} from '../webview/protocol.js';
+import type { RunsInit, RunsStrings, StackZone } from '../webview/protocol.js';
+import { Button } from '../webview/signal/Button.js';
+import { EmptyState } from '../webview/signal/EmptyState.js';
+import { Select } from '../webview/signal/Field.js';
+import { FieldHint } from '../webview/signal/FieldHint.js';
+import { TabPanel, Tabs } from '../webview/signal/Tabs.js';
+
+import { InputRow } from './InputRow.js';
+import { ProductionState } from './ProductionState.js';
 import { RUN_FILTERS, type RunFilter } from './queries.js';
-import type { StepState } from './reading.js';
-import type { LiveRun } from './watch.js';
+import { RunHistoryItem } from './RunHistoryItem.js';
+import { ServiceHealthItem } from './ServiceHealthItem.js';
+import { runsState, type RunsView, type StateRow } from './state.js';
 
 import './runs.css';
 
 /**
- * The Runs panel: bring a project's own stack up,
- * fire a workflow at it by hand, watch the run that
- * is going, and see what this window has set going —
- * all above the ledger it has always drawn.
+ * The Runs panel: a frame round one list.
  *
- * Four zones and a list, in the order a person needs
- * them: the stack has to be up before anything can
- * run, a run has to be started before one is live,
- * and both are worth more than the history the moment
- * either is true. It holds nothing beyond one
- * unsent input box — everything else is the extension's,
- * pushed in on every change the way the list always
- * was.
- */
-
-/** One glyph per outcome, in place of an icon set
- *  the extension would have to ship. */
-const MARKS: Record<RunRow['severity'], string> = {
-  ok: '✓',
-  running: '●',
-  // Half filled: something is true of this run and
-  // nothing is happening in it.
-  waiting: '◐',
-  failed: '✕',
-  exhausted: '⊘',
-  // Barred rather than crossed: somebody asked for
-  // this, so it is not the same news as a run that
-  // threw.
-  cancelled: '■',
-};
-
-/** One glyph per step, read off the ledger. There is
- *  no `running` mark: a step lands in
- *  `dbos.operation_outputs` only once it is done. */
-const STEP_MARKS: Record<StepState, string> = {
-  done: '✓',
-  failed: '✕',
-  waiting: '◐',
-};
-
-/** One glyph per session outcome, apart from the
- *  step marks above: this is a whole run, and
- *  `quiet` is a state no step ever carries. */
-const SESSION_MARKS: Record<SessionRow['outcome'], string> = {
-  running: '●',
-  done: '✓',
-  failed: '✕',
-  waiting: '◐',
-  quiet: '○',
-  // The same mark the ledger's own rows carry, so a
-  // run somebody stopped reads the same in both
-  // lists.
-  cancelled: '■',
-};
-
-/**
- * The outcomes a run can still be stopped from.
+ * Three regions down one column that is never
+ * taller than the pane. The header says whose runs
+ * these are. Under it, where there is anything to
+ * start, the controls — Run with its ports line,
+ * the input, and the tabs — stay where they are.
+ * Everything else scrolls: the rows, whatever the
+ * state table draws in their place, and the one
+ * line saying where the list came from, which
+ * follows the end of the list rather than sitting
+ * at the bottom of the pane.
  *
- * `quiet` is on the list because a quiet run is one
- * the watch let go of rather than one that ended —
- * DBOS still has it going, and it can still be
- * stopped.
+ * What this window set going has no card of its
+ * own. A run it started is the top row of the
+ * ledger, marked and opened out, which is the same
+ * row somebody would have picked themselves.
+ *
+ * It holds nothing but what the input box is
+ * showing while somebody is typing in it, and even
+ * that is the extension's: everything is pushed in
+ * on every change the way the list always was.
  */
-const STOPPABLE: readonly LiveRun['outcome'][] = [
-  'running',
-  'waiting',
-  'quiet',
-];
-
-/** The compose service the app runs in, as the
- *  scaffold's own compose file names it. Rebuild
- *  belongs beside this row and no other. */
-const APP_SERVICE = 'app';
-
 function Runs(state: RunsInit) {
   const { strings } = state;
-  const showControls =
-    state.state !== 'untrusted' && state.state !== 'no-project';
+  const view = runsState(state);
+
+  // The Run row is what there is to pin. Where the
+  // table gives the view one, the way to start a
+  // run stays put and the history moves under it;
+  // where it does not, whatever the table does give
+  // scrolls with the list.
+  const pinned = view.regions.includes('run-row');
+  const filters = view.regions.includes('tabs') ? (
+    <Filters state={state} />
+  ) : null;
+
+  // The one card the table names, and where it
+  // goes: a card about a filter somebody picked
+  // belongs under the tabs that picked it, and
+  // every other one is about the whole panel and
+  // sits above them.
+  const card = view.regions.includes('state') ? (
+    <BoundaryState state={state} view={view} />
+  ) : null;
+  const filtered = view.row === 'empty-filter';
 
   return (
     <div className="runs">
       <header className="runs-head">
-        <p className="eyebrow">{strings.heading}</p>
+        <p className="runs-title">{strings.heading}</p>
         {state.project === undefined ? null : (
-          <p className="runs-project mono">{state.project}</p>
+          <p className="runs-project mono">
+            {filled(strings.workspace, state.project)}
+          </p>
         )}
       </header>
 
-      {showControls ? (
-        <>
-          <Stack stack={state.stack} strings={strings} />
-          <TestRun testRun={state.testRun} strings={strings} />
-          {state.live === undefined ? null : (
-            <RunningNow live={state.live} strings={strings} />
-          )}
-          {state.session.length === 0 ? null : (
-            <Session session={state.session} strings={strings} />
-          )}
-        </>
+      {pinned ? (
+        <div className="runs-controls">
+          <RunRow state={state} />
+          {/* Read off the table rather than taken
+              from the Run row: a region nothing
+              consults is a fact the table and the
+              view can quietly disagree about. */}
+          {view.regions.includes('input-row') ? (
+            <InputRow testRun={state.testRun} strings={strings} />
+          ) : null}
+          {filters}
+        </div>
       ) : null}
 
-      <Filters state={state} />
+      {/* Nothing has been read yet, and anything
+          drawn below the header would be replaced a
+          moment later. */}
+      {view.row === 'loading' ? null : (
+        <div className="runs-body">
+          {/* What compose declares, where it
+              declares anything: the block is a rule
+              across the panel and a list of facts,
+              and with no facts it is the rule
+              alone. */}
+          {view.regions.includes('services') &&
+          state.stack.services.length > 0 ? (
+            <ul className="services">
+              {state.stack.services.map((service) => (
+                <ServiceHealthItem
+                  key={service.service}
+                  service={service}
+                  strings={strings}
+                />
+              ))}
+            </ul>
+          ) : null}
 
-      {state.state === 'ok' ? (
-        <List state={state} />
-      ) : (
-        <p className="state">{blockedBy(state, strings)}</p>
+          {filtered ? null : card}
+
+          {pinned ? null : filters}
+
+          {view.regions.includes('tabs') ? (
+            <Listing state={state} view={view} card={filtered ? card : null} />
+          ) : null}
+
+          {view.regions.includes('footer') ? (
+            <footer className="runs-foot">
+              <FieldHint title={state.source}>{strings.projection}</FieldHint>
+            </footer>
+          ) : null}
+
+          {view.regions.includes('production') ? (
+            <ProductionState
+              configured={state.production.configured}
+              strings={strings}
+            />
+          ) : null}
+
+          {view.regions.includes('production-button') ? (
+            <div className="runs-production">
+              <Button
+                variant="secondary"
+                ink="brand"
+                hook={{ production: 'configured' }}
+                onClick={() => postToHost({ type: 'openProduction' })}
+              >
+                {strings.openProduction}
+              </Button>
+            </div>
+          ) : null}
+        </div>
       )}
-
-      <footer className="runs-foot">
-        <p>{strings.projection}</p>
-        {state.source === undefined ? null : (
-          <p className="mono">{state.source}</p>
-        )}
-        <p>{strings.scope}</p>
-        <p>{strings.sessionScope}</p>
-        {state.production.configured ? (
-          <div className="state-block" data-production="configured">
-            <span>{strings.conductorConfigured}</span>
-            <button
-              type="button"
-              data-open-production
-              onClick={() => postToHost({ type: 'openProduction' })}
-            >
-              {strings.openProduction}
-            </button>
-          </div>
-        ) : null}
-      </footer>
     </div>
   );
 }
 
 /**
- * The project's own containers: one row per
- * service, Start or Stop for the whole stack, and
- * Rebuild beside the `app` row alone — it is the one
- * service a workflow addition or rename can leave
- * stale.
- */
-function Stack({ stack, strings }: { stack: StackZone; strings: RunsStrings }) {
-  const up = stack.services.some((service) => service.state === 'running');
-
-  return (
-    <section className="zone" data-zone="stack">
-      <div className="zone-head">
-        <p className="eyebrow">{strings.localStack}</p>
-
-        {stack.available ? (
-          <button
-            type="button"
-            data-stack-toggle
-            data-busy={stack.busy !== undefined}
-            disabled={stack.busy !== undefined}
-            onClick={() => postToHost({ type: up ? 'stackDown' : 'stackUp' })}
-          >
-            {up ? strings.stackDown : strings.stackUp}
-          </button>
-        ) : null}
-      </div>
-
-      {!stack.available ? (
-        <p className="zone-note">{stack.detail}</p>
-      ) : (
-        <ul className="services">
-          {stack.services.map((service) => (
-            <li
-              className="service"
-              data-service={service.service}
-              data-state={service.state}
-              key={service.service}
-            >
-              <span
-                className="service-dot"
-                data-state={service.state}
-                aria-hidden="true"
-              />
-              <span className="mono service-name">{service.service}</span>
-              <span className="service-state">
-                {strings.serviceState[service.state]}
-              </span>
-              <span className="service-detail">{service.detail}</span>
-              {service.service === APP_SERVICE ? (
-                <button
-                  type="button"
-                  data-rebuild
-                  disabled={stack.busy !== undefined}
-                  onClick={() => postToHost({ type: 'stackRebuild' })}
-                >
-                  {strings.rebuildApp}
-                </button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-/**
- * Starting one run by hand: which saved workflow,
- * whatever it takes as input, then the request that
- * goes nowhere but the machine it runs on.
+ * The one line everything about starting a run
+ * sits on: Run, which saved workflow it would be,
+ * and where the project's own services are
+ * listening.
  *
- * The workflow picker round-trips through the
- * extension on every change — `selectWorkflow` — so
- * the hint beside the box and any problem left over
- * from the last attempt are always about the one now
- * showing, rather than being worked out twice. The
- * input box is the one thing this view holds itself:
- * the extension only learns what is in it when a run
- * is actually sent.
+ * Run is drawn only where there is something to
+ * start — a primary button that does nothing is a
+ * lie about what the panel can do — and the picker
+ * only where there is a choice to make. The ports
+ * line is always there, because what is listening
+ * is the first thing to check when a start goes
+ * nowhere.
  */
-function TestRun({
-  testRun,
-  strings,
-}: {
-  testRun: RunByHand;
-  strings: RunsStrings;
-}) {
-  const [text, setText] = useState(testRun.input);
+function RunRow({ state }: { state: RunsInit }) {
+  const { strings, testRun } = state;
 
   const picked = testRun.workflows.find(
     (flow) => flow.name === testRun.selected,
   );
-  const scheduled = picked?.mode === 'schedule';
-
-  const run = (): void => {
-    if (testRun.selected === undefined) return;
-
-    postToHost({
-      type: 'runWorkflow',
-      workflow: testRun.selected,
-      input: text,
-    });
-  };
+  const runnable = picked !== undefined && picked.mode !== 'schedule';
 
   return (
-    <section className="zone" data-zone="test-run">
-      <p className="eyebrow">{strings.testRun}</p>
-
-      <label className="field">
-        <span className="field-label">{strings.workflow}</span>
-        <select
-          data-workflow-picker
-          value={testRun.selected ?? ''}
-          onChange={(event) =>
-            postToHost({
-              type: 'selectWorkflow',
-              workflow: event.target.value,
-            })
+    <div className="runs-run" data-zone="stack">
+      {runnable ? (
+        <Button
+          variant="primary"
+          hook={{ 'run-workflow': '' }}
+          onClick={() =>
+            postToHost({ type: 'runWorkflow', workflow: picked.name })
           }
         >
-          {testRun.workflows.map((flow) => (
-            <option key={flow.name} value={flow.name}>
-              {flow.title}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {scheduled ? (
-        <p className="zone-note">{strings.scheduledNotRunnable}</p>
-      ) : (
-        <>
-          <label className="field">
-            <span className="field-label">{strings.input}</span>
-            <textarea
-              className="mono"
-              data-input
-              rows={3}
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-            />
-          </label>
-
-          {testRun.hint === undefined ? null : (
-            <p className="zone-note">{testRun.hint}</p>
-          )}
-
-          {testRun.problem === undefined ? null : (
-            <p className="zone-problem" data-problem>
-              <span>{testRun.problem.detail}</span>
-              {testRun.problem.rebuildToRun ? (
-                <button
-                  type="button"
-                  data-rebuild
-                  onClick={() => postToHost({ type: 'stackRebuild' })}
-                >
-                  {strings.rebuildApp}
-                </button>
-              ) : null}
-            </p>
-          )}
-
-          <div className="zone-actions">
-            <button type="button" data-run-workflow onClick={run}>
-              {strings.runWorkflow}
-            </button>
-          </div>
-
-          <p className="zone-caption mono">{strings.runCaption}</p>
-        </>
-      )}
-    </section>
-  );
-}
-
-/**
- * The run being followed: its steps, marked with
- * what the ledger says about each, and the two
- * sentences a stopped watch leaves behind kept
- * apart — a parked run is waiting on a person, a
- * quiet one is waiting on nobody.
- */
-function RunningNow({
-  live,
-  strings,
-}: {
-  live: LiveRun;
-  strings: RunsStrings;
-}) {
-  return (
-    <section className="zone" data-zone="running-now">
-      <p className="eyebrow">{strings.runningNow}</p>
-
-      <p className="run-line" data-outcome={live.outcome}>
-        <span className="mono run-id">{live.workflowId}</span>
-        <span className="mono run-name">{live.workflow}</span>
-      </p>
-
-      {live.outcome === 'waiting' || live.outcome === 'quiet' ? (
-        <p className="zone-note">
-          {live.outcome === 'waiting'
-            ? strings.waitingRefresh
-            : strings.quietRefresh}
-        </p>
+          {strings.run}
+        </Button>
       ) : null}
 
-      {live.error === undefined ? null : (
-        <p className="run-error mono">{live.error}</p>
-      )}
+      {testRun.workflows.length > 1 ? (
+        <Select
+          label={strings.workflow}
+          hook={{ 'workflow-picker': '' }}
+          value={testRun.selected ?? ''}
+          options={testRun.workflows.map((flow) => ({
+            value: flow.name,
+            label: flow.title,
+          }))}
+          onChange={(workflow) =>
+            postToHost({ type: 'selectWorkflow', workflow })
+          }
+        />
+      ) : null}
 
-      <ol className="live-steps">
-        {live.steps.map((step) => (
-          <li className="live-step" data-state={step.state} key={step.name}>
-            <span className="step-mark" aria-hidden="true">
-              {STEP_MARKS[step.state]}
-            </span>
-            <span className="mono">{step.name}</span>
-          </li>
-        ))}
-      </ol>
-
-      <div className="zone-actions">
-        {STOPPABLE.includes(live.outcome) ? (
-          <button
-            type="button"
-            data-cancel-run
-            onClick={() =>
-              postToHost({ type: 'cancelRun', workflowId: live.workflowId })
-            }
-          >
-            {strings.cancelRun}
-          </button>
-        ) : null}
-
-        {live.outcome === 'cancelled' ? (
-          <button
-            type="button"
-            data-resume-run
-            onClick={() =>
-              postToHost({ type: 'resumeRun', workflowId: live.workflowId })
-            }
-          >
-            {strings.resumeRun}
-          </button>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-/**
- * What this window has set going, newest first: a
- * rail saying how each one went, and the action that
- * fits it — sending an event again reads differently
- * from rerunning a manual workflow, because only one
- * of them is honestly the same run.
- *
- * A row this window forked or picked back up gets
- * neither. Both actions send the input the row was
- * started with, and that run's input belongs to the
- * run it came from.
- *
- * A cancelled row gets a third thing instead: its
- * whole recorded history is sitting in the ledger,
- * so carrying on from there is what somebody means
- * rather than a second run from the top. And no Ask
- * agent — nobody has to look into a run somebody
- * stopped on purpose.
- */
-function Session({
-  session,
-  strings,
-}: {
-  session: SessionRow[];
-  strings: RunsStrings;
-}) {
-  return (
-    <section className="zone" data-zone="session">
-      <p className="eyebrow">{strings.thisSession}</p>
-
-      <ol className="session-rows">
-        {session.map((row) => (
-          <li
-            className="session-row"
-            data-session-row={row.workflowId}
-            data-outcome={row.outcome}
-            key={row.workflowId}
-          >
-            <span className="session-mark" aria-hidden="true">
-              {SESSION_MARKS[row.outcome]}
-            </span>
-            <span className="mono session-name">{row.workflow}</span>
-            <span className="session-when">{row.when}</span>
-            {row.error === undefined ? null : (
-              <span className="session-error mono">{row.error}</span>
-            )}
-
-            <span className="session-actions">
-              <button
-                type="button"
-                data-open-run
-                onClick={() =>
-                  postToHost({ type: 'openRun', workflowId: row.workflowId })
-                }
-              >
-                {strings.openRun}
-              </button>
-              {row.outcome === 'cancelled' ? (
-                <button
-                  type="button"
-                  data-resume-run
-                  onClick={() =>
-                    postToHost({
-                      type: 'resumeRun',
-                      workflowId: row.workflowId,
-                    })
-                  }
-                >
-                  {strings.resumeRun}
-                </button>
-              ) : null}
-              {row.outcome === 'cancelled' || row.via !== 'start' ? null : (
-                <button
-                  type="button"
-                  data-rerun
-                  onClick={() =>
-                    postToHost({ type: 'rerun', workflowId: row.workflowId })
-                  }
-                >
-                  {row.keyed ? strings.resendEvent : strings.rerunSameInput}
-                </button>
-              )}
-              {row.outcome === 'cancelled' || row.error === undefined ? null : (
-                <button
-                  type="button"
-                  data-ask-agent
-                  onClick={() =>
-                    postToHost({ type: 'askAgent', workflowId: row.workflowId })
-                  }
-                >
-                  {strings.askAgentWhy}
-                </button>
+      <p className="mono runs-ports">
+        {state.stack.services.map((service, at) => (
+          <Fragment key={service.service}>
+            {at === 0 ? null : <span aria-hidden="true"> · </span>}
+            <span data-service={service.service} data-state={service.state}>
+              {filled(
+                strings.servicePorts,
+                service.service,
+                listening(service, strings),
               )}
             </span>
-          </li>
+          </Fragment>
         ))}
-      </ol>
-    </section>
-  );
-}
-
-/**
- * The three the design names, with what each one
- * would show beside it.
- *
- * A run can be in two of them at once — recovering
- * is something that happened during a run, not a
- * way one ended — so the counts do not add up to
- * the first, and are not meant to.
- */
-function Filters({ state }: { state: RunsInit }) {
-  return (
-    <div className="filters" role="group">
-      {RUN_FILTERS.map((filter: RunFilter) => (
-        <button
-          type="button"
-          key={filter}
-          data-filter={filter}
-          aria-pressed={state.filter === filter}
-          onClick={() => postToHost({ type: 'runFilter', filter })}
-        >
-          <span>{state.strings.filters[filter]}</span>
-          <span className="count">{state.counts[filter]}</span>
-        </button>
-      ))}
+      </p>
     </div>
   );
 }
 
-/**
- * The ledger, minus whatever the session section
- * already drew: a run started this window and
- * already written to the database is a session row
- * and nothing else, or it would be on screen twice.
- */
-function List({ state }: { state: RunsInit }) {
-  const inSession = new Set(state.session.map((row) => row.workflowId));
-  const rows = state.rows.filter((row) => !inSession.has(row.workflowId));
+/** Where a service is listening, or the word for
+ *  the state it is in when it is listening
+ *  nowhere. */
+function listening(
+  service: StackZone['services'][number],
+  strings: RunsStrings,
+): string {
+  return service.ports.length === 0
+    ? strings.serviceState[service.state]
+    : service.ports.map((port) => `:${port}`).join(' ');
+}
 
-  if (rows.length === 0) {
-    return <p className="state">{state.strings.empty}</p>;
-  }
+/** The id the tabs and the list they filter name
+ *  each other by. */
+const LIST = 'runs-list';
+
+/**
+ * The strip that filters the list.
+ *
+ * Active and Failed share no status, so the two
+ * never add up to more than All. Every tab drives
+ * the one list, which is always there under them
+ * whichever is picked — and which is a region
+ * further down the page than the strip whenever the
+ * strip is pinned, so the two name each other by id
+ * rather than by where they sit.
+ */
+function Filters({ state }: { state: RunsInit }) {
+  const { strings, filter } = state;
 
   return (
-    <ol className="run-rows">
-      {rows.map((row) => (
-        <li key={row.workflowId} className="run-item">
-          <Row
-            row={row}
-            strings={state.strings}
-            selected={row.workflowId === state.selected}
-          />
-
-          {/* Beside the row rather than inside it:
-              the row is itself a button, and a
-              button inside a button is neither
-              valid nor clickable. */}
-          <button
-            type="button"
-            className="run-copy"
-            data-copy-run-id={row.workflowId}
-            title={state.strings.copyRunId}
-            aria-label={state.strings.copyRunId}
-            onClick={() =>
-              postToHost({ type: 'copyRunId', workflowId: row.workflowId })
-            }
-          >
-            ⧉
-          </button>
-
-          {/* No row and no block travels: the list
-              draws neither, so where the replay
-              starts is the run's own default and the
-              extension is what works it out. */}
-          <button
-            type="button"
-            className="run-copy run-replay"
-            data-replay-run={row.workflowId}
-            title={state.strings.replayRun}
-            aria-label={state.strings.replayRun}
-            onClick={() =>
-              postToHost({ type: 'replayRun', workflowId: row.workflowId })
-            }
-          >
-            ↺
-          </button>
-        </li>
-      ))}
-    </ol>
+    <Tabs
+      items={RUN_FILTERS.map((one: RunFilter) => ({
+        id: one,
+        label: strings.filters[one],
+        count: state.counts[one],
+        hook: { filter: one },
+      }))}
+      active={filter}
+      onPick={(picked) => postToHost({ type: 'runFilter', filter: picked })}
+      label={strings.heading}
+      panel={LIST}
+      controlsAll
+    />
   );
 }
 
-function Row({
-  row,
-  strings,
-  selected,
+/**
+ * The page of the ledger, or the line that stands
+ * in for it.
+ *
+ * Drawn only where there are tabs to filter it:
+ * without them the table's card is about the whole
+ * panel, not about a filter, and is drawn above.
+ *
+ * Under the panel's own card — the app is down and
+ * the card says so — an empty filter is a line
+ * rather than a second card, because two cards on
+ * one panel read as two things being wrong.
+ */
+function Listing({
+  state,
+  view,
+  card,
 }: {
-  row: RunRow;
-  strings: RunsStrings;
-  selected: boolean;
+  state: RunsInit;
+  view: RunsView;
+
+  /** The table's card, where this filter is what
+   *  it is about. */
+  card: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      className="run-row"
-      data-run={row.workflowId}
-      data-severity={row.severity}
-      data-recovered={String(row.recovered)}
-      aria-current={selected}
-      onClick={() =>
-        postToHost({ type: 'runSelect', workflowId: row.workflowId })
-      }
-    >
-      <span className="run-line">
-        <span className="mono run-id">{row.workflowId}</span>
-        <span className="run-mark" aria-hidden="true">
-          {MARKS[row.severity]}
-        </span>
-      </span>
-
-      <span className="run-line">
-        <span className="mono run-name">{row.name}</span>
-        {row.recovered ? (
-          <span className="run-tag">{strings.recoveredTag}</span>
-        ) : null}
-      </span>
-
-      <span className="run-when">
-        {row.when}
-        {row.recoveredNote === undefined ? null : ` · ${row.recoveredNote}`}
-      </span>
-
-      {/* Worked out from the last operation the run
-          recorded, never read off a column — so it
-          says so, and carries the moment it was
-          worked out from. */}
-      {row.summary === undefined ? null : (
-        <span
-          className="run-summary"
-          data-derived
-          data-stopped-at={row.stoppedAt}
-          title={strings.derivedTitle}
-        >
-          {row.summary}
-        </span>
+    <TabPanel panel={LIST} active={state.filter}>
+      {view.regions.includes('rows') ? (
+        <Rows state={state} />
+      ) : view.regions.includes('filter-hint') ? (
+        <FieldHint>{emptyFilter(state)}</FieldHint>
+      ) : (
+        card
       )}
-
-      {row.error === undefined ? null : (
-        <span className="run-error">{row.error}</span>
-      )}
-
-      {/* Where the run came from and what came out
-          of it. Both are read off a column every row
-          already selects, and the child line is
-          drawn only for a run that is on this page —
-          so neither costs a read. */}
-      {row.replayOf === undefined ? null : (
-        <span className="mono run-lineage" data-replay-of>
-          {row.replayOf}
-        </span>
-      )}
-
-      {row.forks.map((fork) => (
-        <span className="mono run-lineage" key={fork} data-run-fork>
-          {fork}
-        </span>
-      ))}
-    </button>
+    </TabPanel>
   );
 }
 
-/** Why the list is empty, when it is not a list at
- *  all. */
-function blockedBy(state: RunsInit, strings: RunsStrings): string {
-  if (state.state === 'untrusted') return strings.untrusted;
-  if (state.state === 'no-project') return strings.noProject;
+/**
+ * The page of the ledger.
+ *
+ * The read stops at a page and the count behind a
+ * tab does not, so a page shorter than its tab says
+ * how much of it is drawn.
+ */
+function Rows({ state }: { state: RunsInit }) {
+  const { strings } = state;
+  const onPage = new Set(state.rows.map((row) => row.workflowId));
+  const behind = state.counts[state.filter];
 
-  return state.detail ?? strings.empty;
+  // Whether somebody just followed a replay to
+  // another run. The Button they pressed belongs to
+  // the run that was open and goes with it, so the
+  // run the host marks takes the focus onto its own
+  // line. Held by the list because the row that
+  // sets it and the row that takes it are two
+  // different rows.
+  const takesFocus = useRef(false);
+
+  return (
+    <>
+      <ol className="run-list">
+        {state.rows.map((row) => (
+          <RunHistoryItem
+            key={row.workflowId}
+            row={row}
+            strings={strings}
+            selected={row.workflowId === state.selected}
+            onPage={onPage}
+            takesFocus={takesFocus}
+          />
+        ))}
+      </ol>
+
+      {state.rows.length < behind ? (
+        <FieldHint>
+          {filled(strings.capped, String(state.rows.length), String(behind))}
+        </FieldHint>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The one card, and the one way out it offers.
+ *
+ * Which states draw a card is the table's answer;
+ * this is what each of them says. A title is the
+ * fact and nothing else, and the line under it is
+ * the sentence the host already writes about that
+ * state, because which folder, which file and what
+ * the database actually said are things only the
+ * host knows.
+ */
+function BoundaryState({ state, view }: { state: RunsInit; view: RunsView }) {
+  const said = saidBy(state, view.row);
+
+  if (said === undefined) return null;
+
+  return (
+    <EmptyState
+      kind={said.kind}
+      title={said.title}
+      detail={said.detail}
+      action={wayOutOf(state, view)}
+    />
+  );
+}
+
+/** What a card says, and whose doing it is: `error`
+ *  where the panel asked and was refused, `empty`
+ *  where nothing has happened yet. */
+type Said = {
+  kind: 'empty' | 'error';
+  title: string;
+  detail: string | undefined;
+};
+
+function saidBy(state: RunsInit, row: StateRow): Said | undefined {
+  const { strings } = state;
+
+  switch (row) {
+    case 'untrusted':
+      return card('empty', strings.untrustedTitle, strings.untrusted);
+    case 'no-project':
+      return card('empty', strings.noProjectTitle, strings.noProject);
+    case 'no-database':
+      return card('error', strings.noDatabaseTitle, state.detail);
+    case 'no-docker':
+      return card('error', strings.noDockerTitle, state.stack.detail);
+    case 'docker-silent':
+      return card(
+        'error',
+        strings.dockerSilentTitle,
+        strings.dockerSilentDetail,
+      );
+    case 'database-refused':
+      return card('error', strings.databaseRefusedTitle, state.detail);
+    case 'app-down':
+      return card('error', strings.appDownTitle, strings.appDownDetail);
+    case 'no-runs':
+      return card('empty', strings.emptyTitle, strings.emptyDetail);
+    case 'empty-filter':
+      return card('empty', emptyFilter(state), undefined);
+    case 'loading':
+    case 'populated':
+      return undefined;
+  }
+}
+
+function card(
+  kind: Said['kind'],
+  title: string,
+  detail: string | undefined,
+): Said {
+  return { kind, title, detail };
+}
+
+/**
+ * The single thing that would change the state, as
+ * a Button under the card.
+ *
+ * Which of them is on offer is the table's answer
+ * too, so a state with nothing to offer offers
+ * nothing rather than a control that would do
+ * nothing.
+ */
+function wayOutOf(
+  state: RunsInit,
+  view: RunsView,
+): Parameters<typeof EmptyState>[0]['action'] {
+  const { strings, testRun } = state;
+
+  switch (view.action) {
+    case 'refresh':
+      return {
+        label: strings.refresh,
+        onClick: () => postToHost({ type: 'runRefresh' }),
+      };
+
+    case 'start-app': {
+      // The label stays a label while it is going:
+      // a control that swapped its words for a
+      // spinner leaves nobody able to say what they
+      // pressed.
+      const starting = state.stack.busy === 'up';
+
+      return {
+        label: starting ? strings.starting : strings.startApp,
+        busy: starting,
+        hook: { 'stack-up': '' },
+        onClick: () => postToHost({ type: 'stackUp' }),
+      };
+    }
+
+    case 'run-named': {
+      const workflow = testRun.selected;
+
+      return workflow === undefined
+        ? undefined
+        : {
+            label: filled(strings.runNamed, workflow),
+            onClick: () => postToHost({ type: 'runWorkflow', workflow }),
+          };
+    }
+
+    case undefined:
+      return undefined;
+  }
+}
+
+/** What a filter with nothing behind it says. */
+function emptyFilter({ strings, filter }: RunsInit): string {
+  return filter === 'active' ? strings.noActive : strings.noFailed;
 }
 
 mountView('runs', Runs);

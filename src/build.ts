@@ -54,6 +54,7 @@ export const WEBVIEW_ENTRIES: readonly WebviewName[] = [
   'sidebar',
   'runs',
   'see',
+  'inspector',
   'gallery',
 ];
 

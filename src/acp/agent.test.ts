@@ -1,14 +1,17 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { fakeTrust } from '../../test/doubles/trust.js';
 import { PEER_SCRIPT } from '../test-support/peer.js';
 
 import { agentPanel, type AgentPanel, type PanelHost } from './agent.js';
 import { REMEMBERED_KEY } from './permissions.js';
+import type { ContentBlock } from './connection.js';
+import type { PromptAbout } from './prompt.js';
 import type { FileEditEntry } from './transcript.js';
 
 /**
@@ -78,6 +81,7 @@ function drive(over: Partial<PanelHost> = {}, trust = fakeTrust()): Driven {
         write: async () => {},
         remove: async () => {},
       },
+      pickFiles: async () => [],
       state: {
         get: <T>(key: string) => stored[key] as T | undefined,
         update: async (key, value) => {
@@ -226,6 +230,7 @@ describe('one turn', () => {
       target: 'booking',
       status: 'applied',
       body: [],
+      paths: [],
     });
 
     expect(
@@ -309,6 +314,22 @@ describe('before there is anything to talk to', () => {
 
     expect(driven.panel.state().status).toBe('no-project');
   });
+
+  /**
+   * The panel names a file by its place in the
+   * project, and the folder can close under a
+   * session, so it is asked for every picture.
+   */
+  it('says which folder the session runs in, as the window has it now', () => {
+    let folder: string | undefined = '/project';
+    const driven = drive({ project: () => folder });
+
+    expect(driven.panel.state().project).toBe('/project');
+
+    folder = undefined;
+
+    expect(driven.panel.state().project).toBeUndefined();
+  });
 });
 
 describe('changing agents', () => {
@@ -375,12 +396,11 @@ async function waitUntil(done: () => boolean): Promise<void> {
 
 describe('the view that watches', () => {
   /**
-   * The panel outlives the view that draws it, and
-   * a hidden view is disposed and rebuilt when it
-   * is shown again — which, in this extension, is
-   * every time somebody selects a block. A
-   * listener with no way off the list would leave
-   * one dead view being repainted per selection.
+   * The panel outlives the view that draws it. The
+   * view that listens can be closed, and is
+   * disposed then, so a listener with no way off
+   * the list would leave a dead view being
+   * repainted for as long as the window is open.
    */
   it('can stop watching', () => {
     const driven = drive();
@@ -649,5 +669,274 @@ describe('keeping and undoing a file edit', () => {
     await driven.panel.undo('made-up-id');
 
     expect(fileEntry(driven)?.decision).toBe('kept');
+  });
+});
+
+/**
+ * A turn that answers a question about one block
+ * of a run.
+ *
+ * Once it has changed something the panel offers
+ * to replay the run from that block. What the
+ * question was about belongs to the turn that asked
+ * it: a question can wait in the queue behind a
+ * turn already going, and that turn — which was
+ * about something else — must not come out of it
+ * offering a replay.
+ *
+ * The scripted peer writes one new file under a
+ * call it asks permission for, every turn.
+ */
+describe('a turn asked about a block', () => {
+  const PATH = '/project/lib/twilioChat.ts';
+  const NEW_TEXT = 'export async function twilioChat() {}\n';
+
+  const ABOUT: PromptAbout = {
+    workflowId: 'wf_c9d2f3',
+    nodeId: 'refund_payment',
+    block: 'Refund payment',
+    shown: 'Run `#c9d2` of `refund_order` failed at Refund payment.',
+  };
+
+  const asking = { text: 'Run `wf_c9d2f3` failed.', about: ABOUT };
+
+  /** What the column holds, one word per entry. */
+  const shape = (driven: Driven): string[] =>
+    driven.panel
+      .state()
+      .transcript.map((entry) =>
+        entry.at === 'message' ? `${entry.from}: ${entry.text}` : entry.at,
+      );
+
+  it('offers the next step after a turn that applied an edit', async () => {
+    const driven = drive();
+
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send(asking);
+
+    const transcript = driven.panel.state().transcript;
+    const file = transcript.find((entry) => entry.at === 'file');
+
+    expect(file?.path).toBe(PATH);
+    expect(transcript.at(-1)).toEqual({
+      at: 'next',
+      id: 'next-0',
+      about: { workflowId: 'wf_c9d2f3', nodeId: 'refund_payment' },
+      block: 'Refund payment',
+      edits: [file?.id],
+    });
+  });
+
+  it('offers nothing when its edit was undone before it ended', async () => {
+    const driven = drive({
+      files: {
+        read: async () => NEW_TEXT,
+        write: async () => {},
+        remove: async () => {},
+      },
+    });
+    let undid = false;
+
+    driven.panel.onChanged(() => {
+      if (undid || driven.panel.state().status !== 'awaiting-permission') {
+        return;
+      }
+
+      undid = true;
+
+      const file = driven.panel
+        .state()
+        .transcript.find((entry) => entry.at === 'file');
+
+      void (async () => {
+        await driven.panel.undo(file?.id ?? '');
+        await driven.panel.answer('yes', 'allow_once');
+      })();
+    });
+
+    await driven.panel.send(asking);
+
+    const transcript = driven.panel.state().transcript;
+
+    expect(transcript.find((entry) => entry.at === 'file')?.decision).toBe(
+      'undone',
+    );
+    expect(transcript.some((entry) => entry.at === 'next')).toBe(false);
+  });
+
+  it('binds the question to its own turn, not the one ahead', async () => {
+    const driven = drive();
+    let queued = false;
+
+    driven.panel.onChanged(() => {
+      if (queued || driven.panel.state().status !== 'streaming') return;
+
+      queued = true;
+      void driven.panel.send(asking);
+    });
+
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send({ text: 'wire it' });
+
+    // The queued question's own turn is sent from
+    // the end of the first one, which the first
+    // send waits for.
+    expect(shape(driven)).toEqual([
+      'user: wire it',
+      'agent: Wiring the booking flow.',
+      'thought: The confirm step needs a handler.',
+      'tool',
+      'file',
+      `user: ${asking.text}`,
+      'agent: Wiring the booking flow.',
+      'thought: The confirm step needs a handler.',
+      'next',
+    ]);
+  });
+
+  it('offers nothing after a prompt somebody typed', async () => {
+    const driven = drive();
+
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send({ text: 'wire the booking flow' });
+
+    expect(shape(driven)).toContain('file');
+    expect(shape(driven)).not.toContain('next');
+  });
+});
+
+/**
+ * What somebody attaches rides with the next thing
+ * they type, and only that.
+ *
+ * The draft is the panel's rather than the view's,
+ * because the view is thrown away every time it is
+ * hidden and a file picked before a canvas trip is
+ * still meant for the prompt after it. And it is
+ * the composer's own: the stores that hand the
+ * agent a question of their own, an approval or a
+ * failed run, must never carry off a file somebody
+ * picked for something else.
+ *
+ * The scripted peer writes down every prompt it is
+ * sent, which is what says what crossed the wire.
+ */
+describe('files attached to a prompt', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** A panel whose picker answers with these files
+   *  under whatever folder it was opened on. */
+  const picking = (...files: string[]): Driven & { asked: string[] } => {
+    const asked: string[] = [];
+    const driven = drive({
+      pickFiles: async (project) => {
+        asked.push(project);
+
+        return files.map((file) => join(project, file));
+      },
+    });
+
+    return { ...driven, asked };
+  };
+
+  /** Has the peer write down what it is sent, and
+   *  hands back a way to read its last prompt. */
+  const recording = (): (() => ContentBlock[]) => {
+    const dir = mkdtempSync(join(tmpdir(), 'mboss-heard-'));
+    const record = join(dir, 'heard.json');
+
+    scratch.push(dir);
+    vi.stubEnv('PEER_RECORD', record);
+
+    return () =>
+      (
+        JSON.parse(readFileSync(record, 'utf8')) as {
+          prompt: { prompt: ContentBlock[] };
+        }
+      ).prompt.prompt;
+  };
+
+  const linkNames = (blocks: ContentBlock[]): string[] =>
+    blocks.flatMap((block) =>
+      block.type === 'resource_link' ? [block.name] : [],
+    );
+
+  it('holds what was picked until the prompt goes', async () => {
+    const driven = picking('lib/a.ts', 'lib/b.ts');
+
+    // Picking the same files again holds each once:
+    // two links to one file say nothing more.
+    await driven.panel.attach();
+    await driven.panel.attach();
+
+    const project = driven.panel.state().project as string;
+
+    expect(driven.asked).toEqual([project, project]);
+    expect(driven.panel.state().attached).toEqual([
+      {
+        uri: pathToFileURL(join(project, 'lib/a.ts')).href,
+        name: 'lib/a.ts',
+      },
+      {
+        uri: pathToFileURL(join(project, 'lib/b.ts')).href,
+        name: 'lib/b.ts',
+      },
+    ]);
+    expect(driven.spawns()).toBe(0);
+  });
+
+  it('sends the files with what was typed, and clears the draft', async () => {
+    const driven = picking('lib/a.ts', 'lib/b.ts');
+    const heard = recording();
+    const heldWhileWorking: number[] = [];
+
+    await driven.panel.attach();
+    driven.panel.onChanged(() => {
+      if (driven.panel.state().status !== 'streaming') return;
+
+      heldWhileWorking.push(driven.panel.state().attached.length);
+    });
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.prompt('look at these');
+
+    expect(heard()[0]).toEqual({ type: 'text', text: 'look at these' });
+    expect(linkNames(heard())).toEqual(['lib/a.ts', 'lib/b.ts']);
+
+    // Gone the moment the prompt went, not when the
+    // turn ended: what is attached now is for the
+    // next one.
+    expect(heldWhileWorking.length).toBeGreaterThan(0);
+    expect(heldWhileWorking.every((count) => count === 0)).toBe(true);
+    expect(driven.panel.state().attached).toEqual([]);
+  });
+
+  it('lets go of one file', async () => {
+    const driven = picking('lib/a.ts', 'lib/b.ts');
+
+    await driven.panel.attach();
+
+    const [first] = driven.panel.state().attached;
+
+    driven.panel.detach(first?.uri ?? '');
+
+    expect(driven.panel.state().attached.map((file) => file.name)).toEqual([
+      'lib/b.ts',
+    ]);
+  });
+
+  it("never hands a store's prompt the draft", async () => {
+    const driven = picking('lib/a.ts');
+    const heard = recording();
+
+    await driven.panel.attach();
+    answerWith(driven, 'yes', 'allow_once');
+    await driven.panel.send({ text: 'why did it fail?' });
+
+    expect(heard()).toEqual([{ type: 'text', text: 'why did it fail?' }]);
+    expect(driven.panel.state().attached.map((file) => file.name)).toEqual([
+      'lib/a.ts',
+    ]);
   });
 });
