@@ -9,9 +9,9 @@ import {
   blockInit,
   blockSubject,
   canvasInit,
-  clickWire,
   openCanvas,
   openInspector,
+  pickWire,
 } from './fixtures/canvas.js';
 import { LIBRARY_COLOURS } from './fixtures/library.js';
 import { APP_DOWN, listRow, runsInit } from './fixtures/list.js';
@@ -1848,23 +1848,18 @@ test.describe('every view, in every theme', () => {
 
         if (scene.view !== 'canvas') continue;
 
-        await clickWire(page, 'e11');
-        await expect(
-          page.locator('.react-flow__edge[data-id="e11"]'),
-        ).toHaveClass(/selected/);
+        await pickWire(page, 'e11');
+        await page.mouse.move(0, 0);
         await settled(page);
 
-        // A wire keeps the colour of what is
-        // happening along it when it is picked: the
-        // stroke is set on the line itself, so its
-        // arrowhead cannot disagree with it.
-        const picked = page.locator('.react-flow__edge.selected .wire');
-        const stroke = await picked.evaluate(
-          (wire) => getComputedStyle(wire).stroke,
-        );
-        const state = (await picked.getAttribute('data-state')) ?? 'idle';
+        // Picked, a wire is drawn in the colour the
+        // editor marks focus in, and never in the one
+        // the graph library picks for itself.
+        const stroke = await page
+          .locator('.react-flow__edge.selected .wire')
+          .evaluate((wire) => getComputedStyle(wire).stroke);
 
-        paints(stroke, colourOf(theme, STROKE[state]!), 'a picked wire');
+        paints(stroke, colourOf(theme, 'focus-ring'), 'a picked wire');
         expect.soft(LIBRARY_COLOURS).not.toContain(stroke);
       }
     });

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import type { Locator, Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
 import { snap } from '../../../src/canvas/grid.js';
 import { layoutKeyOf } from '../../../src/canvas/placement.js';
@@ -186,6 +186,26 @@ export async function clickWire(page: Page, edge: string): Promise<void> {
   const box = (await hit.boundingBox())!;
 
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
+/**
+ * Picks a wire with a click, and clicks again until
+ * the graph has it picked.
+ *
+ * The graph is fitted to its pane only once every
+ * block has been measured, and the viewport can
+ * hold still at the size it opened at for long
+ * enough to pass for settled. A click aimed at the
+ * wire before the fit lands on the pane, where the
+ * wire used to be.
+ */
+export async function pickWire(page: Page, edge: string): Promise<void> {
+  const wire = page.locator(`.react-flow__edge[data-id="${edge}"]`);
+
+  await expect(async () => {
+    await clickWire(page, edge);
+    await expect(wire).toHaveClass(/selected/, { timeout: 250 });
+  }).toPass();
 }
 
 /** Drops a wire held off the fixture's `find_slot`

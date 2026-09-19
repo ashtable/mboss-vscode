@@ -207,6 +207,11 @@ describe('the built extension', () => {
       for (const match of css.matchAll(/url\(["']?([^"')]+)["']?\)/g)) {
         const url = match[1] as string;
 
+        // A fragment names an element on the page,
+        // such as the arrowhead a picked wire ends
+        // in, and asks for no file at all.
+        if (url.startsWith('#')) continue;
+
         // A scheme is somebody else's origin, which
         // the content security policy refuses long
         // before this would.

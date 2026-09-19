@@ -412,6 +412,24 @@
   pointer-events: none;
 }
 
+/* A wire somebody picked, or has the keyboard on,
+   in the colour the editor marks focus in, over
+   whatever a run is doing along it: a wire that
+   looks the same picked as not leaves a keyboard
+   no way of saying where it is. The line's own
+   stroke falls back past this variable, and the
+   arrowhead is swapped in the same rule, so the
+   two cannot disagree.
+
+   Here rather than in the token sheet: the run
+   page edits nothing and puts no stop on a wire,
+   so a wire there is never where somebody is. */
+.react-flow__edge.selected .wire,
+.react-flow__edge:focus-visible .wire {
+  --wire-picked: var(--xy-edge-stroke-selected);
+  marker-end: url(#wire-arrow-picked);
+}
+
 /* — a wire being drawn — */
 
 /* Every block answers the question a person is

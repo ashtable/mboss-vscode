@@ -41,6 +41,25 @@ const STROKE: Record<EdgeState, string> = {
   failed: 'var(--fail)',
 };
 
+/**
+ * What a wire somebody picked, or has the keyboard
+ * on, is drawn in: the colour the editor marks
+ * focus in, over whatever a run is doing along it.
+ *
+ * The canvas sheet says when, because only the
+ * browser knows where a keyboard's focus is. Its
+ * rule sets `--wire-picked`, which the line reads
+ * before its state's colour, and swaps the
+ * arrowhead for this one in the same breath.
+ */
+const PICKED = 'var(--xy-edge-stroke-selected)';
+
+type Look = EdgeState | 'picked';
+
+/** Every arrowhead the canvas draws, one per look a
+ *  wire can take. */
+const ARROWS: Record<Look, string> = { ...STROKE, picked: PICKED };
+
 export function Wire(props: EdgeProps<CanvasEdge>) {
   const back = props.data?.back === true;
   const state = props.data?.state ?? 'idle';
@@ -55,7 +74,9 @@ export function Wire(props: EdgeProps<CanvasEdge>) {
         path={path}
         className={back ? 'wire wire-back' : 'wire'}
         data-state={state}
-        style={{ stroke: STROKE[state] }}
+        // The variable is set only where the canvas
+        // sheet marks the wire picked.
+        style={{ stroke: `var(--wire-picked, ${STROKE[state]})` }}
         markerEnd={`url(#${arrowId(state)})`}
       />
 
@@ -83,8 +104,8 @@ export function Wire(props: EdgeProps<CanvasEdge>) {
 }
 
 /**
- * The arrowheads, one per state, defined once for
- * the whole canvas.
+ * The arrowheads, one per state and one for a
+ * picked wire, defined once for the whole canvas.
  *
  * A marker is referenced by id out of a `<defs>`,
  * so it can be neither a style rule nor a thing
@@ -103,10 +124,10 @@ export function WireMarkers() {
   return (
     <svg className="wire-markers" aria-hidden="true">
       <defs>
-        {Object.entries(STROKE).map(([state, stroke]) => (
+        {Object.entries(ARROWS).map(([look, stroke]) => (
           <marker
-            key={state}
-            id={arrowId(state as EdgeState)}
+            key={look}
+            id={arrowId(look as Look)}
             viewBox="0 0 10 10"
             refX="9"
             refY="5"
@@ -129,8 +150,8 @@ export function WireMarkers() {
   );
 }
 
-function arrowId(state: EdgeState): string {
-  return `wire-arrow-${state}`;
+function arrowId(look: Look): string {
+  return `wire-arrow-${look}`;
 }
 
 /** How far a name sits from the line it belongs to,

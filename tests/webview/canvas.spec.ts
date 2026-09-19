@@ -34,6 +34,7 @@ import {
   manifest,
   openCanvas,
   openEveryKind,
+  pickWire,
   queuedRun,
   recording,
   runOf,
@@ -44,7 +45,8 @@ import {
 import { LIBRARY_COLOURS } from './fixtures/library.js';
 import { graphAtRest } from './fixtures/runs.js';
 import { mount, THEMES_ALL, type ThemeKind } from './harness.js';
-import { colourOf, sameColour } from './palette.js';
+import { colourOf, sameColour, type Role } from './palette.js';
+import { settled } from './sweep.js';
 import { canvasWords as canvasStrings } from './words.js';
 
 /**
@@ -1537,13 +1539,15 @@ test.describe('the dashes on a wire a run is going down', () => {
 /**
  * What colour a wire is drawn in.
  *
- * The colours live beside the wire rather than in
- * the stylesheet, so that the arrowhead at the end
- * of a line cannot disagree with the line — which
- * also means nothing in the sheet would catch them
- * going wrong. A run whose every wire came out the
- * colour of structure would say a workflow was
- * sitting still while it was going.
+ * A run's colours live beside the wire rather than
+ * in the stylesheet, so that the arrowhead at the
+ * end of a line cannot disagree with the line —
+ * which also means nothing in the sheet would catch
+ * them going wrong. A run whose every wire came out
+ * the colour of structure would say a workflow was
+ * sitting still while it was going. Only a picked
+ * wire's look is the sheet's, since only the
+ * browser knows where a keyboard is.
  */
 test.describe('the colour a wire is drawn in', () => {
   test('draws one nothing is going down as structure', async ({ page }) => {
@@ -1632,7 +1636,85 @@ test.describe('the colour a wire is drawn in', () => {
 
     await expect(wireBody(page, 'e8')).toHaveCSS('stroke-dasharray', 'none');
   });
+
+  /**
+   * A wire somebody picked, or has the keyboard on,
+   * is drawn in the colour the editor marks focus
+   * in, over whatever a run is doing along it. A
+   * wire that looks the same picked as not leaves a
+   * keyboard with no way of saying where it is. The
+   * arrowhead goes with the line, and the wires
+   * nobody is on keep their own colours.
+   */
+  for (const theme of THEMES_ALL) {
+    test(`draws a picked wire in the focus colour, arrowhead too (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, { run: runOf(IN_FLIGHT) }, theme);
+      await pickWire(page, 'e5');
+
+      await page.mouse.move(0, 0);
+      await settled(page);
+
+      await drawnIn(page, theme, {
+        e5: 'focus-ring',
+        e2: 'edge-done',
+        e10: 'hairline-strong',
+      });
+    });
+
+    test(`draws a wire the keyboard is on in the focus colour, arrowhead too (${theme})`, async ({
+      page,
+    }) => {
+      await openAtRest(page, { run: runOf(IN_FLIGHT) }, theme);
+
+      const edge = page.locator('.react-flow__edge[data-id="e10"]');
+
+      // A key first, so the browser takes the focus
+      // for one a keyboard made.
+      await page.keyboard.press('Shift');
+      await edge.focus();
+      await settled(page);
+
+      expect(
+        await edge.evaluate((wire) => wire.matches(':focus-visible')),
+      ).toBe(true);
+      await expect(edge).not.toHaveClass(/selected/);
+
+      await drawnIn(page, theme, {
+        e10: 'focus-ring',
+        e5: 'ok',
+        e2: 'edge-done',
+      });
+    });
+  }
 });
+
+/** Holds each wire's line and arrowhead to the role
+ *  it should be drawn in, in `theme`. */
+async function drawnIn(
+  page: Page,
+  theme: ThemeKind,
+  roles: Record<string, Role>,
+): Promise<void> {
+  for (const [edge, role] of Object.entries(roles)) {
+    const { line, head } = await wireInk(page, edge);
+    const expected = colourOf(theme, role);
+
+    expect
+      .soft(
+        sameColour(line, expected),
+        `${edge}: ${line} ≠ ${role} ${expected}`,
+      )
+      .toBe(true);
+    expect
+      .soft(
+        sameColour(head, expected),
+        `${edge}'s arrowhead: ${head} ≠ ${role} ${expected}`,
+      )
+      .toBe(true);
+  }
+}
 
 /** Tint and ink per tone, as the browser resolves
  *  the mixes over this harness' light surface. The
@@ -3715,6 +3797,32 @@ function runMark(page: Page, node: string): Locator {
  *  drawn on rather than the group around it. */
 function wireBody(page: Page, edge: string): Locator {
   return page.locator(`.react-flow__edge[data-id="${edge}"] .wire`);
+}
+
+/**
+ * What a wire's line and its arrowhead are drawn in.
+ *
+ * The arrowhead is whichever marker the page ends
+ * the line in, read from the line's computed style
+ * rather than its attribute, so a rule that swaps
+ * the marker is measured as well as one that swaps
+ * the stroke.
+ */
+function wireInk(
+  page: Page,
+  edge: string,
+): Promise<{ line: string; head: string }> {
+  return wireBody(page, edge).evaluate((wire) => {
+    const style = getComputedStyle(wire);
+    const id = /#([\w-]+)/.exec(style.markerEnd)?.[1];
+    const head =
+      id === undefined ? null : document.querySelector(`marker#${id} path`);
+
+    return {
+      line: style.stroke,
+      head: head === null ? '' : getComputedStyle(head).stroke,
+    };
+  });
 }
 
 /** The ring around a block a wire being drawn could
