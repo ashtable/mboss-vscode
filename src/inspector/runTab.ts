@@ -6,6 +6,7 @@ import type { CanvasCode } from '../canvas/editor.js';
 import type { CanvasSessions } from '../canvas/sessions.js';
 import {
   checkWorkflow,
+  isWorkflowName,
   manifestFor,
   readWorkflow,
   workflowDocument,
@@ -172,11 +173,23 @@ export function runTabSurface(deps: RunTabDeps): RunTabSurface {
    */
   const manifests = new Map<string, LibManifest | undefined>();
 
+  /**
+   * The document the run in front is a run of, where
+   * it can have one.
+   *
+   * The name is what the ledger recorded, and not
+   * every run is one of a document: a queue block's
+   * items run under the block's id and the
+   * document's name joined, which no document is
+   * filed under. Such a run has nothing to draw a
+   * block from, rather than a path to nowhere.
+   */
   const where = (): Where | undefined => {
     const reading = deps.runs.detail();
     const project = deps.runs.project();
 
     if (reading === undefined || project === undefined) return undefined;
+    if (!isWorkflowName(reading.run.name)) return undefined;
 
     return {
       project,

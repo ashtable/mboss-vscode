@@ -331,6 +331,36 @@ describe('what the run tab holds', () => {
     });
   });
 
+  /**
+   * A queue block's items are runs of their own,
+   * registered under the block's id and the
+   * document's name joined — a name no document
+   * can have. Such a run is shown with no document
+   * to draw a block from, and a canvas or a
+   * document moving meanwhile is no news about it.
+   */
+  it('holds no document for a run no document can be named for', () => {
+    const pane = surface();
+    const open = session();
+
+    pane.registry.register(PATH, open.canvas, { active: false });
+    pane.tab.reading = seeView({
+      run: { ...seeView().run, name: 'find_slot.queued.groom_booking' },
+    });
+    const count = pane.heard();
+
+    expect(pane.surface.path()).toBeUndefined();
+    expect(pane.surface.holds(NOW)).toMatchObject({
+      tab: { workflowId: 'wf_1' },
+      block: undefined,
+    });
+
+    open.moved();
+    pane.changed(PATH);
+
+    expect(count()).toBe(0);
+  });
+
   it('opens on Run evidence, and on Configure once somebody picks it', () => {
     const pane = surface();
 
