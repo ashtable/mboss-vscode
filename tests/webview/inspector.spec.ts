@@ -42,6 +42,7 @@ import {
   landed,
   inspectorInit,
   ir,
+  labelColumn,
   labelTrack,
   manifest,
   mountInspector,
@@ -66,7 +67,7 @@ import {
   runLevel,
   seeRun,
 } from './fixtures/runs.js';
-import { THEMES_ALL } from './harness.js';
+import { THEMES_ALL, mount } from './harness.js';
 import { labelBeforeValue } from './labels.js';
 import { colourOf, contrast, sameColour } from './palette.js';
 import { canvasWords, inspectorWords as inspectorStrings } from './words.js';
@@ -115,6 +116,16 @@ function linesIn(element: Locator): Promise<number> {
       .size;
   });
 }
+
+/**
+ * How wide each column of labels is, counted in
+ * its labels' own type. Each holds the longest
+ * label it is given on one line, with room to spare
+ * on every renderer measured: Chromium on Linux
+ * rounds each glyph to the pixel, and sets a label
+ * as much as ten pixels wider than macOS does.
+ */
+const COLUMNS = { default: 9.5, ledger: 11, wide: 12 };
 
 test.describe('an Inspector with nothing to show', () => {
   test('says what to pick, and where', async ({ page }) => {
@@ -422,7 +433,7 @@ test.describe('a run with nothing picked', () => {
     // says, so the ledger's labels get the room to
     // say it on one line.
     for (const row of await rows.all()) {
-      await expect(row).toHaveCSS('grid-template-columns', /^110px /);
+      expect(await labelColumn(row)).toBeCloseTo(COLUMNS.ledger, 2);
       expect(await linesIn(row.locator(':scope > .property-label'))).toBe(1);
     }
   });
@@ -2291,14 +2302,14 @@ test.describe('a block in the Inspector', () => {
       );
       await expect(page.locator('[data-property]').first()).toBeVisible();
 
-      expect(await labelTrack(page)).toBe(120);
+      expect(await labelTrack(page)).toBeCloseTo(COLUMNS.wide, 2);
 
       await harness.show(blockInit(blockSubject('find_slot')));
       await expect(page.locator('[data-field="title"] input')).toHaveValue(
         'Find open slot',
       );
 
-      expect(await labelTrack(page)).toBe(76);
+      expect(await labelTrack(page)).toBeCloseTo(COLUMNS.default, 2);
     });
 
     /**
@@ -6654,12 +6665,10 @@ test.describe('a trigger block', () => {
         const label = row.locator('.property-label');
         const said = await label.textContent();
 
-        expect(
-          await row.evaluate(
-            (one) => getComputedStyle(one).gridTemplateColumns,
-          ),
-          said ?? '',
-        ).toMatch(/^76px /);
+        expect(await labelColumn(row), said ?? '').toBeCloseTo(
+          COLUMNS.default,
+          2,
+        );
         expect(await linesIn(label), said ?? '').toBe(1);
       }
     }
@@ -6680,4 +6689,128 @@ test.describe('a trigger block', () => {
       'ends',
     ]);
   });
+});
+
+/**
+ * A label is set in the caption step, which is
+ * worked out from the editor's font size, so the
+ * column it sits in is counted in that same type.
+ * A person who sets a larger font gets longer
+ * labels and a column that grows with them, and
+ * every label still reads on one line.
+ *
+ * Each scene is there for the longest label a
+ * column is given; the rest are measured with it.
+ */
+test.describe('a property’s label, at any editor font size', () => {
+  const SCENES: [string, InspectorInit, string][] = [
+    [
+      'a run with nothing picked',
+      inspectorInit({
+        at: 'run',
+        run: runLevel({
+          controls: {
+            cancel: false,
+            resume: true,
+            cancelledAt: '10:58:22.000',
+            gaveUp: false,
+          },
+        }),
+      }),
+      'application_version',
+    ],
+    ['an API call', blockInit(apiCallSubject()), 'max attempts'],
+    ['a wait', blockInit(blockSubject('await_reply')), 'timeout, in days'],
+    ['a branch', blockInit(blockSubject('slot_open')), 'when exhausted'],
+    [
+      'a trigger on an event',
+      blockInit(
+        triggerSubject({
+          mode: 'event',
+          topic: 'booking.requested',
+          idempotencyKeyPath: 'requestId',
+          requesterEmailPath: 'customer.email',
+        }),
+      ),
+      'idempotency',
+    ],
+    [
+      'a partitioned queue',
+      blockInit(queueSubject(PARTITIONED)),
+      'partition concurrency',
+    ],
+    [
+      'what a run recorded about a queue',
+      blockInit(
+        following(
+          queueSubject(INDEXING, [], 'evidence'),
+          queuedRun({ active: 3 }, queueEvidence()),
+          { document: everyKind },
+        ),
+      ),
+      'global concurrency',
+    ],
+    [
+      'what a run recorded about a block',
+      blockInit(
+        following(blockSubject('find_slot', {}, 'evidence'), runOf(IN_FLIGHT)),
+      ),
+      'completed',
+    ],
+  ];
+
+  /** Opens every group that opens folded, so each
+   *  of its rows is drawn. */
+  async function unfold(page: Page) {
+    const folded = page.locator('.section-head[aria-expanded="false"]');
+
+    for (let left = await folded.count(); left > 0; left -= 1) {
+      await folded.first().click();
+      await expect(folded).toHaveCount(left - 1);
+    }
+
+    await page.mouse.move(0, 0);
+  }
+
+  for (const fontSize of ['12px', '13px', '16px']) {
+    test(`fits every label on one line at ${fontSize}`, async ({ page }) => {
+      const harness = await mount(page, 'inspector', 'light', {
+        width: 300,
+        fontSize,
+      });
+
+      const drawn: { said: string; lines: number; off: number }[] = [];
+
+      for (const [scene, init, longest] of SCENES) {
+        await harness.show(init);
+        await unfold(page);
+
+        const rows = page.locator('[data-property]:has(> .property-label)');
+        await expect(rows.locator(':scope > .property-label')).toContainText([
+          longest,
+        ]);
+
+        for (const row of await rows.all()) {
+          const label = row.locator(':scope > .property-label');
+          const column = (await row.getAttribute('data-labels')) ?? 'default';
+          expect(Object.keys(COLUMNS)).toContain(column);
+          const wide = COLUMNS[column as keyof typeof COLUMNS];
+
+          drawn.push({
+            said: `${scene}: ${await label.textContent()}`,
+            lines: await linesIn(label),
+            off: Math.abs((await labelColumn(row)) - wide),
+          });
+        }
+      }
+
+      expect(drawn.length).toBeGreaterThan(SCENES.length);
+      expect(
+        drawn.filter((one) => one.lines !== 1).map((one) => one.said),
+      ).toEqual([]);
+      expect(
+        drawn.filter((one) => one.off >= 0.005).map((one) => one.said),
+      ).toEqual([]);
+    });
+  }
 });

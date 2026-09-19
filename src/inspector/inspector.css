@@ -320,16 +320,6 @@ body {
   margin-top: var(--space-1);
 }
 
-/* A label is one or two short words, and two of
-   them can run a few pixels past the label column.
-   Rather than wrap under itself and make its row
-   the one taller row in a group, a label may take
-   some of the gap before the value, which stays
-   where every other row's value is. */
-.configure > .property > .property-label {
-  margin-inline-end: calc(-1 * var(--space-2));
-}
-
 /* The function a group is named for sits straight
    under the label that names it: the label has
    already given the space above. */

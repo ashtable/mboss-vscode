@@ -920,10 +920,20 @@ body.vscode-high-contrast-light {
    centred, so a label that wraps starts on its
    value's line instead of rising above it, and a
    value that wraps keeps its first line beside its
-   label. */
+   label.
+
+   The label column is counted in the label's own
+   type rather than in pixels: a label is set in a
+   step worked out from the editor's font, so a
+   column fixed in pixels holds it only at the size
+   it was drawn at. Each column holds the longest
+   label it is given on one line, with room to
+   spare on every renderer: Chromium on Linux
+   rounds each glyph to the pixel, and sets a label
+   as much as ten pixels wider than macOS does. */
 .property {
   display: grid;
-  grid-template-columns: 76px 1fr;
+  grid-template-columns: calc(var(--text-sm) * 9.5) 1fr;
   align-items: baseline;
   column-gap: var(--space-3);
   padding: 7px 0;
@@ -931,11 +941,11 @@ body.vscode-high-contrast-light {
 }
 
 .property[data-labels='ledger'] {
-  grid-template-columns: 110px 1fr;
+  grid-template-columns: calc(var(--text-sm) * 11) 1fr;
 }
 
 .property[data-labels='wide'] {
-  grid-template-columns: 120px 1fr;
+  grid-template-columns: calc(var(--text-sm) * 12) 1fr;
 }
 
 .property-label {

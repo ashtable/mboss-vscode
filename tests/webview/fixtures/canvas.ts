@@ -553,15 +553,31 @@ export function word(bag: Record<string, string>, id: string): string {
 }
 
 /** How wide the column of field labels resolved to,
- *  in pixels: the first track of the first property
- *  row on the page. */
-export async function labelTrack(page: Page): Promise<number> {
-  const tracks = await page
-    .locator('[data-property]')
-    .first()
-    .evaluate((row) => getComputedStyle(row).gridTemplateColumns);
+ *  in the labels' own type: that of the first
+ *  property row on the page with a label. */
+export function labelTrack(page: Page): Promise<number> {
+  return labelColumn(
+    page.locator('[data-property]:has(> .property-label)').first(),
+  );
+}
 
-  return Number.parseFloat(tracks);
+/**
+ * How wide a property row's column of labels is,
+ * counted in its label's own type: the first track
+ * over the label's font size. The label is set in a
+ * step worked out from the editor's font, so this
+ * is the measure that holds at every size.
+ */
+export function labelColumn(row: Locator): Promise<number> {
+  return row.evaluate((one) => {
+    const label = one.querySelector(':scope > .property-label');
+    if (label === null) throw new Error('a row with no label of its own');
+
+    return (
+      Number.parseFloat(getComputedStyle(one).gridTemplateColumns) /
+      Number.parseFloat(getComputedStyle(label).fontSize)
+    );
+  });
 }
 
 /**
