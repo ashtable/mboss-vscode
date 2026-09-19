@@ -156,9 +156,10 @@ type AboutBlock = Extract<
  * about is the focus holder's answer, and what that
  * surface holds is the surface's — a canvas's
  * session, or the run tab's own surface over the
- * store and the editor — so the pane is resolved
- * again every time it is hidden and shown without
- * losing anything.
+ * store and the editor — so the pane loses nothing
+ * when its page is built again as it is shown, or
+ * when it is taken out of its container and
+ * resolved afresh.
  *
  * It repaints when focus moves and when the surface
  * it is about moves. A tick on a surface somebody

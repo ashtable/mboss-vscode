@@ -30,10 +30,12 @@ import type { HostMessage } from './protocol.js';
  * it guards.
  */
 /**
- * Views are torn down and re-resolved whenever
- * they are hidden and shown again, so this arrives
- * many times over one session and the host answers
- * every one of them.
+ * A view that is hidden loses its page, and the
+ * workbench builds the page again from the same
+ * HTML when the view is shown, without resolving
+ * the view again. The rebuilt page says `ready`
+ * too, so this arrives many times over one session
+ * and the host answers every one of them.
  */
 const Ready = z.object({ type: z.literal('ready') });
 
@@ -932,13 +934,13 @@ export type Mounted<Name extends WebviewName> = {
   /**
    * Called for every `ready`, not once.
    *
-   * A view that is hidden loses its page and is
-   * re-resolved when it is shown again, so a view
-   * can mount many times over one session. State
-   * therefore lives in the host and is pushed in
-   * from here; a webview that held its own would
-   * lose it the first time a user collapsed the
-   * panel.
+   * A view that is hidden loses its page, and the
+   * page built again when it is shown mounts
+   * afresh, so a view can mount many times over one
+   * session. State therefore lives in the host and
+   * is pushed in from here; a webview that held its
+   * own would lose it the first time a user
+   * collapsed the panel.
    */
   init: () => Extract<HostMessage, { view: Name }>;
 
@@ -1013,11 +1015,16 @@ export function mountWebview<Name extends WebviewName>(
     ...(mounted.follows ?? []).map((source) => source(repaint)),
   ];
 
-  // Unsubscribed on the way out, because a view is
-  // resolved again every time it is shown: a
-  // listener left behind would repaint a disposed
-  // frame once per hide-and-show, for as long as
-  // the window is open.
+  // Unsubscribed when the frame goes, and only
+  // then. Hiding a view keeps its frame, and the
+  // page built again on showing it is answered by
+  // these same subscriptions. A frame goes when a
+  // panel is closed, or a view is taken out of its
+  // container; put back, it is resolved afresh
+  // with a frame of its own. A listener left behind
+  // would repaint a disposed frame for as long as
+  // the window is open, one more for every time
+  // that happens.
   let disposed = false;
   const dispose = (): void => {
     if (disposed) return;

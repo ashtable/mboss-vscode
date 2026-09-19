@@ -54,14 +54,18 @@ export type SidebarRuns = {
 /**
  * The agent panel in the mBoss container.
  *
- * `resolveWebviewView` runs again every time the
- * view is hidden and shown — a person collapsing
- * it, or switching to another container — not once
- * per session. So nothing here may start anything.
- * It points a frame at a bundle and pushes the
- * state the extension is already holding; the agent
- * starts on the first thing somebody types, and
- * keeps running while the view comes and goes.
+ * `resolveWebviewView` runs once for the view, not
+ * each time it is shown. A person collapsing it,
+ * or switching to another container, loses its
+ * page, and the workbench builds the page again
+ * from the HTML it kept; taken out of its
+ * container and put back, the view is resolved
+ * afresh. Neither is the start of anything, so
+ * nothing here may start anything. It points a
+ * frame at a bundle and pushes the state the
+ * extension is already holding; the agent starts
+ * on the first thing somebody types, and keeps
+ * running while the view comes and goes.
  */
 export class AgentSidebarView implements WebviewViewProvider {
   static readonly viewType = 'mboss.agentSidebar';
