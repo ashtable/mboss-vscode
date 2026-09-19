@@ -930,10 +930,23 @@ body.vscode-high-contrast-light {
    label it is given on one line, with room to
    spare on every renderer: Chromium on Linux
    rounds each glyph to the pixel, and sets a label
-   as much as ten pixels wider than macOS does. */
+   as much as ten pixels wider than macOS does.
+
+   It does so down to the pane that leaves the
+   value its floor, counted in the value's own
+   type. In a narrower pane the label gives way and
+   wraps, because a value squeezed any thinner
+   cannot be read or typed into.
+
+   The ledger's column never gives way: its labels
+   are column names, and a name broken mid-word is
+   not one. */
 .property {
+  --value-floor: calc(var(--text-md) * 5);
   display: grid;
-  grid-template-columns: calc(var(--text-sm) * 9.5) 1fr;
+  grid-template-columns:
+    minmax(0, calc(var(--text-sm) * 9.5))
+    minmax(var(--value-floor), 1fr);
   align-items: baseline;
   column-gap: var(--space-3);
   padding: 7px 0;
@@ -945,7 +958,9 @@ body.vscode-high-contrast-light {
 }
 
 .property[data-labels='wide'] {
-  grid-template-columns: calc(var(--text-sm) * 12) 1fr;
+  grid-template-columns:
+    minmax(0, calc(var(--text-sm) * 12))
+    minmax(var(--value-floor), 1fr);
 }
 
 .property-label {

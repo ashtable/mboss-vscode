@@ -601,6 +601,22 @@ export function labelColumn(row: Locator): Promise<number> {
 }
 
 /**
+ * How wide a property row's value column is, in
+ * pixels: the second track. A field sized to what
+ * is typed in it is narrower than its column, so
+ * the column is what says how much room a value
+ * was left.
+ */
+export function valueColumn(row: Locator): Promise<number> {
+  return row.evaluate((one) => {
+    const tracks = getComputedStyle(one).gridTemplateColumns.split(' ');
+    if (tracks.length !== 2) throw new Error(`tracks: ${tracks.join(' ')}`);
+
+    return Number.parseFloat(tracks[1] ?? '');
+  });
+}
+
+/**
  * The canvas with that block selected — and, where
  * a test needs the block to read differently, with
  * the document changed on the way in: the same

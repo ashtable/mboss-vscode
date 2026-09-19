@@ -53,6 +53,7 @@ import {
   recording,
   runOf,
   triggerSubject,
+  valueColumn,
   word,
 } from './fixtures/canvas.js';
 import {
@@ -124,8 +125,21 @@ function linesIn(element: Locator): Promise<number> {
  * on every renderer measured: Chromium on Linux
  * rounds each glyph to the pixel, and sets a label
  * as much as ten pixels wider than macOS does.
+ *
+ * That holds in any pane that also leaves the
+ * value its floor. In a narrower one the default
+ * and wide columns give way and a label wraps; the
+ * ledger's never does, since its labels are column
+ * names.
  */
 const COLUMNS = { default: 9.5, ledger: 11, wide: 12 };
+
+/**
+ * The narrowest a value column gets beside its
+ * label, counted in the editor's font size, which
+ * is what a value is set in.
+ */
+const VALUE_FLOOR = 5;
 
 test.describe('an Inspector with nothing to show', () => {
   test('says what to pick, and where', async ({ page }) => {
@@ -6730,86 +6744,89 @@ test.describe('a trigger block', () => {
 });
 
 /**
+ * The Inspector's faces that carry a property row,
+ * each there for the longest label a column is
+ * given; the rest are measured with it.
+ */
+const SCENES: [string, InspectorInit, string][] = [
+  [
+    'a run with nothing picked',
+    inspectorInit({
+      at: 'run',
+      run: runLevel({
+        controls: {
+          cancel: false,
+          resume: true,
+          cancelledAt: '10:58:22.000',
+          gaveUp: false,
+        },
+      }),
+    }),
+    'application_version',
+  ],
+  ['an API call', blockInit(apiCallSubject()), 'max attempts'],
+  ['a wait', blockInit(blockSubject('await_reply')), 'timeout, in days'],
+  ['a branch', blockInit(blockSubject('slot_open')), 'when exhausted'],
+  [
+    'a trigger on an event',
+    blockInit(
+      triggerSubject({
+        mode: 'event',
+        topic: 'booking.requested',
+        idempotencyKeyPath: 'requestId',
+        requesterEmailPath: 'customer.email',
+      }),
+    ),
+    'idempotency',
+  ],
+  [
+    'a partitioned queue',
+    blockInit(queueSubject(PARTITIONED)),
+    'partition concurrency',
+  ],
+  [
+    'what a run recorded about a queue',
+    blockInit(
+      following(
+        queueSubject(INDEXING, [], 'evidence'),
+        queuedRun({ active: 3 }, queueEvidence()),
+        { document: everyKind },
+      ),
+    ),
+    'global concurrency',
+  ],
+  [
+    'what a run recorded about a block',
+    blockInit(
+      following(blockSubject('find_slot', {}, 'evidence'), runOf(IN_FLIGHT)),
+    ),
+    'completed',
+  ],
+];
+
+/** Opens every group that opens folded, so each
+ *  of its rows is drawn. */
+async function unfold(page: Page) {
+  const folded = page.locator('.section-head[aria-expanded="false"]');
+
+  for (let left = await folded.count(); left > 0; left -= 1) {
+    await folded.first().click();
+    await expect(folded).toHaveCount(left - 1);
+  }
+
+  await page.mouse.move(0, 0);
+}
+
+/**
  * A label is set in the caption step, which is
  * worked out from the editor's font size, so the
  * column it sits in is counted in that same type.
  * A person who sets a larger font gets longer
- * labels and a column that grows with them, and
- * every label still reads on one line.
- *
- * Each scene is there for the longest label a
- * column is given; the rest are measured with it.
+ * labels and a column that grows with them, and in
+ * a pane that leaves each value its floor as well,
+ * as these do, every label still reads on one line.
  */
 test.describe('a property’s label, at any editor font size', () => {
-  const SCENES: [string, InspectorInit, string][] = [
-    [
-      'a run with nothing picked',
-      inspectorInit({
-        at: 'run',
-        run: runLevel({
-          controls: {
-            cancel: false,
-            resume: true,
-            cancelledAt: '10:58:22.000',
-            gaveUp: false,
-          },
-        }),
-      }),
-      'application_version',
-    ],
-    ['an API call', blockInit(apiCallSubject()), 'max attempts'],
-    ['a wait', blockInit(blockSubject('await_reply')), 'timeout, in days'],
-    ['a branch', blockInit(blockSubject('slot_open')), 'when exhausted'],
-    [
-      'a trigger on an event',
-      blockInit(
-        triggerSubject({
-          mode: 'event',
-          topic: 'booking.requested',
-          idempotencyKeyPath: 'requestId',
-          requesterEmailPath: 'customer.email',
-        }),
-      ),
-      'idempotency',
-    ],
-    [
-      'a partitioned queue',
-      blockInit(queueSubject(PARTITIONED)),
-      'partition concurrency',
-    ],
-    [
-      'what a run recorded about a queue',
-      blockInit(
-        following(
-          queueSubject(INDEXING, [], 'evidence'),
-          queuedRun({ active: 3 }, queueEvidence()),
-          { document: everyKind },
-        ),
-      ),
-      'global concurrency',
-    ],
-    [
-      'what a run recorded about a block',
-      blockInit(
-        following(blockSubject('find_slot', {}, 'evidence'), runOf(IN_FLIGHT)),
-      ),
-      'completed',
-    ],
-  ];
-
-  /** Opens every group that opens folded, so each
-   *  of its rows is drawn. */
-  async function unfold(page: Page) {
-    const folded = page.locator('.section-head[aria-expanded="false"]');
-
-    for (let left = await folded.count(); left > 0; left -= 1) {
-      await folded.first().click();
-      await expect(folded).toHaveCount(left - 1);
-    }
-
-    await page.mouse.move(0, 0);
-  }
-
   for (const fontSize of ['12px', '13px', '16px']) {
     test(`fits every label on one line at ${fontSize}`, async ({ page }) => {
       const harness = await mount(page, 'inspector', 'light', {
@@ -6850,5 +6867,134 @@ test.describe('a property’s label, at any editor font size', () => {
         drawn.filter((one) => one.off >= 0.005).map((one) => one.said),
       ).toEqual([]);
     });
+  }
+});
+
+/** How far past its row's right edge the furthest
+ *  word saying where a value came from ends. */
+function spillPast(row: Locator): Promise<number> {
+  return row.evaluate((one) => {
+    const edge = one.getBoundingClientRect().right;
+    const words = one.querySelectorAll(
+      '.property-provenance, [data-provenance]',
+    );
+
+    return Math.max(
+      0,
+      ...[...words].map((word) => word.getBoundingClientRect().right - edge),
+    );
+  });
+}
+
+/** How far each box that can scroll sideways does:
+ *  the page itself and the face under the tabs. */
+function sidewaysScroll(page: Page): Promise<number[]> {
+  return page.evaluate(() =>
+    [
+      document.scrollingElement,
+      ...document.querySelectorAll('[role="tabpanel"]'),
+    ]
+      .filter((box) => box !== null)
+      .map((box) => box.scrollWidth - box.clientWidth),
+  );
+}
+
+/**
+ * A pane can be too narrow for a label and a
+ * usable value side by side. The label gives way
+ * then, down to the floor its value is kept at,
+ * and wraps at a space; squeezed any thinner, a
+ * value cannot be read or typed into, and the
+ * pane scrolls sideways to show it.
+ *
+ * At 300px nothing gives way at these sizes, and
+ * those cases hold the fit. At 240px the larger
+ * sizes are where a label gives way.
+ *
+ * The ledger's column never gives way: its labels
+ * are column names, and a name broken mid-word is
+ * not one.
+ */
+test.describe('a property’s value, in a pane too narrow for both', () => {
+  /**
+   * The card's own figures, the word saying a
+   * value was configured and the time to the
+   * millisecond, are wider than any value column a
+   * pane this narrow leaves beside a label,
+   * whatever the label gives up.
+   */
+  const WIDER_THAN_ANY_VALUE = new Set(['what a run recorded about a queue']);
+
+  for (const width of [240, 300]) {
+    for (const fontSize of ['12px', '13px', '16px']) {
+      test(`keeps a usable value at ${width}px and ${fontSize}`, async ({
+        page,
+      }) => {
+        const harness = await mount(page, 'inspector', 'light', {
+          width,
+          fontSize,
+        });
+        const floor = VALUE_FLOOR * Number.parseFloat(fontSize);
+
+        const scrolled: string[] = [];
+        const thin: string[] = [];
+        const spilled: string[] = [];
+        const wrapped: string[] = [];
+        const ledger: string[] = [];
+        let measured = 0;
+
+        for (const theme of THEMES_ALL) {
+          await harness.retheme(theme);
+
+          for (const [scene, init, longest] of SCENES) {
+            // From nothing, as a block is picked afresh,
+            // so its groups start the way its kind says
+            // rather than the way the last scene left
+            // them, and every one of them is unfolded.
+            await harness.show(nothing(undefined));
+            await harness.show(init);
+            await expect(page.locator('.property-label')).toContainText([
+              longest,
+            ]);
+            await unfold(page);
+            const where = `${theme}, ${scene}`;
+            const held = WIDER_THAN_ANY_VALUE.has(scene);
+
+            if (!held && (await sidewaysScroll(page)).some((by) => by > 0)) {
+              scrolled.push(where);
+            }
+
+            const rows = page.locator('[data-property]:has(> .property-label)');
+
+            for (const row of await rows.all()) {
+              const label = row.locator(':scope > .property-label');
+              const said = `${where}: ${await label.textContent()}`;
+              const lines = await linesIn(label);
+              measured += 1;
+
+              if ((await row.getAttribute('data-labels')) === 'ledger') {
+                const off = Math.abs((await labelColumn(row)) - COLUMNS.ledger);
+                if (off >= 0.005 || lines !== 1) ledger.push(said);
+                continue;
+              }
+
+              const value = await valueColumn(row);
+              if (value < floor - 0.5) thin.push(said);
+              if (lines !== 1 && Math.abs(value - floor) > 1) {
+                wrapped.push(said);
+              }
+              if (!held && (await spillPast(row)) > 0.5) spilled.push(said);
+            }
+          }
+        }
+
+        expect(measured).toBeGreaterThan(SCENES.length * THEMES_ALL.length);
+        expect(scrolled).toEqual([]);
+        expect(thin).toEqual([]);
+        expect(spilled).toEqual([]);
+        expect(wrapped).toEqual([]);
+        expect(ledger).toEqual([]);
+      });
+    }
   }
 });
