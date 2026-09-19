@@ -2671,6 +2671,52 @@ test.describe('the shape of the panel', () => {
     await expect.poll(() => gapBelow(log)).toBeLessThanOrEqual(1);
   });
 
+  /**
+   * A browser can move the log a pixel of its own
+   * accord as its box changes size — Chromium on
+   * Linux snaps the offset to a whole pixel — and
+   * that scroll is heard before the log has answered
+   * the resize. It is the resize's scroll rather
+   * than the reader's, so the log still follows.
+   */
+  test('follows a growing composer through the scroll its resize makes', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 420, height: 700 });
+
+    const harness = await openPanel(page);
+    await showing(harness, [said(long)]);
+
+    const log = page.locator('.transcript');
+    await expect.poll(() => gapBelow(log)).toBeLessThanOrEqual(1);
+    await aFrame(page);
+
+    // The draft grows as a keystroke grows it, and in
+    // the same task the log moves a pixel, so the one
+    // frame after sees the scroll and then the resize.
+    await page.evaluate((draft) => {
+      const field = document.querySelector('.composer textarea');
+      const transcript = document.querySelector('.transcript');
+      if (!(field instanceof HTMLTextAreaElement) || transcript === null) {
+        throw new Error('no composer or no log');
+      }
+
+      const value = Object.getOwnPropertyDescriptor(
+        HTMLTextAreaElement.prototype,
+        'value',
+      )!;
+      value.set!.call(field, draft);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+
+      transcript.scrollTop += 1;
+    }, 'and then\n'.repeat(6));
+
+    await expect
+      .poll(() => page.locator('.composer textarea').inputValue())
+      .toBe('and then\n'.repeat(6));
+    await expect.poll(() => gapBelow(log)).toBeLessThanOrEqual(1);
+  });
+
   test('holds still as the composer grows for a reader scrolled up', async ({
     page,
   }) => {

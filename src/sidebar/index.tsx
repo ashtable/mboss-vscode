@@ -267,12 +267,18 @@ function useFollow(
 ): () => void {
   const atEnd = useRef(true);
 
+  // How tall the box was the last time the log was
+  // followed in it.
+  const followedIn = useRef<number | undefined>(undefined);
+
   const follow = (): void => {
     const element = log.current;
 
-    if (element !== null && atEnd.current) {
-      element.scrollTop = element.scrollHeight;
-    }
+    if (element === null) return;
+
+    followedIn.current = element.clientHeight;
+
+    if (atEnd.current) element.scrollTop = element.scrollHeight;
   };
 
   // Before paint, so a chunk that arrives is never
@@ -299,6 +305,14 @@ function useFollow(
     const element = log.current;
 
     if (element === null) return;
+
+    // A scroll heard while the box is a size the log
+    // has not been followed in yet was made by the
+    // resize, not the reader: a browser clamping the
+    // offset, or snapping it to a whole pixel, as
+    // Chromium on Linux does. It arrives before the
+    // observer, which answers the resize itself.
+    if (element.clientHeight !== followedIn.current) return;
 
     const line = Number.parseFloat(getComputedStyle(element).lineHeight);
     const below =
