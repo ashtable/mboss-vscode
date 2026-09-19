@@ -729,8 +729,12 @@ describe('a run this window set going', () => {
 describe('what a queue block is doing', () => {
   /** The ledger, answering the three statements a
    *  queue card costs as well as everything the
-   *  list and the page ask. */
-  function queueLedger(name: string) {
+   *  list and the page ask. `started` answers the
+   *  window's count, and may take its time. */
+  function queueLedger(
+    name: string,
+    started: () => Promise<string> = async () => '74',
+  ) {
     const base = database();
     base.rows = [{ ...RUN_ROW, name }];
 
@@ -741,7 +745,12 @@ describe('what a queue block is doing', () => {
 
         if (text.includes('queue_name = $1')) {
           return [
-            { queued: '4', active: '2', started: '74', failed_recently: '0' },
+            {
+              queued: '4',
+              active: '2',
+              started: await started(),
+              failed_recently: '0',
+            },
           ] as Row[];
         }
 
@@ -752,11 +761,10 @@ describe('what a queue block is doing', () => {
     };
   }
 
-  async function showingQueueRun() {
+  async function showingQueueRun(ledger = queueLedger('queue_partitioned')) {
     const dir = project();
     writeWorkflow(dir, 'queue_partitioned');
 
-    const ledger = queueLedger('queue_partitioned');
     const store = runsStore(
       deps({
         host: host({ projects: () => [dir] }),
@@ -815,6 +823,34 @@ describe('what a queue block is doing', () => {
     await store.inspectQueue('wf_somebody_else', 'index_items');
 
     expect(store.see().run?.live?.queueEvidence).toBeUndefined();
+  });
+
+  /** A card asks again each time the counts drawn
+   *  on it move, and a database promises no order
+   *  between two answers. The older one landing
+   *  last must not put the older picture back. */
+  it('keeps the read asked last when an older one lands after it', async () => {
+    const answers: ((started: string) => void)[] = [];
+    const store = await showingQueueRun(
+      queueLedger(
+        'queue_partitioned',
+        () => new Promise((resolve) => answers.push(resolve)),
+      ),
+    );
+
+    const first = store.inspectQueue('wf_c9d2f3', 'index_items');
+    const second = store.inspectQueue('wf_c9d2f3', 'index_items');
+    await flushed();
+    expect(answers).toHaveLength(2);
+
+    answers[1]?.('2');
+    await second;
+    answers[0]?.('1');
+    await first;
+
+    expect(
+      store.see().run?.live?.queueEvidence?.index_items?.window.started,
+    ).toBe(2);
   });
 });
 

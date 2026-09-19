@@ -604,6 +604,13 @@ export function runsStore(deps: RunsDeps): RunsStore {
    */
   const queueEvidence = new Map<string, Record<string, QueueEvidence>>();
 
+  /**
+   * How many reads have been asked for about each
+   * block of each run, so a read can tell whether
+   * a later one was asked for while it waited.
+   */
+  const asked = new Map<string, number>();
+
   /** The run a view draws, with whatever was read
    *  about the queue blocks of it. */
   const withQueues = (run: LiveRun): ShownRun => {
@@ -888,6 +895,14 @@ export function runsStore(deps: RunsDeps): RunsStore {
       const node = ir?.nodes.find((one) => one.id === nodeId);
       if (node?.kind !== 'queue') return;
 
+      // A card asks again each time the counts drawn
+      // on it move, so reads overlap and may land in
+      // any order. Only the one asked last describes
+      // the queue now.
+      const key = JSON.stringify([workflowId, nodeId]);
+      const mine = (asked.get(key) ?? 0) + 1;
+      asked.set(key, mine);
+
       let found: QueueEvidence;
 
       try {
@@ -900,6 +915,8 @@ export function runsStore(deps: RunsDeps): RunsStore {
         // change what it says.
         return;
       }
+
+      if (asked.get(key) !== mine) return;
 
       queueEvidence.set(workflowId, {
         ...queueEvidence.get(workflowId),
