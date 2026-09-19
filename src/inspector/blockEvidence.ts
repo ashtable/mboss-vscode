@@ -291,17 +291,17 @@ function spanOf(
 /**
  * A queue block's card: what this run's share of
  * the queue is doing, the limits the document sets
- * beside it, and what the one read a pick costs
+ * beside it, and what the read the card asks for
  * said about the whole queue, where it was made.
  *
  * Three provenances, which is why each row says its
  * own: the counts are this run's, read every tick;
  * the window and the registration are the whole
- * queue's, read once because somebody opened the
- * card; and the name and the limits are what the
- * document asks for. A card that mixed them would
- * be reporting a ceiling somebody typed as though a
- * run had reached it.
+ * queue's, read when the card is shown and as the
+ * counts move; and the name and the limits are what
+ * the document asks for. A card that mixed them
+ * would be reporting a ceiling somebody typed as
+ * though a run had reached it.
  *
  * What is deliberately absent is a rate. DBOS
  * records what ran and never what it was allowed to

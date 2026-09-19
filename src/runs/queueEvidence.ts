@@ -13,18 +13,19 @@ import {
 import { errorIn, type BigIntColumn } from './rows.js';
 
 /**
- * What one queue block is doing, read because
- * somebody selected it.
+ * What one queue block is doing, read because its
+ * card is on screen.
  *
  * The watch already spends a query per queue block
  * per tick on the five numbers a block's line and
  * its card are drawn from. This is the other half —
  * the whole queue rather than this run's share of
  * it, what the running app registered, and the
- * items themselves — and it is read once, when a
- * person opens the card, because none of it changes
- * fast enough to be worth a poll and all of it
- * costs three statements.
+ * items themselves — and it costs three
+ * statements, so it is never polled. The card asks
+ * for it when it is shown and again when those
+ * five numbers move, which is when the items have
+ * moved too.
  *
  * Open, read, close, on one connection. A card is
  * opened occasionally and a connection held for as

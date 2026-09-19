@@ -68,13 +68,12 @@ import type { GlyphState, StepWord } from './states.js';
  * The run a view draws.
  *
  * What the watch reads every tick, plus what the
- * host read once because somebody opened a queue
- * block's card. The second half is per selection
- * and not per tick — a watch's budget for a queue
- * block is one query and it is already spent — so
- * it rides beside the tick's picture rather than
- * inside it, and a run nobody has asked about
- * carries none of it.
+ * host read because a queue block's card asked.
+ * The second half is never read per tick — a
+ * watch's budget for a queue block is one query and
+ * it is already spent — so it rides beside the
+ * tick's picture rather than inside it, and a run
+ * nobody has asked about carries none of it.
  *
  * Keyed by block id, because a workflow may hold
  * more than one queue block and a person may have

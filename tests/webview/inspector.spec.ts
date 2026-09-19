@@ -3724,6 +3724,44 @@ test.describe('a block in the Inspector', () => {
       ]);
     });
 
+    /**
+     * A card on screen while the block is still
+     * handing out items would otherwise keep the
+     * picture from the moment it was shown: items
+     * listed as queued long after they finished,
+     * beside counts that say none are. So it asks
+     * again whenever the counts drawn on it move, and
+     * never while they stand still, however often the
+     * run is drawn again.
+     */
+    test('asks again whenever the counts drawn on it move', async ({
+      page,
+    }) => {
+      const asked = {
+        type: 'inspectQueue',
+        workflowId: 'wf_1',
+        nodeId: 'queue',
+      };
+      const harness = await openInspector(
+        page,
+        onQueue(queuedRun({ queued: 9 })),
+      );
+
+      // The read landing, then a tick that moved
+      // nothing.
+      await harness.show(onQueue(queuedRun({ queued: 9 }, queueEvidence())));
+      await harness.show(onQueue(queuedRun({ queued: 9 }, queueEvidence())));
+
+      await harness.show(
+        onQueue(queuedRun({ active: 8, queued: 1 }, queueEvidence())),
+      );
+      await harness.show(onQueue(queuedRun({ done: 12 }, queueEvidence())));
+
+      await expect
+        .poll(() => harness.postedOfType('inspectQueue'))
+        .toEqual([asked, asked, asked]);
+    });
+
     test('draws what the read answered, said to be worked out', async ({
       page,
     }) => {

@@ -61,14 +61,27 @@ export function QueueCard({
    *  face for every other block draws its own. */
   handler: ReactNode;
 }) {
-  // Asked when the card is shown and never on a
-  // tick. The watch's budget for a queue block is
-  // one query per tick and it is already spent on
-  // the counts; what this asks for changes far too
-  // slowly to be worth another.
+  // The counts the watch keeps drawn on the card,
+  // as one value that moves when any of them does.
+  // Neither is worked out from the read below, so
+  // an answer landing never moves it.
+  const counted = evidence.rows
+    .filter((row) => row.id === 'active' || row.id === 'queued')
+    .map((row) => row.value)
+    .join(' ');
+
+  // Asked when the card is shown, and again when
+  // those counts move — never on a tick that moved
+  // nothing. The watch's budget for a queue block
+  // is one query per tick and it is already spent
+  // on the counts; but a card shown while the block
+  // is still handing out items would otherwise keep
+  // that moment's picture for as long as it stays
+  // on screen, listing items as queued long after
+  // they finished, beside counts saying none are.
   useEffect(() => {
     postToHost({ type: 'inspectQueue', workflowId, nodeId });
-  }, [workflowId, nodeId]);
+  }, [workflowId, nodeId, counted]);
 
   return (
     <section className="evidence-face" data-evidence="queue">

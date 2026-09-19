@@ -11,8 +11,8 @@ import {
 } from './queueEvidence.js';
 
 /**
- * What one queue block is doing, read once because
- * somebody selected it.
+ * What one queue block is doing, read because its
+ * card is on screen.
  *
  * Three statements on one connection, against a
  * database written by hand here. What is worth
