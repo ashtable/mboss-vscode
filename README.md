@@ -3,7 +3,7 @@
 Design durable apps with [DBOS](https://www.dbos.dev) on a canvas, let a coding
 agent help build them, and watch every run on your own machine.
 
-![A workflow open on the mBoss canvas: the block palette, four blocks wired top to bottom, and the inspector matching a block to its handler in lib/](media/screenshots/canvas.png)
+![A workflow open on the mBoss canvas, with its block palette and four blocks wired top to bottom; the mBoss side bar holds the Agent and the Inspector, which matches the selected block to its handler in lib/, and the handler's test is open beside the canvas](media/screenshots/canvas.png)
 
 A workflow in mBoss is a drawing: triggers, steps, branches, queues, waits and
 approvals wired together. Save it and mBoss generates the durable DBOS
